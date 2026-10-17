@@ -9,10 +9,12 @@ prints the result as one marker-prefixed JSON line, then force-exits.
 Why a subprocess per proof (mirrors P2's ``sweep_check`` subprocess): repeated
 CA-context create/destroy cycles in a single process eventually trip a libca
 teardown assertion (``assert(this->pudpiiu)``, ``cac.cpp``, thread
-``CAC-TCP-send``) in ``EPICS_CA_NAME_SERVERS``-only mode -- a known
-pyepics/libca quirk on the CA-circuit teardown path, unrelated to the connector
-or the substrate: the read/write round trip completes and is correct *before*
-it fires (see ``scripts/va/probe_roundtrip.py``'s "KNOWN FINDING"). Isolating
+``CAC-TCP-send``) in ``EPICS_CA_NAME_SERVERS``-only mode -- a known libca
+quirk on the CA-circuit teardown path, unrelated to the connector or the
+substrate: the read/write round trip completes and is correct *before* it fires
+(see ``scripts/va/probe_roundtrip.py``'s "KNOWN FINDING"). It was found under
+pyepics, but it lives in libca itself, which aioca loads from the same
+``epicscorelibs`` build, so the guard stays. Isolating
 each proof's host CA work in its own process -- which emits its result and
 ``os._exit()``s *before* any connector disconnect / CA teardown runs -- means
 the fault can never recur in the pytest process.
@@ -25,7 +27,7 @@ are in hand; ``os._exit(0)`` hands the socket back to the OS untorn.
 Protocol -- ``argv[1]`` is a JSON spec::
 
     {"connector_config": {...},          # the ConnectorFactory connector config
-     "config_overrides": {...},          # osprey.utils.config.get_config_value overrides
+     "config_overrides": {...},          # osprey_connectors.config.get_config_value overrides
      "read": "<address>",                # the readback address to return
      "write": {"address": "<addr>", "value": <float>} | null,
      "settle_read": <bool>,              # poll the read until it is within
@@ -92,7 +94,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     out-of-process read/write drives a REAL production connector -- isolated in
     its own process only for CA-teardown safety, never a mocked or bypassed path.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()
 
@@ -119,7 +121,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
+    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
         connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])
         result: dict[str, Any] = {"write_outcome": None, "write_error_message": None}
 

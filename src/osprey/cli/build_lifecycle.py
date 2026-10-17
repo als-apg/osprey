@@ -28,9 +28,9 @@ from typing import IO, Any
 
 from rich.text import Text
 
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import chain_files, merge_chain
-from osprey.utils.logger import get_logger
+from osprey_connectors.dotenv import chain_files, merge_chain
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .output import fail, report, warn
 from .phase_reporter import current_reporter
@@ -44,8 +44,8 @@ _SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
 _EXIT_GRACE_SECONDS = 5.0
 """Seconds a streamed step's child gets to exit once its stdout has drained.
 
-Some test frameworks (a pyepics CA context, for one) keep background threads
-alive that stop the process exiting promptly after its last line.
+Some test frameworks (a Channel Access client context, for one) keep background
+threads alive that stop the process exiting promptly after its last line.
 """
 
 _DRAIN_SHUTDOWN_SECONDS = 5.0

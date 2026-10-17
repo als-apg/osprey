@@ -259,7 +259,7 @@ class TestWorkspaceMembersFromSource:
         """A framework fetched from an arbitrary URL names no place its members
         live, and resolving them by name from PyPI may pick up a different
         project's package."""
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         with pytest.raises(BuildProfileError, match="workspace member"):
             _create_project_venv(tmp_path, _profile(osprey_install=spec))

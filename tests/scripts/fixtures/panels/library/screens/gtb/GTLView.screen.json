@@ -1,0 +1,515 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "gtb/GTLView",
+  "metadata": {
+    "title": "GTLView",
+    "size": {
+      "width": 2410,
+      "height": 900
+    }
+  },
+  "macros": [
+    {
+      "name": "P",
+      "default": "XX:"
+    },
+    {
+      "name": "R",
+      "default": "XX-KNOB:"
+    },
+    {
+      "name": "S",
+      "default": "XX:"
+    }
+  ],
+  "formulas": [
+    {
+      "name": "f-001",
+      "kind": "scalar",
+      "expression": "{0} <= 0",
+      "bindings": {
+        "0": "XX:Paddles:Status"
+      }
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 2410,
+      "height": 900
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 2410,
+      "height": 900
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "pv-label",
+        "props": {
+          "pv": "loc://tv1?type=float&init=0"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "pv-label",
+        "props": {
+          "pv": "fox://f-001"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "text-label",
+        "props": {
+          "text": "XX:Q1:Set"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q1:Set",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q1:On",
+            "DESC": "XX:Q1:Set",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q1:Mon"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-007",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "XX:BPM1",
+            "BPM_X": "XX:BPM1:X",
+            "BPM_Y": "XX:BPM1:Y"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-008",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_tv.screen.json",
+          "macros": {
+            "TV": "XX:TV1:Paddle",
+            "light": "XX:TV1:Light",
+            "light_on": "irm:000:B11Out",
+            "loctv": "loc://tv1<VDouble>(0)",
+            "paddle": "XX:TV1:Paddle",
+            "paddle_in": "irm:000:B10Out"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-009",
+        "type": "pv-button",
+        "props": {
+          "pv": "XX:TV1:Paddle",
+          "readbackPV": "XX:TV1:Paddle",
+          "buttonType": "toggle"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-010",
+        "type": "pv-label",
+        "props": {
+          "pv": "XX:Q1:Mon"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "rules": [
+          {
+            "id": "r-001",
+            "name": "Line Color",
+            "targetProperty": "lineColor",
+            "pvs": [
+              {
+                "name": "XX:Gun:HvOn",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": "#00ff00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-011",
+        "type": "pv-led",
+        "props": {
+          "pv": "XX:Gun:HvOn"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "meta": {
+          "comment": "reads XX:Gun:HvOn"
+        }
+      },
+      {
+        "id": "w-012",
+        "type": "regular-button",
+        "props": {
+          "label": "XX:Gun:HvCmd ON/OFF",
+          "actions": [
+            {
+              "type": "write_pv",
+              "pvName": "XX:Gun:HvCmd",
+              "value": "1"
+            },
+            {
+              "type": "write_pv",
+              "pvName": "XX:Q2:Both",
+              "value": "0"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-013",
+        "type": "xy-plot",
+        "props": {
+          "curves": [
+            {
+              "name": "XX:BPM1:X",
+              "x_channel": "XX:BPM1:X",
+              "y_channel": "XX:BPM1:Y"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-014",
+        "type": "pv-label",
+        "props": {
+          "pv": "${S}Q1:Set"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-276",
+        "type": "polygon",
+        "props": {},
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "rules": [
+          {
+            "id": "r-001",
+            "name": "Color",
+            "targetProperty": "backgroundColor",
+            "pvs": [
+              {
+                "name": "XX:Q1:On",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": "#00ff00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-279",
+        "type": "polygon",
+        "props": {},
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "rules": [
+          {
+            "id": "r-001",
+            "name": "Color",
+            "targetProperty": "backgroundColor",
+            "pvs": [
+              {
+                "name": "XX:Q1:On",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": "#00ff00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-297",
+        "type": "polygon",
+        "props": {},
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "rules": [
+          {
+            "id": "r-001",
+            "name": "Color",
+            "targetProperty": "backgroundColor",
+            "pvs": [
+              {
+                "name": "XX:Q2:On",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": "#00ff00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-300",
+        "type": "polygon",
+        "props": {},
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "rules": [
+          {
+            "id": "r-001",
+            "name": "Color",
+            "targetProperty": "backgroundColor",
+            "pvs": [
+              {
+                "name": "XX:Q2:On",
+                "trigger": true
+              }
+            ],
+            "conditions": [
+              {
+                "expression": "{0} == 1",
+                "value": "#00ff00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "w-322",
+        "type": "regular-button",
+        "props": {
+          "label": ""
+        },
+        "geometry": {
+          "x": 2311,
+          "y": 642,
+          "width": 1,
+          "height": 1
+        }
+      },
+      {
+        "id": "w-323",
+        "type": "regular-button",
+        "props": {
+          "label": "Open Image Viewer (Matlab)",
+          "actions": [
+            {
+              "type": "execute",
+              "command": "/opt/xx/runImageViewer.sh",
+              "description": "Run Image Viewer"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 770,
+          "y": 760,
+          "width": 140,
+          "height": 55
+        }
+      },
+      {
+        "id": "w-408",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q4:Both",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q4:On",
+            "DESC": "XX Q4.1",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q4:Both"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-409",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q2:Both",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q2:On",
+            "DESC": "XX Q4.2",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q2:Both"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-410",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q5:Set",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q5:On",
+            "DESC": "XX Q5",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q5:Mon"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-415",
+        "type": "regular-button",
+        "props": {
+          "label": "Open KnobPanel",
+          "actions": [
+            {
+              "type": "open_display",
+              "file": "../../common/KnobPanel.screen.json",
+              "target": "window"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 950,
+          "y": 760,
+          "width": 120,
+          "height": 50
+        }
+      }
+    ]
+  }
+}

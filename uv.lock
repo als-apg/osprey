@@ -5023,11 +5023,11 @@ wheels = [
 name = "osprey-connectors"
 source = { editable = "packages/osprey-connectors" }
 dependencies = [
+    { name = "aioca" },
     { name = "lume-base" },
     { name = "numpy" },
     { name = "p4p" },
     { name = "pandas" },
-    { name = "pyepics" },
     { name = "pymongo" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
@@ -5037,11 +5037,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aioca", specifier = ">=2.1" },
     { name = "lume-base", specifier = "==0.5.0" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "p4p", specifier = ">=4.3" },
     { name = "pandas", specifier = ">=2.2.3" },
-    { name = "pyepics" },
     { name = "pymongo", specifier = ">=4.17.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -5106,7 +5106,6 @@ dependencies = [
     { name = "psycopg-pool" },
     { name = "pyaml-cs-osprey" },
     { name = "pydantic" },
-    { name = "pyepics" },
     { name = "pymongo" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
@@ -5339,7 +5338,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pydata-sphinx-theme", marker = "extra == 'all'" },
     { name = "pydata-sphinx-theme", marker = "extra == 'docs'" },
-    { name = "pyepics" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'all'", specifier = ">=2.8" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'dev'", specifier = ">=2.8" },
     { name = "pymongo", specifier = ">=4.17.0" },
@@ -6411,19 +6409,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8b/04/e7c1fe4dc78a6fdbfd6c337b1c3732ff543b8a397683ab38378447baa331/pyee-13.0.1.tar.gz", hash = "sha256:0b931f7c14535667ed4c7e0d531716368715e860b988770fc7eb8578d1f67fc8", size = 31655, upload-time = "2026-02-14T21:12:28.044Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/c4/b4d4827c93ef43c01f599ef31453ccc1c132b353284fc6c87d535c233129/pyee-13.0.1-py3-none-any.whl", hash = "sha256:af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228", size = 15659, upload-time = "2026-02-14T21:12:26.263Z" },
-]
-
-[[package]]
-name = "pyepics"
-version = "3.5.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pyparsing" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/56/b7edf871ec2d81ecc600a7687cf9c536759f31ea482e8aec453c6dd12d21/pyepics-3.5.9.tar.gz", hash = "sha256:78222c1a8aff55bc7a93bdcb6eea9cb544fa8b9122daed1e7ea5b5e87269d45c", size = 6149589, upload-time = "2025-12-17T17:16:33.913Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/83/7dafb09fbc3efe9d00c4667d22b32b53d08e8a676fa164c6dd8f5debe85e/pyepics-3.5.9-py3-none-any.whl", hash = "sha256:b9863cc55a58542f0a28ad04621d4471f649e9cacfa4ccf346a58d6ba158640c", size = 5332286, upload-time = "2025-12-17T17:16:31.93Z" },
 ]
 
 [[package]]

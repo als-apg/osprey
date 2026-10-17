@@ -338,12 +338,15 @@ Archived channels
 =================
 
 The archived channel set of a simulator view is every channel of the view but
-the ones a served model's wiring describes as ``turn_series``: the turn series
-and the armed flags. Those hold the samples of one shot and have no value at an
-instant between shots. Command channels are archived like any other setpoint.
-Archive seeding and the live archiver recorder both take their channels from
-this one set, and the mock archiver answers a request for a channel outside it
-with ``<address> has no archived history``.
+the ones a physics model's wiring describes as ``turn_series``, whether the
+render serves the model or not: the turn series and the armed flags. Those hold
+the samples of one shot and have no value at an instant between shots. Command
+channels are archived like any other setpoint. Archive seeding and the live
+archiver recorder both take their channels from this one set. The mock archiver
+answers a request for a channel of the facility outside it with
+``ChannelNotArchivedError`` (``<address> has no archived history: it is a shot
+record, read it live after a shot``), and an address outside the facility with
+``ChannelNotFoundError``.
 
 Sum levels
 ==========

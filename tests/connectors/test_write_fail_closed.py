@@ -3,8 +3,8 @@
 Task 1.3: a validation error other than a limits violation must REFUSE the
 write (outcome=WriteOutcome.REFUSED, refusal_reason="VALIDATION_ERROR") and
 never issue a caput. A ChannelLimitsViolationError still propagates unchanged,
-and an error raised by the caput itself (e.g. ConnectionError) propagates
-untouched — it is a genuine failure, not a refusal. The one caput error that
+and a put that fails for any other reason (a lost circuit) propagates as a
+ConnectionError — it is a genuine failure, not a refusal. The one caput error that
 IS a refusal is the control system's own denial; see
 test_control_system_refused.py.
 """
@@ -14,8 +14,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.errors import ChannelLimitsViolationError
+from tests.connectors._epics_fakes import ECA_DISCONN
 from tests.connectors._write_fakes import make_mock_epics_connector as _make_connector
 from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 
@@ -27,7 +28,7 @@ class TestFailClosedValidation:
         connector = _make_connector(validate_side_effect=RuntimeError("boom"))
 
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
@@ -37,7 +38,7 @@ class TestFailClosedValidation:
         assert result.refusal_reason == "VALIDATION_ERROR"
         assert "TEST:PV" in result.error_message
         # The write must NEVER have been issued.
-        connector._epics.caput.assert_not_called()
+        assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -64,7 +65,7 @@ class TestFailClosedValidation:
         connector = _make_connector(validate_side_effect=violation)
 
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
             with pytest.raises(ChannelLimitsViolationError) as raised:
@@ -72,20 +73,20 @@ class TestFailClosedValidation:
 
         assert raised.value is violation
         connector._limits_validator.validate.assert_called_once()
-        connector._epics.caput.assert_not_called()
+        assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
     async def test_caput_connection_error_propagates_not_refused(self):
-        """validate passes but caput raises ConnectionError → it propagates.
+        """validate passes but the put loses its circuit → ConnectionError propagates.
 
-        Regression guard: a caput-raised error must NOT be swallowed into a
-        refusal ChannelWriteResult. It is a genuine write failure and must
-        surface as the raised exception.
+        Regression guard: a put failure must NOT be swallowed into a refusal
+        ChannelWriteResult. It is a genuine write failure and must surface as
+        the raised exception.
         """
-        connector = _make_connector(caput_side_effect=ConnectionError("gateway down"))
+        connector = _make_connector(put=ECA_DISCONN)
 
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
             with pytest.raises(ConnectionError):
@@ -93,12 +94,12 @@ class TestFailClosedValidation:
 
         # validate passed and the caput was actually attempted.
         connector._limits_validator.validate.assert_called_once()
-        connector._epics.caput.assert_called_once()
+        assert [name for name, _value, _wait in connector._aioca.puts] == ["TEST:PV"]
 
 
 class TestNonBlockingOffload:
-    """Task 2.1: validate()+caput run in ONE thread offload so a caller on the
-    event loop is never stalled by the blocking caget that max_step performs.
+    """Task 2.1: validate() runs in a thread offload so a caller on the event
+    loop is never stalled by the blocking read that max_step performs.
     """
 
     @pytest.mark.asyncio
@@ -118,7 +119,7 @@ class TestNonBlockingOffload:
         connector._limits_validator.validate = MagicMock(side_effect=recording_validate)
 
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)

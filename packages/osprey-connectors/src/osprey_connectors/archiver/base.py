@@ -101,11 +101,22 @@ class ArchiverConnector(ABC):
                 "raw", "mean", "min", "max", "median", "std", "count". Anything
                 else raises ValueError.
 
+        Waveform channels:
+            A waveform channel's sample is one whole trace: its ``value`` is a
+            ``list[float]`` with one entry per element of the channel's shape.
+            Only ``"raw"`` processing is defined for waveforms, and it returns
+            every stored trace in the window at its own timestamp, unbinned,
+            whatever ``precision_ms`` is — dropping or averaging traces would
+            describe pulses nothing ever captured. Any other mode on a waveform
+            channel raises ``ValueError`` naming the channel. A backend that
+            cannot read waveforms at all says so with its own error rather than
+            returning something else in their place.
+
         Returns:
             A long-format DataFrame with columns ``timestamp``
             (datetime64[ns, UTC]), ``channel`` (str), and ``value`` (``float64``
-            unless a channel is non-numeric), sorted by channel then timestamp.
-            Each channel contributes only its own real samples or per-bin
+            unless a channel is non-numeric or a waveform), sorted by channel
+            then timestamp. Each channel contributes only its own real samples or per-bin
             aggregates — no forward-fill, no shared grid, no bin for a period
             with no samples. A channel with no data in range contributes no rows; an
             empty result is an empty frame with these columns.
@@ -115,7 +126,7 @@ class ArchiverConnector(ABC):
             TimeoutError: If operation times out
             ValueError: If time range, channel addresses, or processing mode are
                 invalid, or if a non-"raw" processing mode is requested for a
-                channel whose values are non-numeric
+                channel whose values are non-numeric or that is a waveform channel
         """
         pass
 

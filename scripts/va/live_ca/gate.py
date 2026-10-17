@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the live Channel Access suites and fail unless they really ran.
 
-The suites this drives guard their pcaspy import with ``pytest.importorskip``.
+The suites this drives skip their live classes when pcaspy is not installed.
 That is the right behaviour on a host that cannot load pcaspy -- an honest,
 loud skip beats a hollow pass -- but it means the ordinary pytest exit code
 cannot distinguish "the Channel Access contract holds" from "nothing was
@@ -82,9 +82,9 @@ PVA_SUITES = ("tests/va/test_lume_pva_seam.py",)
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.
 #:
-#: tests/va/test_lume_pva_seam.py calls ``pytest.importorskip`` on pcaspy, p4p
-#: and lume_pva_apg at module level, so on a host lacking any of them the whole
-#: module skips. Asserting the imports before pytest runs turns that skip into
+#: tests/va/test_lume_pva_seam.py skips at module level when pcaspy, p4p or
+#: lume_pva_apg is missing, so on a host lacking any of them the whole module
+#: skips. Asserting the imports before pytest runs turns that skip into
 #: a failure here, with the missing module named, rather than leaving it to the
 #: skip check after the run.
 PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")

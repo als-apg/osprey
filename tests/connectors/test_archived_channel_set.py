@@ -24,7 +24,7 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotArchivedError, ChannelNotFoundError
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.archive import archived_channels, build
 from osprey_connectors.simulation.composite import Composite
@@ -174,16 +174,15 @@ def test_a_view_without_series_records_archives_every_channel(tmp_path: Path) ->
     assert archived_channels(view) == view.channels()
 
 
-def test_an_unserved_models_series_stay_unless_every_model_is_asked(tmp_path: Path) -> None:
-    """A model the render does not serve has its channels served as texture."""
+def test_an_unserved_models_series_are_left_out_too(tmp_path: Path) -> None:
+    """A turn series is never archived, whether the render serves its model or not."""
     path = write_texture_view(tmp_path, CHANNELS, models=[_model(served=False)])
     served = path / "served_models.json"
     document = json.loads(served.read_text(encoding="utf-8"))
     served.write_text(json.dumps({**document, "models": ["texture"]}), encoding="utf-8")
     view = SimulatorView.open(path)
 
-    assert archived_channels(view) == view.channels()
-    assert list(archived_channels(view, served_only=False)) == ARCHIVED
+    assert list(archived_channels(view)) == ARCHIVED
 
 
 # -- the archive composite holds the set ---------------------------------------
@@ -253,11 +252,14 @@ def _window() -> tuple[datetime, datetime]:
 async def test_a_channel_the_archive_leaves_out_is_refused_as_having_no_history(
     archiver: MockArchiverConnector,
 ) -> None:
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(ChannelNotArchivedError) as refused:
         await archiver.get_data([TEXTURE, SERIES_X], *_window())
 
-    assert str(refused.value) == f"{SERIES_X} has no archived history"
-    with pytest.raises(ValueError, match=f"^{ARMED} has no archived history$"):
+    assert refused.value.channel_address == SERIES_X
+    assert str(refused.value) == (
+        f"{SERIES_X} has no archived history: it is a shot record, read it live after a shot"
+    )
+    with pytest.raises(ChannelNotArchivedError, match=f"^{ARMED} has no archived history"):
         await archiver.get_metadata(ARMED)
     assert await archiver.check_availability([SERIES_X, ARM]) == {SERIES_X: False, ARM: True}
 

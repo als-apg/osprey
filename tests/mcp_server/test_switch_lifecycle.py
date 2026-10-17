@@ -23,7 +23,6 @@ import time
 import pytest
 import yaml
 
-from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     DEFAULT_DRAIN_TIMEOUT_S,
@@ -43,7 +42,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.launch import host_env
 from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
@@ -1878,13 +1877,13 @@ class TestConfigDerivedFacts:
     async def test_the_child_environment_drops_every_epics_variable(self, monkeypatch):
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "ambient.example.org")
         monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "ambient.example.org:5075")
-        monkeypatch.setenv("PYEPICS_LIBCA", "/opt/libca.dylib")
+        monkeypatch.setenv("CA_CLIENT_LIBRARY", "/opt/libca.dylib")
 
         env = host_env()
 
         assert "EPICS_CA_ADDR_LIST" not in env
         assert "EPICS_PVA_NAME_SERVERS" not in env
-        assert env["PYEPICS_LIBCA"] == "/opt/libca.dylib"
+        assert env["CA_CLIENT_LIBRARY"] == "/opt/libca.dylib"
 
 
 # ------------------------------------------------------ the serving seam

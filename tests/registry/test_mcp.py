@@ -17,7 +17,7 @@ from osprey.registry.mcp import (
     resolve_servers,
     writes_check_matchers,
 )
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -275,7 +275,7 @@ class TestResolveServers:
     def test_all_python_servers_set_config_file(self):
         """Every framework python MCP server must set CONFIG_FILE, not just OSPREY_CONFIG.
 
-        osprey.utils.config reads CONFIG_FILE (OSPREY_CONFIG is only used to locate
+        osprey_connectors.config reads CONFIG_FILE (OSPREY_CONFIG is only used to locate
         .env). When a server subprocess is launched with a CWD other than the
         project dir (e.g. the dispatch worker's /app WORKDIR), a missing CONFIG_FILE
         makes config resolution fall back to CWD/config.yml and fail. Regression

@@ -8,7 +8,7 @@ wiring, never by a device name written down here:
 - slot 0 carries a +-12 A record. The out-of-limits writes go to it, and they
   are rejected *before* they reach the IOC: ``LimitsValidator.validate()``
   raises synchronously, before ``EPICSConnector.write_channel`` issues any
-  ``epics.caput`` at all, so a rejected write can never move the record over
+  ``aioca.caput`` at all, so a rejected write can never move the record over
   CA. That is also why these legs leave ``test_orbit_response.py``'s ownership
   of slot 0 undisturbed: nothing is ever written there.
 - slot 1 carries no record. Under the ``optional`` mode a channel with no
@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.errors import ChannelLimitsViolationError
 from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.va.e2e import conftest as e2e_conftest
 
 #: The corrector slot whose setpoint carries a limits record, and the slot whose

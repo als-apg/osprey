@@ -40,7 +40,7 @@ def _resolve(config: dict[str, Any], providers: dict[str, dict], model: str | No
         return providers.get(name, {})
 
     with (
-        patch("osprey.utils.config.get_config_value", fake_get_config_value),
+        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
         patch("osprey.models.config.get_provider_config", fake_get_provider_config),
     ):
         return _resolve_composition_model(model)

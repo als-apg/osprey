@@ -397,10 +397,75 @@ logbook:
   text: 'Replaced thermionic cathode in the electron gun after 12,000 hours of operation (rated lifetime:
     10,000 hours). Old cathode emission current had degraded to 1.8 A (nominal: 3.0 A for new cathode).
     New cathode (serial: CAT-2024-007) installed and conditioned over 6 hours. Final emission current:
-    3.1 A at nominal heater power. Beam energy from linac verified at 100 MeV +/- 0.1%.'
+    3.1 A at nominal heater power. Beam energy from linac verified at 150 MeV +/- 0.1%.'
   tags:
   - linac
   - cathode
   - maintenance
   categories:
   - Maintenance
+- entry_id: DEMO-032
+  when:
+    days_ago: 16
+    time: '10:30:00'
+  author: R. Patel
+  title: Gun heater and sub-harmonic buncher phase scan
+  text: 'Re-optimized bunch capture after the gun heater was trimmed. Raised GTL:GUN:EGUN:01:HEATER:SP
+    by 2% to recover emission, then scanned the SHB02 phase (GTL:RF:SHB:02:PHASE:SP) in 2 degree steps
+    while watching the GTL ICT01 charge. Best capture 3 degrees above the old setting; charge into the
+    linear accelerator up 6%. GTL TV02 profile round and centred. New settings saved.'
+  tags:
+  - gun
+  - buncher
+  - injector
+  categories:
+  - Operations
+- entry_id: DEMO-033
+  when:
+    days_ago: 13
+    time: '07:45:00'
+  author: T. Nakamura
+  title: Linac section phase drift after cooling water excursion
+  text: 'Linac energy spread grew overnight. LN:RF:WATER:01:TEMPERATURE:RB had stepped up 0.4 C after
+    a chiller swap, pulling the ACC02 phase. Re-phased LN:RF:ACC:02:PHASE:SP against the MASTER01
+    reference (shift of 1.5 degrees) and confirmed the beam on the LN TV01 screen. Energy back at 150
+    MeV, spread within spec. Asked utilities to alarm on water temperature steps.'
+  tags:
+  - linac
+  - rf
+  - cooling-water
+  categories:
+  - Equipment
+- entry_id: DEMO-034
+  when:
+    days_ago: 9
+    time: '15:20:00'
+  author: M. Chen
+  title: LTB screen paddle stuck in, booster injection lost
+  text: 'Booster injection efficiency dropped to zero after a screen survey of the transfer line.
+    The LTB TV03 paddle (LTB:DIAG:TV:03:PADDLE:SP) read back inserted although commanded out, blocking
+    the beam: every BPM downstream lost its sum signal and LTB:DIAG:ICT:01:CHARGE:RB fell to noise.
+    Cycled the paddle actuator air; paddle retracted on the second try. Injection recovered and LTB
+    QF03 retuned by 0.5 A to re-centre the beam on LTB TV05.'
+  tags:
+  - screen
+  - transfer-line
+  - injection
+  categories:
+  - Diagnostics
+- entry_id: DEMO-035
+  when:
+    days_ago: 7
+    time: '11:10:00'
+  author: A. Rodriguez
+  title: BTS trajectory correction before storage ring top-up
+  text: 'Injection into the storage ring drifted after the booster extraction kicker was retimed.
+    Confirmed BTS:DIAG:PADDLES:01:COUNT:INSERTED read 0 (all screens out), then steered the 2.0 GeV
+    beam with BTS HCM04 (BTS:MAG:HCM:04:CURRENT:SP, +0.3 A) to centre BTS BPM05. BTS:DIAG:BPM:05:SUM:RB
+    rose back to nominal and injection efficiency recovered to 92%.'
+  tags:
+  - transfer-line
+  - steering
+  - injection
+  categories:
+  - Operations

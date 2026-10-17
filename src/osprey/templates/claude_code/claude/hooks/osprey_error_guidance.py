@@ -141,6 +141,8 @@ ERROR_CLASS_MAP = {
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
+    # A channel of the facility with no archived history: a shot record.
+    "not_archived": "Data",
     "no_results": "Data",
     "file_not_found": "Data",
     "no_draft": "Data",

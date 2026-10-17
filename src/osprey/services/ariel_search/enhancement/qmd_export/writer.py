@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
-from osprey.utils.config import to_facility_iso
+from osprey_connectors.config import to_facility_iso
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.vocabulary.entry import EntryExpander

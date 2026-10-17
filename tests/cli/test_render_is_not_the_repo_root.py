@@ -49,7 +49,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build as build_command
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     RENDERED_CONFIG_RELPATH,

@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK_NAME = "osprey_cf_feedback_capture.py"
 READ_CYPHER_TOOL = "mcp__channel-finder__read_cypher"

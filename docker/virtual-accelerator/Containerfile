@@ -21,7 +21,8 @@
 # wheel at any interpreter, so an arm64 image would have to compile EPICS base
 # -> epics-modules/pcas -> pcaspy from source on every cold build. amd64 is
 # also what CI runs and the only architecture on which a client importing this
-# stack's CA server extension alongside pyepics has been measured to work.
+# stack's CA server extension alongside the aioca client has been measured
+# to work (scripts/va/live_ca/ is that measurement).
 # The accepted cost: on an Apple Silicon host the image runs emulated.
 FROM --platform=linux/amd64 python:3.11-slim
 

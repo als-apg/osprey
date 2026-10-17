@@ -26,7 +26,7 @@ from osprey.mcp_server.trajectory.server import mcp
 
 
 def _osprey_config() -> Mapping[str, Any]:
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config()
 

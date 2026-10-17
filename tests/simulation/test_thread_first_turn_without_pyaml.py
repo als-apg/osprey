@@ -65,9 +65,9 @@ from pathlib import Path
 import numpy as np
 
 import osprey
-import osprey.utils.config
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.va_in_process_connector import (
+import osprey_connectors.config
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
@@ -87,7 +87,7 @@ def writes_enabled(key, default=None):
 
 
 composite_module.default_config_path = lambda: None
-osprey.utils.config.get_config_value = writes_enabled
+osprey_connectors.config.get_config_value = writes_enabled
 
 
 def load(relative):

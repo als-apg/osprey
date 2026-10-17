@@ -65,7 +65,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_dotenv(path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(path) if path.is_file() else {}
 

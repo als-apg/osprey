@@ -3,7 +3,9 @@ MongoDB archiver connector for historical channel data retrieval.
 
 Provides interface to MongoDB collections containing archived channel data.
 Documents are expected to have a 'date' field and one field per channel, named
-by ``field_name`` of the channel address.
+by ``field_name`` of the channel address. Waveform traces live in the sibling
+collection named by ``waveform_collection``, one document per (channel, instant)
+of the same shape, and every read covers both.
 """
 
 import asyncio
@@ -17,7 +19,9 @@ from typing import Any
 import pandas as pd
 
 from osprey_connectors.archiver._timerange import (
-    aggregate_long_frame,
+    Processing,
+    aggregate_series,
+    long_frame,
     resolve_processing,
     utc_window,
 )
@@ -25,6 +29,7 @@ from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation.archive import waveform_collection
 
 logger = get_logger("mongodb_archiver_connector")
 
@@ -275,6 +280,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._connected = False
         self._client = None
         self._collection = None
+        # The waveform sibling of ``_collection``; None on a connector wired to
+        # a single collection, which then reads scalars only.
+        self._waveforms = None
         self._timeout = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
@@ -446,6 +454,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Get collection
             self._collection = self._client[db_name][collection_name]
+            self._waveforms = self._client[db_name][waveform_collection(collection_name)]
 
             self._connected = True
             logger.debug(
@@ -486,6 +495,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         self._client = None
         self._collection = None
+        self._waveforms = None
         self._connected = False
         logger.debug("MongoDB Archiver connector disconnected")
 
@@ -510,6 +520,30 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
+
+    def _stores(self) -> tuple[Any, ...]:
+        """Every collection a read covers: the snapshots, then the waveform sibling."""
+        if self._waveforms is None:
+            return (self._collection,)
+        return (self._collection, self._waveforms)
+
+    def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing):
+        """Refuse a non-raw mode on any requested channel the waveform store holds.
+
+        Asked of the whole store, not of the window: a waveform channel stays one
+        outside its stored range, so the answer cannot depend on the dates asked.
+
+        Raises:
+            ValueError: naming the first waveform channel found.
+        """
+        if resolved.mode == "raw" or self._waveforms is None:
+            return
+        for channel, field in fields.items():
+            if self._waveforms.count_documents({field: {"$exists": True}}, limit=1):
+                raise ValueError(
+                    f"Cannot apply processing={resolved.mode!r} to waveform channel "
+                    f"{channel!r}: only processing='raw' is defined for waveforms"
+                )
 
     async def get_data(
         self,
@@ -573,42 +607,50 @@ class MongoDBArchiverConnector(ArchiverConnector):
             # Project only the fields we need: date and requested channels.
             projection = {"date": 1, **dict.fromkeys(fields.values(), 1)}
 
-            # Query MongoDB collection
-            cursor = self._collection.find(query, projection).sort("date", 1)
-
-            # Convert to list of documents
-            documents = list(cursor)
-
-            if not documents:
-                logger.debug(f"No documents found in date range {start_date} to {end_date}")
+            self._refuse_aggregated_waveforms(fields, resolved)
 
             # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
             timestamps: dict[str, list] = {channel: [] for channel in channels}
             values: dict[str, list] = {channel: [] for channel in channels}
-            for doc in documents:
-                doc_date = doc.get("date")
-                if doc_date is None:
-                    logger.warning("Document missing 'date' field, skipping")
-                    continue
-                for channel, field in fields.items():
-                    if field in doc:
-                        timestamps[channel].append(doc_date)
-                        values[channel].append(doc[field])
+            traced: set[str] = set()
+            found = 0
+            for store in self._stores():
+                is_waveform_store = store is self._waveforms
+                for doc in store.find(query, projection).sort("date", 1):
+                    found += 1
+                    doc_date = doc.get("date")
+                    if doc_date is None:
+                        logger.warning("Document missing 'date' field, skipping")
+                        continue
+                    for channel, field in fields.items():
+                        if field in doc:
+                            value = doc[field]
+                            if is_waveform_store:
+                                traced.add(channel)
+                                value = [float(x) for x in value]
+                            timestamps[channel].append(doc_date)
+                            values[channel].append(value)
 
-            # No server-side aggregation to defer to, so every mode — including
-            # "raw" — is binned client-side here.
-            return aggregate_long_frame(
-                {
-                    channel: pd.Series(
-                        values[channel],
-                        index=pd.to_datetime(timestamps[channel], utc=True),
-                        name=channel,
-                    )
-                    for channel in channels
-                },
-                resolved,
-            )
+            if not found:
+                logger.debug(f"No documents found in date range {start_date} to {end_date}")
+
+            series: dict[str, pd.Series] = {}
+            for channel in channels:
+                s = pd.Series(
+                    values[channel],
+                    index=pd.to_datetime(timestamps[channel], utc=True),
+                    name=channel,
+                    dtype=object if channel in traced else None,
+                )
+                if channel in traced:
+                    # A trace is never binned: raw returns every stored one.
+                    series[channel] = s.sort_index(kind="stable")
+                else:
+                    # No server-side aggregation to defer to, so every scalar mode —
+                    # including "raw" — is binned client-side here.
+                    series[channel] = aggregate_series(s, resolved)
+            return long_frame(series)
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
@@ -654,6 +696,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Returns:
             ArchiverMetadata; ``is_archived`` is False and both bounds are None
             when the channel has no stored samples or the store cannot be queried.
+            The bounds span the snapshot collection and its waveform sibling, so
+            a waveform-only channel is found.
 
         Raises:
             RuntimeError: If archiver not connected
@@ -666,11 +710,17 @@ class MongoDBArchiverConnector(ArchiverConnector):
             # two index-ordered lookups rather than a collection scan.
             query = {field_name(channel): {"$exists": True}}
             projection = {"date": 1}
-            oldest = self._collection.find_one(query, projection, sort=[("date", 1)])
-            if oldest is None:
-                return None, None
-            newest = self._collection.find_one(query, projection, sort=[("date", -1)])
-            return oldest.get("date"), (newest or {}).get("date")
+            firsts, lasts = [], []
+            for store in self._stores():
+                oldest = store.find_one(query, projection, sort=[("date", 1)])
+                if oldest is None:
+                    continue
+                newest = store.find_one(query, projection, sort=[("date", -1)])
+                if oldest.get("date") is not None:
+                    firsts.append(oldest["date"])
+                if (newest or {}).get("date") is not None:
+                    lasts.append(newest["date"])
+            return min(firsts, default=None), max(lasts, default=None)
 
         try:
             first, last = await asyncio.to_thread(stored_extent)
@@ -688,7 +738,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
     async def check_availability(self, channels: list[str]) -> dict[str, bool]:
         """
-        Check which channels are archived in the MongoDB collection.
+        Check which channels are archived in the MongoDB collection or its
+        waveform sibling.
+
+        A read that fails part-way reports every channel as not archived rather
+        than raising: availability is a question the store could not answer, not
+        a fault to surface to the caller.
 
         Args:
             channels: Channel addresses to check
@@ -706,8 +761,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
             availability = {}
             for channel in channels:
                 query = {field_name(channel): {"$exists": True}}
-                count = self._collection.count_documents(query, limit=1)
-                availability[channel] = count > 0
+                availability[channel] = any(
+                    store.count_documents(query, limit=1) > 0 for store in self._stores()
+                )
             return availability
 
         try:

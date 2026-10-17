@@ -35,8 +35,8 @@ import yaml
 from osprey.audit import protected, writer
 from osprey.audit.protected import SURFACE_SETUP_PATCH
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
-from osprey.utils.identity import acting_identity
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.identity import acting_identity
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"

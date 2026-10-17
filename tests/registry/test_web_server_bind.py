@@ -95,7 +95,7 @@ def test_unknown_key_raises_with_both_flags():
 
 def test_none_config_loads_on_demand(monkeypatch):
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda *a, **k: {"artifact_server": {"host": "192.0.2.5", "port": 18500}},
     )
     assert resolve_web_server_bind("artifact", None, host=None, port=None) == (

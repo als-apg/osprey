@@ -12,7 +12,7 @@ installing the block leaves its writes working.
 
 Each client is a fake module built from source and registered in
 ``sys.modules`` under the name the connector imports (``epics``, ``tango``,
-``doocs4py``), so the block's rows resolve to the fake and the connector talks
+``doocs4py``, and ``aioca`` for the EPICS connector), so the block's rows resolve to the fake and the connector talks
 to it. Only the rows whose owner is one of those fakes are installed, so a
 real client library already imported by another test is never patched; the
 fixture from :mod:`tests.runtime._patch_restore` restores the fakes and drops
@@ -32,6 +32,7 @@ from osprey.runtime import raw_put_block
 from osprey.services.python_executor.write_surface import _ARMED_BLOCKED
 from osprey_connectors.control_system import doocs_connector, tango_connector
 from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.ca_loop import CaLoop
 from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 from osprey_connectors.control_system.epics_connector import EPICSConnector
 from osprey_connectors.control_system.tango_connector import TangoConnector
@@ -43,7 +44,7 @@ from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
 #: Row owners that resolve to a fake below and to nothing a real library owns.
-_FAKE_OWNERS = frozenset({"epics", "epics.PV", "tango.DeviceProxy", "doocs4py"})
+_FAKE_OWNERS = frozenset({"epics", "epics.PV", "aioca", "tango.DeviceProxy", "doocs4py"})
 
 _EPICS_SOURCE = """
     from osprey_connectors.control_system.write_door import door_is_open
@@ -55,17 +56,40 @@ _EPICS_SOURCE = """
         return True
 
     class PV:
-        connected = True
-
         def __init__(self, pvname, *args, **kwargs):
             self.pvname = pvname
 
         def put(self, value, **kwargs):
             calls.append((self.pvname, value, door_is_open()))
             return True
+"""
 
-    def get_pv(pvname, *args, **kwargs):
-        return PV(pvname)
+_AIOCA_SOURCE = """
+    from osprey_connectors.control_system.write_door import door_is_open
+
+    calls = []
+
+    class CANothing(Exception):
+        def __init__(self, name, errorcode=1):
+            self.name = name
+            self.errorcode = errorcode
+
+        def __bool__(self):
+            return self.errorcode == 1
+
+    async def connect(pvname, timeout=None, throw=True, **kwargs):
+        return CANothing(pvname)
+
+    class _Info:
+        datatype = 6  # DBF_DOUBLE
+        count = 1
+
+    async def cainfo(pvname, timeout=None, throw=True, **kwargs):
+        return _Info()
+
+    async def caput(pvname, value, wait=False, timeout=None, throw=True, **kwargs):
+        calls.append((pvname, value, door_is_open()))
+        return CANothing(pvname)
 """
 
 _TANGO_SOURCE = """
@@ -124,6 +148,7 @@ def fakes(monkeypatch, restore_patches):  # noqa: F811
     modules: dict[str, ModuleType] = {}
     for name, source in (
         ("epics", _EPICS_SOURCE),
+        ("aioca", _AIOCA_SOURCE),
         ("tango", _TANGO_SOURCE),
         ("doocs4py", _DOOCS_SOURCE),
     ):
@@ -164,6 +189,7 @@ def test_the_product_table_names_every_connector_put():
     rows = dict(_armed_rows())
     assert "caput" in rows["epics"]
     assert "put" in rows["epics.PV"]
+    assert "caput" in rows["aioca"]
     assert "write_attribute" in rows["tango.DeviceProxy"]
     assert "set" in rows["doocs4py"]
 
@@ -171,29 +197,39 @@ def test_the_product_table_names_every_connector_put():
 def test_the_block_is_armed_on_the_fakes(fakes):
     assert getattr(fakes["epics"].caput, "_osprey_armed_block", False)
     assert getattr(fakes["epics"].PV.put, "_osprey_armed_block", False)
+    assert getattr(fakes["aioca"].caput, "_osprey_armed_block", False)
     assert getattr(fakes["tango"].DeviceProxy.write_attribute, "_osprey_armed_block", False)
     assert getattr(fakes["doocs4py"].set, "_osprey_armed_block", False)
 
 
 @pytest.mark.parametrize("cls", [EPICSConnector, VirtualAcceleratorConnector])
 def test_epics_family_connector_write_passes_and_raw_caput_is_refused(fakes, monkeypatch, cls):
-    epics = fakes["epics"]
+    """The put runs on the CA loop's own thread and still sees the door open.
+
+    A real :class:`CaLoop` is used, not an inline stand-in: the door is a
+    context variable, and what this pins is that handing the put to the CA
+    loop carries the opening context across to that thread.
+    """
+    ca_client = fakes["aioca"]
     _writes_on(monkeypatch, cls)
     connector = cls()
-    connector._epics = epics
+    connector._aioca = ca_client
+    connector._ca = CaLoop()
     connector._limits_validator = None
     connector._timeout = 5.0
     connector._connected = True
     connector._epics_configured = True
 
-    result = asyncio.run(connector.write_channel("SR:CH", 1.5, confirm=False))
+    try:
+        result = asyncio.run(connector.write_channel("SR:CH", 1.5, confirm=False))
+    finally:
+        connector._ca.stop()
 
     assert result.outcome is WriteOutcome.UNREQUESTED, result.error_message
-    assert epics.calls == [("SR:CH", 1.5, True)]
+    assert ca_client.calls == [("SR:CH", 1.5, True)]
     assert door_is_open() is False
-    _assert_refused(lambda: epics.caput("SR:CH", 2.0), "SR:CH")
-    _assert_refused(lambda: epics.PV("SR:CH").put(2.0), "SR:CH")
-    assert len(epics.calls) == 1
+    _assert_refused(lambda: asyncio.run(ca_client.caput("SR:CH", 2.0)), "SR:CH")
+    assert len(ca_client.calls) == 1
 
 
 def test_tango_connector_write_passes_and_raw_write_attribute_is_refused(fakes, monkeypatch):

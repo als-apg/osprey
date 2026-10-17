@@ -45,7 +45,7 @@ login that already happened. Nothing widens — the row still mints nothing.
 
 **The ``none`` row is somebody else's.** A deployment with no login method runs
 no sidecar: the identity a single-user install acts under comes from
-:func:`osprey.utils.identity.acting_identity`, its role is whatever its render
+:func:`osprey_connectors.identity.acting_identity`, its role is whatever its render
 pinned, and there is no login event to record because there is no login. The row
 is in the table so that the method reaching this service *anyway* — a
 half-rendered compose file, a typo, a value a future release adds — is refused

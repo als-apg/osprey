@@ -18,7 +18,7 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 import re
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("pattern_detection")
 
@@ -51,7 +51,8 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
     Security Note:
         This is best-effort TEXT MATCHING, not a list of what OSPREY can
         enforce. It names the spellings the framework happens to know -
-        osprey.runtime, pyepics (Channel Access), p4p (PVAccess), pvaPy
+        osprey.runtime, Channel Access clients (aioca's and pyepics'
+        ``caput``, pyepics' ``PV``), p4p (PVAccess), pvaPy
         (``pvaccess``, Channel Access and PVAccess), PyTango, doocs4py and
         LabVIEW bindings - and a library or an idiom outside that
         list is simply not detected. Extend it with facility-specific
@@ -69,7 +70,7 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\bwrite_channel\s*\(",  # write_channel('PV', value)
             r"\bwrite_channels\s*\(",  # write_channels({'PV1': val1, ...})
             # ============================================================
-            # CIRCUMVENTION DETECTION: EPICS (PyEPICS library)
+            # CIRCUMVENTION DETECTION: EPICS Channel Access (aioca, pyepics)
             # ============================================================
             r"\bcaput\s*\(",  # caput('PV', value) - standalone
             r"epics\.caput\(",  # epics.caput('PV', value)
@@ -141,7 +142,7 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             # ============================================================
             r"\bread_channel\s*\(",  # read_channel('PV')
             # ============================================================
-            # CIRCUMVENTION DETECTION: EPICS (PyEPICS library)
+            # CIRCUMVENTION DETECTION: EPICS Channel Access (aioca, pyepics)
             # ============================================================
             r"\bcaget\s*\(",  # caget('PV') - standalone
             r"epics\.caget\(",  # epics.caget('PV')
@@ -258,7 +259,7 @@ def detect_control_system_operations(
     # Load control_system_type for logging/metadata (doesn't affect patterns!)
     if control_system_type is None:
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             control_system_type = get_config_value("control_system.type", "unknown")
         except Exception:
@@ -279,7 +280,7 @@ def detect_control_system_operations(
             patterns = _merge_patterns(framework, patterns)
     else:
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             custom_patterns = get_config_value("control_system.patterns", None)
 

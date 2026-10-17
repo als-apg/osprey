@@ -24,7 +24,7 @@ from typing import Any, Literal, TypeGuard
 
 import yaml
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: Filename of the catalog, both packaged and in a deployment repo.
 PROVIDERS_FILENAME = "providers.yml"

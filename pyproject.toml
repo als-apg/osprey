@@ -137,9 +137,6 @@ dependencies = [
     "python-multipart>=0.0.18",
     # Utilities
     "unique-namer>=1.6.2",
-    # EPICS Channel Access client (used by control_system connector,
-    # limits_validator, and python_executor wrapper).
-    "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.3.4,<4.0.0",
     "psycopg-pool>=3.3.1,<4.0.0",
@@ -391,8 +388,9 @@ screen-capture-linux = [
 # adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
-# and tests/va/test_apply_fault.py stands one up to assert the scenario faults
-# from the far side of the wire; without pcaspy installed that suite skips, and
+# and tests/va/test_apply_fault.py stands one up in a child process to assert
+# the scenario faults from the far side of the wire; without pcaspy installed
+# that suite skips, and
 # a skipped live suite proves nothing. It arrives through lume-pva-apg's `ca`
 # extra, which carries the `>=0.8.1` floor itself, so this extra names it
 # nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
@@ -408,9 +406,8 @@ screen-capture-linux = [
 # pcaspy source build that needs EPICS Base plus the separate PCAS module, and
 # fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
 # macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
-# and platform is the sdist. Marked, those hosts get the honest `importorskip`
-# skip and run the live suites in the container venue under scripts/va/live_ca/
-# instead.
+# and platform is the sdist. Marked, those hosts get the honest skip and run
+# the live suites in the container venue under scripts/va/live_ca/ instead.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
 # too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
@@ -567,7 +564,6 @@ module = [
     "pandas.*",
     "numpy.*",
     "matplotlib.*",
-    "pyepics.*",
     "p4p.*",
     "podman.*",
     "pymongo.*",

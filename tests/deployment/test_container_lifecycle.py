@@ -165,7 +165,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     p = tmp_path / ".env"
     return parse_dotenv_file(p) if p.is_file() else {}
@@ -3504,14 +3504,18 @@ class _FakeAdmin:
 class _FakeCollection:
     """Just enough of a pymongo collection for the staged bring-up's own calls."""
 
-    def __init__(self, fail_pings: int = 0):
+    def __init__(self, fail_pings: int = 0, name: str = "pv_history", timeline=None):
         self.admin = _FakeAdmin(fail_pings)
+        self.name = name
         self.dropped = False
+        # Shared with the compose fake, so a drop is ordered against the quiesce.
+        self.timeline = timeline if timeline is not None else []
         # collection.database.client.admin is the path the health poll walks.
         self.database = type("_Db", (), {"client": type("_Client", (), {"admin": self.admin})()})()
 
     def drop(self):
         self.dropped = True
+        self.timeline.append(f"drop {self.name}")
 
 
 ARCHIVER_CONFIG = {
@@ -3550,9 +3554,14 @@ def staged_archiver(monkeypatch, tmp_path):
     from osprey.simulation import apply as apply_mod
     from osprey_connectors.simulation import archive
 
+    timeline: list[str] = []
     state: dict = {
         "cmds": [],
-        "collection": _FakeCollection(),
+        # Every compose verb, drop and seed in the order they happened.
+        "timeline": timeline,
+        "collection": _FakeCollection(timeline=timeline),
+        # Any other collection the deploy opens, by name.
+        "collections": {},
         "seeded": [],
         "reapplied": [],
         "fingerprint_state": archive.SeedState.ABSENT,
@@ -3578,6 +3587,7 @@ def staged_archiver(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         state["cmds"].append(list(cmd))
+        state["timeline"].extend(_verbs([cmd]))
         # A real CompletedProcess, because the quiesce checks its returncode.
         # `returncode` models the *quiesce* specifically: every other compose
         # call runs under check=True, so a blanket non-zero would abort the
@@ -3602,8 +3612,15 @@ def staged_archiver(monkeypatch, tmp_path):
 
     @contextmanager
     def _fake_collection(store):
-        state["store"] = store
-        yield state["collection"]
+        name = store["collection"]
+        if name == state["collection"].name:
+            state["store"] = store
+            yield state["collection"]
+            return
+        state.setdefault("opened_stores", []).append(store)
+        yield state["collections"].setdefault(
+            name, _FakeCollection(name=name, timeline=state["timeline"])
+        )
 
     monkeypatch.setattr(apply_mod, "archiver_collection", _fake_collection)
     monkeypatch.setattr(
@@ -3621,6 +3638,7 @@ def staged_archiver(monkeypatch, tmp_path):
         **kwargs,
     ):
         channels = list(seeded.addresses)
+        state["timeline"].append("seed")
         state["seeded"].append({"channels": channels, "knobs": knobs, "kwargs": kwargs})
         # The staged step reports on what it wrote, so hand back a real report.
         return archive.SeedReport(documents=10, channels=len(channels))
@@ -3668,6 +3686,54 @@ def test_reseed_quiesces_the_recorder_before_dropping_the_collection(staged_arch
     assert verbs.index("stop archiver-recorder") < verbs.index("up --remove-orphans -d")
     assert staged_archiver["collection"].dropped
     assert len(staged_archiver["seeded"]) == 1
+
+
+@pytest.mark.parametrize("state", ["ABSENT", "MISMATCH"])
+def test_reseed_drops_both_collections_while_the_recorder_is_quiesced(
+    staged_archiver, tmp_path, state
+):
+    """The recorder writes traces into the waveform sibling too, so it is dropped
+    with the snapshot collection, after the quiesce and before the seed and the
+    bring-up that restarts the recorder."""
+    from osprey_connectors.simulation.archive import SeedState, waveform_collection
+
+    staged_archiver["fingerprint_state"] = getattr(SeedState, state)
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    timeline = staged_archiver["timeline"]
+    waveforms = waveform_collection("pv_history")
+    stop = timeline.index("stop archiver-recorder")
+    drop_scalar = timeline.index("drop pv_history")
+    drop_waveforms = timeline.index(f"drop {waveforms}")
+    seed = timeline.index("seed")
+    restart = timeline.index("up --remove-orphans -d")
+    assert stop < drop_scalar < seed
+    assert stop < drop_waveforms < seed
+    assert seed < restart
+    assert staged_archiver["collections"][waveforms].dropped
+
+
+def test_the_waveform_drop_opens_the_same_store(staged_archiver, tmp_path):
+    """Same server, credentials and database — only the collection differs."""
+    from osprey_connectors.simulation.archive import waveform_collection
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    (opened,) = staged_archiver["opened_stores"]
+    assert opened == {
+        **staged_archiver["store"],
+        "collection": waveform_collection(staged_archiver["store"]["collection"]),
+    }
+
+
+def test_matching_fingerprint_keeps_the_waveform_history(staged_archiver, tmp_path):
+    from osprey_connectors.simulation.archive import SeedState
+
+    staged_archiver["fingerprint_state"] = SeedState.MATCH
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert not any(event.startswith("drop") for event in staged_archiver["timeline"])
+    assert staged_archiver["collections"] == {}
 
 
 def test_absent_fingerprint_seeds_after_a_volume_wipe(staged_archiver, tmp_path):
@@ -4241,7 +4307,7 @@ CHAIN_PROJECT = "demo-deployment"
 
 def _write_shared_half(repo: Path, text: str) -> Path:
     """Lay down the chain's committed-defaults file beside the local one."""
-    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+    from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
     path = repo / ENV_SHARED_FILENAME
     path.write_text(text, encoding="utf-8")
@@ -4257,7 +4323,7 @@ def _load_the_entry_point_chain(monkeypatch, repo: Path) -> None:
     because what is being measured IS that this step is what makes the shared
     half visible downstream.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(repo)

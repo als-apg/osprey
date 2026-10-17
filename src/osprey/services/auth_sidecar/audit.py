@@ -74,7 +74,7 @@ from osprey.audit.envelope import (
     POSTURE_SOURCE_APP,
     AuditEnvelope,
 )
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 from .methods import METHOD_OIDC, METHOD_PASSWORD
 

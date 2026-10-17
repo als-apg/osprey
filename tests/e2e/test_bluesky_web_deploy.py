@@ -164,7 +164,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 def _minted_token(repo: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
@@ -181,7 +181,7 @@ def _minted_sidecar_secret(repo: Path) -> str:
     suite authenticates the way any non-browser operator client does: the
     minted ``OSPREY_TERMINAL_SECRET`` sent as the operator-secret header.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — secret was not minted"

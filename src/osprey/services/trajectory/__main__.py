@@ -62,7 +62,7 @@ class TrajectoryServer(uvicorn.Server):
 def main() -> None:
     """Serve the trajectory service's app via :class:`TrajectoryServer`."""
     from osprey.services.trajectory.app import create_app
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
     from osprey_connectors.workspace import load_osprey_config
 
     configure_logging()

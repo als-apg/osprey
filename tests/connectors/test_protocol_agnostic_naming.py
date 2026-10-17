@@ -16,14 +16,14 @@ import inspect
 
 import pytest
 
-from osprey.connectors.archiver import ArchiverConnector, ArchiverMetadata
-from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
-from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
-from osprey.connectors.archiver.mya_archiver_connector import MYAArchiverConnector
-from osprey.connectors.control_system.base import ChannelMetadata
-from osprey.errors import ChannelWriteFailedError
+from osprey_connectors.archiver import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
+from osprey_connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
+from osprey_connectors.control_system.base import ChannelMetadata
+from osprey_connectors.errors import ChannelWriteFailedError
 
 #: Every implementation of the archiver contract, plus the contract itself.
 ARCHIVERS = [

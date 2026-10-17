@@ -84,6 +84,58 @@ BR:DIAG:DCCT:01:CURRENT:RB:
     absolute: 5.0
 BR:DIAG:DCCT:01:STATUS:VALID:
   nominal: 'TRUE'
+BR:DIAG:TV:01:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BR:DIAG:TV:01:PADDLE:SP:
+  nominal: 'FALSE'
+BR:DIAG:TV:02:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BR:DIAG:TV:02:PADDLE:SP:
+  nominal: 'FALSE'
+BR:DIAG:TV:03:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BR:DIAG:TV:03:PADDLE:SP:
+  nominal: 'FALSE'
+BR:DIAG:TV:04:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BR:DIAG:TV:04:PADDLE:SP:
+  nominal: 'FALSE'
+BR:DIAG:TV:05:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BR:DIAG:TV:05:PADDLE:SP:
+  nominal: 'FALSE'
+BR:MAG:DIPOLE-RAMP:01:GAIN:RB:
+  noise:
+    absolute: 0.0001
+BR:MAG:DIPOLE-RAMP:01:GAIN:SP:
+  nominal: 1.0
+BR:MAG:DIPOLE-RAMP:01:OFFSET:RB:
+  noise:
+    absolute: 0.003
+BR:MAG:DIPOLE-RAMP:01:OFFSET:SP:
+  nominal: 0.0
+BR:MAG:DIPOLE-RAMP:01:STATUS:ON:
+  nominal: 'TRUE'
 BR:MAG:DIPOLE:01:CURRENT:RB:
   nominal: 325.578
   noise:
@@ -188,6 +240,25 @@ BR:MAG:DIPOLE:08:STATUS:FAULT:
   nominal: 'FALSE'
 BR:MAG:DIPOLE:08:STATUS:READY:
   nominal: 'TRUE'
+BR:MAG:KICKER:01:STATUS:ON:
+  nominal: 'TRUE'
+BR:MAG:KICKER:01:VOLTAGE:RB:
+  noise:
+    absolute: 0.005
+BR:MAG:KICKER:01:VOLTAGE:SP:
+  nominal: 25.0
+BR:MAG:QD-RAMP:01:GAIN:RB:
+  noise:
+    absolute: 0.0001
+BR:MAG:QD-RAMP:01:GAIN:SP:
+  nominal: 1.0
+BR:MAG:QD-RAMP:01:OFFSET:RB:
+  noise:
+    absolute: 0.001
+BR:MAG:QD-RAMP:01:OFFSET:SP:
+  nominal: 0.0
+BR:MAG:QD-RAMP:01:STATUS:ON:
+  nominal: 'TRUE'
 BR:MAG:QD:01:CURRENT:RB:
   nominal: 38.662
   noise:
@@ -239,6 +310,18 @@ BR:MAG:QD:04:CURRENT:SP:
 BR:MAG:QD:04:STATUS:FAULT:
   nominal: 'FALSE'
 BR:MAG:QD:04:STATUS:READY:
+  nominal: 'TRUE'
+BR:MAG:QF-RAMP:01:GAIN:RB:
+  noise:
+    absolute: 0.0001
+BR:MAG:QF-RAMP:01:GAIN:SP:
+  nominal: 1.0
+BR:MAG:QF-RAMP:01:OFFSET:RB:
+  noise:
+    absolute: 0.001
+BR:MAG:QF-RAMP:01:OFFSET:SP:
+  nominal: 0.0
+BR:MAG:QF-RAMP:01:STATUS:ON:
   nominal: 'TRUE'
 BR:MAG:QF:01:CURRENT:RB:
   nominal: 45.784
@@ -292,68 +375,493 @@ BR:MAG:QF:04:STATUS:FAULT:
   nominal: 'FALSE'
 BR:MAG:QF:04:STATUS:READY:
   nominal: 'TRUE'
+BR:MAG:SEPTUM:01:CURRENT:RB:
+  noise:
+    absolute: 0.1
+BR:MAG:SEPTUM:01:CURRENT:SP:
+  nominal: 800.0
+BR:MAG:SEPTUM:01:STATUS:ON:
+  nominal: 'TRUE'
+BR:MAG:SEPTUM:02:CURRENT:RB:
+  noise:
+    absolute: 0.1
+BR:MAG:SEPTUM:02:CURRENT:SP:
+  nominal: 3000.0
+BR:MAG:SEPTUM:02:STATUS:ON:
+  nominal: 'TRUE'
 BTS:DIAG:BPM:01:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:01:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:01:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:01:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
 BTS:DIAG:BPM:02:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:02:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:02:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:02:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
 BTS:DIAG:BPM:03:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:03:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:03:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:03:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
 BTS:DIAG:BPM:04:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:04:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:04:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:04:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
 BTS:DIAG:BPM:05:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:05:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:05:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:05:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
 BTS:DIAG:BPM:06:POSITION:X:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:06:POSITION:Y:
-  nominal: 0.0
   noise:
     absolute: 0.005
 BTS:DIAG:BPM:06:STATUS:VALID:
   nominal: 'TRUE'
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+BTS:DIAG:BPM:06:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+BTS:DIAG:ICT:01:CHARGE:RB:
+  nominal: 0.8
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:06:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:07:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+BTS:DIAG:PADDLES:01:COUNT:INSERTED:
+  nominal: 0
+  gate:
+    inputs:
+      BR:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BR:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:06:PADDLE:RB: 'TRUE'
+      BTS:DIAG:TV:07:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 1
+BTS:DIAG:TV:01:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:01:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:02:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:02:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:03:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:03:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:04:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:04:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:04:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:05:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:05:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:06:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:06:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:06:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:DIAG:TV:07:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      BTS:DIAG:TV:07:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+BTS:DIAG:TV:07:PADDLE:SP:
+  nominal: 'FALSE'
+BTS:MAG:DIPOLE:01:CURRENT:RB:
+  noise:
+    absolute: 0.003
+BTS:MAG:DIPOLE:01:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:DIPOLE:02:CURRENT:RB:
+  noise:
+    absolute: 0.003
+BTS:MAG:DIPOLE:02:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:DIPOLE:03:CURRENT:RB:
+  noise:
+    absolute: 0.003
+BTS:MAG:DIPOLE:03:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:DIPOLE:04:CURRENT:RB:
+  noise:
+    absolute: 0.003
+BTS:MAG:DIPOLE:04:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:01:CURRENT:RB:
-  nominal: 1.221
   noise:
     absolute: 0.001
   drift:
@@ -362,12 +870,11 @@ BTS:MAG:HCM:01:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:01:CURRENT:SP:
-  nominal: 1.221
+BTS:MAG:HCM:01:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:01:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:HCM:02:CURRENT:RB:
-  nominal: 1.234
   noise:
     absolute: 0.001
   drift:
@@ -376,12 +883,11 @@ BTS:MAG:HCM:02:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:02:CURRENT:SP:
-  nominal: 1.234
+BTS:MAG:HCM:02:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:02:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:HCM:03:CURRENT:RB:
-  nominal: 1.235
   noise:
     absolute: 0.001
   drift:
@@ -390,12 +896,11 @@ BTS:MAG:HCM:03:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:03:CURRENT:SP:
-  nominal: 1.235
+BTS:MAG:HCM:03:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:03:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:HCM:04:CURRENT:RB:
-  nominal: 1.222
   noise:
     absolute: 0.001
   drift:
@@ -404,12 +909,11 @@ BTS:MAG:HCM:04:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:04:CURRENT:SP:
-  nominal: 1.222
+BTS:MAG:HCM:04:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:04:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:HCM:05:CURRENT:RB:
-  nominal: 1.201
   noise:
     absolute: 0.001
   drift:
@@ -418,12 +922,11 @@ BTS:MAG:HCM:05:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:05:CURRENT:SP:
-  nominal: 1.201
+BTS:MAG:HCM:05:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:05:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:HCM:06:CURRENT:RB:
-  nominal: 1.18
   noise:
     absolute: 0.001
   drift:
@@ -432,78 +935,120 @@ BTS:MAG:HCM:06:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:HCM:06:CURRENT:SP:
-  nominal: 1.18
+BTS:MAG:HCM:06:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:HCM:06:STATUS:READY:
   nominal: 'TRUE'
+BTS:MAG:HCM:07:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:HCM:07:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:HCM:08:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:HCM:08:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:HCM:09:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:HCM:09:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:QD:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+BTS:MAG:QD:01:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:QD:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+BTS:MAG:QD:02:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:QD:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+BTS:MAG:QD:03:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:QD:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+BTS:MAG:QD:04:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:QD:05:CURRENT:RB:
+  noise:
+    absolute: 0.001
+BTS:MAG:QD:05:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:01:CURRENT:RB:
-  nominal: 40.697
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:01:CURRENT:SP:
-  nominal: 40.697
+BTS:MAG:QF:01:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:01:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:QF:02:CURRENT:RB:
-  nominal: 41.135
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:02:CURRENT:SP:
-  nominal: 41.135
+BTS:MAG:QF:02:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:02:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:QF:03:CURRENT:RB:
-  nominal: 41.15
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:03:CURRENT:SP:
-  nominal: 41.15
+BTS:MAG:QF:03:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:03:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:QF:04:CURRENT:RB:
-  nominal: 40.737
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:04:CURRENT:SP:
-  nominal: 40.737
+BTS:MAG:QF:04:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:04:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:QF:05:CURRENT:RB:
-  nominal: 40.05
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:05:CURRENT:SP:
-  nominal: 40.05
+BTS:MAG:QF:05:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:05:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:QF:06:CURRENT:RB:
-  nominal: 39.344
   noise:
     absolute: 0.001
   clamp:
   - 0.0
   - null
-BTS:MAG:QF:06:CURRENT:SP:
-  nominal: 39.344
+BTS:MAG:QF:06:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:QF:06:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:01:CURRENT:RB:
-  nominal: 1.017
   noise:
     absolute: 0.001
   drift:
@@ -512,12 +1057,11 @@ BTS:MAG:VCM:01:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:01:CURRENT:SP:
-  nominal: 1.017
+BTS:MAG:VCM:01:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:01:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:02:CURRENT:RB:
-  nominal: 1.028
   noise:
     absolute: 0.001
   drift:
@@ -526,12 +1070,11 @@ BTS:MAG:VCM:02:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:02:CURRENT:SP:
-  nominal: 1.028
+BTS:MAG:VCM:02:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:02:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:03:CURRENT:RB:
-  nominal: 1.029
   noise:
     absolute: 0.001
   drift:
@@ -540,12 +1083,11 @@ BTS:MAG:VCM:03:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:03:CURRENT:SP:
-  nominal: 1.029
+BTS:MAG:VCM:03:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:03:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:04:CURRENT:RB:
-  nominal: 1.018
   noise:
     absolute: 0.001
   drift:
@@ -554,12 +1096,11 @@ BTS:MAG:VCM:04:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:04:CURRENT:SP:
-  nominal: 1.018
+BTS:MAG:VCM:04:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:04:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:05:CURRENT:RB:
-  nominal: 1.001
   noise:
     absolute: 0.001
   drift:
@@ -568,12 +1109,11 @@ BTS:MAG:VCM:05:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:05:CURRENT:SP:
-  nominal: 1.001
+BTS:MAG:VCM:05:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:05:STATUS:READY:
   nominal: 'TRUE'
 BTS:MAG:VCM:06:CURRENT:RB:
-  nominal: 0.984
   noise:
     absolute: 0.001
   drift:
@@ -582,9 +1122,886 @@ BTS:MAG:VCM:06:CURRENT:RB:
   clamp:
   - 0.0
   - null
-BTS:MAG:VCM:06:CURRENT:SP:
-  nominal: 0.984
+BTS:MAG:VCM:06:STATUS:ON:
+  nominal: 'TRUE'
 BTS:MAG:VCM:06:STATUS:READY:
+  nominal: 'TRUE'
+BTS:MAG:VCM:07:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:VCM:07:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:VCM:08:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:VCM:08:STATUS:ON:
+  nominal: 'TRUE'
+BTS:MAG:VCM:09:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+BTS:MAG:VCM:09:STATUS:ON:
+  nominal: 'TRUE'
+GTL:DIAG:BPM:01:POSITION:X:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+GTL:DIAG:BPM:01:POSITION:Y:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+GTL:DIAG:BPM:01:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 'FALSE'
+GTL:DIAG:BPM:01:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+GTL:DIAG:BPM:02:POSITION:X:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+GTL:DIAG:BPM:02:POSITION:Y:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+GTL:DIAG:BPM:02:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 'FALSE'
+GTL:DIAG:BPM:02:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+GTL:DIAG:ICT:01:CHARGE:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+GTL:DIAG:TV:01:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+GTL:DIAG:TV:01:PADDLE:SP:
+  nominal: 'FALSE'
+GTL:DIAG:TV:02:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+GTL:DIAG:TV:02:PADDLE:SP:
+  nominal: 'FALSE'
+GTL:GUN:EGUN:01:AUX_ON:SP:
+  nominal: 'TRUE'
+GTL:GUN:EGUN:01:BIAS:RB:
+  noise:
+    absolute: 0.01
+GTL:GUN:EGUN:01:BIAS:SP:
+  nominal: 40.0
+GTL:GUN:EGUN:01:HEATER:RB:
+  noise:
+    absolute: 0.001
+GTL:GUN:EGUN:01:HEATER:SP:
+  nominal: 6.0
+GTL:GUN:EGUN:01:HEATER_ON:SP:
+  nominal: 'TRUE'
+GTL:GUN:EGUN:01:HV_ON:SP:
+  nominal: 'TRUE'
+GTL:GUN:EGUN:01:PHASE:RB:
+  noise:
+    absolute: 0.01
+GTL:GUN:EGUN:01:PHASE:SP:
+  nominal: 0.0
+GTL:GUN:EGUN:01:VOLTAGE:RB:
+  noise:
+    absolute: 0.01
+GTL:GUN:EGUN:01:VOLTAGE:SP:
+  nominal: 120.0
+GTL:MAG:BC:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:BC:01:CURRENT:SP:
+  nominal: 1.5
+GTL:MAG:BC:01:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:BC:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:BC:02:CURRENT:SP:
+  nominal: 1.5
+GTL:MAG:BC:02:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:HCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:HCM:01:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:HCM:01:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:HCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:HCM:02:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:HCM:02:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:HCM:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:HCM:03:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:HCM:03:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:HCM:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:HCM:04:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:HCM:04:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:SOL:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+GTL:MAG:SOL:01:CURRENT:SP:
+  nominal: 5.0
+GTL:MAG:SOL:01:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:SOL:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+GTL:MAG:SOL:02:CURRENT:SP:
+  nominal: 6.0
+GTL:MAG:SOL:02:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:SOL:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+GTL:MAG:SOL:03:CURRENT:SP:
+  nominal: 7.0
+GTL:MAG:SOL:03:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:VCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:VCM:01:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:VCM:01:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:VCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:VCM:02:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:VCM:02:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:VCM:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:VCM:03:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:VCM:03:STATUS:ON:
+  nominal: 'TRUE'
+GTL:MAG:VCM:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+GTL:MAG:VCM:04:CURRENT:SP:
+  nominal: 0.0
+GTL:MAG:VCM:04:STATUS:ON:
+  nominal: 'TRUE'
+GTL:RF:SHB:01:HV_ON:SP:
+  nominal: 'TRUE'
+GTL:RF:SHB:01:PHASE:RB:
+  noise:
+    absolute: 0.01
+GTL:RF:SHB:01:PHASE:SP:
+  nominal: 45.0
+GTL:RF:SHB:01:PHASE_ON:SP:
+  nominal: 'TRUE'
+GTL:RF:SHB:01:VOLTAGE:RB:
+  noise:
+    absolute: 0.005
+GTL:RF:SHB:01:VOLTAGE:SP:
+  nominal: 10.0
+GTL:RF:SHB:02:HV_ON:SP:
+  nominal: 'TRUE'
+GTL:RF:SHB:02:PHASE:RB:
+  noise:
+    absolute: 0.01
+GTL:RF:SHB:02:PHASE:SP:
+  nominal: 30.0
+GTL:RF:SHB:02:PHASE_ON:SP:
+  nominal: 'TRUE'
+GTL:RF:SHB:02:VOLTAGE:RB:
+  noise:
+    absolute: 0.005
+GTL:RF:SHB:02:VOLTAGE:SP:
+  nominal: 12.0
+LN:DIAG:BPM:01:POSITION:X:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+LN:DIAG:BPM:01:POSITION:Y:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+LN:DIAG:BPM:01:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 'FALSE'
+LN:DIAG:BPM:01:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LN:DIAG:BPM:02:POSITION:X:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+LN:DIAG:BPM:02:POSITION:Y:
+  nominal: 0.0
+  noise:
+    absolute: 0.005
+LN:DIAG:BPM:02:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LN:DIAG:BPM:02:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LN:DIAG:ICT:01:CHARGE:RB:
+  nominal: 0.95
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LN:DIAG:TV:01:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LN:DIAG:TV:01:PADDLE:SP:
+  nominal: 'FALSE'
+LN:DIAG:TV:02:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LN:DIAG:TV:02:PADDLE:SP:
+  nominal: 'FALSE'
+LN:MAG:HCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LN:MAG:HCM:01:CURRENT:SP:
+  nominal: 0.0
+LN:MAG:HCM:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:HCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LN:MAG:HCM:02:CURRENT:SP:
+  nominal: 0.0
+LN:MAG:HCM:02:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:QD:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:QD:01:CURRENT:SP:
+  nominal: 3.9
+LN:MAG:QD:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:QF:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:QF:01:CURRENT:SP:
+  nominal: 2.5
+LN:MAG:QF:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:SOL:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:SOL:01:CURRENT:SP:
+  nominal: 10.0
+LN:MAG:SOL:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:SOL:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:SOL:02:CURRENT:SP:
+  nominal: 12.0
+LN:MAG:SOL:02:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:SOL:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:SOL:03:CURRENT:SP:
+  nominal: 14.0
+LN:MAG:SOL:03:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:SOL:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LN:MAG:SOL:04:CURRENT:SP:
+  nominal: 16.0
+LN:MAG:SOL:04:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:VCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LN:MAG:VCM:01:CURRENT:SP:
+  nominal: 0.0
+LN:MAG:VCM:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:MAG:VCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LN:MAG:VCM:02:CURRENT:SP:
+  nominal: 0.0
+LN:MAG:VCM:02:STATUS:ON:
+  nominal: 'TRUE'
+LN:RF:ACC:01:TEMPERATURE:RB:
+  nominal: 45.0
+  noise:
+    absolute: 0.19
+LN:RF:ACC:02:PHASE:RB:
+  noise:
+    absolute: 0.01
+LN:RF:ACC:02:PHASE:SP:
+  nominal: 10.0
+LN:RF:ACC:02:STATUS:ON:
+  nominal: 'TRUE'
+LN:RF:ACC:02:TEMPERATURE:RB:
+  nominal: 45.0
+  noise:
+    absolute: 0.19
+LN:RF:BUNCHER:01:TEMPERATURE:RB:
+  nominal: 45.0
+  noise:
+    absolute: 0.19
+LN:RF:MASTER:01:PHASE:RB:
+  noise:
+    absolute: 0.01
+LN:RF:MASTER:01:PHASE:SP:
+  nominal: 0.0
+LN:RF:MASTER:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:RF:WATER:01:STATUS:INTERLOCK:
+  nominal: 'FALSE'
+LN:RF:WATER:01:STATUS:ON:
+  nominal: 'TRUE'
+LN:RF:WATER:01:TEMPERATURE:RB:
+  noise:
+    absolute: 0.01
+LN:RF:WATER:01:TEMPERATURE:SP:
+  nominal: 45.0
+LTB:DIAG:BPM:01:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:01:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:01:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:01:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:BPM:02:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:02:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:02:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:02:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:BPM:03:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:03:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:03:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:03:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:BPM:04:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:04:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:04:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:04:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:BPM:05:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:05:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:05:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:05:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:BPM:06:POSITION:X:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:06:POSITION:Y:
+  noise:
+    absolute: 0.005
+LTB:DIAG:BPM:06:STATUS:VALID:
+  nominal: 'TRUE'
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 'FALSE'
+LTB:DIAG:BPM:06:SUM:RB:
+  nominal: 1.0
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:ICT:01:CHARGE:RB:
+  nominal: 0.9
+  gate:
+    inputs:
+      GTL:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      GTL:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+      GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
+      LN:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LN:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 0.01
+  noise:
+    absolute: 0.01
+LTB:DIAG:TV:01:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LTB:DIAG:TV:01:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LTB:DIAG:TV:01:PADDLE:SP:
+  nominal: 'FALSE'
+LTB:DIAG:TV:02:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LTB:DIAG:TV:02:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LTB:DIAG:TV:02:PADDLE:SP:
+  nominal: 'FALSE'
+LTB:DIAG:TV:03:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LTB:DIAG:TV:03:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LTB:DIAG:TV:03:PADDLE:SP:
+  nominal: 'FALSE'
+LTB:DIAG:TV:04:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LTB:DIAG:TV:04:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LTB:DIAG:TV:04:PADDLE:SP:
+  nominal: 'FALSE'
+LTB:DIAG:TV:05:LAMP:RB:
+  nominal: 'FALSE'
+  gate:
+    inputs:
+      LTB:DIAG:TV:05:PADDLE:RB: 'TRUE'
+    gated: 'TRUE'
+LTB:DIAG:TV:05:PADDLE:SP:
+  nominal: 'FALSE'
+LTB:MAG:DIPOLE:01:CURRENT:RB:
+  noise:
+    absolute: 0.003
+LTB:MAG:DIPOLE:01:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:DIPOLE:02:CURRENT:RB:
+  noise:
+    absolute: 0.003
+LTB:MAG:DIPOLE:02:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:DIPOLE:03:CURRENT:RB:
+  noise:
+    absolute: 0.003
+LTB:MAG:DIPOLE:03:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:DIPOLE:04:CURRENT:RB:
+  noise:
+    absolute: 0.003
+LTB:MAG:DIPOLE:04:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:HCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:HCM:01:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:HCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:HCM:02:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QD:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QD:01:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QD:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QD:02:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QD:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QD:03:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QD:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QD:04:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QF:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QF:01:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QF:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QF:02:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QF:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QF:03:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QF:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QF:04:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:QF:05:CURRENT:RB:
+  noise:
+    absolute: 0.001
+LTB:MAG:QF:05:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:01:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:01:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:02:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:02:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:03:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:03:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:04:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:04:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:05:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:05:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:06:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:06:STATUS:ON:
+  nominal: 'TRUE'
+LTB:MAG:VCM:07:CURRENT:RB:
+  noise:
+    absolute: 0.001
+  drift:
+    amplitude: 0.005
+    period_s: 21600.0
+LTB:MAG:VCM:07:STATUS:ON:
   nominal: 'TRUE'
 SR:DIAG:BPM:01:GOLDEN:X:
   nominal: 100.0
@@ -5380,6 +6797,24 @@ SR:MAG:SD:24:STATUS:FAULT:
 SR:MAG:SD:24:STATUS:ON:
   nominal: 'TRUE'
 SR:MAG:SD:24:STATUS:READY:
+  nominal: 'TRUE'
+SR:MAG:SEPTUM:01:CURRENT:RB:
+  noise:
+    absolute: 0.1
+SR:MAG:SEPTUM:01:CURRENT:SP:
+  nominal: 3000.0
+SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:
+  pulse:
+    driver: SR:MAG:SEPTUM:01:CURRENT:SP
+    enable: SR:MAG:SEPTUM:01:STATUS:ON
+SR:MAG:SEPTUM:01:STATUS:ON:
+  nominal: 'TRUE'
+SR:MAG:SEPTUM:02:CURRENT:RB:
+  noise:
+    absolute: 0.1
+SR:MAG:SEPTUM:02:CURRENT:SP:
+  nominal: 800.0
+SR:MAG:SEPTUM:02:STATUS:ON:
   nominal: 'TRUE'
 SR:MAG:SF:01:CURRENT:GOLDEN:
   nominal: 150.0

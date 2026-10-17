@@ -25,10 +25,10 @@ container serves as the instance ``VA_INSTANCE`` names: the entrypoint refuses
 to boot without one. See ``stage_demo_data_dir``.
 
 Process-boundary note: this conftest and every test module in this directory
-may import ``epics`` (pyepics, a CA *client*), but must NEVER import a Channel
-Access server -- the server extension exports the ca_* client symbols too, and
-importing it in-process breaks this process's ability to act as a CA client.
-The IOC itself only ever runs inside the container, in its own process.
+may import ``aioca`` (a CA *client*), but must NEVER import a Channel Access
+server -- the server extension bundles its own EPICS base, and importing it
+in-process breaks this process's ability to act as a CA client. The IOC itself
+only ever runs inside the container, in its own process.
 
 ``sweep_check`` (below) is loaded here, once, from its file path -- it's a
 script under ``scripts/va/``, not an importable dotted package -- so
@@ -435,7 +435,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @contextmanager
 def patched_config(**overrides: Any) -> Iterator[None]:
-    """Patch ``osprey.utils.config.get_config_value`` for the duration of the block.
+    """Patch ``osprey_connectors.config.get_config_value`` for the duration of the block.
 
     Every connector config lookup in this suite goes through this instead of
     relying on an ambient ``config.yml`` -- explicit and immune to whatever
@@ -467,16 +467,16 @@ def patched_config(**overrides: Any) -> Iterator[None]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
+    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
         yield
 
 
-# Connectors handed out by connect_va(), pending deterministic teardown. A
-# pyepics PV whose subscription is still live segfaults libca if it is
-# finalized by a garbage-collection cycle at an arbitrary point (observed
-# reproducibly: GC triggered inside a later test's json.load collects a prior
-# test's PVs -> PV.__del__ -> ca.clear_subscription -> SIGSEGV). Tests must
-# never leave connector PVs to die by GC.
+# Connectors handed out by connect_va(), pending deterministic teardown. aioca
+# keeps a subscription alive on the process's one CA loop until it is closed,
+# whatever becomes of the connector that opened it, so a test that left its
+# connector to the garbage collector would leave its monitors firing into every
+# later test. Each one is disconnected, closing its subscriptions, after its
+# test.
 _LIVE_CONNECTORS: list[Any] = []
 
 
@@ -489,7 +489,7 @@ async def connect_va(**config_overrides: Any):
     The connector is registered for automatic disconnect after the test (see
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(CONNECTOR_CONFIG)
@@ -667,30 +667,26 @@ def boot_report(container: str, host_port: int) -> str:
 def _readiness_pv_served() -> bool:
     """Probe container readiness in a SUBPROCESS.
 
-    The async connector wraps *sync* pyepics in a thread-pool executor, and
-    libca CA contexts are per-thread: a main-thread pyepics CA operation in
-    this process deadlocks the connector's executor-thread caget/caput calls.
-    So the readiness check must never touch pyepics in-process -- run it
-    out-of-process, exactly as the probe's caget check does. Returns True once
-    the readiness PV is served.
+    Channel Access reads ``EPICS_CA_*`` once, when a process's context is
+    created, and the probe points it at the container's published port. A
+    probe made in this process would pin its context to that port, and the
+    next connector to point elsewhere would drop that context and every
+    channel and monitor on it (``ca_loop.CaLoop.point_at``) -- so the
+    readiness check never touches Channel Access in-process: it runs
+    out-of-process, exactly as the probe's caget check does. Returns True once the readiness PV is served.
 
-    The probe leaves through ``os._exit`` rather than returning. This child
-    calls ``epics.caget`` directly and builds no connector, so nothing takes
-    pyepics' ``finalize_libca`` off its exit hooks the way
-    ``EPICSConnector.connect`` does for the processes that go through it. That
-    finalizer's recorded hang follows Channel Access use on a worker thread --
-    what the connector's executor does -- rather than the one main-thread
-    ``caget`` this child makes, which has not been seen to hang. The forced
-    exit is kept as a bound that costs nothing: a probe that will not die is
-    read here as a container that is not serving, and the word is written and
-    flushed before the exit.
+    The probe leaves through ``os._exit`` rather than returning. aioca's exit
+    hook destroys the CA context, and that destroy blocks for as long as a
+    name-server circuit is still retrying a port nothing serves yet -- the very
+    case a readiness probe polls through, and one seen to outlast this probe's
+    timeout. The word is written and flushed before the exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({READINESS_ADDRESS!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     env = {
         **os.environ,

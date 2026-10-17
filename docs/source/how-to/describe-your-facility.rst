@@ -351,6 +351,56 @@ value a weighted sum of other channels. A wired channel starts from its deck
 and needs no seed. The build stops with ``seed-invalid`` when a nominal lies
 outside the channel's limits.
 
+``pulse`` gives a waveform channel its trace. It names two other channels:
+``driver``, whose reading scales the trace, and ``enable``, which switches it
+on. The trace's shape is fixed in code, not in the seed; with ``enable`` off
+the trace is flat zero.
+
+.. code-block:: yaml
+
+   INJ:SEPTUM:PULSE:
+     pulse:
+       driver: INJ:SEPTUM:AMPL
+       enable: INJ:SEPTUM:ENABLE
+
+``gate`` says what a channel does while an interlock-like input blocks it.
+``inputs`` maps each input's address to its **blocking label**; while any input
+reads its blocking label the channel takes ``gated``, and otherwise it behaves
+as its other seed keys say. ``gated`` is typed by the gated channel: a factor
+greater than zero on a float channel (the value is scaled by it), a label on a
+bool or enum channel, an integer on an int channel.
+
+.. code-block:: yaml
+
+   SR:BEAM:CURRENT:
+     nominal: 250.0
+     gate:
+       inputs:
+         SR:RF:PERMIT: blocked
+       gated: 0.01
+
+The build checks both keys and stops with ``value-invalid`` when:
+
+- ``pulse`` sits on a channel that is not a waveform, or its ``driver`` is not
+  an unwired float channel, or its ``enable`` is not an unwired bool channel;
+- ``gate`` sits on a channel that is not float, int, bool or enum; an input is
+  wired, is not a bool or enum channel, or names a label that channel does not
+  have; or ``gated`` does not fit the channel's type as above;
+- ``gate`` inputs form a cycle (``a`` gated by ``b`` gated by ``a``).
+
+A ``pulse`` or ``gate`` input that names no channel stops the build with
+``reference-missing``.
+
+At run time the simulator applies a ``gate`` on every read, after a ``linear``
+sum and together with ``noise`` and ``drift``. A gated float reads its value
+times the factor, so it keeps a small residual that still moves; a gated bool
+or enum reads the label ``gated``; a gated int reads the integer ``gated``.
+Each input is read as its own current value, its own gate included, so gates
+chain: an input that is itself gated blocks whenever its gate holds it at the
+blocking label. An input the simulator does not serve never
+blocks. Live reads, change notifications and the archive's seeded history all
+see the same gated value.
+
 Models and decks
 ================
 

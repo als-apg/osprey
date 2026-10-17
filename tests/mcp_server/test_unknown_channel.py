@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
-from osprey.errors import ChannelNotFoundError
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ChannelNotArchivedError, ChannelNotFoundError
 from tests.connectors.test_mock_connector import _config_with_writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn, hook_error_class_map
@@ -46,18 +46,18 @@ async def served(tmp_path, monkeypatch):
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _config_with_writes_enabled)
 
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):
@@ -163,3 +163,26 @@ async def test_a_history_read_of_an_unknown_address_is_not_found():
 
 def test_the_hook_classes_the_answer_as_data():
     assert hook_error_class_map()["not_found"] == "Data"
+
+
+async def test_a_history_read_of_a_shot_record_is_not_archived():
+    """A channel of the facility with no history is not an unknown address: the
+    agent is told it is a shot record, to read live after a shot."""
+    with pytest.raises(ToolError) as excinfo:
+        async with connector_error_handler("archiver_read", "archiver"):
+            raise ChannelNotArchivedError("SR:DIAG:BPM:01:TBT:X")
+
+    assert _envelope(excinfo) == {
+        "error": True,
+        "error_type": "not_archived",
+        "error_message": (
+            "No archived history during archiver_read: SR:DIAG:BPM:01:TBT:X has no archived "
+            "history: it is a shot record, read it live after a shot"
+        ),
+        "suggestions": [
+            "Nothing was read from the archive for this channel.",
+            "Read it live after a shot instead of from the archiver.",
+        ],
+        "details": {"channel": "SR:DIAG:BPM:01:TBT:X"},
+    }
+    assert hook_error_class_map()["not_archived"] == "Data"

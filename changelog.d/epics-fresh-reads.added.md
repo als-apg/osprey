@@ -1,5 +1,5 @@
-`control_system.connector.<type>.fresh_reads: true` makes every Channel Access
-read of an EPICS-family connector ask the IOC (`use_monitor=False`) instead of
-answering from pyepics' monitor cache. An IOC that computes its readbacks on get
-posts no monitor update, so a cached read of it never changes. The option is per
-block, so a stand-in simulator can have it while the live machine does not.
+`control_system.connector.<type>.fresh_reads` is accepted by EPICS-family
+connector blocks. Every Channel Access read already asks the IOC rather than a
+monitor cache, so an IOC that computes its readbacks on get is read fresh
+whatever the key says; the key is kept, and validated, so a configuration that
+sets it per block (a stand-in simulator but not the live machine) keeps loading.

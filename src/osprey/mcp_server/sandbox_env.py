@@ -201,7 +201,6 @@ SANDBOX_CHILD_ENV_ALLOW_PREFIXES: tuple[str, ...] = (
     "LC_",
     "PYTHON",
     "EPICS_",
-    "PYEPICS_",
     "TANGO_",
 )
 

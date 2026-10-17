@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The refusal a ``config:`` spelling of the rendered key earns.
 CONFIG_REFUSAL = (

@@ -28,8 +28,8 @@ from osprey.interfaces.web_auth import (
 )
 from osprey.interfaces.web_terminal.routes import proxy
 from osprey.interfaces.web_terminal.routes.proxy import _EVENTS_PANEL_ID, _PANEL_STATE_MAP
-from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
 from tests.conftest import dispatcher_route_registry
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect, panel_app

@@ -52,7 +52,6 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
-from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
@@ -61,8 +60,9 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import (
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     STATE_DIR_NAME,

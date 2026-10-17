@@ -32,7 +32,7 @@ def facility_zone(monkeypatch):
 
     def _pin(name: str) -> None:
         zone = ZoneInfo(name)
-        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+        monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
 
     return _pin
 

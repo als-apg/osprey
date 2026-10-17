@@ -10,7 +10,7 @@ import json
 from enum import StrEnum
 
 import osprey_connectors.control_system as control_system_package
-from osprey.connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.base import WriteOutcome
 
 EXPECTED_OUTCOMES = {
     "REFUSED": "refused",

@@ -185,7 +185,7 @@ def default_altitude(
     ``load_project_dotenv`` is stubbed because it writes an ancestor ``.env``
     straight into ``os.environ``, which would outlive the test.
     """
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     result = CliRunner().invoke(cli, [])
     assert result.exit_code == 0, result.output
     logging.getLogger().setLevel(logging.INFO)
@@ -382,7 +382,7 @@ class TestAutonomousHostChangesAreReported:
     """What the deploy wrote, or decided, without being asked to."""
 
     def test_a_local_env_override_is_reported_by_name(self, default_altitude, printed, tmp_path):
-        from osprey.utils.dotenv import ENV_SHARED_FILENAME
+        from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
         (tmp_path / ENV_SHARED_FILENAME).write_text("ARIEL_DB_PASSWORD=shared\n", encoding="utf-8")
         (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=mine\n", encoding="utf-8")
@@ -589,9 +589,9 @@ class TestVerboseKeepsThePrimaryOutput:
     def test_a_promoted_fact_is_printed_under_verbose_too(
         self, terminal_probe, printed, tmp_path, monkeypatch
     ):
-        from osprey.utils.dotenv import ENV_SHARED_FILENAME
+        from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
-        monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+        monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
         assert CliRunner().invoke(cli, ["-v"]).exit_code == 0
 
         (tmp_path / ENV_SHARED_FILENAME).write_text("ARIEL_DB_PASSWORD=shared\n", encoding="utf-8")
@@ -740,6 +740,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
             "username": "root",
             "host": "localhost",
             "port": 27017,
+            "collection": "pv_history",
         },
     )
     monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
@@ -1805,7 +1806,7 @@ def _stored_value(env_auth_path: Path, var: str) -> str:
     Read back off the file rather than fabricated, so the "never printed"
     assertions are about the real secret this run generated.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     value = parse_dotenv_file(env_auth_path).get(var, "")
     assert value, f"nothing was stored for {var}"

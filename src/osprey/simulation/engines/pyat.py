@@ -780,6 +780,8 @@ def start_values(
             whatever :func:`prepare` raises for the settings of a model
             wiring a turn series.
     """
+    from osprey_connectors.simulation.values import is_waveform
+
     readbacks = readbacks or {}
     value_types = value_types or {}
     records = list(wiring)
@@ -787,7 +789,7 @@ def start_values(
         address = field(record, "address")
         value_type = value_types.get(address, "float")
         if is_series_record(record):
-            if value_type != "waveform":
+            if not is_waveform(value_type):
                 raise _stop(
                     deck,
                     field(record, "id") or address,
@@ -796,7 +798,7 @@ def start_values(
                     "wire a waveform channel, or leave the channel unwired",
                 )
             continue
-        if value_type == "waveform":
+        if is_waveform(value_type):
             admitted = address in readbacks and _reads_an_output(record)
         else:
             admitted = value_type == "float" or (value_type == "int" and _holds_shot_state(record))
@@ -815,7 +817,7 @@ def start_values(
     whole_outputs: set[str] = set()
     for record in records:
         address = field(record, "address")
-        if value_types.get(address, "float") == "waveform" and not is_series_record(record):
+        if is_waveform(value_types.get(address)) and not is_series_record(record):
             _check_whole_output(record, (shapes or {}).get(address, ()), deck, planes)
             whole_outputs.add(address)
     samples = _series_length(records, shapes or {}, deck, settings)
@@ -1086,7 +1088,9 @@ def _names_element(record: Mapping[str, Any]) -> bool:
 
 
 def _is_waveform(record: Mapping[str, Any]) -> bool:
-    return bool(field(record, "value_type") == "waveform")
+    from osprey_connectors.simulation.values import is_waveform
+
+    return is_waveform(field(record, "value_type"))
 
 
 def _optics_source(record: Mapping[str, Any], deck: Deck, planes: int) -> tuple[str, int | None]:

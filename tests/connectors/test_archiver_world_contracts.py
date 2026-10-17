@@ -339,7 +339,7 @@ class World:
 
     async def stored(self, channels, start: datetime, end: datetime) -> pd.DataFrame:
         """Read the store through the connector a deployed agent uses."""
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 

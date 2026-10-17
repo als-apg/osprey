@@ -63,7 +63,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_WEB_APP_NAME,
 )
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
-from osprey.utils.workspace import agent_data_base_dir
+from osprey_connectors.workspace import agent_data_base_dir
 
 
 class _InMemoryBytecodeCache(BytecodeCache):

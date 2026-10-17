@@ -58,28 +58,39 @@ from typing import Any
 def _worker(request: dict) -> dict:
     """Read each address over Channel Access and report what it served.
 
-    Reads only: this process has no write operation to run. Values are read
-    off the wire (``use_monitor=False``) so a cached value cannot stand in for
-    a served one.
+    Reads only: this process has no write operation to run. aioca keeps no
+    monitor cache, so every value is the one read off the wire.
     """
-    import epics
+    import asyncio
+
+    import aioca
 
     timeout = float(request.get("timeout", 30.0))
     values: dict[str, Any] = {}
     failed: dict[str, str] = {}
-    for address in request["addresses"]:
+
+    async def read(address: str) -> None:
         try:
-            pv = epics.PV(address, connection_timeout=timeout)
-            if not pv.wait_for_connection(timeout=timeout):
-                raise RuntimeError(f"{address} never connected")
-            values[address] = pv.get(use_monitor=False, timeout=timeout)
+            connected = await aioca.connect(address, timeout=timeout, throw=False)
+            if not connected.ok:
+                raise RuntimeError(f"{address} never connected: {connected}")
+            value = await aioca.caget(address, timeout=timeout, throw=False)
+            if not value.ok:
+                raise RuntimeError(f"{address} answered no value: {value}")
+            values[address] = value.tolist() if hasattr(value, "tolist") else value
         except Exception as error:  # reported to the test, not raised here
             failed[address] = f"{type(error).__name__}: {error}"
+
+    async def read_all() -> None:
+        for address in request["addresses"]:
+            await read(address)
+
+    asyncio.run(read_all())
     return {"values": values, "failed": failed}
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
-    # Before the heavy imports below, so the CA client process carries pyepics
+    # Before the heavy imports below, so the CA client process carries aioca
     # and nothing else.
     print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
     os._exit(0)

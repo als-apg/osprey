@@ -549,11 +549,11 @@ class TestDroppedReferences:
 
 class TestClasses:
     def test_known_classes_join_vocabulary_and_classes_yaml(self) -> None:
-        known = known_classes([{"class": "Kicker", "parent": "Magnet"}])
-        assert {"Quadrupole", "Magnet", "Kicker"} <= known
+        known = known_classes([{"class": "Undulator", "parent": "Magnet"}])
+        assert {"Quadrupole", "Magnet", "Undulator"} <= known
 
     def test_unknown_device_class(self, tmp_path: Path) -> None:
-        files = _tree(**{"records/devices.yaml": [QUAD, {**BPM, "class": "Kicker"}]})
+        files = _tree(**{"records/devices.yaml": [QUAD, {**BPM, "class": "Undulator"}]})
         error = _one(tmp_path, files, "references")
         assert (error.kind, error.record_kind, error.record_id) == (
             "class-unknown",
@@ -565,10 +565,10 @@ class TestClasses:
         files = _tree(
             **{
                 "classes.yaml": [
-                    {"class": "Kicker", "parent": "Magnet"},
-                    {"class": "FastKicker", "parent": "Kicker"},
+                    {"class": "Undulator", "parent": "Magnet"},
+                    {"class": "PlanarUndulator", "parent": "Undulator"},
                 ],
-                "records/devices.yaml": [QUAD, {**BPM, "class": "FastKicker"}],
+                "records/devices.yaml": [QUAD, {**BPM, "class": "PlanarUndulator"}],
             }
         )
         assert _run(tmp_path, files).ok
@@ -577,8 +577,8 @@ class TestClasses:
         files = _tree(
             **{
                 "classes.yaml": [
-                    {"class": "FastKicker", "parent": "Kicker"},
-                    {"class": "Kicker", "parent": "Magnet"},
+                    {"class": "PlanarUndulator", "parent": "Undulator"},
+                    {"class": "Undulator", "parent": "Magnet"},
                 ]
             }
         )
@@ -586,7 +586,7 @@ class TestClasses:
         assert (error.kind, error.record_kind, error.record_id) == (
             "class-unknown",
             "class",
-            "FastKicker",
+            "PlanarUndulator",
         )
 
     def test_an_unknown_parent(self, tmp_path: Path) -> None:
@@ -1120,6 +1120,256 @@ class TestSeedRules:
         files = _tree(**{"seeds.yaml": {"Q1:RB": {"nominal": 1.0}}})
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "`nominal` 1.0 differs from its setpoint Q1:SP's 0.0"
+
+
+# --- pulse and gate seeds ------------------------------------------------------------
+
+EXAMPLE_TREE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
+
+TRACE = {"id": "SEK:TRACE", "value_type": "waveform", "shape": [500]}
+DRIVE = {"id": "SEK:SP", "role": "setpoint"}
+ON = {"id": "SEK:STATUS:ON", "value_type": "bool", "options": ["OFF", "ON"]}
+PADDLE = {"id": "TV1:PADDLE:RB", "value_type": "bool", "options": ["OFF", "ON"]}
+MODE = {"id": "GUN:MODE", "value_type": "enum", "options": ["OFF", "STANDBY", "BEAM"]}
+SUM = {"id": "BPM1:SUM"}
+COUNT = {"id": "PADDLES:IN", "value_type": "int"}
+LAMP = {"id": "TV1:LAMP", "value_type": "bool", "options": ["OFF", "ON"]}
+PULSE = {"pulse": {"driver": "SEK:SP", "enable": "SEK:STATUS:ON"}}
+
+
+def _pulse_tree(*channels: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    """The clean tree plus a pulsed septum and the channels a gate reads."""
+    seeds = {"SEK:TRACE": PULSE, **extra.pop("seeds", {})}
+    return _with_channels(
+        TRACE,
+        DRIVE,
+        ON,
+        PADDLE,
+        MODE,
+        SUM,
+        COUNT,
+        LAMP,
+        *channels,
+        **{"seeds.yaml": seeds},
+        **extra,
+    )
+
+
+def _gate(inputs: dict[str, str], gated: Any, **seed: Any) -> dict[str, Any]:
+    return {**seed, "gate": {"inputs": inputs, "gated": gated}}
+
+
+def _event(channel: str) -> dict[str, Any]:
+    return {"channel": channel, "events": [{"shape": "step", "at_offset": -3600, "to": 1.0}]}
+
+
+class TestPulseRules:
+    def test_a_pulse_on_a_waveform_builds(self, tmp_path: Path) -> None:
+        result = _run(tmp_path, _pulse_tree())
+        assert result.ok, _lines(result)
+
+    def test_a_pulse_on_a_float_channel(self, tmp_path: Path) -> None:
+        error = _rule(tmp_path, _pulse_tree(seeds={"BPM1:SUM": PULSE}), "value-invalid")
+        assert error.record_id == "BPM1:SUM"
+        assert (
+            error.detail
+            == "a float channel carries `pulse`; `pulse` applies to waveform channels only"
+        )
+        assert error.sources == ("seeds.yaml",)
+
+    def test_a_wired_driver(self, tmp_path: Path) -> None:
+        files = _pulse_tree(**{"models.yaml": [_wired("SEK:SP")]})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.record_id == "SEK:TRACE"
+        assert error.detail == "`pulse.driver` SEK:SP is wired"
+
+    @pytest.mark.parametrize(
+        ("driver", "detail"),
+        [
+            ("SEK:STATUS:ON", "`pulse.driver` SEK:STATUS:ON is bool, not float"),
+            ("PADDLES:IN", "`pulse.driver` PADDLES:IN is int, not float"),
+        ],
+        ids=["bool", "int"],
+    )
+    def test_a_non_float_driver(self, tmp_path: Path, driver: str, detail: str) -> None:
+        seeds = {"SEK:TRACE": {"pulse": {"driver": driver, "enable": "SEK:STATUS:ON"}}}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert error.detail == detail
+
+    @pytest.mark.parametrize(
+        ("enable", "detail"),
+        [
+            ("SEK:SP", "`pulse.enable` SEK:SP is float, not bool"),
+            ("GUN:MODE", "`pulse.enable` GUN:MODE is enum, not bool"),
+        ],
+        ids=["float", "enum"],
+    )
+    def test_a_non_bool_enable(self, tmp_path: Path, enable: str, detail: str) -> None:
+        seeds = {"SEK:TRACE": {"pulse": {"driver": "SEK:SP", "enable": enable}}}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert error.detail == detail
+
+    def test_a_wired_enable(self, tmp_path: Path) -> None:
+        files = _pulse_tree(**{"models.yaml": [_wired("SEK:STATUS:ON")]})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == "`pulse.enable` SEK:STATUS:ON is wired"
+
+    @pytest.mark.parametrize("slot", ["driver", "enable"])
+    def test_a_missing_pulse_channel(self, tmp_path: Path, slot: str) -> None:
+        pulse = {"driver": "SEK:SP", "enable": "SEK:STATUS:ON", slot: "GONE"}
+        files = _pulse_tree(seeds={"SEK:TRACE": {"pulse": pulse}})
+        error = _one(tmp_path, files, "references")
+        _missing(error, "channel", "SEK:TRACE", f"`simulation.pulse.{slot}` names channel GONE")
+
+
+class TestGateRules:
+    def test_a_gate_beside_nominal_builds(self, tmp_path: Path) -> None:
+        seeds = {
+            "BPM1:SUM": _gate({"TV1:PADDLE:RB": "ON"}, 0.02, nominal=5.0),
+            "TV1:LAMP": _gate({"TV1:PADDLE:RB": "ON"}, "ON"),
+            "PADDLES:IN": _gate({"TV1:PADDLE:RB": "ON", "GUN:MODE": "OFF"}, 1, nominal=0),
+        }
+        result = _run(tmp_path, _pulse_tree(seeds=seeds))
+        assert result.ok, _lines(result)
+
+    def test_a_float_input(self, tmp_path: Path) -> None:
+        seeds = {"BPM1:SUM": _gate({"SEK:SP": "ON"}, 0.02, nominal=5.0)}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert error.record_id == "BPM1:SUM"
+        assert error.detail == "`gate` input SEK:SP is float, not bool or enum"
+
+    def test_a_wired_input(self, tmp_path: Path) -> None:
+        seeds = {"BPM1:SUM": _gate({"TV1:PADDLE:RB": "ON"}, 0.02)}
+        files = _pulse_tree(seeds=seeds, **{"models.yaml": [_wired("TV1:PADDLE:RB")]})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == "`gate` input TV1:PADDLE:RB is wired"
+
+    def test_a_blocking_label_the_input_lacks(self, tmp_path: Path) -> None:
+        seeds = {"BPM1:SUM": _gate({"GUN:MODE": "FIRING"}, 0.02)}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert error.detail.startswith("`gate` input GUN:MODE blocking label `FIRING`:")
+
+    @pytest.mark.parametrize(
+        ("target", "gated", "detail"),
+        [
+            ("BPM1:SUM", "ON", "`gate.gated` of float channel BPM1:SUM is 'ON', not a factor > 0"),
+            ("BPM1:SUM", 0, "`gate.gated` of float channel BPM1:SUM is 0, not a factor > 0"),
+            ("BPM1:SUM", -0.5, "`gate.gated` of float channel BPM1:SUM is -0.5, not a factor > 0"),
+            ("BPM1:SUM", True, "`gate.gated` of float channel BPM1:SUM is True, not a factor > 0"),
+            ("TV1:LAMP", 0.5, "`gate.gated` of bool channel TV1:LAMP is 0.5, not a label"),
+            (
+                "GUN:MODE",
+                "FIRING",
+                "`gate.gated` of enum channel GUN:MODE is 'FIRING', not a label",
+            ),
+            ("PADDLES:IN", 1.5, "`gate.gated` of int channel PADDLES:IN is 1.5, not an integer"),
+            (
+                "PADDLES:IN",
+                "ONE",
+                "`gate.gated` of int channel PADDLES:IN is 'ONE', not an integer",
+            ),
+        ],
+        ids=[
+            "label-on-float",
+            "zero-factor",
+            "negative-factor",
+            "bool-factor",
+            "factor-on-bool",
+            "unknown-enum-label",
+            "fraction-on-int",
+            "label-on-int",
+        ],
+    )
+    def test_a_mistyped_gated(self, tmp_path: Path, target: str, gated: Any, detail: str) -> None:
+        seeds = {target: _gate({"TV1:PADDLE:RB": "ON"}, gated)}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert (error.record_id, error.detail) == (target, detail)
+
+    def test_a_gate_on_a_waveform(self, tmp_path: Path) -> None:
+        seeds = {"SEK:TRACE": {**PULSE, **_gate({"TV1:PADDLE:RB": "ON"}, 0.5)}}
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert error.detail == (
+            "a waveform channel carries `gate`; `gate` applies to float, int, bool and enum "
+            "channels"
+        )
+
+    def test_a_gate_cycle(self, tmp_path: Path) -> None:
+        seeds = {
+            "TV1:PADDLE:RB": _gate({"TV1:LAMP": "ON"}, "ON"),
+            "TV1:LAMP": _gate({"TV1:PADDLE:RB": "ON"}, "ON"),
+        }
+        error = _rule(tmp_path, _pulse_tree(seeds=seeds), "value-invalid")
+        assert (error.record_id, error.detail) == (
+            "TV1:LAMP",
+            "`gate` inputs form a cycle: TV1:LAMP -> TV1:PADDLE:RB -> TV1:LAMP",
+        )
+
+    def test_a_gate_chain_builds(self, tmp_path: Path) -> None:
+        seeds = {
+            "TV1:LAMP": _gate({"TV1:PADDLE:RB": "ON"}, "ON"),
+            "BPM1:SUM": _gate({"TV1:LAMP": "ON"}, 0.02),
+        }
+        result = _run(tmp_path, _pulse_tree(seeds=seeds))
+        assert result.ok, _lines(result)
+
+    def test_a_missing_gate_input(self, tmp_path: Path) -> None:
+        seeds = {"BPM1:SUM": _gate({"GONE": "ON"}, 0.02)}
+        error = _one(tmp_path, _pulse_tree(seeds=seeds), "references")
+        _missing(error, "channel", "BPM1:SUM", "`simulation.gate.inputs` names channel GONE")
+
+
+class TestRefusedArchiverEvents:
+    GATED = {"BPM1:SUM": _gate({"TV1:PADDLE:RB": "ON"}, 0.02, nominal=5.0)}
+
+    @pytest.mark.parametrize(
+        ("channel", "reason"),
+        [
+            ("SEK:STATUS:ON", "the `pulse.enable` of SEK:TRACE"),
+            ("SEK:SP", "the `pulse.driver` of SEK:TRACE"),
+            ("TV1:PADDLE:RB", "a `gate` input of BPM1:SUM"),
+        ],
+        ids=["pulse-enable", "pulse-driver", "gate-input"],
+    )
+    def test_an_event_on_a_refused_address(self, tmp_path: Path, channel: str, reason: str) -> None:
+        files = _pulse_tree(
+            seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": [_event(channel)]}}
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert error.sources == ("scenarios/s.yaml",)
+        assert error.detail == f"`archiver` steps {channel}, {reason}"
+        line = error.format_message()
+        assert "\n" not in line
+        assert line.startswith("facility: seed-invalid: scenario s — ")
+
+    def test_one_error_per_refused_entry(self, tmp_path: Path) -> None:
+        archiver = [_event("SEK:SP"), _event("BPM1:X"), _event("TV1:PADDLE:RB")]
+        files = _pulse_tree(seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": archiver}})
+        result = _run(tmp_path, files)
+        assert result.failed == "records"
+        assert [e.kind for e in result.errors] == ["seed-invalid", "seed-invalid"]
+
+    def test_an_event_on_a_linear_input_builds(self, tmp_path: Path) -> None:
+        seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}}}
+        files = _pulse_tree(seeds=seeds, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:X")]}})
+        result = _run(tmp_path, files)
+        assert result.ok, _lines(result)
+
+    def test_an_event_on_the_gated_channel_builds(self, tmp_path: Path) -> None:
+        files = _pulse_tree(
+            seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:SUM")]}}
+        )
+        result = _run(tmp_path, files)
+        assert result.ok, _lines(result)
+
+    def test_the_example_tree_builds(self) -> None:
+        scenario = yaml.safe_load(
+            (EXAMPLE_TREE / "scenarios" / "rf-thermal.yaml").read_text(encoding="utf-8")
+        )
+        stepped = {entry["channel"] for entry in scenario["archiver"]}
+        assert "SR:RF:CAVITY:01:POWER:REV" in stepped
+        result = run_stages(EXAMPLE_TREE, project_name="example")
+        assert result.ok, _lines(result)
 
 
 # --- ordered slots ------------------------------------------------------------------

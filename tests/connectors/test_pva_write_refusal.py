@@ -2,7 +2,7 @@
 
 OSPREY's PVAccess support is a read path. An address matching one of the
 ``control_system.connector.epics.pva_channels`` globs must never reach a write
-primitive — not p4p's ``put``, and not pyepics' ``caput`` either (the CA client
+primitive — not p4p's ``put``, and not the Channel Access ``caput`` either (the CA client
 would happily write a same-named record over a different transport).
 
 The refusal is the FIRST statement of ``write_channel`` for a concrete reason,
@@ -24,8 +24,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from osprey.connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.base import WriteOutcome
 from tests.connectors._epics_fakes import (
+    FakeAioca,
+    FakeChannel,
     ca_connector,
     fake_p4p_module,
     writes_enabled,  # noqa: F401 - fixture, used by name
@@ -59,10 +61,8 @@ class _RecordingValidator:
 
 def _connector(*, globs=(PVA_GLOB,)):
     """A connector wired for both transports without touching ``connect()``."""
-    connector = ca_connector(
-        epics=MagicMock(name="epics"), limits_validator=_RecordingValidator(), timeout=3.0
-    )
-    connector._epics.caput.return_value = True
+    ca = FakeAioca({CA_ADDRESS: FakeChannel(), PVA_ADDRESS: FakeChannel()})
+    connector = ca_connector(aioca=ca, limits_validator=_RecordingValidator(), timeout=3.0)
     connector._pva_channel_globs = list(globs)
     # A p4p stub carrying only ``Context``, so any use of it would be visible.
     connector._p4p = fake_p4p_module(errors=False)
@@ -87,8 +87,8 @@ def _assert_nothing_downstream_ran(connector):
     assert connector._pva_context.mock_calls == [], (
         f"PVA context was used on a refused write: {connector._pva_context.mock_calls}"
     )
-    assert connector._epics.mock_calls == [], (
-        f"CA client was used on a refused write: {connector._epics.mock_calls}"
+    assert connector._aioca.calls == [], (
+        f"CA client was used on a refused write: {connector._aioca.calls}"
     )
 
 
@@ -160,8 +160,7 @@ class TestChannelAccessWritesUnchanged:
 
         assert result.outcome is WriteOutcome.UNREQUESTED
         assert result.refusal_reason is None
-        connector._epics.caput.assert_called_once()
-        assert connector._epics.caput.call_args.args[0] == CA_ADDRESS
+        assert [name for name, _value, _wait in connector._aioca.puts] == [CA_ADDRESS]
         assert connector._pva_context.mock_calls == []
 
     @pytest.mark.asyncio
@@ -172,4 +171,4 @@ class TestChannelAccessWritesUnchanged:
         result = await connector.write_channel(PVA_ADDRESS, 4.2, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        connector._epics.caput.assert_called_once()
+        assert [name for name, _value, _wait in connector._aioca.puts] == [PVA_ADDRESS]

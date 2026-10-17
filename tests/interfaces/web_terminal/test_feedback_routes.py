@@ -41,7 +41,7 @@ from osprey.interfaces.web_terminal.feedback_composer import (
 )
 from osprey.interfaces.web_terminal.feedback_destination import resolve_deployment_identity
 from osprey.interfaces.web_terminal.routes.feedback import router
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 OTHER_SESSION_ID = "11111111-2222-3333-4444-555555555555"

@@ -16,7 +16,9 @@ dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
-    "pyepics",
+    # Channel Access client for the EPICS connector. Pure Python on top of
+    # epicscorelibs, which ships a libca per architecture.
+    "aioca>=2.1",
     # pvAccess client for the EPICS connector's PVA transport. Core, not an
     # extra: extras get forgotten by deployments, and a platform marker would
     # strip p4p from exactly the arm64 images that need it. Wheels ship for
@@ -24,8 +26,8 @@ dependencies = [
     # pvxslibs and epicscorelibs releases it requires also ship linux aarch64
     # wheels, but for CPython 3.14 only: on 3.11-3.13 an arm64-linux install
     # still builds all three from source and needs a C toolchain (the project
-    # image's deps layer stages and purges one). pyepics (above), p4p and
-    # aioca all load the one EPICS base epicscorelibs carries.
+    # image's deps layer stages and purges one). p4p and aioca both load the
+    # one EPICS base epicscorelibs carries.
     "p4p>=4.3",
     # MongoDB client for MongoDBArchiverConnector. Declared even though the
     # connector imports it inside connect(): the deferred import exists so

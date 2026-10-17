@@ -487,7 +487,7 @@ class _FakeConnector:
         # settle poll above as the only check, which is what this fake wants.
         # Imported in-function: the module level here stays dependency-light so
         # the parsing tests run in a slimmed install.
-        from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
+        from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 
         return ChannelWriteResult(
             channel_address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
@@ -495,7 +495,7 @@ class _FakeConnector:
 
 
 class _FakeChannelValue:
-    """Stand-in for ``osprey.connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
 
     def __init__(self, value: float) -> None:
         self.value = value

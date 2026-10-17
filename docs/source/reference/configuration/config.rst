@@ -878,8 +878,7 @@ included, refuses every run, so no run is left without a time bound.
 Agent Python — the python executor, the visualization tools and plan
 validation — starts with a fixed set of environment variables from the host:
 paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
-control-system client settings (``EPICS_*``, ``PYEPICS_*``, ``TANGO_*``,
-``ENSHOST``) and the osprey names the run itself reads. Nothing else from the
+control-system client settings (``EPICS_*``, ``TANGO_*``, ``ENSHOST``) and the osprey names the run itself reads. Nothing else from the
 host reaches it. ``python_executor.child_env_passthrough`` adds names to that
 set, for an analysis library that reads its own variable:
 

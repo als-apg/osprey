@@ -45,7 +45,7 @@ from osprey.mcp_server.ariel.tools.entry import entry_create
 from osprey.mcp_server.ariel.tools.publish import entry_publish
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.service import ARIELSearchService
-from osprey.utils.workspace import reset_config_cache
+from osprey_connectors.workspace import reset_config_cache
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     EXAMPLE_SOURCE_SYSTEM,
     DictRepository,

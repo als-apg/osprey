@@ -548,7 +548,7 @@ class ControlContextOwnerTask:
         record writer should carry.
         """
         from osprey.mcp_server.control_system.connector_host_manager import baseline_target
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         return baseline_target(load_osprey_config())
 
@@ -625,13 +625,13 @@ class ControlContextOwnerTask:
 
     def _rendered_config(self) -> Any:
         """The whole rendered config, which is what the switch gate reads."""
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         return load_osprey_config()
 
     def _config_path(self) -> str:
         """The file :meth:`_rendered_config` reads, which the switch gate fills unset gateway ports from."""
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         return str(resolve_config_path())
 

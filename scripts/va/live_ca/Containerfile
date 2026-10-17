@@ -3,7 +3,7 @@
 # tests/va/test_apply_fault.py asserts the scenario faults from the far side
 # of a real Channel Access wire, and tests/va/test_lume_pva_seam.py asserts the
 # model runner's seam on both transports (the suite --pva requires): a real
-# pcaspy and p4p server, a real composite, and real pyepics and p4p clients.
+# pcaspy and p4p server, a real composite, and real aioca and p4p clients.
 # They need pcaspy, which publishes no loadable macOS arm64 wheel, so on a
 # developer's Mac they skip -- loudly, but they skip, and a skipped live suite
 # proves nothing. This image is where they are not allowed to skip.

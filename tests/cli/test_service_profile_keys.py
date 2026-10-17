@@ -26,7 +26,7 @@ from osprey.cli.build_profile_load import (
 )
 from osprey.cli.build_profile_model import SERVICE_AXES
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"

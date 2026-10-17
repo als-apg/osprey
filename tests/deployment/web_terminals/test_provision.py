@@ -37,7 +37,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.

@@ -111,6 +111,16 @@ def _c_float(text: str) -> float | None:
     return None
 
 
+def c_numeral(text: str, *, integer_field: bool) -> int | float | None:
+    """``text`` as the IOC's C conversion reads it into one field type, or ``None``.
+
+    An integer field reads ``strtol`` numerals only; a floating-point field
+    reads ``strtod``'s. Surrounding C whitespace is skipped, as C skips it.
+    """
+    text = text.strip(_C_WHITESPACE)
+    return _c_integer(text) if integer_field else _c_float(text)
+
+
 def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     """The number a string write delivers, read the way the EPICS client reads it.
 
@@ -124,9 +134,12 @@ def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     The validator does not know the channel's type, so a string is accepted
     only when every reading that succeeds gives the same number; ``"010"`` is
     refused as ambiguous. That makes it exactly as permissive as the C rules
-    or stricter, never looser. pyepics (``int(text, 0)`` for an integer field,
-    ``float()`` otherwise) either delivers the same number for every string
-    accepted here or refuses the write.
+    or stricter, never looser. The EPICS connector does not leave the
+    conversion to the IOC, which would stop at the first character it cannot
+    read and store ``"1e3"`` in an integer field as 1: it reads the text by the
+    rule for the channel's own field type (:func:`c_numeral`) and refuses text
+    that rule cannot read, so every string accepted here and written lands as
+    the number it was checked as.
 
     ``nan``, ``inf`` and ``infinity`` (which ``strtod`` takes) are not numerals
     here and are refused, like their float counterparts.

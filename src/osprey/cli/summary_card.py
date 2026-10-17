@@ -25,8 +25,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.deployment.subprocess_capture import SPOOL_DIR
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 from . import output
 from .phase_reporter import NullReporter, current_reporter

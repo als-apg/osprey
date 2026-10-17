@@ -3,17 +3,19 @@
 The armed partition (:data:`_ARMED_BLOCKED`) names Python entry points, while a
 channel write finally leaves the process through one of three C calls:
 ``ca_array_put``, ``ca_array_put_callback`` and ``ca_sg_array_put``. This test
-reads the installed, lock-pinned pyepics and aioca sources with :mod:`ast`,
-lists every call of those three symbols, and asserts that the public function
-enclosing each call is refused by an ``_ARMED_BLOCKED`` row -- either directly,
-or because every caller of a private helper holding the call is itself covered.
+reads the installed, lock-pinned aioca source with :mod:`ast`, lists every
+call of those three symbols, and asserts that the public function enclosing
+each call is refused by an ``_ARMED_BLOCKED`` row -- either directly, or
+because every caller of a private helper holding the call is itself covered.
+pyepics is not a dependency, so its sources are not scanned; its rows guard a
+copy a user installs themselves.
 
 A site that nothing covers fails the test with its file and line, so a client
 upgrade that adds a new put path cannot pass unnoticed.
 
-The ``libca`` handles carry the same three symbols as attributes: the one
-pyepics loads for itself, and the one ``epicscorelibs.ca.cadef`` loads in its
-module body and aioca reads through. A run that reaches either handle directly
+The ``libca`` handles carry the same three symbols as attributes: the one a
+user-installed pyepics loads for itself, and the one ``epicscorelibs.ca.cadef``
+loads in its module body and aioca reads through. A run that reaches either handle directly
 calls C without going through any Python entry point; those attributes are
 listed below as documented cooperative bypasses rather than rows of the
 partition. A readonly run closes them, which is pinned here as well.
@@ -40,15 +42,10 @@ PUT_SYMBOLS: frozenset[str] = frozenset(
 )
 
 #: Installed sources scanned: (top-level package, path inside the package).
-SCANNED_SOURCES: tuple[tuple[str, str], ...] = (
-    ("epics", "ca.py"),
-    ("epics", "pv.py"),
-    ("epics", "__init__.py"),
-    ("aioca", "_catools.py"),
-)
+SCANNED_SOURCES: tuple[tuple[str, str], ...] = (("aioca", "_catools.py"),)
 
-#: Receivers a put site may call through. ``libca`` is pyepics' module-global
-#: handle to the loaded shared library; ``cadef`` is the ctypes binding aioca
+#: Receivers a put site may call through. ``libca`` is a user-installed
+#: pyepics' module-global handle to the loaded shared library; ``cadef`` is the ctypes binding aioca
 #: imports from ``epicscorelibs.ca``.
 _LIBCA_HANDLE = "epics.ca.libca"
 _CADEF_MODULE = "epicscorelibs.ca.cadef"
@@ -235,10 +232,11 @@ def sites(scans: list[_Scanner]) -> list[PutSite]:
 # --- the pinned sources ----------------------------------------------------
 
 
-def test_scan_finds_every_put_symbol(sites: list[PutSite]) -> None:
-    """The scan is not vacuous: each of the three C puts has a call site."""
+def test_scan_finds_the_aioca_put_symbols(sites: list[PutSite]) -> None:
+    """The scan is not vacuous: aioca's plain and callback puts each have a call site."""
     found = {site.symbol for site in sites}
-    assert found == PUT_SYMBOLS, f"put symbols with no call site: {sorted(PUT_SYMBOLS - found)}"
+    expected = {"ca_array_put", "ca_array_put_callback"}
+    assert found == expected, f"put symbols found {sorted(found)}, expected {sorted(expected)}"
 
 
 def test_every_put_site_is_behind_an_armed_blocked_row(scans: list[_Scanner]) -> None:
@@ -285,7 +283,7 @@ def test_readonly_closes_the_cadef_libca_bypasses() -> None:
 
     The handle predates the guard's ``ctypes`` gate, and a put symbol it has
     already resolved is cached on the instance, so the readonly table has to
-    name it. pyepics' handle is closed as the gate hands it out instead.
+    name it. A user-installed pyepics never gets a handle: its load is refused.
     """
     readonly = {(dotted, attr) for dotted, attrs in _READONLY_WRITE_TARGETS for attr in attrs}
     for row in COOPERATIVE_BYPASSES:

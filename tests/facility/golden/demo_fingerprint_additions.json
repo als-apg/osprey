@@ -3,6 +3,1511 @@
   "_description": "Addresses the demo serves beyond demo_fingerprint.json: one row per added address in the fingerprint's row shape (address, role, value_type, names, description), sorted by address.",
   "rows": [
     {
+      "address": "BR:DIAG:TV:01:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 01 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BR:DIAG:TV:01:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 01 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BR:DIAG:TV:01:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 01 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BR:DIAG:TV:02:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 02 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BR:DIAG:TV:02:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 02 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BR:DIAG:TV:02:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 02 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BR:DIAG:TV:03:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 03 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BR:DIAG:TV:03:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 03 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BR:DIAG:TV:03:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 03 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BR:DIAG:TV:04:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 04 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BR:DIAG:TV:04:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 04 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BR:DIAG:TV:04:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 04 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BR:DIAG:TV:05:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 05 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BR:DIAG:TV:05:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 05 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BR:DIAG:TV:05:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring screen 05 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:GAIN:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet ramp 01 gain readback (read-only): the applied scale of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:GAIN:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:OFFSET:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet ramp 01 offset readback (read-only): the applied current offset of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:OFFSET:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring bending magnet ramp 01 on status (read-only): the ramped supply is on."
+    },
+    {
+      "address": "BR:MAG:KICKER:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring injection kicker 01 on status (read-only): the kicker pulser is on."
+    },
+    {
+      "address": "BR:MAG:KICKER:01:VOLTAGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring injection kicker 01 voltage readback (read-only): the measured kicker pulse voltage."
+    },
+    {
+      "address": "BR:MAG:KICKER:01:VOLTAGE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring injection kicker 01 voltage setpoint (read-write): the commanded kicker pulse voltage."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:GAIN:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole ramp 01 gain readback (read-only): the applied scale of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:GAIN:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:OFFSET:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole ramp 01 offset readback (read-only): the applied current offset of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:OFFSET:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole ramp 01 on status (read-only): the ramped supply is on."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:GAIN:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole ramp 01 gain readback (read-only): the applied scale of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:GAIN:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:OFFSET:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole ramp 01 offset readback (read-only): the applied current offset of the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:OFFSET:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring focusing quadrupole ramp 01 on status (read-only): the ramped supply is on."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring extraction septum SEN current readback (read-only): the measured septum current."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring extraction septum SEN current setpoint (read-write): the commanded septum current."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring extraction septum SEN on status (read-only): the septum supply is on."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring extraction septum SEK current readback (read-only): the measured septum current."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring extraction septum SEK current setpoint (read-write): the commanded septum current."
+    },
+    {
+      "address": "BR:MAG:SEPTUM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring extraction septum SEK on status (read-only): the septum supply is on."
+    },
+    {
+      "address": "BTS:DIAG:BPM:01:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:BPM:02:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:BPM:03:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 03 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:BPM:04:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 04 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:BPM:05:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 05 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:BPM:06:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line beam position monitor 06 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "BTS:DIAG:ICT:01:CHARGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse."
+    },
+    {
+      "address": "BTS:DIAG:PADDLES:01:COUNT:INSERTED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Booster-to-storage transfer line paddle summary 01 inserted screen count (read-only): how many screens are in the beam; 0 means all paddles are out."
+    },
+    {
+      "address": "BTS:DIAG:TV:01:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 01 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:01:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 01 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:01:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 01 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:02:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 02 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:02:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 02 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:02:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 02 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:03:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 03 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:03:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 03 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:03:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 03 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:04:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 04 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:04:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 04 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:04:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 04 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:05:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 05 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:05:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 05 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:05:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 05 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:06:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 06 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:06:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 06 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:06:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 06 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:DIAG:TV:07:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 07 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "BTS:DIAG:TV:07:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 07 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "BTS:DIAG:TV:07:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line screen 07 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 01 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 01 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 01 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 02 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 02 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 02 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 03 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 03 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 03 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 04 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 04 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "BTS:MAG:DIPOLE:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line bending magnet 04 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 05 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 06 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:07:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 07 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:07:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 07 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:07:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 07 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:08:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 08 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:08:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 08 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:08:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 08 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:HCM:09:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 09 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:09:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 09 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:HCM:09:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line horizontal corrector 09 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:QD:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 01 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QD:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 02 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 02 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QD:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 03 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 03 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QD:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 04 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 04 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QD:05:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 05 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:05:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 05 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "BTS:MAG:QD:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line defocusing quadrupole 05 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 02 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 03 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 04 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 05 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:QF:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line focusing quadrupole 06 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 05 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 06 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:07:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 07 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:07:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 07 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:07:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 07 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:08:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 08 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:08:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 08 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:08:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 08 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BTS:MAG:VCM:09:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 09 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:09:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 09 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BTS:MAG:VCM:09:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster-to-storage transfer line vertical corrector 09 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:DIAG:BPM:01:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 01 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "GTL:DIAG:BPM:01:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 01 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "GTL:DIAG:BPM:01:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "GTL:DIAG:BPM:01:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "GTL:DIAG:BPM:02:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 02 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "GTL:DIAG:BPM:02:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 02 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "GTL:DIAG:BPM:02:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "GTL:DIAG:BPM:02:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "GTL:DIAG:ICT:01:CHARGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse."
+    },
+    {
+      "address": "GTL:DIAG:TV:01:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 01 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "GTL:DIAG:TV:01:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 01 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "GTL:DIAG:TV:01:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 01 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "GTL:DIAG:TV:02:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 02 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "GTL:DIAG:TV:02:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 02 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "GTL:DIAG:TV:02:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line screen 02 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:AUX_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 auxiliary supply on status (read-only): the auxiliary supply is on."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:AUX_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 auxiliary supply on command (read-write): switches the auxiliary supply."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:BIAS:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 grid bias readback (read-only): the measured grid bias voltage."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:BIAS:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 grid bias setpoint (read-write): the commanded grid bias voltage."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HEATER:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 heater current readback (read-only): the measured cathode heater current."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HEATER:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 heater current setpoint (read-write): the commanded cathode heater current."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HEATER_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 heater on status (read-only): the cathode heater is on."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HEATER_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 heater on command (read-write): switches the cathode heater."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HV_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 high voltage on status (read-only): the gun high voltage is on."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:HV_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 high voltage on command (read-write): switches the gun high voltage."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:PHASE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 phase readback (read-only): the measured gun timing phase."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:PHASE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 phase setpoint (read-write): the commanded gun timing phase."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:VOLTAGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 high voltage readback (read-only): the measured gun high voltage."
+    },
+    {
+      "address": "GTL:GUN:EGUN:01:VOLTAGE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line electron gun 01 high voltage setpoint (read-write): the commanded gun high voltage."
+    },
+    {
+      "address": "GTL:MAG:BC:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 01 current readback (read-only): the measured coil current."
+    },
+    {
+      "address": "GTL:MAG:BC:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 01 current setpoint (read-write): the commanded coil current."
+    },
+    {
+      "address": "GTL:MAG:BC:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 01 on status (read-only): the coil supply is on."
+    },
+    {
+      "address": "GTL:MAG:BC:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 02 current readback (read-only): the measured coil current."
+    },
+    {
+      "address": "GTL:MAG:BC:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 02 current setpoint (read-write): the commanded coil current."
+    },
+    {
+      "address": "GTL:MAG:BC:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line bucking coil 02 on status (read-only): the coil supply is on."
+    },
+    {
+      "address": "GTL:MAG:HCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:HCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:HCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 03 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 03 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:HCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 04 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 04 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:HCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line horizontal corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:SOL:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 01 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 01 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 01 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "GTL:MAG:SOL:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 02 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 02 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 02 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "GTL:MAG:SOL:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 03 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 03 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "GTL:MAG:SOL:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line solenoid 03 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "GTL:MAG:VCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:VCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:VCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 03 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 03 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:MAG:VCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 04 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 04 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "GTL:MAG:VCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line vertical corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "GTL:RF:SHB:01:HV_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 high voltage on status (read-only): the buncher amplifier is on."
+    },
+    {
+      "address": "GTL:RF:SHB:01:HV_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 high voltage on command (read-write): switches the buncher amplifier."
+    },
+    {
+      "address": "GTL:RF:SHB:01:PHASE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 phase readback (read-only): the measured buncher phase."
+    },
+    {
+      "address": "GTL:RF:SHB:01:PHASE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 phase setpoint (read-write): the commanded buncher phase."
+    },
+    {
+      "address": "GTL:RF:SHB:01:PHASE_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 phase loop on status (read-only): the buncher phase loop is on."
+    },
+    {
+      "address": "GTL:RF:SHB:01:PHASE_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 phase loop on command (read-write): switches the buncher phase loop."
+    },
+    {
+      "address": "GTL:RF:SHB:01:VOLTAGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 RF voltage readback (read-only): the measured buncher gap voltage."
+    },
+    {
+      "address": "GTL:RF:SHB:01:VOLTAGE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 01 RF voltage setpoint (read-write): the commanded buncher gap voltage."
+    },
+    {
+      "address": "GTL:RF:SHB:02:HV_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 high voltage on status (read-only): the buncher amplifier is on."
+    },
+    {
+      "address": "GTL:RF:SHB:02:HV_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 high voltage on command (read-write): switches the buncher amplifier."
+    },
+    {
+      "address": "GTL:RF:SHB:02:PHASE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 phase readback (read-only): the measured buncher phase."
+    },
+    {
+      "address": "GTL:RF:SHB:02:PHASE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 phase setpoint (read-write): the commanded buncher phase."
+    },
+    {
+      "address": "GTL:RF:SHB:02:PHASE_ON:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 phase loop on status (read-only): the buncher phase loop is on."
+    },
+    {
+      "address": "GTL:RF:SHB:02:PHASE_ON:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 phase loop on command (read-write): switches the buncher phase loop."
+    },
+    {
+      "address": "GTL:RF:SHB:02:VOLTAGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 RF voltage readback (read-only): the measured buncher gap voltage."
+    },
+    {
+      "address": "GTL:RF:SHB:02:VOLTAGE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Gun-to-linac line sub-harmonic buncher 02 RF voltage setpoint (read-write): the commanded buncher gap voltage."
+    },
+    {
       "address": "LINE:DIAG:BPM:01:POSITION:X",
       "role": "readback",
       "value_type": "float",
@@ -281,6 +1786,1154 @@
       "value_type": "float",
       "names": [],
       "description": "LINE VCM 04 current setpoint (A)"
+    },
+    {
+      "address": "LN:DIAG:BPM:01:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 01 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LN:DIAG:BPM:01:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 01 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LN:DIAG:BPM:01:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LN:DIAG:BPM:01:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LN:DIAG:BPM:02:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 02 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LN:DIAG:BPM:02:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 02 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LN:DIAG:BPM:02:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LN:DIAG:BPM:02:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LN:DIAG:ICT:01:CHARGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse."
+    },
+    {
+      "address": "LN:DIAG:TV:01:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 01 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LN:DIAG:TV:01:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 01 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LN:DIAG:TV:01:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 01 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LN:DIAG:TV:02:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 02 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LN:DIAG:TV:02:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 02 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LN:DIAG:TV:02:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac screen 02 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LN:MAG:HCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac horizontal corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LN:MAG:HCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac horizontal corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LN:MAG:HCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac horizontal corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LN:MAG:HCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac horizontal corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LN:MAG:HCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac horizontal corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LN:MAG:HCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac horizontal corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LN:MAG:QD:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac defocusing quadrupole 01 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LN:MAG:QD:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LN:MAG:QD:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac defocusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LN:MAG:QF:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac focusing quadrupole 01 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LN:MAG:QF:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac focusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LN:MAG:QF:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac focusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LN:MAG:SOL:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 01 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 01 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac solenoid 01 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "LN:MAG:SOL:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 02 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 02 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac solenoid 02 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "LN:MAG:SOL:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 03 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 03 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac solenoid 03 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "LN:MAG:SOL:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 04 current readback (read-only): the measured solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac solenoid 04 current setpoint (read-write): the commanded solenoid current."
+    },
+    {
+      "address": "LN:MAG:SOL:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac solenoid 04 on status (read-only): the solenoid supply is on."
+    },
+    {
+      "address": "LN:MAG:VCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac vertical corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LN:MAG:VCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac vertical corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LN:MAG:VCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac vertical corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LN:MAG:VCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac vertical corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LN:MAG:VCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac vertical corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LN:MAG:VCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac vertical corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LN:RF:ACC:01:TEMPERATURE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac accelerating section 01 temperature readback (read-only): the section body temperature."
+    },
+    {
+      "address": "LN:RF:ACC:02:PHASE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac accelerating section 02 phase readback (read-only): the measured section RF phase."
+    },
+    {
+      "address": "LN:RF:ACC:02:PHASE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac accelerating section 02 phase setpoint (read-write): the commanded section RF phase."
+    },
+    {
+      "address": "LN:RF:ACC:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac accelerating section 02 on status (read-only): the section RF drive is on."
+    },
+    {
+      "address": "LN:RF:ACC:02:TEMPERATURE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac accelerating section 02 temperature readback (read-only): the section body temperature."
+    },
+    {
+      "address": "LN:RF:BUNCHER:01:TEMPERATURE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac buncher cavity 01 temperature readback (read-only): the buncher body temperature."
+    },
+    {
+      "address": "LN:RF:MASTER:01:PHASE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac master RF 01 phase readback (read-only): the measured master RF phase."
+    },
+    {
+      "address": "LN:RF:MASTER:01:PHASE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac master RF 01 phase setpoint (read-write): the commanded master RF phase."
+    },
+    {
+      "address": "LN:RF:MASTER:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac master RF 01 on status (read-only): the master RF drive is on."
+    },
+    {
+      "address": "LN:RF:WATER:01:STATUS:INTERLOCK",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac RF cooling water 01 interlock status (read-only): the water interlock has tripped."
+    },
+    {
+      "address": "LN:RF:WATER:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac RF cooling water 01 heater on status (read-only): the water heater is on."
+    },
+    {
+      "address": "LN:RF:WATER:01:TEMPERATURE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac RF cooling water 01 temperature readback (read-only): the measured water temperature."
+    },
+    {
+      "address": "LN:RF:WATER:01:TEMPERATURE:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac RF cooling water 01 temperature setpoint (read-write): the commanded water temperature."
+    },
+    {
+      "address": "LTB:DIAG:BPM:01:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 01 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:01:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 01 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:01:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:01:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:BPM:02:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 02 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:02:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 02 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:02:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:02:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:BPM:03:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 03 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:03:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 03 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:03:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 03 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:03:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 03 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:BPM:04:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 04 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:04:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 04 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:04:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 04 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:04:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 04 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:BPM:05:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 05 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:05:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 05 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:05:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 05 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:05:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 05 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:BPM:06:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 06 position horizontal (read-only): beam X position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:06:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 06 position vertical (read-only): beam Y position."
+    },
+    {
+      "address": "LTB:DIAG:BPM:06:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 06 valid status (read-only): the monitor sees beam and its reading is valid."
+    },
+    {
+      "address": "LTB:DIAG:BPM:06:SUM:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line beam position monitor 06 sum signal (read-only): the summed button signal, relative to full beam."
+    },
+    {
+      "address": "LTB:DIAG:ICT:01:CHARGE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse."
+    },
+    {
+      "address": "LTB:DIAG:TV:01:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 01 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LTB:DIAG:TV:01:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 01 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LTB:DIAG:TV:01:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 01 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LTB:DIAG:TV:02:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 02 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LTB:DIAG:TV:02:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 02 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LTB:DIAG:TV:02:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 02 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LTB:DIAG:TV:03:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 03 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LTB:DIAG:TV:03:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 03 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LTB:DIAG:TV:03:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 03 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LTB:DIAG:TV:04:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 04 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LTB:DIAG:TV:04:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 04 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LTB:DIAG:TV:04:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 04 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LTB:DIAG:TV:05:LAMP:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 05 lamp status (read-only): the screen lamp is lit."
+    },
+    {
+      "address": "LTB:DIAG:TV:05:PADDLE:RB",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 05 paddle in status (read-only): the screen is in the beam and blocks it."
+    },
+    {
+      "address": "LTB:DIAG:TV:05:PADDLE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line screen 05 paddle in command (read-write): inserts the screen into the beam."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 01 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 01 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 01 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 02 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 02 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 02 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 03 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 03 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 03 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 04 current readback (read-only): the measured bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 04 current setpoint (read-write): the commanded bending magnet current."
+    },
+    {
+      "address": "LTB:MAG:DIPOLE:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line bending magnet 04 on status (read-only): the bending magnet supply is on."
+    },
+    {
+      "address": "LTB:MAG:HCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:HCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:HCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:HCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:HCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:HCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line horizontal corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:QD:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 01 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QD:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 02 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 02 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QD:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 03 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 03 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QD:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 04 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QD:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line defocusing quadrupole 04 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QF:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 01 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 01 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QF:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 02 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 02 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QF:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 03 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 03 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QF:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 04 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 04 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:QF:05:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 05 current readback (read-only): the measured quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:05:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 05 current setpoint (read-write): the commanded quadrupole current."
+    },
+    {
+      "address": "LTB:MAG:QF:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line focusing quadrupole 05 on status (read-only): the quadrupole supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 03 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 03 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 04 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 04 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:05:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 05 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:05:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 05 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 05 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:06:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 06 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:06:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 06 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 06 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "LTB:MAG:VCM:07:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 07 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:07:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 07 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "LTB:MAG:VCM:07:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Linac-to-booster line vertical corrector 07 on status (read-only): the corrector supply is on."
     },
     {
       "address": "SR:DIAG:BPM:01:TBT:ARM",
@@ -2851,6 +5504,55 @@
         "StorageRing_Tune_Y"
       ],
       "description": "Storage ring betatron tune vertical"
+    },
+    {
+      "address": "SR:MAG:SEPTUM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Storage ring injection septum SEK current readback (read-only): the measured peak current of the septum pulse."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Storage ring injection septum SEK current setpoint (read-write): the commanded peak current of the septum pulse. Scales the sampled current pulse."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring injection septum SEK current pulse waveform (read-only): the sampled time trace of one current pulse, 500 samples in A, refreshed about once a second. Its peak follows the current setpoint; it is flat zero while the septum is off."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Storage ring injection septum SEK on status (read-only): the septum supply is energized and pulsing. When false the sampled current pulse is a flat zero trace."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Storage ring injection septum SEN current readback (read-only): the measured peak current of the septum pulse."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Storage ring injection septum SEN current setpoint (read-write): the commanded peak current of the septum pulse."
+    },
+    {
+      "address": "SR:MAG:SEPTUM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Storage ring injection septum SEN on status (read-only): the septum supply is energized and pulsing."
     }
   ]
 }

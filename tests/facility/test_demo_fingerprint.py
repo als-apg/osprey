@@ -6,7 +6,7 @@ Its channels, joined as the fingerprint joins them less the ``names`` column
 address, role and value type unchanged and its description as the prefix of
 the served one, and what they hold beyond the frozen rows is exactly the
 additions file, the transfer line's rows among them; no demo channel carries
-a name. The build holds 532 devices in 29 groups, three of them the line's,
+a name. The build holds 644 devices in 73 groups, five of them the line's,
 and twelve sectors under ``SR``. The file validates as the
 generated ``Facility`` model, and the committed sources validate clean. The
 channel roster read off the built render enumerates every frozen address with
@@ -108,13 +108,15 @@ def test_the_line_rows_are_exactly_the_additions_line_rows(
     assert served == added
 
 
-def test_the_demo_holds_532_devices_in_29_groups(built_control_assistant: BuiltProject) -> None:
+def test_the_demo_holds_644_devices_in_73_groups(built_control_assistant: BuiltProject) -> None:
     groups = sorted(group["id"] for group in built_control_assistant.facility["groups"])
-    assert len(built_control_assistant.facility["devices"]) == 532
-    assert len(groups) == 29
+    assert len(built_control_assistant.facility["devices"]) == 644
+    assert len(groups) == 73
     assert [group for group in groups if group.startswith("LINE/")] == [
         "LINE/BPM",
         "LINE/HCM",
+        "LINE/QD",
+        "LINE/QF",
         "LINE/VCM",
     ]
 

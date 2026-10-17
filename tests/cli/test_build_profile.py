@@ -30,8 +30,8 @@ from osprey.cli.build_profile import (
     load_profile,
 )
 from osprey.cli.build_profile_presets import PRESET_ONLY_KEYS
-from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
+from osprey_connectors.errors import BuildProfileError
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:

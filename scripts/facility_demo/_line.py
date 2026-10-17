@@ -12,9 +12,9 @@ trailing newline, elements in beam order.
 
 The line's records are its place, spanning the deck from the start marker; a
 device per BPM, corrector and quadrupole, each placed by that span; the BPMs'
-position readbacks and every magnet's current setpoint and readback; the
-groups its measurement file names; and its model, solved single-pass from the
-start Twiss parameters. The line carries no seed and no limits record.
+position readbacks and every magnet's current setpoint and readback; a group
+per family, the BPM and corrector ones named by its measurement file; and its
+model, solved single-pass from the start Twiss parameters. The line carries no seed and no limits record.
 """
 
 from __future__ import annotations
@@ -83,12 +83,38 @@ _FAMILIES: dict[str, tuple[str, str]] = {
     "QD": ("Quadrupole", "MAG"),
 }
 
-#: The groups the measurement file names, each with its family and description.
-_GROUPS: dict[str, tuple[str, str]] = {
-    "bpm": ("BPM", "Transfer line BPMs: measure the beam trajectory along the line."),
-    "hcor": ("HCM", "Transfer line horizontal correctors: steer the beam trajectory."),
-    "vcor": ("VCM", "Transfer line vertical correctors: steer the beam trajectory."),
+#: Each family's group: its description and names.
+_GROUP_TEXT: dict[str, tuple[str, tuple[str, ...]]] = {
+    "BPM": (
+        "Transfer Line Beam Position Monitors (BPM): one per cell, measure the beam "
+        "trajectory along the line; the orbit response measurement reads them.",
+        ("beam position monitor", "transfer line BPM"),
+    ),
+    "HCM": (
+        "Transfer Line Horizontal Correctors (HCM): one per cell, steer the beam "
+        "trajectory horizontally; a large enough kick loses the beam on the quadrupole "
+        "apertures.",
+        ("horizontal corrector", "transfer line horizontal corrector"),
+    ),
+    "VCM": (
+        "Transfer Line Vertical Correctors (VCM): one per cell, steer the beam trajectory "
+        "vertically.",
+        ("vertical corrector", "transfer line vertical corrector"),
+    ),
+    "QF": (
+        "Transfer Line Focusing Quadrupoles (QF): one per cell, focus the beam "
+        "horizontally; with the defocusing ones they form the line's FODO lattice.",
+        ("focusing quadrupole", "transfer line focusing quadrupole"),
+    ),
+    "QD": (
+        "Transfer Line Defocusing Quadrupoles (QD): one per cell, focus the beam "
+        "vertically; with the focusing ones they form the line's FODO lattice.",
+        ("defocusing quadrupole", "transfer line defocusing quadrupole"),
+    ),
 }
+
+#: The family of each group the measurement file names, by its role.
+_MEASUREMENT_FAMILIES: dict[str, str] = {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM"}
 
 
 def _marker(name: str) -> dict[str, Any]:
@@ -248,15 +274,16 @@ def channels() -> list[dict[str, Any]]:
 
 
 def groups() -> list[dict[str, Any]]:
-    """The line's groups, the ones its measurement file names, sorted by id."""
+    """The line's groups, one per family, sorted by id."""
     return sorted(
         (
             {
                 "id": f"{MODEL}/{family}",
                 "description": description,
+                "names": list(names),
                 "members": [f"{MODEL}/{family}{n}" for n in _cells()],
             }
-            for family, description in _GROUPS.values()
+            for family, (description, names) in _GROUP_TEXT.items()
         ),
         key=lambda group: group["id"],
     )
@@ -316,7 +343,7 @@ def measurement() -> dict[str, Any]:
     """The line's measurement file: an orbit response over its BPMs and correctors."""
     return {
         "kinds": ["orm"],
-        "groups": {role: f"{MODEL}/{family}" for role, (family, _) in _GROUPS.items()},
+        "groups": {role: f"{MODEL}/{family}" for role, family in _MEASUREMENT_FAMILIES.items()},
         "corrector_delta": 1.0e-5,
     }
 

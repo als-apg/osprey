@@ -24,7 +24,7 @@ def _no_config_env(monkeypatch):
 
 def _start_app(config):
     """Run the app's lifespan against ``config`` and return the started app."""
-    with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+    with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
         from osprey.interfaces.channel_finder.app import create_app
 
         application = create_app(project_cwd="/tmp/test-project")
@@ -306,7 +306,7 @@ class TestGraphParadigmState:
     def test_graph_app_answers_its_routes_from_the_state_it_started_with(self):
         """End to end: the routes read what a real graph lifespan put on state."""
         with patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value=self._graph_config(),
         ):
             from osprey.interfaces.channel_finder.app import create_app
@@ -363,7 +363,7 @@ class TestFeedbackStoreLocation:
         )
 
     def test_pending_review_store_defaults_under_the_agent_data_root(self, tmp_path, monkeypatch):
-        from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+        from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
         (tmp_path / "config.yml").write_text("channel_finder: {}\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))

@@ -27,7 +27,10 @@ PAIRINGS = {
     ("gradient_setpoint", "gradient_readback"),
     ("gun_voltage_setpoint", "gun_voltage_readback"),
     ("phase_setpoint", "phase_readback"),
+    ("ramp_gain_setpoint", "ramp_gain_readback"),
+    ("ramp_offset_setpoint", "ramp_offset_readback"),
     ("rf_hv_setpoint", "rf_hv_readback"),
+    ("temperature_setpoint", "temperature_readback"),
     ("tuner_position_setpoint", "tuner_position_readback"),
     ("voltage_setpoint", "voltage_readback"),
     ("lamp_command", "lamp_status"),
@@ -249,6 +252,20 @@ def test_a_pair_where_one_side_states_no_unit_builds(tmp_path: Path) -> None:
 
 # --- the demo ----------------------------------------------------------------------------
 
+#: The demo setpoints the rule leaves unpaired: each is one of several switches
+#: of one quantity on its device, so only the stated pair names its readback.
+STATED_ONLY = frozenset(
+    {
+        "GTL:GUN:EGUN:01:AUX_ON:SP",
+        "GTL:GUN:EGUN:01:HEATER_ON:SP",
+        "GTL:GUN:EGUN:01:HV_ON:SP",
+        "GTL:RF:SHB:01:HV_ON:SP",
+        "GTL:RF:SHB:01:PHASE_ON:SP",
+        "GTL:RF:SHB:02:HV_ON:SP",
+        "GTL:RF:SHB:02:PHASE_ON:SP",
+    }
+)
+
 
 def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
     stated = tmp_path / "stated"
@@ -269,12 +286,19 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    # 412 setpoints paired with a readback and 73 write-only commands (a
-    # turn-by-turn arm per ring BPM and the injection request), each paired
-    # with itself, stated or derived.
-    assert len(authored) == 485
-    assert sum(pair != address for address, pair in authored.items()) == 412
-    assert pairs(derived) == authored
+    # 522 setpoints paired with a readback and 73 write-only commands (a
+    # turn-by-turn arm per ring BPM and the injection request), each command
+    # paired with itself, stated or derived.
+    assert len(authored) == 595
+    assert sum(pair != address for address, pair in authored.items()) == 522
+    derived_pairs = pairs(derived)
+    assert {address: derived_pairs[address] for address in STATED_ONLY} == {
+        address: address for address in STATED_ONLY
+    }
+    assert {a: p for a, p in derived_pairs.items() if a not in STATED_ONLY} == {
+        a: p for a, p in authored.items() if a not in STATED_ONLY
+    }
+    assert all(authored[address] != address for address in STATED_ONLY)
 
 
 # --- the fixture trees ---------------------------------------------------------------------

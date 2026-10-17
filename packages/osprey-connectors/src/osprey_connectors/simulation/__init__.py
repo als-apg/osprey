@@ -28,12 +28,14 @@ from osprey_connectors.simulation.state import (
     write_active_state,
 )
 from osprey_connectors.simulation.status import model_status, read_model_status
-from osprey_connectors.simulation.values import coerce
+from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, coerce
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
     "DEFAULT_SCENARIO",
     "DEFAULT_TICK_S",
+    "GATED_TYPES",
+    "LABELLED_TYPES",
     "OVERLAP_EVENT",
     "STILL_ALL",
     "STILL_SCENARIO",

@@ -24,8 +24,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_deploy import limits_block_errors
-from osprey.connectors.control_system.limits_validator import LimitsValidator
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import (
     LIMITS_MODES,
     LimitsPosture,
@@ -61,9 +61,10 @@ def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
         "project_root": None,
     }
     monkeypatch.setattr(
-        "osprey.utils.config.get_config_value", lambda key, default=None: values.get(key, default)
+        "osprey_connectors.config.get_config_value",
+        lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
@@ -103,10 +104,10 @@ class TestTheModeDecidesAChannelWithNoRecord:
             "control_system.limits_checking.database_path": str(db_file),
         }
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda key, default=None: values.get(key, default),
         )
-        monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+        monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)
 

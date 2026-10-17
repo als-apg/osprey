@@ -6,7 +6,7 @@ report at INFO, so an operator read the same injector block, the same provider
 report and the same config-writer field dumps six times over for one build.
 
 The demotion is the whole mechanism: no new log level, no change to
-:func:`~osprey.utils.logger.configure_logging`. INFO stays the default filter,
+:func:`~osprey_connectors.logger.configure_logging`. INFO stays the default filter,
 and the per-render detail moves below it. These tests pin both halves — the
 noise is gone from INFO, and it is still *there* at DEBUG, because a build that
 cannot be debugged is not quieter, only less honest.
@@ -333,6 +333,8 @@ class _EmptyArchive:
     """An archive composite with no channels: every document carries only its date."""
 
     addresses: list[str] = []
+    scalar_addresses: list[str] = []
+    waveform_addresses: list[str] = []
 
     def samples(self, addresses: list[str], t_s: Any) -> dict[str, list[Any]]:
         del t_s

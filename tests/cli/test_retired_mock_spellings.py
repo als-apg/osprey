@@ -18,8 +18,8 @@ from click.testing import CliRunner
 from osprey.cli.build_profile import _parse_profile
 from osprey.cli.build_profile_deploy import limits_block_errors
 from osprey.cli.set_cmd import set as set_command
-from osprey.connectors.types import retired_type_message
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.types import retired_type_message
 
 #: The fix every refusal of the retired name names.
 NEW_SPELLING = "control_system.connector.virtual_accelerator.serving: in_process"

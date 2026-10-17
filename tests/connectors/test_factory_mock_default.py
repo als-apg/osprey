@@ -15,10 +15,10 @@ import logging
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey.services.python_executor.execution.control import get_execution_control_config
+from osprey_connectors import types
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"
@@ -83,7 +83,7 @@ class TestFactoryTypeFallback:
             "connector": {types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))}
         }
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: section,
         )
 
@@ -123,7 +123,7 @@ class TestExecutionControlTypeFallback:
     )
     def test_unset_type_resolves_to_the_simulator(self, caplog, monkeypatch, control_system):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: control_system,
         )
 
@@ -135,7 +135,7 @@ class TestExecutionControlTypeFallback:
 
     def test_explicit_type_is_honoured_without_warning(self, caplog, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: {"type": types.EPICS},
         )
 

@@ -26,13 +26,13 @@ from collections.abc import Sequence
 
 from pyaml.common.exception import PyAMLException
 
-from osprey.errors import (
+from osprey.runtime import ControlTargetChangedError, guarded_run
+from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelReadFailedError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime import ControlTargetChangedError, guarded_run
 
 __all__ = [
     "OspreyReadFailed",

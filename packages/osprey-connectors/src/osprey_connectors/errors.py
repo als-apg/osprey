@@ -308,6 +308,23 @@ class ChannelNotFoundError(LookupError):
         super().__init__(f"{channel_address} is {NOT_A_CHANNEL}")
 
 
+class ChannelNotArchivedError(LookupError):
+    """Raised when a channel of the facility has no archived history.
+
+    The sibling of :class:`ChannelNotFoundError` for an address that *is* a
+    channel of the facility: a turn series holds the samples of one shot and
+    has no value at an instant between shots, so an archiver holds none of it.
+    Its record is the shot itself, read live once the shot is taken.
+    """
+
+    def __init__(self, channel_address: str):
+        self.channel_address = channel_address
+        super().__init__(
+            f"{channel_address} has no archived history: it is a shot record, "
+            "read it live after a shot"
+        )
+
+
 class RegistryError(Exception):
     """Exception for registry-related errors.
 

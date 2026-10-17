@@ -103,9 +103,9 @@ def _ca_environment(port: int) -> dict[str, str]:
 def _served(port: int) -> bool:
     """Whether a virtual accelerator is answering on *port*, asked out of process."""
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({PROBE_CHANNEL!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
         "import os; os._exit(0)\n"
     )

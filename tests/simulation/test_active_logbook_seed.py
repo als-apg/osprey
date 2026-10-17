@@ -34,6 +34,9 @@ from tests._simulator_view import facility_scenarios, write_scenarios_view
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 ARIEL_CONFIG = {"database": {"uri": "postgresql://unused-mocked/none"}}
+# The nominal scenario's ambient entries, in block order: DEMO-026..031 belong to
+# the incident scenarios, so nominal's later entries continue at DEMO-032.
+NOMINAL_IDS = [f"DEMO-{i:03d}" for i in (*range(1, 26), *range(32, 36))]
 
 
 def _make_project(tmp_path: Path) -> Path:
@@ -99,8 +102,8 @@ def test_active_logbook_entries_follow_the_active_scenarios(tmp_path, monkeypatc
 
     # Assert
     by_id = {entry["entry_id"]: entry for entry in entries}
-    # nominal's 25 ambient entries plus rf-thermal's three-entry incident arc.
-    assert len(entries) == 28
+    # nominal's 29 ambient entries plus rf-thermal's three-entry incident arc.
+    assert len(entries) == 32
     assert {"DEMO-026", "DEMO-027", "DEMO-028"} <= by_id.keys()
     assert all(entry["timestamp"].tzinfo is not None for entry in entries)
     # Placed on the persisted anchor, not on today's clock: DEMO-026 is
@@ -330,9 +333,9 @@ def test_a_project_without_a_simulation_seeds_its_demo_narrative(tmp_path, monke
     seeded = seed_active_logbook(config, project, config["ariel"])
 
     ids = [entry["entry_id"] for entry in seen["seeded"]]
-    assert seeded == len(ids) == 25 + 3 + 1
-    assert ids[:25] == [f"DEMO-{i:03d}" for i in range(1, 26)]
-    assert ids[25:] == ["DEMO-031", "DEMO-026", "DEMO-027", "DEMO-028"]  # bpm-polarity, rf-thermal
+    assert seeded == len(ids) == 29 + 3 + 1
+    assert ids[:29] == NOMINAL_IDS
+    assert ids[29:] == ["DEMO-031", "DEMO-026", "DEMO-027", "DEMO-028"]  # bpm-polarity, rf-thermal
     assert sorted(seen["pictures"]) == ["DEMO-011", "DEMO-027", "DEMO-031"]
     assert seen["mirrored"] == 1
 
@@ -349,10 +352,10 @@ def test_a_demo_narrative_of_named_scenarios_seeds_those_nominal_first(tmp_path,
     config, project = _narrative_project(tmp_path, ["rf-thermal", "nominal"])
     seen = _stub_ariel(monkeypatch, existing=0)
 
-    assert seed_active_logbook(config, project, config["ariel"]) == 28
+    assert seed_active_logbook(config, project, config["ariel"]) == 32
 
     ids = [entry["entry_id"] for entry in seen["seeded"]]
-    assert ids == [f"DEMO-{i:03d}" for i in range(1, 29)]
+    assert ids == [*NOMINAL_IDS, "DEMO-026", "DEMO-027", "DEMO-028"]
 
 
 def test_a_demo_narrative_beats_an_active_nominal(tmp_path, monkeypatch):
@@ -559,6 +562,7 @@ def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
 def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeypatch):
     """The drawn picture shows the dates of the entry it is attached to: the spec
     drawn at the seeded row's timestamp, handed over in the entry's own order."""
+
     from osprey.facility.scenarios import scenario_logbook
     from osprey.facility.views.simulator import SCENARIOS_DIR
     from osprey.simulation.plots import render_plot_spec

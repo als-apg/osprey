@@ -33,14 +33,17 @@ boot.
 
 **Every Channel Access operation runs in a subprocess**, for the reasons the
 directory conftest gives: libca latches the ``EPICS_CA_*`` environment when it
-initialises, so one process cannot be a client of two containers, and a
-main-thread pyepics call deadlocks the connector-based suites sharing this
-process. The worker below is dispatched before this module imports anything
+initialises, so one process cannot be a client of two containers, and this
+process's connectors run Channel Access on one CA loop that claims the
+environment on first use and refuses to be repointed, so a client of these
+containers made in-process would either be refused or pin the session to the
+wrong port. The worker below is dispatched before this module imports anything
 heavy and speaks JSON on stdout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -48,10 +51,10 @@ import time
 from typing import Any
 
 # The CA-client worker. Dispatched before this module imports pytest or any
-# osprey package, so the client process stays a bare pyepics client.
+# osprey package, so the client process stays a bare aioca client.
 
 
-def _worker(request: dict) -> dict:
+async def _worker(request: dict) -> dict:
     """Run one scripted Channel Access operation and return its result.
 
     ``read``
@@ -65,83 +68,105 @@ def _worker(request: dict) -> dict:
         Subscribe to each address and collect ``[timestamp, value]`` monitor
         events until every address has ``count`` of them or ``seconds``
         elapse. The connection's own first update is not collected.
+
+    Every read is a fresh one off the wire: aioca keeps no monitor cache a
+    read could be answered from.
     """
-    import epics
+    import aioca
 
     op = request["op"]
     timeout = request.get("timeout", 30.0)
 
     def plain(value: Any) -> Any:
-        return value.tolist() if hasattr(value, "tolist") else value
+        """An aioca value as the JSON scalar or list it augments."""
+        if hasattr(value, "tolist"):
+            return value.tolist()
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, int):
+            return int(value)
+        return str(value)
 
-    def connect(addresses: list[str], *, monitor: bool = False) -> dict[str, Any]:
-        pvs = {address: epics.PV(address, auto_monitor=monitor) for address in addresses}
-        missing = [address for address, pv in pvs.items() if not pv.wait_for_connection(timeout)]
+    async def connect(addresses: list[str]) -> None:
+        results = await aioca.connect(addresses, timeout=timeout, throw=False)
+        missing = [
+            address for address, result in zip(addresses, results, strict=True) if not result.ok
+        ]
         if missing:
             raise RuntimeError(f"never connected to {missing[:10]} ({len(missing)} in all)")
-        return pvs
 
     if op == "read":
-        pvs = connect(request["addresses"])
-        try:
-            channels = {}
-            for address, pv in pvs.items():
-                data = pv.get_with_metadata(use_monitor=False, form="time", timeout=timeout)
-                if data is None:
-                    raise RuntimeError(f"no value for {address}")
-                channels[address] = {
-                    "value": plain(data["value"]),
-                    "severity": data.get("severity"),
-                }
-            return {"channels": channels}
-        finally:
-            for pv in pvs.values():
-                pv.disconnect()
+        addresses = list(request["addresses"])
+        await connect(addresses)
+        channels = {}
+        for address in addresses:
+            data = await aioca.caget(
+                address, format=aioca.FORMAT_TIME, timeout=timeout, throw=False
+            )
+            if not data.ok:
+                raise RuntimeError(f"no value for {address}")
+            channels[address] = {"value": plain(data), "severity": int(data.severity)}
+        return {"channels": channels}
 
     if op == "put":
         accepted = {}
         for address, value in request["writes"]:
-            accepted[address] = bool(epics.caput(address, value, wait=True, timeout=timeout))
+            put = await aioca.caput(address, value, wait=True, timeout=timeout, throw=False)
+            accepted[address] = bool(put.ok)
         return {"accepted": accepted}
 
     if op == "watch":
-        pvs = connect(request["addresses"], monitor=True)
-        events: dict[str, list] = {address: [] for address in pvs}
-        for pv in pvs.values():
-            pv.get()
-        for address, pv in pvs.items():
-            pv.add_callback(
-                lambda value=None, timestamp=None, _sink=events[address], **_kw: _sink.append(
-                    [timestamp, float(value)]
-                )
-            )
+        addresses = list(request["addresses"])
+        await connect(addresses)
+        events: dict[str, list] = {address: [] for address in addresses}
+        primed = {address: asyncio.Event() for address in addresses}
+
+        def on_update(value: Any, index: int) -> None:
+            # The first update is the value the subscription connected to, so
+            # it is consumed before anything is recorded.
+            address = addresses[index]
+            if primed[address].is_set():
+                events[address].append([float(value.timestamp), float(value)])
+            else:
+                primed[address].set()
+
+        subscriptions = aioca.camonitor(
+            addresses, on_update, format=aioca.FORMAT_TIME, all_updates=True
+        )
         try:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(event.wait() for event in primed.values())), timeout
+                )
+            except TimeoutError:
+                silent = [address for address, event in primed.items() if not event.is_set()]
+                raise RuntimeError(
+                    f"never connected to {silent[:10]} ({len(silent)} in all)"
+                ) from None
             deadline = time.monotonic() + request["seconds"]
             while time.monotonic() < deadline:
                 if all(len(sink) >= request["count"] for sink in events.values()):
                     break
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
             return {"events": {address: list(sink) for address, sink in events.items()}}
         finally:
-            # Explicit, and in a finally: a pyepics PV whose subscription is
-            # still live segfaults libca when the garbage collector finalises
-            # it at some arbitrary later point.
-            for pv in pvs.values():
-                pv.disconnect()
+            for subscription in subscriptions:
+                subscription.close()
 
     raise ValueError(f"unknown worker op {op!r}")
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
-    # Leave through ``os._exit`` on every path, for the reason every other
-    # bare-pyepics child in this directory does: a normal exit runs pyepics'
-    # ``finalize_libca`` atexit hook, which can wedge in ``ca_context_destroy``
-    # after Channel Access was used. A wedged exit holds the parent's
-    # ``subprocess.run`` until its timeout, so one wedge reads as a container
-    # that never served. That includes the failing path: a read of an address
-    # not served yet has used Channel Access just the same.
+    # Leave through ``os._exit`` whichever way the operation ends. A normal
+    # exit runs aioca's teardown hook, whose ``ca_context_destroy`` blocks for
+    # as long as a name-server circuit is still retrying a port nothing serves
+    # yet. The answer, or the traceback, is already written; a wedged exit
+    # would only hold the parent's ``subprocess.run`` until its timeout, so one
+    # wedge reads as a container that never served. That includes the failing
+    # path: a read of an address not served yet has used Channel Access just
+    # the same.
     try:
-        print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
+        print(json.dumps(asyncio.run(_worker(json.loads(sys.argv[2]))), default=str), flush=True)
     except BaseException:
         import traceback
 
@@ -165,8 +190,9 @@ import yaml  # noqa: E402
 
 from osprey.simulation.engines.pyat import NO_CLOSED_ORBIT  # noqa: E402
 from osprey_connectors.control_system.va_in_process_connector import UDF_SEVERITY  # noqa: E402
-from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
+from osprey_connectors.simulation import decode_char_waveform, pulse  # noqa: E402
 from osprey_connectors.simulation.envelope import declares_motion, noise_sigma  # noqa: E402
+from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
     TEXTURE,
     VIEW_RELPATH,
@@ -184,6 +210,17 @@ MIN_COLLECTED_TESTS = 8
 #: The captured nominal reads of the demo, taken with every reading's noise
 #: zeroed.
 NOMINAL_GOLDEN = REPO_ROOT / "tests" / "facility" / "golden" / "nominal_va.json"
+#: The injector element table: one demo channel per row, in its third column.
+INJECTOR_TABLE = REPO_ROOT / "scripts" / "facility_demo" / "injector_elements.tsv"
+
+
+def _golden_predates(table: Path, golden: Path) -> frozenset[str]:
+    """The demo channels ``table`` names that ``golden`` holds no capture of."""
+    captured = json.loads(golden.read_text(encoding="utf-8"))["channels"]
+    rows = table.read_text(encoding="utf-8").splitlines()[1:]
+    named = {row.split("\t")[2] for row in rows if row and not row.startswith("#")}
+    return frozenset(named - set(captured))
+
 
 #: Agreement between the wire and the in-process composite on a channel
 #: without motion, relative to the value's magnitude and never below this.
@@ -197,7 +234,7 @@ CHROMATICITY = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y"})
 
 #: The noisy served channels of the demo: every served address whose seed
 #: declares noise or drift. The transfer line adds none: it carries no seeds.
-EXPECTED_NOISY_CHANNELS = 626
+EXPECTED_NOISY_CHANNELS = 751
 #: The example facility's seeds, keyed by address.
 DEMO_SEEDS = REPO_ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "seeds.yaml"
 #: The address prefix of the demo's transfer line, the physics model solved single-pass.
@@ -283,6 +320,25 @@ NOMINAL_ADDITIONS: dict[str, frozenset[str]] = {
         }
     ),
     "the suite's synthetic string channel": frozenset({e2e_conftest.STRING_CHANNEL}),
+    # The golden captures the demo before it carried the whole injector.
+    "the injector: its element table's channels and the LTB and BTS models' status": frozenset(
+        {
+            "ca:SIM:BTS:STATUS",
+            "ca:SIM:LTB:STATUS",
+            *_golden_predates(INJECTOR_TABLE, NOMINAL_GOLDEN),
+        }
+    ),
+    # The golden captures the demo before it carried the storage ring's injection septa.
+    "the injection septa: their supplies and the pulse trace": frozenset(
+        {
+            "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM",
+            *(
+                f"SR:MAG:SEPTUM:{index:02d}:{signal}"
+                for index in (1, 2)
+                for signal in ("CURRENT:RB", "CURRENT:SP", "STATUS:ON")
+            ),
+        }
+    ),
 }
 #: The physics model's status channel: ``ok`` while it solves, ``no closed
 #: orbit`` while it is degraded, its error text once it fails.
@@ -372,16 +428,49 @@ def _tolerance(address: str) -> float:
     return CHROMATICITY_TOL if address in CHROMATICITY else EXACT_TOL
 
 
-def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
-    """Whether ``served`` is ``expected`` within ``band`` and the address's tolerance.
+def _is_trace(value: Any) -> bool:
+    """Whether ``value`` is a waveform's trace: a sequence or array, never text."""
+    return not isinstance(value, str) and (
+        isinstance(value, (list, tuple)) or getattr(value, "ndim", 0) > 0
+    )
 
-    A text or a missing value compares exactly; a number or a series compares
-    element by element.
+
+#: How far the peaks of two captures of one pulse may differ, as a fraction of the
+#: peak: the amplitude drift spans twice its bound, and the sample noise on the
+#: flat top adds a few of its standard deviations.
+TRACE_PEAK_TOL = 2 * pulse.AMPLITUDE_DRIFT_FRACTION + 6 * pulse.NOISE_FRACTION
+
+#: The channels whose seed draws a pulse: their trace is a capture keyed by the
+#: instant it is read.
+PULSES = frozenset(
+    address
+    for address, seed in yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8")).items()
+    if seed.get("pulse") is not None
+)
+
+
+def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
+    """Whether ``served`` reads as ``expected``.
+
+    A pulse's trace is a capture keyed by the instant it is read, so two reads
+    of one pulse never agree sample for sample: they agree in length and in
+    peak, which follows the supply's setpoint and on-state. A text or a
+    missing value compares exactly; any other number or series compares
+    element by element, within ``band`` and the address's tolerance.
     """
+    if address in PULSES:
+        if not (_is_trace(expected) and _is_trace(served)):
+            return False
+        wanted = np.asarray(expected, dtype=np.float64)
+        got = np.asarray(served, dtype=np.float64)
+        if wanted.shape != got.shape:
+            return False
+        peak = float(np.max(np.abs(wanted)))
+        return abs(float(np.max(np.abs(got))) - peak) <= band + TRACE_PEAK_TOL * max(1.0, peak)
     if expected is None or served is None or isinstance(expected, str) or isinstance(served, str):
         return served == expected
-    want = np.asarray(expected, dtype=float)
-    got = np.asarray(served, dtype=float)
+    want = np.asarray(expected, dtype=np.float64)
+    got = np.asarray(served, dtype=np.float64)
     if want.shape != got.shape:
         return False
     scale = np.maximum(1.0, np.abs(want))
@@ -563,7 +652,11 @@ def test_the_served_nominals_are_the_captured_golden(
     rebaselined = frozenset().union(*NOMINAL_REBASELINES.values())
     added = frozenset().union(*NOMINAL_ADDITIONS.values())
     z = _family_z(len(session_view.addresses))
-    mock = _composite(session_view, va_container.state_dir).held(session_view.addresses)
+    composite = _composite(session_view, va_container.state_dir)
+    mock = composite.held(session_view.addresses)
+    # A trace is computed when it is read, not held: the composite's read is its value.
+    traces = [a for a in session_view.addresses if is_waveform(session_view.value_type(a))]
+    mock.update(composite.get(traces))
 
     differing: dict[str, tuple[Any, Any]] = {}
     for address in session_view.addresses:
@@ -607,11 +700,14 @@ def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
     session_view: View,
 ) -> None:
     view = session_view
+    # The write moves each setpoint off its seed by a step, which only a float
+    # setpoint takes; a bool or enum setpoint has labels, not a magnitude.
     pairs = {
         address: str(channel.pair)
         for address in view.served
         if (channel := view.channel(address)).owner == TEXTURE
         and channel.role == "setpoint"
+        and channel.value_type == "float"
         and channel.pair not in (None, address)
     }
     seeds = {address: float(view.seed(address)["nominal"]) for address in pairs}
@@ -723,12 +819,12 @@ def _served(port: int) -> bool:
     directory conftest's probe gives.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=1.0, "
-        "connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, "
+        "throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     environment = {
         **os.environ,

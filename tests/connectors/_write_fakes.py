@@ -9,13 +9,14 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
-from osprey.connectors.control_system.base import (
+from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from osprey_connectors.types import WRITES_ENABLED_KEY
+from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector
 
 
 def writes_enabled_config(key: str, default: Any = None) -> Any:
@@ -100,24 +101,17 @@ class RecordingConnector(ControlSystemConnector):
 def make_mock_epics_connector(
     *,
     validate_side_effect: Any = None,
-    caput_side_effect: Any = None,
-    caput_return: Any = True,
-    ca_severity_exception: type[BaseException] | None = None,
+    put: int | None = None,
 ) -> EPICSConnector:
-    """An ``EPICSConnector`` wired with a mock epics module and limits validator.
+    """An ``EPICSConnector`` wired with a fake aioca and a mock limits validator.
 
-    Bypasses ``connect()`` (which imports pyepics) by setting the attributes
-    the write path depends on directly. ``ca_severity_exception``, when given,
-    is attached at ``ca.CASeverityException`` on the mock module, which is
-    where the connector resolves the access-denied class from.
+    Bypasses ``connect()`` by setting the attributes the write path depends
+    on directly. Every channel name connects; ``put`` is the code every
+    ``caput`` answers with — ``None`` for success, else an ECA code
+    (``ECA_NOWTACCESS`` for an access-security denial, ``ECA_DISCONN`` for a
+    circuit lost mid-put). The fake is at ``connector._aioca``.
     """
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caput = MagicMock(side_effect=caput_side_effect, return_value=caput_return)
-    if ca_severity_exception is not None:
-        connector._epics.ca.CASeverityException = ca_severity_exception
+    connector = ca_connector(aioca=FakeAioca(default=FakeChannel(put=put)))
     connector._limits_validator = MagicMock()
     connector._limits_validator.validate = MagicMock(side_effect=validate_side_effect)
-    connector._timeout = 5.0
-    connector._connected = True
     return connector

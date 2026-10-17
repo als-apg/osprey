@@ -54,7 +54,7 @@ def env_path(tmp_path, monkeypatch):
 
 def _dotenv(env_path):
     """Parse the project ``.env``, or an empty mapping when it does not exist."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(env_path) if env_path.is_file() else {}
 

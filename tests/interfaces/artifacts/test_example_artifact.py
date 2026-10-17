@@ -203,7 +203,7 @@ class TestSeeder:
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch):
     """Point the config chain at a throwaway ``config.yml`` and undo it after."""
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
 
     monkeypatch.setattr(config_module, "_default_config", config_module._default_config)
     monkeypatch.setattr(config_module, "_default_configurable", config_module._default_configurable)

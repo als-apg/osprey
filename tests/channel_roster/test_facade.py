@@ -6,7 +6,7 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 3314 channels, 485 of them settable: 412 setpoints,
+the tree OSPREY ships -- 3700 channels, 595 of them settable: 522 setpoints,
 every one paired with the readback the file states, and 73 write-only commands
 that pair with none.
 
@@ -44,12 +44,12 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 3314
-DEMO_WRITES = 485
-DEMO_READS = 2829
+DEMO_CHANNELS = 3700
+DEMO_WRITES = 595
+DEMO_READS = 3105
 #: The settable channels that pair with a readback; the rest of the writes are
 #: commands (a turn-by-turn arm per ring BPM and the injection request).
-DEMO_PAIRED_WRITES = 412
+DEMO_PAIRED_WRITES = 522
 
 
 @pytest.fixture(autouse=True)

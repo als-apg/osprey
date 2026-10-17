@@ -25,8 +25,8 @@ from osprey.cli.build_profile_emit import (
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, _parse_profile
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE, TrajectoryConfig
-from osprey.errors import BuildProfileError
 from osprey.port_layout import SLOTS_BY_NAME, default_port
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

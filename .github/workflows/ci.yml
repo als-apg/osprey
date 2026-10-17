@@ -408,13 +408,13 @@ jobs:
         # and ten minutes is well under what those lanes legitimately take.
         #
         # The two live Channel Access modules are excluded here and run in the
-        # isolated step below: libca is process-global and not thread-safe, and
-        # a pyepics PV finalized by the garbage collector — which runs on
-        # whatever thread allocates next — segfaults inside libca. In a
-        # long-lived xdist worker that shares 16k other tests, the crash lands
-        # minutes later in an unrelated test and EPICS' signal handling turns
-        # it into a silent wedge rather than a death. A live CA client/server
-        # pair is only safe in a process of its own.
+        # isolated step below: libca is process-global, a process has one CA
+        # context for its whole life, and a client torn down under a server in
+        # the same process can crash inside libca. In a long-lived xdist worker
+        # that shares 16k other tests, the crash lands minutes later in an
+        # unrelated test and EPICS' signal handling turns it into a silent
+        # wedge rather than a death. A live CA client/server pair is only safe
+        # in a process of its own.
         #
         # --durations=50: a per-cell slow-test ranking in every run is what
         # tells "one group of tests got expensive" apart from "the whole suite
@@ -858,7 +858,7 @@ jobs:
         "
 
     # A step of its own, after the lean check rather than inside it: the pyAML
-    # control-system wheel imports the framework (osprey.runtime, osprey.errors)
+    # control-system wheel imports the framework (osprey.runtime)
     # by design, so the no-framework assertion above must keep reading a venv
     # that holds the connectors wheel alone. This venv holds all three wheels
     # from dist/ -- the framework declares a dependency on this one, and this
@@ -1023,7 +1023,7 @@ jobs:
             detect_compose_provider,
             get_runtime_command,
         )
-        from osprey.utils.config import load_config
+        from osprey_connectors.config import load_config
 
         config = load_config("build/config.yml")
         root = Path(resolve_repo_root(config)).resolve()

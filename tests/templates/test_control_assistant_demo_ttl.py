@@ -1,9 +1,9 @@
 """The graph view the control-assistant build writes.
 
 A corpus that nobody counts can drift silently: a change to the facility or to
-the view's writer would quietly seed a different graph. The census below (532
-devices, 3314 bindings, 485 written and 2825 read signals) is the demo facility
-as the build renders it, and the 485 writes are exactly its `:SP` addresses and
+the view's writer would quietly seed a different graph. The census below (644
+devices, 3700 bindings, 595 written and 3101 read signals) is the demo facility
+as the build renders it, and the 595 writes are exactly its `:SP` addresses and
 its write-only commands (the turn-by-turn arm on every ring BPM and the
 injection request).
 The prose census sits beside it: a description on every binding, a system
@@ -36,22 +36,23 @@ NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 
 #: The demo facility's census, as the build renders it: the tier-3 channel
 #: database's 2908 device channels, the four tune and chromaticity channels
-#: the top place carries itself, the transfer line's 40 channels, and the
-#: ring's 362 turn-by-turn channels (five on each of its 72 BPMs, plus the
-#: injection request and busy flag).
-EXPECTED_DEVICES = 532
-EXPECTED_BINDINGS = 3314
-EXPECTED_WRITES = 485
-EXPECTED_READS = 2825
+#: the top place carries itself, the transfer line's 40 channels, the
+#: storage ring injection septa's 7 channels, the injector's 379 channels
+#: beyond the frozen ones, and the ring's 362 turn-by-turn channels (five on
+#: each of its 72 BPMs, plus the injection request and busy flag).
+EXPECTED_DEVICES = 644
+EXPECTED_BINDINGS = 3700
+EXPECTED_WRITES = 595
+EXPECTED_READS = 3101
 
 #: The written addresses that are commands rather than ``:SP`` setpoints: one
 #: arm per ring BPM and the ring's injection request. A command has no paired
 #: readback, so it is written and never read.
 EXPECTED_COMMANDS = 73
 
-#: Devices a described group names, each carrying its family's description;
-#: the transfer line's eight quadrupoles are in no group.
-EXPECTED_FAMILY_DESCRIBED = 524
+#: Devices a described group names, each carrying its family's description:
+#: every device is in one.
+EXPECTED_FAMILY_DESCRIBED = 644
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
 #: channel's own sentence.
@@ -107,7 +108,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 3,314 times spread over 40 bindings would satisfy a
+    predicate appearing 3700 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.

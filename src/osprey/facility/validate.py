@@ -49,7 +49,7 @@ from osprey.facility.errors import (
 )
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
-from osprey_connectors.simulation import STILL_ALL
+from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES, STILL_ALL
 
 __all__ = [
     "FACILITY_HEADER",
@@ -789,6 +789,7 @@ class _References:
                     yield from self._missing(
                         "channel", address, files, "simulation.linear", "channel", source
                     )
+            yield from self._seed_inputs(address, channel)
             signal = channel.get("signal")
             if signal is not None and signal not in roles:
                 yield FacilityBuildError(
@@ -799,6 +800,16 @@ class _References:
                     record_kind="channel",
                     detail=f"signal {signal} is not a vocabulary signal role",
                 )
+
+    def _seed_inputs(
+        self, address: str, channel: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """The channels a seed's ``pulse`` and ``gate`` read exist."""
+        files = self._seed_files(channel)
+        for slot, source in _seed_inputs(channel.get("simulation")):
+            yield from self._missing(
+                "channel", address, files, f"simulation.{slot}", "channel", source
+            )
 
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
         if str(channel.get("id")) in self.sources.seeds:
@@ -1009,6 +1020,7 @@ class _Records:
         for address, channel in sorted(self.index.channels.items()):
             yield from self._seed(address, channel)
         yield from self._linear_cycles()
+        yield from self._gate_cycles()
         yield from self._pairs()
         for address, channel in sorted(self.index.channels.items()):
             if "tolerance" in channel and address not in self.broken:
@@ -1063,7 +1075,7 @@ class _Records:
         options = channel.get("options")
         shape = channel.get("shape")
         problem = None
-        if value_type in ("bool", "enum"):
+        if value_type in LABELLED_TYPES:
             problem = _options_problem(value_type, options)
         elif options is not None:
             problem = f"a {value_type} channel carries `options`"
@@ -1160,6 +1172,10 @@ class _Records:
                 )
         if "nominal" in seed and "linear" not in seed:
             yield from self._nominal(address, seed["nominal"], files)
+        if isinstance(seed.get("pulse"), dict):
+            yield from self._pulse(address, seed["pulse"], files)
+        if isinstance(seed.get("gate"), dict):
+            yield from self._gate(address, seed["gate"], files)
 
     def _noise_record(
         self, address: str, seed: Mapping[str, Any], files: list[str]
@@ -1279,6 +1295,144 @@ class _Records:
                 f"`linear` inputs form a cycle: {' -> '.join([*cycle, start])}",
                 "break the cycle",
             )
+
+    def _pulse(
+        self, address: str, pulse: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``pulse`` traces a waveform from an unwired float driver and bool enable."""
+        value_type = self._type(address)
+        if value_type != "waveform":
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `pulse`; `pulse` applies to waveform "
+                "channels only",
+                "remove `pulse`, or make the channel a waveform",
+            )
+            return
+        problems = []
+        for slot, wanted in (("driver", "float"), ("enable", "bool")):
+            source = str(pulse.get(slot))
+            if source in self.index.wired:
+                problems.append(f"`pulse.{slot}` {source} is wired")
+            elif self._type(source) != wanted:
+                problems.append(f"`pulse.{slot}` {source} is {self._type(source)}, not {wanted}")
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "take `pulse.driver` from an unwired float channel and `pulse.enable` from an "
+                "unwired bool channel",
+            )
+
+    def _gate(
+        self, address: str, gate: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``gate`` reads unwired bool or enum inputs; ``gated`` is typed by its channel."""
+        value_type = self._type(address)
+        if value_type not in GATED_TYPES:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `gate`; `gate` applies to float, int, bool "
+                "and enum channels",
+                "remove `gate`",
+            )
+            return
+        problems = []
+        inputs = gate.get("inputs")
+        for source, label in sorted((inputs if isinstance(inputs, dict) else {}).items()):
+            source = str(source)
+            if source in self.index.wired:
+                problems.append(f"`gate` input {source} is wired")
+            elif self._type(source) not in LABELLED_TYPES:
+                problems.append(f"`gate` input {source} is {self._type(source)}, not bool or enum")
+            elif source not in self.broken:
+                refusal = self._label_refusal(source, label)
+                if refusal is not None:
+                    problems.append(f"`gate` input {source} blocking label `{label}`: {refusal}")
+        if address not in self.broken:
+            problem = self._gated_problem(address, gate.get("gated"))
+            if problem is not None:
+                problems.append(problem)
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "take `gate` inputs from unwired bool or enum channels, each with one of its "
+                "labels, and type `gated` by the channel: a factor > 0 on a float, a label on a "
+                "bool or enum, an integer on an int",
+            )
+
+    def _label_refusal(self, address: str, label: Any) -> str | None:
+        """Why ``label`` is not one of a bool or enum channel's labels, or ``None``."""
+        if not isinstance(label, str):
+            return f"{label!r} is not a label"
+        return self._coerce(address, label)[1]
+
+    def _gated_problem(self, address: str, gated: Any) -> str | None:
+        """Why ``gated`` does not fit its channel's type, or ``None``."""
+        value_type = self._type(address)
+        prefix = f"`gate.gated` of {value_type} channel {address} is {gated!r}"
+        if value_type == "float":
+            if not (_finite(gated) and gated > 0):
+                return f"{prefix}, not a factor > 0"
+        elif value_type == "int":
+            if not _finite(gated) or _non_integral(gated):
+                return f"{prefix}, not an integer"
+        elif self._label_refusal(address, gated) is not None:
+            return f"{prefix}, not a label"
+        return None
+
+    def _gate_cycles(self) -> Iterator[FacilityBuildError]:
+        graph: dict[str, list[str]] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            seed = channel.get("simulation")
+            gate = seed.get("gate") if isinstance(seed, dict) else None
+            inputs = gate.get("inputs") if isinstance(gate, dict) else None
+            if isinstance(inputs, dict):
+                graph[address] = sorted(str(source) for source in inputs)
+        reported: set[frozenset[str]] = set()
+        for start in sorted(graph):
+            cycle = _cycle_from(graph, start)
+            if cycle is None or frozenset(cycle) in reported or min(cycle) != start:
+                continue
+            reported.add(frozenset(cycle))
+            yield self._error(
+                "value-invalid",
+                "channel",
+                start,
+                self._seed_files(self.index.channels[start]),
+                f"`gate` inputs form a cycle: {' -> '.join([*cycle, start])}",
+                "break the cycle",
+            )
+
+    def _refused_addresses(self) -> dict[str, str]:
+        """The channels whose archived history is derived, each with what derives it.
+
+        A pulse's driver and enable and every gate input shape the history of
+        another channel; an archiver event on one would leave that history out
+        of step with it.
+        """
+        refused: dict[str, str] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            for slot, source in _seed_inputs(channel.get("simulation")):
+                if slot.startswith("pulse."):
+                    reason = f"the `{slot}` of {address}"
+                else:
+                    reason = f"a `gate` input of {address}"
+                refused.setdefault(source, reason)
+        return refused
 
     # --- pairs ---------------------------------------------------------------------
 
@@ -1646,9 +1800,11 @@ class _Records:
 
     def _scenarios(self) -> Iterator[FacilityBuildError]:
         records = {str(r.get("address")): r for r in self.index.limits}
+        refused = self._refused_addresses()
         for scenario in self.scenarios:
             name = str(scenario.get("name"))
             files = [_scenario_file(scenario)]
+            yield from self._archiver_events(name, files, scenario.get("archiver"), refused)
             overrides = scenario.get("overrides") or {}
             for address, value in sorted(overrides.items(), key=lambda kv: str(kv[0])):
                 yield from self._override(name, files, str(address), value, records)
@@ -1665,6 +1821,23 @@ class _Records:
                     if str(address) not in self.index.channels:
                         continue
                     yield from self._fault(name, files, str(model), str(address), value, records)
+
+    def _archiver_events(
+        self, name: str, files: list[str], entries: Any, refused: Mapping[str, str]
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``archiver`` steps no channel another channel's history derives from."""
+        for entry in entries if isinstance(entries, list) else ():
+            channel = entry.get("channel") if isinstance(entry, dict) else None
+            if not isinstance(channel, str) or channel not in refused:
+                continue
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`archiver` steps {channel}, {refused[channel]}",
+                f"remove the `archiver` entry for {channel}; its history is the seed's",
+            )
 
     def _still(
         self, name: str, files: list[str], scenario: Mapping[str, Any]
@@ -2609,6 +2782,23 @@ def _non_integral(value: Any) -> bool:
 
 def _usable_weight(weight: Any) -> bool:
     return _finite(weight) and weight != 0
+
+
+def _seed_inputs(seed: Any) -> list[tuple[str, str]]:
+    """``(slot, address)`` for each channel a seed's ``pulse`` and ``gate`` read."""
+    if not isinstance(seed, dict):
+        return []
+    found: list[tuple[str, str]] = []
+    pulse = seed.get("pulse")
+    if isinstance(pulse, dict):
+        found.extend(
+            (f"pulse.{slot}", str(pulse[slot])) for slot in ("driver", "enable") if slot in pulse
+        )
+    gate = seed.get("gate")
+    inputs = gate.get("inputs") if isinstance(gate, dict) else None
+    if isinstance(inputs, dict):
+        found.extend(("gate.inputs", str(source)) for source in sorted(inputs, key=str))
+    return found
 
 
 def _cycle_from(graph: Mapping[str, list[str]], start: str) -> list[str] | None:

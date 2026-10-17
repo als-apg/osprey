@@ -17,8 +17,8 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile import DispatchConfig
-from osprey.errors import BuildProfileError
 from osprey.facility.validate import FACILITY_HEADER
+from osprey_connectors.errors import BuildProfileError
 
 
 def _write_config(project_path: Path, *, facility: dict | None = None) -> None:

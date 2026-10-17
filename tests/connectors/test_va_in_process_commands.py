@@ -31,7 +31,6 @@ import yaml
 
 pytest.importorskip("at")
 
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.control_system.va_in_process_connector import (
@@ -42,6 +41,7 @@ from osprey_connectors.control_system.va_in_process_connector import (
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 from tests.facility._pyaml_trees import measured_tree, with_correctors
 from tests.facility._synthetic_trees import model, with_shot_wiring, with_trajectory, write_tree

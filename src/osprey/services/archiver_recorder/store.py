@@ -15,20 +15,32 @@ index itself (``expireAfterSeconds=0`` on ``expireAt``) is created by the base
 seeder during the staged bring-up, before this service starts — and a document
 with no ``expireAt`` never expires under it, which is exactly how the seeder
 protects an event window.
+
+Waveform channels are stored apart from the snapshot documents, in the sibling
+collection :func:`~osprey_connectors.simulation.archive.waveform_collection`
+names: one document per channel per instant, built by
+:func:`~osprey_connectors.simulation.archive.waveform_document` — the same
+document the seeder writes for the seeded half of that collection.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from osprey.connectors.archiver.mongodb_archiver_connector import (
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver.mongodb_archiver_connector import (
     CA_FILE_ERRORS,
     mongo_client_kwargs,
 )
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.simulation.archive import (
+    DATE_FIELD,
+    EXPIRE_FIELD,
+    waveform_collection,
+    waveform_document,
+)
 
 from .config import RecorderSettings
 
@@ -78,6 +90,7 @@ class ArchiveWriter:
         # to stay importable wherever the optional extra is absent.
         self._client: Any = None
         self._collection: Any = None
+        self._waveforms: Any = None
 
     def connect(self) -> None:
         """Open the connection and prove the server answers.
@@ -120,6 +133,7 @@ class ArchiveWriter:
 
         self._client = client
         self._collection = client[settings.database][settings.collection]
+        self._waveforms = client[settings.database][waveform_collection(settings.collection)]
         logger.info(
             "Archive store connected: %s:%s/%s.%s",
             settings.host,
@@ -151,8 +165,43 @@ class ArchiveWriter:
             upsert=True,
         )
 
+    def write_waveforms(self, timestamp: datetime, traces: Mapping[str, Sequence[float]]) -> None:
+        """Store one instant's traces, one waveform document per channel.
+
+        Each document is the one :func:`waveform_document` builds, written on
+        the same terms as :meth:`write_sample`: the trace is set, and the
+        expiry is stamped only when the document is created, so a protected
+        window never has one put back.
+
+        Raises:
+            ValueError: when a trace is not a non-empty one-dimensional array.
+        """
+        if self._waveforms is None:
+            raise RuntimeError("ArchiveWriter.connect() has not been called")
+        if not traces:
+            return
+        from pymongo import UpdateOne
+
+        expire_at = expiry_for(timestamp, self._settings)
+        operations = []
+        for address, trace in traces.items():
+            document = waveform_document(address, timestamp, trace, expire_at=expire_at)
+            field = field_name(address)
+            operations.append(
+                UpdateOne(
+                    {DATE_FIELD: document[DATE_FIELD], field: {"$exists": True}},
+                    {
+                        "$set": {field: document[field]},
+                        "$setOnInsert": {EXPIRE_FIELD: document[EXPIRE_FIELD]},
+                    },
+                    upsert=True,
+                )
+            )
+        self._waveforms.bulk_write(operations, ordered=False)
+
     def close(self) -> None:
         if self._client is not None:
             self._client.close()
             self._client = None
             self._collection = None
+            self._waveforms = None

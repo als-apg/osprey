@@ -39,7 +39,7 @@ the project root and never consults ``OSPREY_AGENT_DATA_ROOT``.
 ``tests/interfaces/conftest.py::_agent_data_root_in_tmp`` stamps that variable
 for every test in this tree, and it moves the control-context record only. A
 test that needs its own stores patches
-``osprey.utils.workspace.resolve_shared_data_root``, the name the lifespan
+``osprey_connectors.workspace.resolve_shared_data_root``, the name the lifespan
 imports at call time, as ``test_bar_items_routes.py``'s ``client`` fixture
 does. A lifespan left unpatched resolves the stores to the checkout's
 ``var/agent_data``; ``tests/conftest.py::agent_data_never_the_checkout``
@@ -283,7 +283,7 @@ def bar_items_app(tmp_path) -> Callable[..., Any]:
             )
             stack.enter_context(
                 patch(
-                    "osprey.utils.workspace.resolve_shared_data_root",
+                    "osprey_connectors.workspace.resolve_shared_data_root",
                     return_value=agent_data_root,
                 )
             )

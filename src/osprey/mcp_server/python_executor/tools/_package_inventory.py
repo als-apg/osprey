@@ -59,7 +59,6 @@ PRIORITY_PACKAGES = (
     "plotly",
     "at",
     "pyaml",
-    "epics",
     "lmfit",
     "h5py",
     "sympy",

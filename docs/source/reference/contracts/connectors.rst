@@ -82,12 +82,12 @@ Write Confirmation
 A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
-on :class:`~osprey.connectors.control_system.ChannelWriteResult`, which every
+on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
 ``write_channel()`` call returns.
 
 .. code-block:: python
 
-   from osprey.connectors.control_system import WriteOutcome
+   from osprey_connectors.control_system import WriteOutcome
 
    result = await connector.write_channel("BEAM:CURRENT", 100.0)
 
@@ -251,27 +251,25 @@ The door is a context variable
 that shares the context that opened it. That makes one rule for a connector's
 implementation:
 
-- **Make the client put in the calling context, or inside**
-  ``asyncio.to_thread``. ``asyncio.to_thread`` copies the context into its
-  worker thread, and a task created while the door is open inherits it too.
+- **Make the client put in the calling context, inside**
+  ``asyncio.to_thread``, **or in a coroutine handed to another loop with**
+  ``asyncio.run_coroutine_threadsafe``. Each runs the put in a copy of the
+  calling context, and a task created while the door is open inherits it too.
+  The EPICS connector uses the last: its Channel Access puts run on the
+  process's CA loop (``osprey_connectors.control_system.ca_loop``).
 - **Not behind** ``loop.run_in_executor``, a raw executor ``submit`` or a bare
   ``threading.Thread``. Each starts from a fresh context, sees the door
   closed, and the put is refused with reason ``RAW_CLIENT_WRITE``.
 
 A put made from a client-library callback thread the library started itself
---- pyepics' preemptive callbacks, for one --- carries no door either, and is
+--- libca's own callback threads, for one --- carries no door either, and is
 refused the same way.
 
 The door records who is making a put; it does not decide whether the put is
-allowed. The connector's own gates below do that. Two paths hold the door
-open for code that is not a shipped connector's own put, and are accepted as
-**cooperative bypasses**:
-
-- pyepics with ``PREEMPTIVE_CALLBACK=False`` runs callbacks while a thread
-  polls, including the poll inside a connector's waiting put, so a put made
-  from such a callback runs inside the open door.
-- A connector subclass written by the user is wrapped like a shipped one, so
-  its ``write_channel`` puts inside the open door.
+allowed. The connector's own gates below do that. One path holds the door
+open for code that is not a shipped connector's own put, and is accepted as a
+**cooperative bypass**: a connector subclass written by the user is wrapped
+like a shipped one, so its ``write_channel`` puts inside the open door.
 
 ``osprey_connectors`` imports nothing from ``osprey`` for this. The door
 module is standard-library only, because the guard that reads it runs in
@@ -364,13 +362,13 @@ key it read.
 
 .. seealso::
 
-   :class:`~osprey.connectors.control_system.ChannelValue`
+   :class:`~osprey_connectors.control_system.ChannelValue`
        Channel read result data model
 
-   :class:`~osprey.connectors.control_system.ChannelWriteResult`
+   :class:`~osprey_connectors.control_system.ChannelWriteResult`
        Complete write operation result
 
-   :class:`~osprey.connectors.control_system.WriteOutcome`
+   :class:`~osprey_connectors.control_system.WriteOutcome`
        The six words a write can end in
 
 
@@ -385,7 +383,7 @@ control-system connector answers about the present.
    ``get_data`` returns long-format data (below) instead of a shared-index wide
    ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
 
-Subclass :class:`~osprey.connectors.archiver.base.ArchiverConnector` and implement
+Subclass :class:`~osprey_connectors.archiver.base.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
@@ -440,7 +438,7 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
+The shared helpers in ``osprey_connectors.archiver._timerange`` (``to_utc``,
 ``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
 ``aggregate_series``, ``reject_non_numeric``) implement all of the above --
 every in-tree connector builds on them rather than reimplementing binning.

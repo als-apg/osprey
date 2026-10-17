@@ -82,9 +82,9 @@ file the controls server publishes, which is the same record that GET renders.
 Every Channel Access operation in this file happens in **another process**: in
 the readiness probe's subprocess, in a connector-host child, or in the executor
 sandbox. This process never becomes a CA client, which is the rule
-``conftest.py`` states — libca latches ``EPICS_CA_*`` on initialisation and its
-contexts are per-thread, so a main-thread pyepics call here would deadlock the
-very children under test.
+``conftest.py`` states — libca latches ``EPICS_CA_*`` when a process's context is
+created, and the children under test each point theirs at a target of its own,
+which one process could not do.
 
 The whole directory is opt-in behind ``OSPREY_VA_E2E_ENABLE=1``; the skip is
 applied by ``conftest.pytest_collection_modifyitems`` rather than by a marker
@@ -190,8 +190,8 @@ SESSION_ID = "5a17e600-1111-4222-8333-444444444444"
 CONNECTOR_TIMEOUT_S = 120.0
 #: Bound on a read or a write this module expects to answer.
 IO_TIMEOUT_S = 20.0
-#: Bound on "spawned and answered its init frame" -- a cold pyepics import in an
-#: emulated container host is not fast.
+#: Bound on "spawned and answered its init frame" -- a cold import of the
+#: connector stack in an emulated container host is not fast.
 SPAWN_TIMEOUT_S = 60.0
 #: Bound on the readiness probe a switch runs against a fresh child.
 PROBE_TIMEOUT_S = 10.0
@@ -248,26 +248,23 @@ def _require_image() -> None:
 def _served(port: int) -> bool:
     """Whether a virtual accelerator is answering on *port*, asked out of process.
 
-    In a subprocess for the reason ``conftest.py`` gives: the connector wraps
-    synchronous pyepics in a thread-pool executor whose CA context is
-    per-thread, so a main-thread pyepics call in *this* process would deadlock
-    the children these tests spend their time talking to.
+    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
+    ``EPICS_CA_*`` once, when a process's context is created, and this probe
+    points it at *port*, so it cannot share a process with a client pointed
+    anywhere else.
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
-    nothing: a probe that will not die is read here as a container that is
-    not serving, and the word is written and flushed before the exit.
+    It leaves through ``os._exit`` for that file's other reason: aioca's exit
+    hook destroys the CA context, and that blocks for as long as a name-server
+    circuit is still retrying a port nothing serves yet -- the very case a
+    readiness probe polls through. The word is written and flushed before the
+    exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({PROBE_CHANNEL!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     environment = {
         **os.environ,

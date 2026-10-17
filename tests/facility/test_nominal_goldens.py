@@ -2,17 +2,18 @@
 
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
 address but the deck's tune and chromaticity instruments, the transfer
-line's channels and the channels of an injected shot (each ``SR`` beam
-position monitor's turn-by-turn readings, arm command and armed flag, and the
-injection request and busy flag), the nominal the simulator served in process serves with no
+line's channels and the waveforms, the nominal the simulator served in process serves with no
 scenario active. It serves the control-assistant build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
 
-* every channel the lattice physics model computes and the golden holds a
-  different value for: each ``SR`` beam position monitor's horizontal
-  position, which reads the deck's closed orbit, and the wired RF cavity's
-  frequency setpoint and readback, which read the deck's RF frequency;
+* every channel a lattice physics model computes, whose value the golden
+  does not decide: each ``SR`` beam position monitor's horizontal position,
+  which reads the deck's closed orbit, the wired RF cavity's frequency
+  setpoint and readback, which read the deck's RF frequency, and each ``BTS``
+  beam position monitor's position, which reads the single-pass trajectory
+  of the ``BTS`` deck. The golden holds another value for each ``SR`` one;
+  the ideal ``BTS`` trajectory reads the golden's own zero;
 * every bool channel, which the golden holds as a number: a bool reads its
   label, ``TRUE`` where the golden's nominal is non-zero, with no noise.
 
@@ -47,13 +48,14 @@ TRUE, FALSE = "TRUE", "FALSE"
 #: The lattice physics model that serves the ``SR`` channels.
 PHYSICS_MODEL = "SR"
 
+#: The single-pass physics model that serves the ``BTS`` beam position monitors.
+BTS_MODEL = "BTS"
+
 #: The deck machine's instruments the golden's capture predates.
 ADDITIONS = frozenset(
     {
         "SR:DIAG:CHROM:X",
         "SR:DIAG:CHROM:Y",
-        "SR:DIAG:INJECTION:BUSY",
-        "SR:DIAG:INJECTION:REQUEST",
         "SR:DIAG:TUNE:X",
         "SR:DIAG:TUNE:Y",
     }
@@ -62,13 +64,19 @@ ADDITIONS = frozenset(
 #: How many transfer line channels the golden's capture predates.
 LINE_CHANNELS = 40
 
-#: An ``SR`` beam position monitor's channels of an injected shot, which the
-#: golden's capture predates, and how many monitors carry them.
-SR_BPM_SHOT = re.compile(r"SR:DIAG:BPM:\d+:TBT:(?:X|Y|SUM|ARM|ARMED)")
+#: The ``SR`` beam position monitors' turn-by-turn series, and how many
+#: monitors carry them: a trace, so the golden holds none.
+SR_BPM_SERIES = re.compile(r"SR:DIAG:BPM:\d+:TBT:(?:X|Y|SUM)")
 SR_MONITORS = 72
+
+#: The served injection septum pulse: a trace, so the golden holds none.
+SEPTUM_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
 
 #: An ``SR`` beam position monitor's horizontal position.
 SR_BPM_X = re.compile(r"SR:DIAG:BPM:\d+:POSITION:X")
+
+#: A ``BTS`` beam position monitor's position, in either plane.
+BTS_BPM = re.compile(r"BTS:DIAG:BPM:\d+:POSITION:[XY]")
 
 #: The wired RF cavity's frequency pair, served from the deck's RF frequency.
 WIRED_CAVITY = ("SR:RF:CAVITY:01:FREQUENCY:RB", "SR:RF:CAVITY:01:FREQUENCY:SP")
@@ -79,6 +87,9 @@ DECK_RF_TOLERANCE_MHZ = 1e-3
 
 #: The largest closed-orbit offset a monitor of the ideal deck reads, in metres.
 CLOSED_ORBIT_BOUND_M = 1e-4
+
+#: The largest trajectory offset a ``BTS`` monitor of the ideal deck reads, in millimetres.
+TRAJECTORY_BOUND_MM = 1e-4
 
 #: The instants the served noise is sampled at, in epoch seconds.
 INSTANTS = 1.7e9 + 0.137 * np.arange(16)
@@ -118,6 +129,11 @@ class Served:
     def value_type(self, address: str) -> str:
         return str(self.channels[address].get("value_type") or "float")
 
+    def is_waveform(self, address: str) -> bool:
+        from osprey_connectors.simulation.values import is_waveform
+
+        return is_waveform(self.value_type(address))
+
     def is_float_readback(self, address: str) -> bool:
         return (
             self.value_type(address) == "float" and self.channels[address].get("role") != "setpoint"
@@ -131,41 +147,56 @@ def served(built_control_assistant: BuiltProject) -> Served:
 
 
 def rebaselined() -> set[str]:
-    """The physics channels the golden holds another value for."""
-    return {address for address in golden() if SR_BPM_X.fullmatch(address)} | set(WIRED_CAVITY)
+    """The physics channels whose served value the golden does not decide."""
+    return (
+        {address for address in golden() if SR_BPM_X.fullmatch(address)}
+        | set(WIRED_CAVITY)
+        | bts_monitors()
+    )
+
+
+def bts_monitors() -> set[str]:
+    """The ``BTS`` beam position monitor positions, served from the ``BTS`` deck."""
+    return {address for address in golden() if BTS_BPM.fullmatch(address)}
 
 
 def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
     unheld = set(served.channels) - set(golden())
     line = {address for address in unheld if address.startswith("LINE:")}
-    shot = {address for address in unheld if SR_BPM_SHOT.fullmatch(address)}
     assert len(line) == LINE_CHANNELS
-    assert len(shot) == 5 * SR_MONITORS
-    assert unheld - line - shot == ADDITIONS
+    waveforms = {address for address in served.channels if served.is_waveform(address)}
+    series = {address for address in waveforms if SR_BPM_SERIES.fullmatch(address)}
+    assert len(series) == 3 * SR_MONITORS
+    assert waveforms == series | {SEPTUM_WAVEFORM}
+    assert unheld - line == ADDITIONS | waveforms
     assert set(golden()) <= set(served.channels)
 
 
 def test_float_nominals_equal_the_golden_but_the_declared_rebaselines(served: Served) -> None:
     floats = [a for a in golden() if served.value_type(a) == "float"]
     moved = {a for a in floats if not close(float(served.held[a]), golden()[a]["nominal"])}
-    assert len(floats) == 1662
-    assert sorted(moved) == sorted(rebaselined())
+    assert len(floats) == 1869
+    assert sorted(moved) == sorted(rebaselined() - bts_monitors())
 
 
 def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None:
-    owners = {served.channels[a]["owner"] for a in rebaselined()}
+    owners = {served.channels[a]["owner"] for a in rebaselined() - bts_monitors()}
     assert owners == {PHYSICS_MODEL}
+    assert {served.channels[a]["owner"] for a in bts_monitors()} == {BTS_MODEL}
     monitors = sorted(a for a in rebaselined() if SR_BPM_X.fullmatch(a))
     assert len(monitors) == 72
     for address in monitors:
         assert abs(float(served.held[address])) < CLOSED_ORBIT_BOUND_M, address
+    assert len(bts_monitors()) == 12
+    for address in sorted(bts_monitors()):
+        assert abs(float(served.held[address])) < TRAJECTORY_BOUND_MM, address
     for address in WIRED_CAVITY:
         assert abs(float(served.held[address]) - DECK_RF_MHZ) < DECK_RF_TOLERANCE_MHZ, address
 
 
 def test_bool_labels_follow_the_golden(served: Served) -> None:
     bools = [a for a in golden() if served.value_type(a) == "bool"]
-    assert len(bools) == 1246
+    assert len(bools) == 1423
     read = served.composite.get(bools)
     for address in bools:
         label = served.held[address]
@@ -198,4 +229,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 225
+    assert checked == 350

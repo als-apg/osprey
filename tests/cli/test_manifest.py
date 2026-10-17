@@ -6,7 +6,7 @@ manifest's checksum set — a difference there is real drift, not user state.
 
 Runtime state is not in the checksum set because it is not in the render at
 all: it lives in the repo's state zone (``var/agent_data``, the value of
-:data:`osprey.utils.config.RUNTIME_STATE_DIR`), a sibling of ``build/`` that a
+:data:`osprey_connectors.config.RUNTIME_STATE_DIR`), a sibling of ``build/`` that a
 rebuild never walks. :func:`calculate_file_checksums` additionally filters the
 name ``_agent_data`` — the older in-project spelling — which is what the
 fixture below plants and the exclusion tests exercise; it is a name filter in
@@ -22,7 +22,7 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manifest import calculate_file_checksums
-from osprey.utils.config import (
+from osprey_connectors.config import (
     RUNTIME_STATE_DIR,
     RUNTIME_WRITE_PATH_KEYS,
     ConfigBuilder,

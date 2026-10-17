@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.port_layout import default_port
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -138,7 +138,7 @@ def load_ariel_config_with_path(
         # may carry a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must
         # expand here too, or the web interface would hand psycopg a
         # literal `${…}` password.
-        from osprey.utils.config import resolve_env_vars
+        from osprey_connectors.config import resolve_env_vars
 
         config = resolve_env_vars(yaml.safe_load(f))
         ariel_config = config.get("ariel", {})

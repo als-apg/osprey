@@ -41,8 +41,8 @@ from osprey.services.trajectory.app import LAUNCH_TOKEN_ENV
 from osprey.services.trajectory.app import create_app as create_service_app
 from osprey.services.trajectory.startup import TrajectoryStartup
 from osprey.services.trajectory.step import compute_step
-from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.services.trajectory.test_doors import (  # noqa: F401  (fixtures used by name)
     COMMANDS,

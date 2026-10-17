@@ -14,7 +14,7 @@ from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule,
 from osprey.services.ariel_search.enhancement.semantic_processor.migration import (
     SemanticProcessorMigration,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -188,7 +188,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
             return None
         if not self._model_config.get("model_id"):
             from osprey.models.config import main_model_id
-            from osprey.utils.config import load_config
+            from osprey_connectors.config import load_config
 
             self._model_config = {
                 **self._model_config,

@@ -2,7 +2,7 @@
 
 Pins the fail-fast branches of the per-block parse loops: a malformed block is
 never silently skipped or coerced, it raises
-:class:`~osprey.errors.BuildProfileError` naming the offending block (and, for
+:class:`~osprey_connectors.errors.BuildProfileError` naming the offending block (and, for
 the keyed ``mcp_servers:``/``services:`` loops, the offending entry) so a
 profile author reads which key to fix out of the message itself. Covered here:
 an ``mcp_servers:`` entry that is not a mapping, an ``mcp_servers:`` entry that
@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
 

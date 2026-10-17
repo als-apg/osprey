@@ -108,7 +108,7 @@ from osprey.mcp_server.http import (
 )
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     load_osprey_config,

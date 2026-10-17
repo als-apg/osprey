@@ -19,7 +19,7 @@ TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST → stable offset
 
 @pytest.fixture()
 def facility_tokyo(monkeypatch):
-    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: TOKYO)
+    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: TOKYO)
 
 
 @pytest.mark.usefixtures("facility_tokyo")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.errors import ConfigurationError
 from osprey.health.config import (
     CORE_CATEGORY_NAMES,
     DEFAULT_DISK_MAX_USED_PERCENT,
@@ -26,6 +25,7 @@ from osprey.health.config import (
     resolve_item_looping_on_demand_timeout,
 )
 from osprey.health.models import Status
+from osprey_connectors.errors import ConfigurationError
 
 # --- Empty / defaults -------------------------------------------------------
 

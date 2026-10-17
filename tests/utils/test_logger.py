@@ -8,7 +8,7 @@ Tests cover:
 
 import pytest
 
-from osprey.utils.logger import ComponentLogger, get_logger
+from osprey_connectors.logger import ComponentLogger, get_logger
 
 
 class TestComponentLoggerBasic:

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.va_in_process_connector import simulation_state_dir
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system.va_in_process_connector import simulation_state_dir
 from tests.facility.served_tree import in_process_config
 
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"

@@ -236,7 +236,7 @@ def main():
 
     # Try to import LimitsValidator; if unavailable, allow
     try:
-        from osprey.connectors.control_system.limits_validator import (
+        from osprey_connectors.control_system.limits_validator import (
             LimitsValidator,
         )
     except ImportError:

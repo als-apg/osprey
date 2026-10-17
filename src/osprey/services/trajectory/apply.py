@@ -284,7 +284,7 @@ async def bridge_plan_running(target: str) -> bool | None:
         resolve_bridge_url,
     )
     from osprey.services.bluesky_bridge.queue_backend import is_queue_active
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     try:
         config = load_osprey_config()

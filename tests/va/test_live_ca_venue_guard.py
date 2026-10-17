@@ -1,10 +1,10 @@
 """The live Channel Access venue must exist on the platform that must run it.
 
 ``tests/va/test_apply_fault.py`` is where a scenario fault is asserted from the
-far side of a real Channel Access wire. It guards its server import with
-``pytest.importorskip``, which is the right behaviour on a host that cannot
-load it -- an honest, loud skip beats a hollow pass -- but it means a run in
-which nothing was exercised exits 0 exactly like a run in which everything was.
+far side of a real Channel Access wire. It skips when its server module cannot
+be found, which is the right behaviour on a host that cannot load it -- an
+honest, loud skip beats a hollow pass -- but it means a run in which nothing
+was exercised exits 0 exactly like a run in which everything was.
 
 The container venue closes that gap for itself (``scripts/va/live_ca/gate.py``
 rejects any run containing a skip). CI does not go through that gate: it
@@ -52,8 +52,9 @@ import pytest
 MIN_COLLECTED_TESTS = 15
 
 #: The module the live suites stand their server up from, and the name they
-#: pass to ``importorskip``. The two must agree, or this guard would pass
-#: while they skipped; :class:`TestTheGuardWatchesTheRightModule` pins that.
+#: look up (``importlib.util.find_spec``) before skipping. The two must agree,
+#: or this guard would pass while they skipped;
+#: :class:`TestTheGuardWatchesTheRightModule` pins that.
 LIVE_CA_MODULE = "pcaspy"
 
 #: The suites whose assertions are only observable over a real CA wire.
@@ -286,7 +287,7 @@ class TestTheGuardWatchesTheRightModule:
     @pytest.mark.parametrize("suite", LIVE_SUITES)
     def test_the_live_suite_gates_on_the_module_this_guard_checks(self, suite: str) -> None:
         source = (Path(__file__).parent / suite).read_text()
-        gated = set(re.findall(r"""importorskip\(\s*["']([\w.]+)["']""", source))
+        gated = set(re.findall(r"""(?:importorskip|find_spec)\(\s*["']([\w.]+)["']""", source))
         assert gated == {LIVE_CA_MODULE}, (
             f"{suite} gates its live venue on {sorted(gated)}, but this guard enforces "
             f"{LIVE_CA_MODULE!r}; one of the two has moved"

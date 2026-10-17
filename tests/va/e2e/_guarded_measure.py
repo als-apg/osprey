@@ -171,15 +171,18 @@ def build(repo: Path, settings: Sequence[str]) -> None:
 
 @dataclass(frozen=True)
 class Deployment:
-    """One built repo and the port its machine is served on.
+    """One built repo and the ports its machine is served on.
 
     Attributes:
         repo: The deployment repo.
         port: The host port the container publishes and the build names.
+        pva_port: The pvAccess port the container publishes, which serves the
+            model RPC; ``None`` for a deployment served without one here.
     """
 
     repo: Path
     port: int
+    pva_port: int | None = None
 
     @property
     def build_dir(self) -> Path:
@@ -302,7 +305,7 @@ def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[
         while pva_port == port:
             pva_port = reserve_port()
         build(repo, settings(port, pva_port))
-        deployment = Deployment(repo=repo, port=port)
+        deployment = Deployment(repo=repo, port=port, pva_port=pva_port)
         deployment.activate_default_scenarios()
         try:
             with serving(deployment, pva_port=pva_port, prefix=prefix, probe=probe):
@@ -379,11 +382,11 @@ def ca_read(port: int, addresses: Sequence[str], *, timeout: float = 10.0) -> di
     An address that does not answer reads ``None``; a waveform reads as a list.
     """
     code = (
-        "import json, os, sys, epics\n"
+        "import asyncio, json, os, sys, aioca\n"
         f"names = {list(addresses)!r}\n"
-        f"values = epics.caget_many(names, connection_timeout={timeout}, timeout={timeout})\n"
+        f"values = asyncio.run(aioca.caget(names, timeout={timeout}, throw=False))\n"
         "def plain(v):\n"
-        "    if v is None: return None\n"
+        "    if isinstance(v, aioca.CANothing): return None\n"
         "    try: return float(v)\n"
         "    except TypeError: return [float(x) for x in v]\n"
         "out = {n: plain(v) for n, v in zip(names, values)}\n"
@@ -611,7 +614,9 @@ POLL_S = 0.2
 
 #: The settle time the deployments here give every measurement step, in
 #: seconds: long enough, against :data:`POLL_S`, that a signal sent once the
-#: stepped setpoints read displaced and still lands before the next write.
+#: stepped setpoints read displaced and still lands before the next step. The
+#: members of one group write are sent back to back, with no settle between
+#: them.
 SETTLE_S = 2.0
 
 #: Bound on a run reaching its first write.
@@ -657,10 +662,13 @@ async def signalled_after_first_write(
     says the step has begun; readings that hold still say every write of the
     step has landed and the measurement is in its settle time
     (:data:`SETTLE_S`), so the signal lands after the first step and before
-    the next, with no write of the killed process still in flight.
+    the next. A put the sandbox sent before the signal is still applied by the
+    server, so the run loop is drained (:func:`drain_run_loop`) before the
+    setpoints are read.
 
     Returns:
-        What the call answered, and the watched setpoints' readings at the signal.
+        What the call answered, and the watched setpoints' readings once every
+        put the sandbox sent has been applied.
     """
     from osprey.audit.call import call_scope
 
@@ -685,4 +693,47 @@ async def signalled_after_first_write(
     assert held is not None and displaced, f"no setpoint moved within {FIRST_WRITE_TIMEOUT_S}s"
     os.kill(int(held["pid"]), signum)
     answer = await task
+    drain_run_loop(deployment)
     return answer, ca_read(deployment.port, list(watched))
+
+
+def _status(pva_port: int) -> dict[str, Any]:
+    """The model RPC's ``status`` reply, asked over pvAccess at the container alone."""
+    from p4p.client.thread import Context
+
+    from osprey.services.virtual_accelerator.serving.model_rpc import (
+        RPC_PV,
+        RPC_TIMEOUT_S,
+        build_request,
+        parse_reply,
+    )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("EPICS_PVA_NAME_SERVERS", f"127.0.0.1:{pva_port}")
+        patch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "NO")
+        patch.setenv("EPICS_PVA_ADDR_LIST", "")
+        ctx = Context("pva")
+        try:
+            reply: dict[str, Any] = parse_reply(
+                ctx.rpc(RPC_PV, build_request("status"), timeout=RPC_TIMEOUT_S)
+            )
+        finally:
+            ctx.close()
+    return reply
+
+
+def drain_run_loop(deployment: Deployment) -> None:
+    """Return once the server has applied every put it had received before this call.
+
+    A Channel Access put is queued for the server's run loop and reads back
+    only after the pass that applies it. A ``status`` call is a job on that
+    same first-in, first-out loop, and a cycle runs its jobs before its pass,
+    so the first reply can come from the cycle whose pass still applies an
+    earlier put. A second call is queued after that reply, so it is answered
+    in a later cycle, after that pass has published. The queue depth the
+    replies report is no barrier: the periodic pass keeps one tick queued
+    whenever a pass runs longer than the tick period.
+    """
+    assert deployment.pva_port is not None, "the deployment serves no model RPC"
+    _status(deployment.pva_port)
+    _status(deployment.pva_port)

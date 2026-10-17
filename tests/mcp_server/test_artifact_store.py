@@ -1032,7 +1032,7 @@ class TestArtifactGalleryApp:
 
     def test_a_configured_page_size_above_the_request_bound_is_capped(self, monkeypatch):
         import osprey.interfaces.artifacts.app as gallery_app
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setattr(config, "get_config_value", lambda key, default=None: 500)
 
@@ -1323,7 +1323,7 @@ class TestAutoLaunchLogging:
 
         with (
             patch(
-                "osprey.infrastructure.server_launcher.ensure_artifact_server",
+                "osprey.infrastructure.server_launcher.ensure_web_server",
                 side_effect=RuntimeError("server launch failed"),
             ),
             caplog.at_level(logging.WARNING, logger="osprey.stores.artifact_store"),

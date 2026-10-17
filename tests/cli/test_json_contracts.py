@@ -554,9 +554,10 @@ def test_facility_show_prints_its_counted_notice_while_stdout_parses(
 
 
 #: The notes the pyAML view prints, one per served deck model with no measurement file.
-_PYAML_OMITTED_NOTES = (
-    "pyAML view omitted for LINE: no measurement/LINE.yaml",
-    "pyAML view omitted for SR: no measurement/SR.yaml",
+#: The demo's deck models, each of which loses its measurement file in the probe.
+_DECK_MODELS = ("BTS", "LINE", "LTB", "SR")
+_PYAML_OMITTED_NOTES = tuple(
+    f"pyAML view omitted for {model}: no measurement/{model}.yaml" for model in _DECK_MODELS
 )
 
 
@@ -568,8 +569,8 @@ def pyaml_omitted_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
     Never edited after it is made.
     """
     repo = init_project(tmp_path_factory.mktemp("pyaml-omitted"), "control-assistant", "demo")
-    (repo / "data" / "facility" / "measurement" / "SR.yaml").unlink()
-    (repo / "data" / "facility" / "measurement" / "LINE.yaml").unlink()
+    for model in _DECK_MODELS:
+        (repo / "data" / "facility" / "measurement" / f"{model}.yaml").unlink()
     return repo
 
 

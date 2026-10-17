@@ -930,7 +930,7 @@ class ConfigKeyGuard:
 
     def loader_default_paths(self) -> set[str]:
         """Paths the config loader synthesizes when the file omits them."""
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         with tempfile.TemporaryDirectory() as tmp:
             probe = Path(tmp) / "config.yml"
@@ -998,10 +998,13 @@ class ConfigKeyGuard:
     # ── failure mode 5: orphan sites ────────────────────────────────────
 
     def check_orphan_sites(self) -> None:
+        absent = [entry["path"] for entry in self.manifest.get("absent_paths") or []]
         for key, sites in self.manifest["orphan_sites"].items():
             for site in sites:
                 pattern = site["regex"]
                 for root in self.site_roots(site):
+                    if any(root == path or root.startswith(f"{path}/") for path in absent):
+                        continue  # check_absent_paths asserts this root holds nothing
                     if not (self.root / root).exists():
                         self.fail("orphan-site", f"root for {key} does not exist: {root}")
                         continue

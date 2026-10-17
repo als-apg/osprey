@@ -18,7 +18,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
 from tests._preset_data import bundle_data_root
 
 
@@ -1212,8 +1212,9 @@ class TestProtocolAwareSafetyRules:
 
         content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
         assert "EPICS Channel Access" in content
-        assert "import epics" in content
-        assert "epics.caget" in content
+        assert "import aioca" in content
+        assert "aioca.caget" in content
+        assert "aioca.caput" in content
         assert "epics.caput" in content
         assert "osprey.runtime" in content
         assert "read_channel" in content
@@ -2075,7 +2076,7 @@ class TestPhoebusAgentAccessContextKey:
         assert derived["phoebus_agent_access"] == "read_write"
 
     def test_unknown_value_is_refused_by_name(self):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         with pytest.raises(BuildProfileError) as exc_info:
             self._derive({"phoebus": {"agent_access": "write"}})

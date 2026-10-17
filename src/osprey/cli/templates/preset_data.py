@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The directory under the template root holding the bundled facilities.
 FACILITIES_DIRNAME = "facilities"

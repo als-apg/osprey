@@ -1,11 +1,13 @@
-"""Spans place each device of the two-model demo from its own model's deck.
+"""Spans place each device of the four-model demo from its own model's deck.
 
-The built control-assistant demo holds two deck-bearing models: the periodic
-``SR`` and the single-pass transfer line ``LINE``. Every LINE device takes its
-s from the LINE deck and its place ``LINE`` from the LINE span; no device is
-placed by a span of a model other than the one that gave its s, though the
-two models' s ranges overlap. No group, and no middle-layer Family derived
-from the build, holds devices or channels of both models.
+The built control-assistant demo holds four deck-bearing models: the periodic
+``SR`` and the single-pass lines ``LINE``, ``LTB`` and ``BTS``. Every LINE
+device takes its s from the LINE deck and its place ``LINE`` from the LINE
+span; every wired LTB and BTS device takes its s from its own deck and keeps
+its authored place, which lies in its own model's span. No device is placed by
+a span of a model other than the one that gave its s, though the models' s
+ranges overlap. No group, and no middle-layer Family derived from the build,
+holds devices or channels of two models.
 """
 
 from __future__ import annotations
@@ -23,7 +25,10 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.slow]
 
 #: The demo's models that have a deck.
-MODELS = ("LINE", "SR")
+MODELS = ("BTS", "LINE", "LTB", "SR")
+
+#: The models whose devices state their place, inside the model's span.
+AUTHORED_PLACE_MODELS = ("BTS", "LTB")
 
 
 def _model_of(record_id: str) -> str | None:
@@ -101,8 +106,26 @@ def test_every_span_placed_device_lies_in_a_span_of_its_own_model(
         for device in placed
         if (_span_of(device["place"], places) or {}).get("model") != device["model"]
     ]
-    assert {device["model"] for device in placed} == set(MODELS)
+    assert {device["model"] for device in placed} == set(MODELS) - set(AUTHORED_PLACE_MODELS)
     assert crossed == []
+
+
+def test_the_facility_counts_four_deck_models(facility: dict[str, Any]) -> None:
+    decked = sorted(model["name"] for model in facility["models"] if model.get("deck"))
+    assert decked == sorted(MODELS)
+
+
+@pytest.mark.parametrize("model", AUTHORED_PLACE_MODELS)
+def test_every_wired_transfer_device_keeps_its_place_in_its_own_span(
+    facility: dict[str, Any], model: str
+) -> None:
+    places = {place["id"]: place for place in facility["places"]}
+    wired = [device for device in facility["devices"] if device.get("model") == model]
+    assert wired
+    assert {device["provenance"]["place_from"] for device in wired} == {"authored"}
+    assert {device["place"] for device in wired} == {model}
+    assert all(isinstance(device["s"], float) for device in wired)
+    assert {(_span_of(device["place"], places) or {}).get("model") for device in wired} == {model}
 
 
 def test_no_device_of_one_model_sits_in_a_place_of_the_other(facility: dict[str, Any]) -> None:
@@ -114,20 +137,20 @@ def test_no_device_of_one_model_sits_in_a_place_of_the_other(facility: dict[str,
     assert crossed == []
 
 
-def test_no_group_mixes_line_and_sr_devices(facility: dict[str, Any]) -> None:
+def test_no_group_mixes_devices_of_two_models(facility: dict[str, Any]) -> None:
     mixed = [
         group["id"]
         for group in facility["groups"]
-        if {"LINE", "SR"} <= _models(group.get("members", []))
+        if len(_models(group.get("members", [])) - {None}) > 1
     ]
     line = sorted(
         group["id"] for group in facility["groups"] if _models(group["members"]) == {"LINE"}
     )
     assert mixed == []
-    assert line == ["LINE/BPM", "LINE/HCM", "LINE/VCM"]
+    assert line == ["LINE/BPM", "LINE/HCM", "LINE/QD", "LINE/QF", "LINE/VCM"]
 
 
-def test_no_middle_layer_family_mixes_line_and_sr_channels(
+def test_no_middle_layer_family_mixes_channels_of_two_models(
     middle_layer: dict[str, Any],
 ) -> None:
     mixed = [
@@ -137,7 +160,7 @@ def test_no_middle_layer_family_mixes_line_and_sr_channels(
         for family, node in families.items()
         if not family.startswith("_")
         for field, addresses in _cells(node)
-        if {"LINE", "SR"} <= _models(addresses)
+        if len(_models(addresses) - {None}) > 1
     ]
     line_cells = [
         (system, family)
@@ -159,7 +182,7 @@ def test_the_line_device_list_counts_its_own_devices(middle_layer: dict[str, Any
         for family, node in middle_layer["LINE"].items()
         if not family.startswith("_")
     }
-    assert sorted(setups) == ["BPM", "HCM", "Quadrupole", "VCM"]
+    assert sorted(setups) == ["BPM", "HCM", "QD", "QF", "VCM"]
     assert all(
         common.startswith("LINE ") for setup in setups.values() for common in setup["CommonNames"]
     )

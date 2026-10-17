@@ -758,7 +758,7 @@ def test_scrub_removes_every_epics_variable_and_nothing_else():
     environ = {
         "EPICS_CA_ADDR_LIST": "gw.example.org",
         "EPICS_PVA_NAME_SERVERS": "gw.example.org:5075",
-        "PYEPICS_LIBCA": "/opt/libca.dylib",
+        "CA_CLIENT_LIBRARY": "/opt/libca.dylib",
         "PATH": "/usr/bin",
     }
 
@@ -768,7 +768,7 @@ def test_scrub_removes_every_epics_variable_and_nothing_else():
         "EPICS_CA_ADDR_LIST": "gw.example.org",
         "EPICS_PVA_NAME_SERVERS": "gw.example.org:5075",
     }
-    assert environ == {"PYEPICS_LIBCA": "/opt/libca.dylib", "PATH": "/usr/bin"}
+    assert environ == {"CA_CLIENT_LIBRARY": "/opt/libca.dylib", "PATH": "/usr/bin"}
 
 
 def test_installed_endpoint_reads_back_name_server_mode(monkeypatch):

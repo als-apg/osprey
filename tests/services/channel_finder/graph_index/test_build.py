@@ -37,20 +37,20 @@ from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 #: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
 #: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
 #: every binding owner, so the top place ``SR``, which carries the tune and
-#: chromaticity channels itself, is one of the 533; ``signals`` is what
+#: chromaticity channels itself, is one of the 645; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 3314
-DEMO_DEVICES = 533
-DEMO_CLASSES = 19
-DEMO_SIGNALS = 38
+DEMO_BINDINGS = 3700
+DEMO_DEVICES = 645
+DEMO_CLASSES = 30
+DEMO_SIGNALS = 53
 
-#: Derived from the view (sixteen distinct ``narad_p:sectionCode`` literals:
-#: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR``, ``BTS`` and
-#: ``LINE``),
+#: Derived from the view (nineteen distinct ``narad_p:sectionCode`` literals:
+#: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR``, ``BTS``,
+#: ``LINE``, ``GTL``, ``LN`` and ``LTB``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
 #: asks the store for its section count.
-DEMO_SECTIONS = 16
+DEMO_SECTIONS = 19
 
 
 @pytest.fixture(scope="module")
@@ -165,8 +165,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "3314 bindings" in line
-        assert "533 devices" in line
+        assert "3700 bindings" in line
+        assert "645 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):

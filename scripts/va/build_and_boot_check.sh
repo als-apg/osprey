@@ -443,29 +443,30 @@ export EPICS_PVA_NAME_SERVERS="127.0.0.1:${PVA_PORT}"
 export EPICS_PVA_AUTO_ADDR_LIST="NO"
 export EPICS_PVA_ADDR_LIST=""
 
-# Every Channel Access assertion below runs through pyepics in the worktree
+# Every Channel Access assertion below runs through aioca in the worktree
 # venv rather than through the host's caget/caput binaries. One client, not
 # two: these steps compare floats and assert on absence, and a single
 # implementation is what keeps "did not move" and "does not exist" meaning the
 # same thing in each of them. The venv is already a hard requirement above --
 # OSPREY_VERSION is resolved through it -- so this adds no new dependency.
+# aioca is asyncio-only, so each payload is one `asyncio.run(main())`.
 #
-# EVERY read below passes use_monitor=False, and that is load-bearing rather
-# than stylistic. pyepics' caget defaults to returning the value its monitor
-# subscription last cached, which after a write is whatever arrived before the
-# write did: the first draft of this gate read a setpoint back as 0 having just
-# completed a put of 0.5, intermittently, because the monitor event had not been
-# processed yet. Two distinct ways that corrupts a gate -- an assertion that a
-# value MOVED fails at random, and, far worse, an assertion that a value did NOT
-# move (step 7) passes for free, since a stale cache never moves. use_monitor=False
-# forces a fresh one-shot read over the wire, which is what put-completion
-# actually guarantees something about.
+# EVERY read below is a fresh one-shot read over the wire, and that is
+# load-bearing rather than stylistic. aioca's caget keeps no monitor cache, so
+# it is one by construction. A client that answers from a monitor cache
+# returns, after a write, whatever arrived before the write did: the first
+# draft of this gate read a setpoint back as 0 having just completed a put of
+# 0.5, intermittently, because the monitor event had not been processed yet.
+# Two distinct ways that corrupts a gate -- an assertion that a value MOVED
+# fails at random, and, far worse, an assertion that a value did NOT move
+# (step 7) passes for free, since a stale cache never moves. A fresh read is
+# what put-completion actually guarantees something about.
 if [[ ! -x "${VENV_PY}" ]]; then
-    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need pyepics" >&2
+    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need aioca" >&2
     exit 1
 fi
-if ! "${VENV_PY}" -c "import epics" >/dev/null 2>&1; then
-    echo "FATAL: pyepics is not importable in ${VENV_PY}" >&2
+if ! "${VENV_PY}" -c "import aioca" >/dev/null 2>&1; then
+    echo "FATAL: aioca is not importable in ${VENV_PY}" >&2
     exit 1
 fi
 
@@ -544,16 +545,49 @@ echo "--- [identity] Confirming the host client is talking to THIS container ---
 # purely so a failure can say which end is wrong.
 IDENTITY_VALUE="3.7137"
 HOST_SEEN="$("${VENV_PY}" - "${EXCITE_PV}" "${IDENTITY_VALUE}" <<'PY'
+import asyncio
+import os
 import sys
-import epics
 
-sp, value = sys.argv[1], float(sys.argv[2])
-if epics.caput(sp, value, wait=True, timeout=30) != 1:
-    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
-v = epics.caget(sp, timeout=15, use_monitor=False)
-if v is None:
-    raise SystemExit(f"FATAL: no CA connection to {sp}")
-print(f"{float(v):.17g}")
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def caput(pv: str, value: float) -> bool:
+    """A put with put-completion; True once the server has completed it."""
+    done = await aioca.caput(pv, value, wait=True, timeout=30, throw=False)
+    return done.ok
+
+
+async def main() -> None:
+    sp, value = sys.argv[1], float(sys.argv[2])
+    if not await caput(sp, value):
+        raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+    v = await caget(sp, timeout=15)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {sp}")
+    print(f"{float(v):.17g}")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 )" || ca_fail "could not write the identity sentinel to ${EXCITE_PV} over Channel Access"
 echo "  host CA wrote ${IDENTITY_VALUE} to ${EXCITE_PV} and read back ${HOST_SEEN}"
@@ -596,16 +630,49 @@ PY
 
 # Put the machine back at rest, so step 2's quiescent baseline is one.
 "${VENV_PY}" - "${EXCITE_PV}" <<'PY' || ca_fail "could not restore ${EXCITE_PV} after the identity handshake"
+import asyncio
+import os
 import sys
-import epics
 
-sp = sys.argv[1]
-if epics.caput(sp, 0.0, wait=True, timeout=30) != 1:
-    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
-v = epics.caget(sp, timeout=15, use_monitor=False)
-if v is None or abs(float(v)) > 1e-12:
-    raise SystemExit(f"FATAL: {sp} reads {v!r} after being restored to 0")
-print(f"OK: {sp} restored to 0; the machine is back at rest")
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def caput(pv: str, value: float) -> bool:
+    """A put with put-completion; True once the server has completed it."""
+    done = await aioca.caput(pv, value, wait=True, timeout=30, throw=False)
+    return done.ok
+
+
+async def main() -> None:
+    sp = sys.argv[1]
+    if not await caput(sp, 0.0):
+        raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+    v = await caget(sp, timeout=15)
+    if v is None or abs(float(v)) > 1e-12:
+        raise SystemExit(f"FATAL: {sp} reads {v!r} after being restored to 0")
+    print(f"OK: {sp} restored to 0; the machine is back at rest")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 
 echo "--- [1/8] Asserting the runner readiness line ---"
@@ -633,15 +700,43 @@ echo "--- [2/8] Baseline: reading the quiescent BPMs over Channel Access ---"
 # excited the closed orbit is exactly zero, so this only establishes that CA
 # answers at all and records the baseline step 3 measures movement against.
 QUIESCENT="$("${VENV_PY}" - "${GATE_PV}" "${GATE_PV_2}" <<'PY'
+import asyncio
+import os
 import sys
-import epics
-vals = []
-for pv in sys.argv[1:]:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
-    if v is None:
-        raise SystemExit(f"FATAL: no CA connection to {pv}")
-    vals.append(f"{float(v):.12g}")
-print(" ".join(vals))
+
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def main() -> None:
+    vals = []
+    for pv in sys.argv[1:]:
+        v = await caget(pv, timeout=15)
+        if v is None:
+            raise SystemExit(f"FATAL: no CA connection to {pv}")
+        vals.append(f"{float(v):.12g}")
+    print(" ".join(vals))
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 )" || ca_fail "could not read the BPMs over Channel Access"
 echo "OK: quiescent ${GATE_PV}=$(echo "${QUIESCENT}" | cut -d' ' -f1)" \
@@ -654,46 +749,79 @@ echo "--- [3/8] Exciting ${EXCITE_PV} and requiring the BPMs to move ---"
 # have been pushed. Without that this would race the solve and read staleness.
 "${VENV_PY}" - "${EXCITE_PV}" "${EXCITE_VALUE}" "${MOVED_THRESHOLD_M}" \
     "${GATE_PV}" "${GATE_PV_2}" <<'PY' || ca_fail "the excitation did not move the BPM readings"
+import asyncio
+import os
 import sys
-import epics
 
-sp, value, threshold = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
-bpms = sys.argv[4:]
+import aioca
 
-before = {}
-for pv in bpms:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
-    if v is None:
-        raise SystemExit(f"FATAL: no CA connection to {pv}")
-    before[pv] = float(v)
 
-if epics.caput(sp, value, wait=True, timeout=30) != 1:
-    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
 
-readback = epics.caget(sp, timeout=15, use_monitor=False)
-if readback is None or abs(float(readback) - value) > 1e-9:
-    raise SystemExit(f"FATAL: {sp} reads {readback!r} after a completed put of {value}")
 
-failures = []
-for pv in bpms:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
-    if v is None:
-        raise SystemExit(f"FATAL: no CA connection to {pv}")
-    moved = abs(float(v) - before[pv])
-    status = "moved" if moved > threshold else "DID NOT MOVE"
-    print(f"  {pv}: {before[pv]:.6g} -> {float(v):.6g}  (|delta|={moved:.3g}, {status})")
-    if moved <= threshold:
-        failures.append(pv)
+async def caput(pv: str, value: float) -> bool:
+    """A put with put-completion; True once the server has completed it."""
+    done = await aioca.caput(pv, value, wait=True, timeout=30, throw=False)
+    return done.ok
 
-if failures:
-    raise SystemExit(
-        "FATAL: "
-        + ", ".join(failures)
-        + f" did not move by more than {threshold:g} m when {sp} was driven to {value}. "
-        "A reading that stays put through a corrector excitation is an unseeded PV, "
-        "not a physics chain."
-    )
-print(f"OK: every BPM moved off its quiescent value when {sp} was excited")
+
+async def main() -> None:
+    sp, value, threshold = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+    bpms = sys.argv[4:]
+
+    before = {}
+    for pv in bpms:
+        v = await caget(pv, timeout=15)
+        if v is None:
+            raise SystemExit(f"FATAL: no CA connection to {pv}")
+        before[pv] = float(v)
+
+    if not await caput(sp, value):
+        raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+
+    readback = await caget(sp, timeout=15)
+    if readback is None or abs(float(readback) - value) > 1e-9:
+        raise SystemExit(f"FATAL: {sp} reads {readback!r} after a completed put of {value}")
+
+    failures = []
+    for pv in bpms:
+        v = await caget(pv, timeout=15)
+        if v is None:
+            raise SystemExit(f"FATAL: no CA connection to {pv}")
+        moved = abs(float(v) - before[pv])
+        status = "moved" if moved > threshold else "DID NOT MOVE"
+        print(f"  {pv}: {before[pv]:.6g} -> {float(v):.6g}  (|delta|={moved:.3g}, {status})")
+        if moved <= threshold:
+            failures.append(pv)
+
+    if failures:
+        raise SystemExit(
+            "FATAL: "
+            + ", ".join(failures)
+            + f" did not move by more than {threshold:g} m when {sp} was driven to {value}. "
+            "A reading that stays put through a corrector excitation is an unseeded PV, "
+            "not a physics chain."
+        )
+    print(f"OK: every BPM moved off its quiescent value when {sp} was excited")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 
 echo "--- [4/8] Asserting the runner claims no control PVs ---"
@@ -742,42 +870,67 @@ fi
 # read as any. It is kept purely as a forward regression guard, to fail if a
 # future change reintroduces that name into the served namespace.
 "${VENV_PY}" - "${EXCITE_PV}" "${RESET_PV}" "SNAPSHOT" <<'PY' || ca_fail "control-PV absence check failed"
+import asyncio
+import os
 import sys
-import epics
 
-control, reset_pv, regression_guard = sys.argv[1], sys.argv[2], sys.argv[3]
-
-# Absence is only meaningful next to a positive control: without one, a server
-# that had stopped answering altogether would satisfy every check below.
-if epics.caget(control, timeout=15, use_monitor=False) is None:
-    raise SystemExit(
-        f"FATAL: positive control {control} did not answer, so this step cannot "
-        "distinguish an absent control PV from a server that stopped responding"
-    )
-print(f"  positive control {control}: answers")
+import aioca
 
 
-def served(pv: str) -> bool:
-    # Short timeout deliberately: this waits for a connection that must never
-    # come, and every second here is spent proving a negative.
-    return epics.caget(pv, timeout=3, connection_timeout=3, use_monitor=False) is not None
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
 
 
-if served(reset_pv):
-    raise SystemExit(
-        f"FATAL: {reset_pv} is served. It is the serving stack's own control PV, so "
-        "this deployment is claiming a name the view's addresses.json does not list."
-    )
-print(f"  {reset_pv}: absent, as required (load-bearing)")
+async def main() -> None:
+    control, reset_pv, regression_guard = sys.argv[1], sys.argv[2], sys.argv[3]
 
-if served(regression_guard):
-    raise SystemExit(
-        f"FATAL: {regression_guard} is served. No such PV exists in this serving stack, "
-        "so something has reintroduced it into the served namespace."
-    )
-print(f"  {regression_guard}: absent (regression guard only -- proves nothing on its own)")
+    # Absence is only meaningful next to a positive control: without one, a server
+    # that had stopped answering altogether would satisfy every check below.
+    if await caget(control, timeout=15) is None:
+        raise SystemExit(
+            f"FATAL: positive control {control} did not answer, so this step cannot "
+            "distinguish an absent control PV from a server that stopped responding"
+        )
+    print(f"  positive control {control}: answers")
 
-print("OK: no control PV is served outside the view's addresses")
+    async def served(pv: str) -> bool:
+        # Short timeout deliberately: this waits for a connection that must never
+        # come, and every second here is spent proving a negative.
+        return await caget(pv, timeout=3) is not None
+
+    if await served(reset_pv):
+        raise SystemExit(
+            f"FATAL: {reset_pv} is served. It is the serving stack's own control PV, so "
+            "this deployment is claiming a name the view's addresses.json does not list."
+        )
+    print(f"  {reset_pv}: absent, as required (load-bearing)")
+
+    if await served(regression_guard):
+        raise SystemExit(
+            f"FATAL: {regression_guard} is served. No such PV exists in this serving stack, "
+            "so something has reintroduced it into the served namespace."
+        )
+    print(f"  {regression_guard}: absent (regression guard only -- proves nothing on its own)")
+
+    print("OK: no control PV is served outside the view's addresses")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 
 echo "--- [5/8] The model RPC from the host: status, info, a refused write, an accepted write ---"
@@ -1065,20 +1218,47 @@ PY
 # both Channel Access and PVAccess, and a clamp that moved only the transport
 # the client used would leave the two views disagreeing about the machine.
 "${VENV_PY}" - "${EXCITE_PV}" "${DRIVE_HIGH}" <<'PY' || ca_fail "the clamped value did not reach the CA view"
+import asyncio
+import os
 import sys
-import epics
 
-sp, high = sys.argv[1], float(sys.argv[2])
-v = epics.caget(sp, timeout=15, use_monitor=False)
-if v is None:
-    raise SystemExit(f"FATAL: no CA connection to {sp}")
-print(f"  CA view of {sp}: {float(v):g}")
-if abs(float(v) - high) > 1e-9:
-    raise SystemExit(
-        f"FATAL: the PVA put clamped to {high:g} but the Channel Access view reads "
-        f"{float(v):g}; the two views of one address have diverged"
-    )
-print("OK: both views of the address carry the clamped value")
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def main() -> None:
+    sp, high = sys.argv[1], float(sys.argv[2])
+    v = await caget(sp, timeout=15)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {sp}")
+    print(f"  CA view of {sp}: {float(v):g}")
+    if abs(float(v) - high) > 1e-9:
+        raise SystemExit(
+            f"FATAL: the PVA put clamped to {high:g} but the Channel Access view reads "
+            f"{float(v):g}; the two views of one address have diverged"
+        )
+    print("OK: both views of the address carry the clamped value")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 
 echo "--- [7/8] A refused PVA put moves nothing ---"
@@ -1094,12 +1274,40 @@ echo "--- [7/8] A refused PVA put moves nothing ---"
 # Channel Access is the right instrument here whether or not the PVA view of a
 # reading tracks it, so this step does not rest on which of those is true.
 CA_BEFORE="$("${VENV_PY}" - "${GATE_PV}" <<'PY'
+import asyncio
+import os
 import sys
-import epics
-v = epics.caget(sys.argv[1], timeout=15, use_monitor=False)
-if v is None:
-    raise SystemExit("FATAL: no CA connection")
-print(f"{float(v):.17g}")
+
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def main() -> None:
+    v = await caget(sys.argv[1], timeout=15)
+    if v is None:
+        raise SystemExit("FATAL: no CA connection")
+    print(f"{float(v):.17g}")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 )" || ca_fail "could not read ${GATE_PV} before the refused put"
 
@@ -1120,25 +1328,52 @@ print("OK: the read-only variable refused the put")
 PY
 
 "${VENV_PY}" - "${GATE_PV}" "${CA_BEFORE}" <<'PY' || ca_fail "a refused put moved the served value"
+import asyncio
+import os
 import sys
-import epics
 
-pv, before = sys.argv[1], float(sys.argv[2])
-v = epics.caget(pv, timeout=15, use_monitor=False)
-if v is None:
-    raise SystemExit(f"FATAL: no CA connection to {pv}")
-after = float(v)
-print(f"  CA view of {pv}: {before:.6g} -> {after:.6g}")
-if before == 0.0:
-    raise SystemExit(
-        f"FATAL: {pv} read 0 before the refused put, so 'unchanged' would prove "
-        "nothing here. The excitation in step 3 should have left it non-zero."
-    )
-if after != before:
-    raise SystemExit(f"FATAL: a refused put moved {pv} from {before!r} to {after!r}")
-if after == 999.0:
-    raise SystemExit(f"FATAL: the refused value landed on {pv}")
-print("OK: the refusal moved nothing any reader can see")
+import aioca
+
+
+async def caget(pv: str, timeout: float = 15.0):
+    """One fresh read over the wire, or None if nothing answered in time."""
+    v = await aioca.caget(pv, timeout=timeout, throw=False)
+    return None if isinstance(v, aioca.CANothing) else v
+
+
+async def main() -> None:
+    pv, before = sys.argv[1], float(sys.argv[2])
+    v = await caget(pv, timeout=15)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {pv}")
+    after = float(v)
+    print(f"  CA view of {pv}: {before:.6g} -> {after:.6g}")
+    if before == 0.0:
+        raise SystemExit(
+            f"FATAL: {pv} read 0 before the refused put, so 'unchanged' would prove "
+            "nothing here. The excitation in step 3 should have left it non-zero."
+        )
+    if after != before:
+        raise SystemExit(f"FATAL: a refused put moved {pv} from {before!r} to {after!r}")
+    if after == 999.0:
+        raise SystemExit(f"FATAL: the refused value landed on {pv}")
+    print("OK: the refusal moved nothing any reader can see")
+
+
+# os._exit rather than a normal exit: with the name server unreachable, the aioca
+# atexit teardown holds the interpreter for ~30 s before the shell sees a code.
+code = 0
+try:
+    asyncio.run(main())
+except SystemExit as exc:
+    if isinstance(exc.code, str):
+        print(exc.code, file=sys.stderr)
+        code = 1
+    else:
+        code = exc.code or 0
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
 PY
 
 echo "--- [8/8] Both served ports are published, and PVA is live behind its own ---"

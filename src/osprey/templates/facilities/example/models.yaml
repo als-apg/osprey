@@ -1,3 +1,868 @@
+- name: BTS
+  engine: pyat
+  deck: decks/BTS.json
+  settings:
+    pyat:
+      solve: single_pass
+      twiss_in:
+        beta:
+        - 0.63
+        - 9.6
+        alpha:
+        - -0.32
+        - 2.42
+        dispersion:
+        - 0.074
+        - 0.018
+        - 0.0
+        - 0.0
+  wiring:
+  - address: BTS:DIAG:BPM:01:POSITION:X
+    element: BPM1
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:01:POSITION:Y
+    element: BPM1
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:02:POSITION:X
+    element: BPM2
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:02:POSITION:Y
+    element: BPM2
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:03:POSITION:X
+    element: BPM3
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:03:POSITION:Y
+    element: BPM3
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:04:POSITION:X
+    element: BPM4
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:04:POSITION:Y
+    element: BPM4
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:05:POSITION:X
+    element: BPM5
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:05:POSITION:Y
+    element: BPM5
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:06:POSITION:X
+    element: BPM6
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:DIAG:BPM:06:POSITION:Y
+    element: BPM6
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: BTS:MAG:DIPOLE:01:CURRENT:RB
+    element: B1
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:01:CURRENT:SP
+    element: B1
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:02:CURRENT:RB
+    element: B2
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:02:CURRENT:SP
+    element: B2
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:03:CURRENT:RB
+    element: B3
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:03:CURRENT:SP
+    element: B3
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0003561896432641489
+          offset: -0.24933275028490423
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:04:CURRENT:RB
+    element: B4
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.00035646972662077943
+          offset: -0.22956650394378195
+      energy_scaling: brho
+  - address: BTS:MAG:DIPOLE:04:CURRENT:SP
+    element: B4
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.00035646972662077943
+          offset: -0.22956650394378195
+      energy_scaling: brho
+  - address: BTS:MAG:HCM:01:CURRENT:RB
+    element: HCM1
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001221
+      energy_scaling: none
+  - address: BTS:MAG:HCM:01:CURRENT:SP
+    element: HCM1
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001221
+      energy_scaling: none
+  - address: BTS:MAG:HCM:02:CURRENT:RB
+    element: HCM2
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012340000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:02:CURRENT:SP
+    element: HCM2
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012340000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:03:CURRENT:RB
+    element: HCM3
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012350000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:03:CURRENT:SP
+    element: HCM3
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012350000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:04:CURRENT:RB
+    element: HCM4
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012220000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:04:CURRENT:SP
+    element: HCM4
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012220000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:05:CURRENT:RB
+    element: HCM5
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012010000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:05:CURRENT:SP
+    element: HCM5
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012010000000000002
+      energy_scaling: none
+  - address: BTS:MAG:HCM:06:CURRENT:RB
+    element: HCM6
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000118
+      energy_scaling: none
+  - address: BTS:MAG:HCM:06:CURRENT:SP
+    element: HCM6
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000118
+      energy_scaling: none
+  - address: BTS:MAG:HCM:07:CURRENT:RB
+    element: HCM7
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000119
+      energy_scaling: none
+  - address: BTS:MAG:HCM:07:CURRENT:SP
+    element: HCM7
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000119
+      energy_scaling: none
+  - address: BTS:MAG:HCM:08:CURRENT:RB
+    element: HCM8
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000121
+      energy_scaling: none
+  - address: BTS:MAG:HCM:08:CURRENT:SP
+    element: HCM8
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000121
+      energy_scaling: none
+  - address: BTS:MAG:HCM:09:CURRENT:RB
+    element: HCM9
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012
+      energy_scaling: none
+  - address: BTS:MAG:HCM:09:CURRENT:SP
+    element: HCM9
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00012
+      energy_scaling: none
+  - address: BTS:MAG:QD:01:CURRENT:RB
+    element: Q21
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04864285714285715
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:01:CURRENT:SP
+    element: Q21
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04864285714285715
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:02:CURRENT:RB
+    element: Q22
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04835483870967742
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:02:CURRENT:SP
+    element: Q22
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04835483870967742
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:03:CURRENT:RB
+    element: Q31
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04874390243902439
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:03:CURRENT:SP
+    element: Q31
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04874390243902439
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:04:CURRENT:RB
+    element: Q51
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04874333333333333
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:04:CURRENT:SP
+    element: Q51
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.04874333333333333
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:05:CURRENT:RB
+    element: Q62
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.048750588235294115
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QD:05:CURRENT:SP
+    element: Q62
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.048750588235294115
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:01:CURRENT:RB
+    element: Q1
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.03420645256407106
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:01:CURRENT:SP
+    element: Q1
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.03420645256407106
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:02:CURRENT:RB
+    element: Q32
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.03935577974960496
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:02:CURRENT:SP
+    element: Q32
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.03935577974960496
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:03:CURRENT:RB
+    element: Q4
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.05585419198055893
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:03:CURRENT:SP
+    element: Q4
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.05585419198055893
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:04:CURRENT:RB
+    element: Q52
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.06639664187348111
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:04:CURRENT:SP
+    element: Q52
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.06639664187348111
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:05:CURRENT:RB
+    element: Q61
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.05389513108614233
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:05:CURRENT:SP
+    element: Q61
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.05389513108614233
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:06:CURRENT:RB
+    element: Q7
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.04436508743391623
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:QF:06:CURRENT:SP
+    element: Q7
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.04436508743391623
+          offset: 0.0
+      energy_scaling: brho
+  - address: BTS:MAG:VCM:01:CURRENT:RB
+    element: VCM1
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00010169999999999999
+      energy_scaling: none
+  - address: BTS:MAG:VCM:01:CURRENT:SP
+    element: VCM1
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00010169999999999999
+      energy_scaling: none
+  - address: BTS:MAG:VCM:02:CURRENT:RB
+    element: VCM2
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001028
+      energy_scaling: none
+  - address: BTS:MAG:VCM:02:CURRENT:SP
+    element: VCM2
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001028
+      energy_scaling: none
+  - address: BTS:MAG:VCM:03:CURRENT:RB
+    element: VCM3
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001029
+      energy_scaling: none
+  - address: BTS:MAG:VCM:03:CURRENT:SP
+    element: VCM3
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001029
+      energy_scaling: none
+  - address: BTS:MAG:VCM:04:CURRENT:RB
+    element: VCM4
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00010180000000000001
+      energy_scaling: none
+  - address: BTS:MAG:VCM:04:CURRENT:SP
+    element: VCM4
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.00010180000000000001
+      energy_scaling: none
+  - address: BTS:MAG:VCM:05:CURRENT:RB
+    element: VCM5
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001001
+      energy_scaling: none
+  - address: BTS:MAG:VCM:05:CURRENT:SP
+    element: VCM5
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001001
+      energy_scaling: none
+  - address: BTS:MAG:VCM:06:CURRENT:RB
+    element: VCM6
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -9.84e-05
+      energy_scaling: none
+  - address: BTS:MAG:VCM:06:CURRENT:SP
+    element: VCM6
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -9.84e-05
+      energy_scaling: none
+  - address: BTS:MAG:VCM:07:CURRENT:RB
+    element: VCM7
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -9.900000000000001e-05
+      energy_scaling: none
+  - address: BTS:MAG:VCM:07:CURRENT:SP
+    element: VCM7
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -9.900000000000001e-05
+      energy_scaling: none
+  - address: BTS:MAG:VCM:08:CURRENT:RB
+    element: VCM8
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000101
+      energy_scaling: none
+  - address: BTS:MAG:VCM:08:CURRENT:SP
+    element: VCM8
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.000101
+      energy_scaling: none
+  - address: BTS:MAG:VCM:09:CURRENT:RB
+    element: VCM9
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001
+      energy_scaling: none
+  - address: BTS:MAG:VCM:09:CURRENT:SP
+    element: VCM9
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.0001
+          offset: -0.0001
+      energy_scaling: none
 - name: LINE
   engine: pyat
   deck: decks/LINE.json
@@ -435,6 +1300,629 @@
       energy_scaling: none
   - address: LINE:MAG:VCM:04:CURRENT:SP
     element: VCM04
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+- name: LTB
+  engine: pyat
+  deck: decks/LTB.json
+  settings:
+    pyat:
+      solve: single_pass
+      twiss_in:
+        beta:
+        - 12.0
+        - 12.0
+        alpha:
+        - 0.0
+        - 0.0
+        dispersion:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+  wiring:
+  - address: LTB:DIAG:BPM:01:POSITION:X
+    element: BPM1
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:01:POSITION:Y
+    element: BPM1
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:02:POSITION:X
+    element: BPM2
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:02:POSITION:Y
+    element: BPM2
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:03:POSITION:X
+    element: BPM3
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:03:POSITION:Y
+    element: BPM3
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:04:POSITION:X
+    element: BPM4
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:04:POSITION:Y
+    element: BPM4
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:05:POSITION:X
+    element: BPM5
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:05:POSITION:Y
+    element: BPM5
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:06:POSITION:X
+    element: BPM6
+    engine:
+      axis: x
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:DIAG:BPM:06:POSITION:Y
+    element: BPM6
+    engine:
+      axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:DIPOLE:01:CURRENT:RB
+    element: BS
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.01129662946274647
+          offset: -1.3555955355295763
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:01:CURRENT:SP
+    element: BS
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.01129662946274647
+          offset: -1.3555955355295763
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:02:CURRENT:RB
+    element: B1
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.01129662946274647
+          offset: -1.3555955355295763
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:02:CURRENT:SP
+    element: B1
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.01129662946274647
+          offset: -1.3555955355295763
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:03:CURRENT:RB
+    element: B2
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: -0.011566131557285152
+          offset: 0.6939678934371092
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:03:CURRENT:SP
+    element: B2
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: -0.011566131557285152
+          offset: 0.6939678934371092
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:04:CURRENT:RB
+    element: B3
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: -0.016434362071509695
+          offset: 0.49303086214529085
+      energy_scaling: brho
+  - address: LTB:MAG:DIPOLE:04:CURRENT:SP
+    element: B3
+    engine:
+      attribute: PolynomB
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: -0.016434362071509695
+          offset: 0.49303086214529085
+      energy_scaling: brho
+  - address: LTB:MAG:HCM:01:CURRENT:RB
+    element: HCM1
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:HCM:01:CURRENT:SP
+    element: HCM1
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:HCM:02:CURRENT:RB
+    element: HCM2
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:HCM:02:CURRENT:SP
+    element: HCM2
+    engine:
+      attribute: KickAngle
+      index: 0
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:QD:01:CURRENT:RB
+    element: Q11
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:01:CURRENT:SP
+    element: Q11
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:02:CURRENT:RB
+    element: Q32
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:02:CURRENT:SP
+    element: Q32
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:03:CURRENT:RB
+    element: Q42
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:03:CURRENT:SP
+    element: Q42
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:04:CURRENT:RB
+    element: Q6
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QD:04:CURRENT:SP
+    element: Q6
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: -0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:01:CURRENT:RB
+    element: Q12
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:01:CURRENT:SP
+    element: Q12
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:02:CURRENT:RB
+    element: Q2
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:02:CURRENT:SP
+    element: Q2
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:03:CURRENT:RB
+    element: Q31
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:03:CURRENT:SP
+    element: Q31
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:04:CURRENT:RB
+    element: Q41
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:04:CURRENT:SP
+    element: Q41
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665973
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:05:CURRENT:RB
+    element: Q5
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:QF:05:CURRENT:SP
+    element: Q5
+    engine:
+      attribute: PolynomB
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.5495829033665974
+          offset: 0.0
+      energy_scaling: brho
+  - address: LTB:MAG:VCM:01:CURRENT:RB
+    element: VCM1
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:01:CURRENT:SP
+    element: VCM1
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:02:CURRENT:RB
+    element: VCM2
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:02:CURRENT:SP
+    element: VCM2
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:03:CURRENT:RB
+    element: VCM3
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:03:CURRENT:SP
+    element: VCM3
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:04:CURRENT:RB
+    element: VCM4
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:04:CURRENT:SP
+    element: VCM4
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:05:CURRENT:RB
+    element: VCM5
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:05:CURRENT:SP
+    element: VCM5
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:06:CURRENT:RB
+    element: VCM6
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:06:CURRENT:SP
+    element: VCM6
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:07:CURRENT:RB
+    element: VCM7
+    engine:
+      attribute: KickAngle
+      index: 1
+    calibration:
+      curve:
+        linear:
+          gain: 0.001
+          offset: 0.0
+      energy_scaling: none
+  - address: LTB:MAG:VCM:07:CURRENT:SP
+    element: VCM7
     engine:
       attribute: KickAngle
       index: 1

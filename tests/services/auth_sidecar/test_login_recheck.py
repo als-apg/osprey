@@ -7,7 +7,7 @@ pin the matrix of :mod:`osprey.services.auth_sidecar.routes.recheck` row by row:
 * ``none`` — no login method at all. The sidecar mints nothing and records no
   login event, because a deployment with no login has no login to record; the
   identity a single-user install runs under comes from
-  :func:`~osprey.utils.identity.acting_identity`, which this service never
+  :func:`~osprey_connectors.identity.acting_identity`, which this service never
   reaches for.
 * ``password`` — the roster username is the subject and the roster entry's own
   ``role:`` is the role. Static, per user, and read by *key* rather than found
@@ -78,7 +78,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_SECRET = "session-secret-value"
 STATE_SECRET = "state-secret-value"

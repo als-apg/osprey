@@ -44,7 +44,7 @@ from osprey.cli.build_profile_archiver import (
 )
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.profile_cmd import profile
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -116,7 +116,12 @@ def test_declared_knobs_reach_the_parsed_block(tmp_path: Path) -> None:
     loaded = load_profile(
         _write_profile(
             tmp_path,
-            {"retention_days": 365, "hot_cadence_sec": 5, "tail_cadence_sec": 30},
+            {
+                "retention_days": 365,
+                "hot_cadence_sec": 5,
+                "tail_cadence_sec": 30,
+                "recorder_tail_cadence_sec": 30,
+            },
         )
     )
 
@@ -124,6 +129,7 @@ def test_declared_knobs_reach_the_parsed_block(tmp_path: Path) -> None:
     assert loaded.va_archiver.retention_days == 365
     assert loaded.va_archiver.hot_cadence_sec == 5
     assert loaded.va_archiver.tail_cadence_sec == 30
+    assert loaded.va_archiver.recorder_tail_cadence_sec == 30
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +223,70 @@ def test_the_recorder_cadences_answer_the_same_rule() -> None:
 
 
 def test_matching_cadences_are_fine() -> None:
-    """One tier at both cadences is a legitimate (if dense) configuration."""
-    assert _errors(hot_cadence_sec=10, tail_cadence_sec=10) == []
+    """One tier at both cadences is a legitimate (if dense) configuration —
+    provided the recorder keeps its tail on that same cadence."""
+    assert _errors(hot_cadence_sec=10, tail_cadence_sec=10, recorder_tail_cadence_sec=10) == []
+
+
+# ---------------------------------------------------------------------------
+# Seed and live recorder keep one tail cadence
+# ---------------------------------------------------------------------------
+
+
+def _cadence_mismatch_errors(errors: list[str]) -> list[str]:
+    """The errors that name both tail-cadence knobs."""
+    return [
+        error
+        for error in errors
+        if "va_archiver.recorder_tail_cadence_sec" in error
+        and "va_archiver.tail_cadence_sec" in error
+    ]
+
+
+def test_a_recorder_tail_cadence_other_than_the_seeds_is_refused() -> None:
+    """The seed and the live recorder write the same history, waveforms
+    included. A recorder keeping its tail at another cadence would leave live
+    and seeded history on two grids, so the build refuses the pairing with one
+    error naming both knobs, both values and the fix."""
+    errors = _errors(tail_cadence_sec=60, recorder_tail_cadence_sec=120)
+
+    mismatches = _cadence_mismatch_errors(errors)
+    assert len(mismatches) == 1, errors
+    (error,) = mismatches
+    assert "(120)" in error
+    assert "(60)" in error
+    assert "set them equal" in error
+
+
+def test_the_cadence_mismatch_is_reported_whichever_side_is_faster() -> None:
+    errors = _errors(hot_cadence_sec=10, tail_cadence_sec=120, recorder_tail_cadence_sec=60)
+
+    assert len(_cadence_mismatch_errors(errors)) == 1, errors
+
+
+def test_equal_tail_cadences_away_from_the_default_validate() -> None:
+    """The guard compares the two knobs; it does not pin either to 60 s."""
+    assert _errors(tail_cadence_sec=120, recorder_tail_cadence_sec=120) == []
+
+
+def test_a_non_positive_cadence_is_not_reported_twice() -> None:
+    """A cadence below one is already refused on its own; the mismatch rule
+    stays silent rather than restating it."""
+    errors = _errors(recorder_tail_cadence_sec=0)
+
+    assert _cadence_mismatch_errors(errors) == []
+
+
+def test_the_control_assistant_presets_block_validates() -> None:
+    """The shipped preset leaves the recorder tail at its default, which is the
+    seed's cadence, so the guard leaves its block untouched."""
+    from osprey.cli.build_profile import resolve_build_profile
+
+    profile, _ = resolve_build_profile(None, "control-assistant")
+
+    assert profile.va_archiver is not None
+    assert profile.va_archiver.recorder_tail_cadence_sec == profile.va_archiver.tail_cadence_sec
+    assert va_archiver_errors(profile.va_archiver, profile.config, True) == []
 
 
 def test_an_unknown_compressor_is_refused() -> None:

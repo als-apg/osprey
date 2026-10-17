@@ -29,11 +29,11 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import feedback_dir
-from osprey.utils.config import (
+from osprey_connectors.config import (
     ConfigBuilder,
     find_runtime_write_paths_under_data,
 )
-from osprey.utils.workspace import agent_data_base_dir
+from osprey_connectors.workspace import agent_data_base_dir
 
 PRESET = "control-assistant"
 PROJECT_NAME = "checksum-stability"
@@ -100,7 +100,7 @@ class TestRuntimeWriters:
         self, built_project: Path, baseline: dict[str, str], project_config: dict
     ) -> None:
         from osprey.simulation.apply import apply_scenarios
-        from osprey.utils.workspace import resolve_simulation_state_dir
+        from osprey_connectors.workspace import resolve_simulation_state_dir
 
         # Both side-seedings are off for the same reason: each one reaches a
         # service this test does not run and is not about. `seed_logbook` wants
@@ -243,7 +243,7 @@ class TestTheLoaderRejectsUnknownProfileKeys:
 
     def test_an_unknown_top_level_key_is_rejected(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import _load_preset_raw, load_profile
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         # The preset as a profile layer — `app_template:` already consumed, the
         # way resolution consumes it. Spelling that key in a repo profile is

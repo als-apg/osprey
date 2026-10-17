@@ -18,7 +18,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 logger = logging.getLogger("osprey.cli.templates")
 

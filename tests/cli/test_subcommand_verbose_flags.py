@@ -52,7 +52,7 @@ def stub_project_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
     ``load_project_dotenv`` runs for every ``osprey`` invocation and its writes
     to ``os.environ`` outlive the test that triggered them.
     """
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
 
 
 @pytest.fixture

@@ -130,7 +130,7 @@ from osprey.mcp_server.approval_stamp import (
     read_ask_stamp,
 )
 from osprey.mcp_server.errors import make_error
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt

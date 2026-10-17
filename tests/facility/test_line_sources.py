@@ -5,8 +5,9 @@ groups into ``records/``, its model into ``models.yaml`` and its measurement
 file into ``measurement/LINE.yaml``. On a copy of the committed tree with the
 line removed it writes the committed tree back, every other record byte-equal;
 run twice it changes nothing. It writes no limits record and no seed, and the
-hello-world tree holds no line record. The line's groups hold only its own
-devices, and its losing kick loses the particle on the deck.
+hello-world tree holds no line record. The line's groups, one per family, hold
+only its own devices; the measurement names the BPM and corrector ones, and
+its losing kick loses the particle on the deck.
 """
 
 from __future__ import annotations
@@ -63,6 +64,22 @@ def _without_line(text: str) -> list[str]:
     return [chunk for chunk in _chunks(text) if not _is_line(_chunk_id(chunk))]
 
 
+def _stripped(text: str, *, keep_place: bool) -> str:
+    """``text`` without the line; with ``keep_place`` its place is left as a stub.
+
+    A place keeps its position in ``places.yaml`` when re-emitted, and places
+    follow the line's there, so the stub holds the line's place where it is.
+    """
+    kept = []
+    for chunk in _chunks(text):
+        key = _chunk_id(chunk)
+        if keep_place and key == "LINE":
+            kept.append("- id: LINE\n  description: stub\n")
+        elif not _is_line(key):
+            kept.append(chunk)
+    return "".join(kept)
+
+
 def _run_line(tree: Path) -> None:
     subprocess.run(
         [sys.executable, str(GENERATOR), "line", str(tree)],
@@ -73,12 +90,13 @@ def _run_line(tree: Path) -> None:
 
 @pytest.fixture
 def stripped(tmp_path: Path) -> Path:
-    """A copy of the committed example tree with the line removed."""
+    """A copy of the committed example tree with the line removed, its place a stub."""
     tree = tmp_path / "example"
     shutil.copytree(EXAMPLE, tree)
     for rel in MERGED:
         path = tree / rel
-        path.write_text("".join(_without_line(path.read_text(encoding="utf-8"))), "utf-8")
+        text = path.read_text(encoding="utf-8")
+        path.write_text(_stripped(text, keep_place=rel == "records/places.yaml"), "utf-8")
     for rel in WRITTEN:
         (tree / rel).unlink()
     return tree
@@ -95,7 +113,7 @@ def test_the_line_mode_leaves_every_other_record_byte_equal(stripped: Path) -> N
     _run_line(stripped)
     for rel in MERGED:
         after = (stripped / rel).read_text(encoding="utf-8")
-        assert _without_line(after) == _chunks(before[rel]), rel
+        assert _without_line(after) == _without_line(before[rel]), rel
 
 
 def test_the_line_mode_is_idempotent(tmp_path: Path) -> None:
@@ -143,7 +161,9 @@ def test_the_line_holds_forty_channels_on_twenty_devices() -> None:
 def test_the_line_groups_hold_only_line_devices_and_name_the_measurement() -> None:
     groups = read_yaml((EXAMPLE / "records/groups.yaml").read_text(encoding="utf-8"))
     line_groups = {g["id"]: g["members"] for g in groups if _is_line(g["id"])}
-    assert sorted(line_groups) == ["LINE/BPM", "LINE/HCM", "LINE/VCM"]
+    assert sorted(line_groups) == ["LINE/BPM", "LINE/HCM", "LINE/QD", "LINE/QF", "LINE/VCM"]
+    for family in ("BPM", "HCM", "VCM", "QF", "QD"):
+        assert line_groups[f"LINE/{family}"] == [f"LINE/{family}{n:02d}" for n in range(1, 5)]
     assert all(member.startswith("LINE/") for members in line_groups.values() for member in members)
     assert not any(
         member.startswith("LINE/")
@@ -154,6 +174,13 @@ def test_the_line_groups_hold_only_line_devices_and_name_the_measurement() -> No
     measurement = read_yaml((EXAMPLE / "measurement/LINE.yaml").read_text(encoding="utf-8"))
     assert measurement["kinds"] == ["orm"]
     assert measurement["groups"] == {"bpm": "LINE/BPM", "hcor": "LINE/HCM", "vcor": "LINE/VCM"}
+
+
+def test_every_line_group_has_a_one_line_description_and_names() -> None:
+    groups = read_yaml((EXAMPLE / "records/groups.yaml").read_text(encoding="utf-8"))
+    for group in (g for g in groups if _is_line(g["id"])):
+        assert group["description"] and "\n" not in group["description"], group["id"]
+        assert group["names"], group["id"]
 
 
 def test_the_line_place_spans_the_deck_from_its_start_marker() -> None:

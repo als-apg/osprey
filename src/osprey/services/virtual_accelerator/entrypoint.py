@@ -218,7 +218,7 @@ def _install_shutdown_signals() -> None:
 
 def _configure_logging() -> None:
     """Give the records this process drives a handler on stderr."""
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     configure_logging()
 

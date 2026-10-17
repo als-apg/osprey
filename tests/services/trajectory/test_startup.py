@@ -50,8 +50,8 @@ from osprey.services.trajectory.startup import (
     service_settings,
 )
 from osprey.services.trajectory.step import ToolUnavailable
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR
+from osprey_connectors.workspace import reset_config_cache
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject

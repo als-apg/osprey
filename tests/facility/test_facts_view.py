@@ -111,12 +111,14 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     }
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
-    assert list(facts["measurement_models"]) == ["LINE", "SR"]
-    assert facts["measurement_models"]["LINE"]["path"] == "data/pyaml/LINE/configuration.yaml"
-    assert facts["measurement_models"]["SR"]["path"] == "data/pyaml/SR/configuration.yaml"
+    assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
+    for model, record in facts["measurement_models"].items():
+        assert record["path"] == f"data/pyaml/{model}/configuration.yaml"
     assert facts["snapshot"] is None
     assert facts["models"] == [
+        {"name": "BTS", "engine": "pyat", "served": True, "solve": "single_pass"},
         {"name": "LINE", "engine": "pyat", "served": True, "solve": "single_pass"},
+        {"name": "LTB", "engine": "pyat", "served": True, "solve": "single_pass"},
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None},
     ]
@@ -148,6 +150,27 @@ def test_each_device_class_carries_its_count_aliases_and_groups(
     assert classes["Quadrupole"]["aliases"]
     assert classes["Quadrupole"]["groups"]
     assert {"BPM", "PM"} <= set(classes["BeamPositionMonitor"]["aliases"])
+
+
+def test_the_booster_and_ring_septa_are_a_septum_class(
+    built_control_assistant: BuiltProject,
+) -> None:
+    facts = _built_facts(built_control_assistant)
+
+    septum = facts["device_classes"]["Septum"]
+    assert septum["count"] == 4
+    assert septum["groups"] == ["BR/SEPTUM", "SR/SEPTUM"]
+    assert "injection septum" in septum["aliases"]
+
+
+def test_the_septum_waveform_signal_is_in_the_vocabulary(
+    built_control_assistant: BuiltProject,
+) -> None:
+    signal = _built_facts(built_control_assistant)["vocabulary"]["signals"]["pulse_waveform"]
+
+    assert signal["count"] == 1
+    assert signal["roles"] == {"readback": 1}
+    assert signal["description"]
 
 
 def _class_count(devices: list[dict[str, Any]]) -> dict[str, int]:
@@ -288,8 +311,8 @@ def test_two_renders_differing_in_served_models_write_different_facts(
         served[name] = {model["name"]: model["served"] for model in facts["models"]}
 
     assert served == {
-        "all": {"LINE": True, "SR": True, TEXTURE: True},
-        "none": {"LINE": False, "SR": False, TEXTURE: True},
+        "all": {"BTS": True, "LINE": True, "LTB": True, "SR": True, TEXTURE: True},
+        "none": {"BTS": False, "LINE": False, "LTB": False, "SR": False, TEXTURE: True},
     }
 
 
@@ -427,7 +450,7 @@ def test_the_built_context_reads_the_written_facts(built_control_assistant: Buil
     assert ctx["pyaml_view_present"] is True
     records = facts["measurement_models"]
     assert ctx["measurement"] == hook_measurement(facts, built_control_assistant.build_dir)
-    assert list(ctx["measurement"]) == ["LINE", "SR"]
+    assert list(ctx["measurement"]) == ["BTS", "LINE", "LTB", "SR"]
     for model, record in records.items():
         assert ctx["measurement"][model]["view_sha256"] == record["sha256"]
 

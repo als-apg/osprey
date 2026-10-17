@@ -197,7 +197,7 @@ async def session_log(
     #
     # Emphatically NOT derived from the agent-data root: walking up from it is
     # off by a zone (the render is not the repo root) AND unstable, because
-    # `resolve_workspace_root` is the session-ISOLATED alias —
+    # `resolve_agent_data_root` is the session-ISOLATED alias —
     # with OSPREY_SESSION_ID set the root becomes
     # `<repo>/var/agent_data/sessions/<id>`, so any walk-up moves with it. A
     # wrong directory here is silent: find_transcript_dir returns None and the

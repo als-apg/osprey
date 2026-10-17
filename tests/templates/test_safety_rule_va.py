@@ -84,11 +84,15 @@ def _render_safety_rule(tmp_path, project_name: str, control_system_type: str | 
 
 
 def _assert_epics_prohibitions_present(content: str) -> None:
-    assert "import epics" in content
-    assert "epics.caget" in content
+    assert "import aioca" in content
+    assert "aioca.caget" in content
+    assert "aioca.caput" in content
     assert "epics.caput" in content
     assert "Bypasses audit logging" in content
-    assert "pv.put(150)  # Refused at runtime: RAW_CLIENT_WRITE" in content
+    assert (
+        'await aioca.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Refused at runtime: RAW_CLIENT_WRITE'
+        in content
+    )
 
 
 def test_epics_prohibitions_present(tmp_path):
@@ -122,7 +126,9 @@ def test_the_simulator_in_process_renders_no_epics_family_lines(tmp_path):
     content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)
 
     assert "osprey.runtime" in content
+    assert "import aioca" not in content
     assert "import epics" not in content
+    assert "aioca.caput" not in content
     assert "epics.caget" not in content
     assert "epics.caput" not in content
     assert "EPICS Channel Access" not in content

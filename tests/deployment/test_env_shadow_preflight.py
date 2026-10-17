@@ -206,7 +206,7 @@ def test_the_entry_time_dotenv_override_does_not_hide_the_divergence(tmp_path, c
     warn, exactly when the operator most needs to hear otherwise. The recorded
     shell overrides are what keep the comparison honest.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     repo = _repo(
         tmp_path,

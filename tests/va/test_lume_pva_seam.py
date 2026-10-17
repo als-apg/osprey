@@ -4,7 +4,7 @@
 serves a :class:`~osprey_connectors.simulation.composite.Composite` on
 Channel Access and PVAccess from one configuration, and answers the model RPC
 over the composite's simulator view. Everything this file asserts is what a
-client reads: a real ``pyepics`` client and a real ``p4p`` client in the
+client reads: a real ``aioca`` client and a real ``p4p`` client in the
 pytest process, against a real ``pcaspy`` and ``p4p`` server.
 
 **One server per process.** Each served view runs in a spawned process of its
@@ -40,6 +40,7 @@ on any skip.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import multiprocessing
@@ -48,7 +49,7 @@ import shutil
 import socket
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from functools import partial
 from pathlib import Path
@@ -63,7 +64,13 @@ pytest.importorskip(
     reason="lume-pva-apg installs on linux/x86_64 only; run this module through the live-CA gate",
 )
 pytest.importorskip("p4p", reason="the PVAccess client ships with lume-pva-apg's pva extra")
-epics = pytest.importorskip("epics", reason="the Channel Access client is pyepics")
+
+# Found, never imported at module level: importing aioca loads its libca at
+# once, and every spawned server process imports this module again, where that
+# libca beside pcaspy's own drops the client on every write. The client
+# helpers import aioca where they use it, in the pytest process alone.
+if importlib.util.find_spec("aioca") is None:
+    pytest.skip("the Channel Access client is aioca", allow_module_level=True)
 
 
 def _free_port() -> str:
@@ -78,21 +85,24 @@ def _free_port() -> str:
 SERVERS = ("names", "demo", "strict_demo", "stub", "first_pass")
 
 # import-time required because libca latches the EPICS_CA_* environment when
-# the C library initialises, which happens below, before pcaspy is imported.
-# Each server listens on a Channel Access port of its own, so the client
+# the CA context is created, which happens on the first Channel Access call
+# anywhere in the process. Each server listens on a Channel Access port of its own, so the client
 # searches them all; the pairing of server and port is fixed here, once.
 CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
-# import-time required because libca reads the search list once, at the
-# initialisation below.
+# import-time required because libca reads the search list once, when the CA
+# context is created.
 os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
 os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
-# The client binds pyepics' own libca before the server extension is imported:
-# pcaspy exports the ca_* client symbols too, and whichever stack binds first
-# wins.
-epics.ca.initialize_libca()
-pytest.importorskip("pcaspy", reason="the Channel Access server ships with lume-pva-apg's ca extra")
+# Found, never imported: pcaspy's extension bundles its own EPICS base, and
+# loaded beside aioca's libca it drops the client on every write. The servers
+# run in the spawned processes alone.
+if importlib.util.find_spec("pcaspy") is None:
+    pytest.skip(
+        "the Channel Access server ships with lume-pva-apg's ca extra",
+        allow_module_level=True,
+    )
 
 from p4p.client.thread import Context  # noqa: E402
 
@@ -755,26 +765,79 @@ def _wait_until(predicate: Callable[[], Any], timeout: float = SETTLE_TIMEOUT_S)
     return predicate()
 
 
-def _ca_pv(address: str) -> Any:
-    pv = epics.get_pv(address, form="time", auto_monitor=False)
-    assert pv.wait_for_connection(timeout=CA_TIMEOUT_S), f"{address} never connected over CA"
-    return pv
+def _on_ca_loop(coro: Coroutine[Any, Any, Any]) -> Any:
+    """Run one aioca coroutine on the process's CA loop; block for its result."""
+    from osprey_connectors.control_system.ca_loop import get_ca_loop
+
+    return get_ca_loop().run_sync(coro, timeout=CA_TIMEOUT_S + 5.0)
+
+
+def _ca_connects(address: str, timeout: float = CA_TIMEOUT_S) -> bool:
+    """Whether ``address`` connects over CA within ``timeout``."""
+    import aioca
+
+    return bool(_on_ca_loop(aioca.connect(address, timeout=timeout, throw=False)).ok)
+
+
+def _plain(value: Any) -> Any:
+    """An aioca value as the plain Python value it augments."""
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, int):
+        return int(value)
+    return str(value)
 
 
 def _ca(address: str) -> dict[str, Any]:
-    """One read over CA, never from a monitor cache: value, alarm and time stamp."""
-    data = _ca_pv(address).get_with_metadata(
-        use_monitor=False, form="time", timeout=CA_TIMEOUT_S, as_numpy=False
+    """One read over CA, off the wire: value, alarm and time stamp.
+
+    aioca's ``caget`` keeps no monitor cache, so every read is a fresh one.
+    """
+    import aioca
+
+    reading = _on_ca_loop(
+        aioca.caget(address, format=aioca.FORMAT_TIME, timeout=CA_TIMEOUT_S, throw=False)
     )
-    assert data is not None, f"{address} returned nothing over CA"
-    reading: dict[str, Any] = data
-    return reading
+    assert reading.ok, f"{address} returned nothing over CA"
+    return {
+        "value": _plain(reading),
+        "severity": int(reading.severity),
+        "status": int(reading.status),
+        "timestamp": float(reading.timestamp),
+    }
 
 
 def _ca_text(address: str) -> str:
     """A string channel's text, read once over CA."""
-    text: str = _ca_pv(address).get(use_monitor=False, as_string=True, timeout=CA_TIMEOUT_S)
-    return text
+    import aioca
+
+    text = _on_ca_loop(
+        aioca.caget(address, datatype=aioca.DBR_STRING, timeout=CA_TIMEOUT_S, throw=False)
+    )
+    assert text.ok, f"{address} returned nothing over CA"
+    return str(text)
+
+
+def _ca_precision(address: str) -> int:
+    """A float channel's display precision, read once over CA."""
+    import aioca
+
+    control = _on_ca_loop(
+        aioca.caget(address, format=aioca.FORMAT_CTRL, timeout=CA_TIMEOUT_S, throw=False)
+    )
+    assert control.ok, f"{address} returned nothing over CA"
+    return int(control.precision)
+
+
+def _ca_is_long(address: str) -> bool:
+    """Whether ``address`` is served as a CA integer (``DBR_LONG``)."""
+    import aioca
+
+    info = _on_ca_loop(aioca.cainfo(address, timeout=CA_TIMEOUT_S, throw=False))
+    assert info.ok, f"{address} never connected over CA"
+    return bool(info.datatype == aioca.DBR_LONG)
 
 
 def _ca_alarm(address: str) -> tuple[int, int]:
@@ -782,10 +845,12 @@ def _ca_alarm(address: str) -> tuple[int, int]:
     return (int(data["severity"]), int(data["status"]))
 
 
-def _caput(address: str, value: float) -> int:
-    """Write with put-completion: returns once the write's pass has finished."""
-    status: int = epics.caput(address, value, wait=True, timeout=CA_TIMEOUT_S)
-    return status
+def _caput(address: str, value: float) -> bool:
+    """Write with put-completion; True once the write's pass has finished."""
+    import aioca
+
+    done = _on_ca_loop(aioca.caput(address, value, wait=True, timeout=CA_TIMEOUT_S, throw=False))
+    return bool(done.ok)
 
 
 def _pva_alarm(value: Any) -> tuple[int, int]:
@@ -870,8 +935,8 @@ class TestNamesServedVerbatim:
 
     def test_als_shaped_names_served_verbatim_no_alarm(self, names_server: _Server) -> None:
         for address in NAMES:
-            assert _ca_pv(address).connected
-        assert epics.PV(COLLAPSED).wait_for_connection(timeout=5.0) is False
+            assert _ca_connects(address), f"{address} never connected over CA"
+        assert _ca_connects(COLLAPSED, timeout=5.0) is False
 
         assert _ca(SR_READBACK)["value"] == 12.5
         assert _ca(BTS_READBACK)["value"] == 0.25
@@ -879,7 +944,7 @@ class TestNamesServedVerbatim:
             assert _ca_alarm(address) == NO_ALARM, address
             assert int(names_server.pva_get(address)["alarm.severity"]) == 0, address
 
-        assert _caput(SR_SETPOINT, 13.0) == 1
+        assert _caput(SR_SETPOINT, 13.0)
         echo = _ca(SR_READBACK)
         assert (echo["value"], (echo["severity"], echo["status"])) == (13.0, NO_ALARM)
 
@@ -1027,7 +1092,7 @@ class TestDemoComposite:
         orbit_before = _ca(BPM_X)["value"]
         put_at = time.time()
 
-        assert _caput(CORRECTOR, 1.5) == 1
+        assert _caput(CORRECTOR, 1.5)
 
         after_put = demo_server.ask("counts")
         for address in (BPM_X, *TUNES):
@@ -1201,9 +1266,7 @@ class TestStubComposite:
 
         _assert_safety_config(config, stub_server.view, None)
         assert config["variables"][STUB_RANGE]["precision"] == STUB_PRECISION
-        assert _ca_pv(STUB_RANGE).get_ctrlvars(timeout=CA_TIMEOUT_S)["precision"] == (
-            STUB_PRECISION
-        )
+        assert _ca_precision(STUB_RANGE) == STUB_PRECISION
         assert int(stub_server.pva_get(STUB_RANGE)["display.precision"]) == STUB_PRECISION
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
@@ -1225,11 +1288,10 @@ class TestStubComposite:
 
     def test_an_int_channel_is_an_int_on_both_wires(self, stub_server: _Server) -> None:
         pva = stub_server.pva_get(STUB_COUNT)
-        pv = _ca_pv(STUB_COUNT)
 
         assert stub_server.channels[STUB_COUNT]["value_type"] == "int"
         assert (pva.type()["value"], pva["value"]) == ("i", STUB_COUNT_NOMINAL)
-        assert (pv.ftype, _ca(STUB_COUNT)["value"]) == (epics.dbr.TIME_LONG, STUB_COUNT_NOMINAL)
+        assert (_ca_is_long(STUB_COUNT), _ca(STUB_COUNT)["value"]) == (True, STUB_COUNT_NOMINAL)
 
     def test_a_float_waveform_is_served_on_both_wires_and_a_put_still_lands(
         self, stub_server: _Server
@@ -1240,7 +1302,7 @@ class TestStubComposite:
 
         assert list(ca) == pytest.approx(STUB_WAVE_NOMINAL)
         assert list(pva) == pytest.approx(STUB_WAVE_NOMINAL)
-        assert _caput(STUB_SETPOINT, target) == 1
+        assert _caput(STUB_SETPOINT, target)
         assert _ca(STUB_SETPOINT)["value"] == pytest.approx(target)
 
     def test_ticks_coalesce_under_a_slow_stub_and_a_put_lands_within_two_passes(
@@ -1250,7 +1312,7 @@ class TestStubComposite:
         try:
             stub_server.ask("start_sampling")
             time.sleep(20 * STUB_TICK_S)
-            assert _caput(STUB_SETPOINT, 2.5) == 1
+            assert _caput(STUB_SETPOINT, 2.5)
             time.sleep(4 * SLOW_PASS_S)
             observed = stub_server.ask("stop_sampling")
         finally:
@@ -1266,7 +1328,7 @@ class TestStubComposite:
         held = stub_server.ask("held", [STUB_SETPOINT])[STUB_SETPOINT]
         stub_server.ask("fail_next_pass", "the read after the put failed", True)
 
-        assert _caput(STUB_SETPOINT, held + 3.0) == 1
+        assert _caput(STUB_SETPOINT, held + 3.0)
 
         assert stub_server.ask("held", [STUB_SETPOINT]) == {STUB_SETPOINT: held}
         assert _ca(STUB_SETPOINT)["value"] == held

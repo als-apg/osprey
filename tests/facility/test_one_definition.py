@@ -50,3 +50,27 @@ def test_no_facility_module_spells_the_default_role_itself() -> None:
                 line = text.count("\n", 0, match.start()) + 1
                 hits.append(f"{path.relative_to(FACILITY_DIR)}:{line}")
     assert hits == [], "spells the default role instead of reading DEFAULT_ROLE: " + ", ".join(hits)
+
+
+#: The modules whose value-type checks read ``LABELLED_TYPES``.
+_SIMULATION_DIR = FACILITY_DIR.parents[2] / "packages/osprey-connectors/src/osprey_connectors"
+_LABELLED_SPELLING = re.compile(r"""\(\s*['"]bool['"]\s*,\s*['"]enum['"]\s*\)""")
+
+
+def test_the_labelled_value_types_are_defined_once() -> None:
+    from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, VALUE_TYPES
+
+    assert set(LABELLED_TYPES) | {"float", "int"} == set(GATED_TYPES) <= set(VALUE_TYPES)
+    definition = _SIMULATION_DIR / "simulation/values.py"
+    hits = []
+    for root in (FACILITY_DIR, _SIMULATION_DIR):
+        for path in sorted(root.rglob("*.py")):
+            if path == definition:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for match in _LABELLED_SPELLING.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                hits.append(f"{path.name}:{line}")
+    assert hits == [], "spells the labelled types instead of reading LABELLED_TYPES: " + ", ".join(
+        hits
+    )

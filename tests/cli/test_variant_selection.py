@@ -43,8 +43,8 @@ from osprey.cli.variant_selection import (
 )
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState, check_drift, profile_fingerprint
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
+from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
+from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import stub_build
 
 

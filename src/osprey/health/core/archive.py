@@ -27,7 +27,7 @@ from osprey.deployment.compose_generator import ARCHIVE_DEFAULT_INTERVAL_SECONDS
 from osprey.deployment.telemetry_config import STORE_SERVICE
 from osprey.health.models import CheckResult, Status
 from osprey.services.archive.manifest import load_state
-from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
+from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.utils.config import is_unresolved_placeholder, resolve_env_vars
+from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
 
 
 class TestResolveEnvVars:

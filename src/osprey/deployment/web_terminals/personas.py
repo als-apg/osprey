@@ -47,7 +47,6 @@ from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
-from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
@@ -57,6 +56,7 @@ from osprey_connectors.types import (
     target_writes_enabled,
     target_writes_enabled_key,
 )
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: The ``permissions.deny`` entries a persona must ship **all** of for its agent
 #: to have no shell: ``Bash`` is the shell itself and ``Monitor`` runs shell

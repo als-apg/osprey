@@ -25,7 +25,7 @@ from osprey.registry.web import (
     framework_web_port_default,
     panel_url_state_attr,
 )
-from osprey.utils import workspace
+from osprey_connectors import workspace
 
 ALL_KEYS = sorted(FRAMEWORK_WEB_SERVERS)
 

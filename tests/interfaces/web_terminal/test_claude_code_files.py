@@ -16,7 +16,7 @@ from osprey.interfaces.web_terminal.claude_code_files import (
 )
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
 from osprey.interfaces.web_terminal.routes.config import router as config_router
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 
 @pytest.fixture

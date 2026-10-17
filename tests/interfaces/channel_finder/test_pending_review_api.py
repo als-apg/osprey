@@ -272,10 +272,10 @@ def _artifact_store_dir(monkeypatch, tmp_path):
     """
     repo = tmp_path / "repo"
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {"project_root": str(repo), "agent_data": {"base_dir": "var/agent_data"}},
     )
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     artifacts_dir = resolve_shared_data_root() / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)

@@ -561,7 +561,7 @@ def startable_repo(exemplar_copy: Path) -> Path:
     """
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
     from osprey.deployment.host_ports import parse_host_port_bindings
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config = load_project_config(str(as_built_config_path(exemplar_copy)), wrap_errors=True)
     compose_files = [

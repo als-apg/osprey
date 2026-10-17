@@ -266,6 +266,8 @@ DENIED: tuple[Denied, ...] = (
                 # pattern.
                 "tests/registry/test_pyat_specialist_agent.py",
                 "tests/facility/test_mml_fixtures_wellformed.py",
+                # The legacy record prefixes a renamed panel may no longer carry.
+                "tests/scripts/test_panel_rename.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",

@@ -51,13 +51,13 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_r
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
-from osprey.utils.workspace import (
+from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     STATE_DIR_NAME,
 )
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 
 PROJECT_NAME = "layout-fixture"
 

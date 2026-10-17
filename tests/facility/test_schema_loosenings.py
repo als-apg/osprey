@@ -78,6 +78,10 @@ ACCELERATOR_WORDS = (
     r"\belectrons?\b",
 )
 
+#: The classes the vocabulary adds to the seed's class tree, each with its
+#: parent and whether it is abstract.
+VOCABULARY_ADDITIONS = {"Septum": ("Magnet", False), "Kicker": ("Magnet", False)}
+
 #: The word `ring` in any identifier shape; `string` is not a hit.
 RING_TOKEN = r"(?i)\bring\b|Ring(?=[A-Z_])|_ring\b|\bring_"
 
@@ -256,6 +260,60 @@ def test_every_multivalued_slot_but_the_sets_keeps_source_order(core: dict) -> N
         assert any(slot == named for _, slot in ordered), named
 
 
+def test_seed_declares_pulse_and_gate(core: dict) -> None:
+    seed = _attrs(core, "Seed")
+    assert seed["pulse"]["range"] == "Pulse" and seed["pulse"]["inlined"]
+    assert seed["gate"]["range"] == "Gate" and seed["gate"]["inlined"]
+    assert set(_attrs(core, "Pulse")) == {"driver", "enable"}
+    assert all(slot.get("required") for slot in _attrs(core, "Pulse").values())
+    gate = _attrs(core, "Gate")
+    assert set(gate) == {"inputs", "gated"}
+    assert gate["inputs"]["range"] == "GateInput" and gate["gated"]["range"] == "Any"
+    assert set(_attrs(core, "GateInput")) == {"address", "blocking_label"}
+
+
+def _seed(**keys: object):
+    from osprey.facility.schema import core as model
+
+    return model.Seed.model_validate(keys)
+
+
+def test_a_seed_with_a_pulse_loads() -> None:
+    seed = _seed(nominal=[0.0] * 4, pulse={"driver": "SEK:SP", "enable": "SEK:ON"})
+    assert (seed.pulse.driver, seed.pulse.enable) == ("SEK:SP", "SEK:ON")
+
+
+def test_a_seed_with_a_gate_beside_nominal_loads() -> None:
+    seed = _seed(nominal=1.0, gate={"inputs": {"STOP:A": "Closed", "STOP:B": "In"}, "gated": 0.1})
+    inputs = seed.gate.inputs
+    assert list(inputs) == ["STOP:A", "STOP:B"]
+    labels = [term if isinstance(term, str) else term.blocking_label for term in inputs.values()]
+    assert labels == ["Closed", "In"]
+    assert seed.gate.gated == 0.1
+    assert (
+        _seed(nominal="On", gate={"inputs": {"STOP:A": "Closed"}, "gated": "Off"}).gate.gated
+        == "Off"
+    )
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        {"pulse": {"driver": "A", "enable": "B", "rise": 3}},
+        {"pulse": {"driver": "A"}},
+        {"pulse": {"enable": "B"}},
+        {"gate": {"inputs": {"A": "Closed"}, "gated": 0.1, "delay": 2}},
+        {"gate": {"inputs": {"A": "Closed"}}},
+        {"gate": {"gated": 0.1}},
+    ],
+)
+def test_unknown_or_missing_pulse_and_gate_keys_are_refused(keys: dict) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _seed(nominal=1.0, **keys)
+
+
 @pytest.mark.parametrize(
     ("pattern", "flags"),
     [(word, 0) for word in FACILITY_WORDS]
@@ -288,7 +346,10 @@ def test_vocabulary_keeps_the_seed_class_tree_and_signal_roles(vocabulary: dict)
         name: (cls.get("is_a"), bool(cls.get("abstract")))
         for name, cls in vocabulary["classes"].items()
     }
-    assert tree == seed_tree
+    assert {name: tree[name] for name in seed_tree} == seed_tree
+    assert {
+        name: kind for name, kind in tree.items() if name not in seed_tree
+    } == VOCABULARY_ADDITIONS
     seed_roles = seed["enums"]["semantic_signal_enum"]["permissible_values"]
     roles = vocabulary["enums"]["signal_role_enum"]["permissible_values"]
     assert list(roles)[: len(seed_roles)] == list(seed_roles)

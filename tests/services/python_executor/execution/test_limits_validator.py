@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.limits_validator import (
+from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError
 
 
 class TestChannelLimitsConfig:
@@ -332,7 +332,7 @@ class TestLimitsValidator:
     # Configuration Loading Tests
     # =========================================================================
 
-    @patch("osprey.utils.config.get_config_value")
+    @patch("osprey_connectors.config.get_config_value")
     def test_from_config_disabled(self, mock_get_config):
         """Test that from_config returns None when disabled.
 
@@ -346,7 +346,7 @@ class TestLimitsValidator:
 
         assert validator is None
 
-    @patch("osprey.utils.config.get_config_value")
+    @patch("osprey_connectors.config.get_config_value")
     def test_from_config_no_database_path(self, mock_get_config):
         """Test that from_config returns empty validator when no database path."""
 
@@ -368,7 +368,7 @@ class TestLimitsValidator:
         assert validator is not None
         assert validator.limits == {}  # Empty database (blocks all writes)
 
-    @patch("osprey.utils.config.get_config_value")
+    @patch("osprey_connectors.config.get_config_value")
     def test_from_config_loads_database(self, mock_get_config, tmp_path):
         """Test that from_config loads database from configured path."""
         db_file = tmp_path / "test_boundaries.json"
@@ -401,7 +401,7 @@ class TestLimitsValidator:
         assert "TEST:PV" in validator.limits
         assert validator.policy["mode"] == "exclusive"
 
-    @patch("osprey.utils.config.get_config_value")
+    @patch("osprey_connectors.config.get_config_value")
     def test_from_config_invalid_json_blocks_all_writes(self, mock_get_config, tmp_path):
         """An unparseable database degrades to the empty block-all validator.
 
@@ -436,7 +436,7 @@ class TestLimitsValidator:
         assert validator is not None
         assert validator.limits == {}  # Empty database (blocks all writes)
 
-    @patch("osprey.utils.config.get_config_value")
+    @patch("osprey_connectors.config.get_config_value")
     def test_from_config_missing_file_blocks_all_writes(self, mock_get_config):
         """A missing database file degrades to the empty block-all validator
         (same contract as the invalid-JSON case above)."""
@@ -512,7 +512,7 @@ class TestLimitsValidator:
                 return str(bogus_project_root)
             return default
 
-        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
+        with patch("osprey_connectors.config.get_config_value", side_effect=config_side_effect):
             validator = LimitsValidator.from_config()
 
         assert validator is not None
@@ -554,7 +554,7 @@ class TestLimitsValidator:
                 return str(project_root)
             return default
 
-        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
+        with patch("osprey_connectors.config.get_config_value", side_effect=config_side_effect):
             validator = LimitsValidator.from_config()
 
         assert validator is not None

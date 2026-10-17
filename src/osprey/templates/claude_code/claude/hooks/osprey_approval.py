@@ -180,7 +180,7 @@ _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
     r"\bwrite_channel\s*\(",
     r"\bwrite_channels\s*\(",
-    # EPICS (PyEPICS)
+    # EPICS Channel Access (aioca, pyepics)
     r"\bcaput\s*\(",
     r"epics\.caput\(",
     r"\.put\s*\(",

@@ -65,7 +65,7 @@ def _initialize_registry():
     that happens to need a registry first.
     """
     from osprey.registry import initialize_registry
-    from osprey.utils.log_filter import quiet_logger
+    from osprey_connectors.log_filter import quiet_logger
 
     with quiet_logger(
         [
@@ -292,7 +292,7 @@ def web(ctx, host: str | None, port: int | None):
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
     from osprey.registry.web import resolve_web_server_bind
-    from osprey.utils.config import get_config_builder
+    from osprey_connectors.config import get_config_builder
 
     # The config _setup_config selected, not the working directory's: under --project they differ.
     # It is read only when a flag is missing, because a fully flagged run may have no config.

@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.errors import ChannelNotFoundError
 from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
@@ -25,6 +24,7 @@ from osprey.mcp_server.errors import (
     NothingAnsweredError,
     refuse_nothing_answered,
 )
+from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc.proxy import ChildUnresponsiveError
 from tests.mcp_server.test_channel_read_size_rule import _read
 

@@ -18,7 +18,7 @@ import yaml
 
 from osprey.cli.templates.claude_code import config_derived_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 from tests.cli.test_terminal_theme_render import _create_project
 
 

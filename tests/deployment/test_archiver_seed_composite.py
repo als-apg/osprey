@@ -19,8 +19,10 @@ import numpy as np
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.simulation import archive as archive_module
 from osprey_connectors.simulation import composite as composite_module
+from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     SeedKnobs,
@@ -176,6 +178,67 @@ def test_two_seeds_at_different_wall_clock_times_hold_one_past(
     peak = max(shared, key=lambda stamp: seeds[0][stamp][PRESSURE])
     assert peak.timestamp() == ANCHOR.timestamp() + SPIKE_OFFSET_S
     assert seeds[0][peak][PRESSURE] == pytest.approx(6e-9)
+
+
+WAVE = "SR:SEK:WAVEFORM"
+DRIVER = "SR:SEK:CURRENT:SP"
+ENABLE = "SR:SEK:STATUS:ON"
+#: The supply switched off half an hour before the persisted anchor.
+OFF = {"shape": "step", "at_offset": SPIKE_OFFSET_S, "to": "FALSE"}
+
+
+def _pulse_view(root: Path) -> None:
+    """A texture view with a pulsed supply whose on-state a scenario steps off."""
+    view = write_texture_view(
+        root,
+        {
+            WAVE: {"value_type": "waveform"},
+            DRIVER: {"role": "setpoint", "nominal": 2.0},
+            ENABLE: {"value_type": "bool", "nominal": "TRUE"},
+        },
+        {"off": {"archiver": [{"channel": ENABLE, "events": [OFF]}]}},
+    )
+    variables = json.loads((view / "variables.json").read_text())
+    for record in variables["channels"]:
+        if record["address"] == WAVE:
+            record["shape"] = [pulse.TRACE_POINTS]
+    (view / "variables.json").write_text(json.dumps(variables))
+    seeds = json.loads((view / "seeds.json").read_text())
+    seeds["seeds"][WAVE] = {"pulse": {"driver": DRIVER, "enable": ENABLE}}
+    (view / "seeds.json").write_text(json.dumps(seeds))
+
+
+def test_the_deploy_seed_writes_the_traces_the_supply_fired_at_the_persisted_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through the deploy path's inputs: a trace before the persisted off step is
+    the pulse at the held drive, one after it is flat zero, and no trace enters
+    the snapshot documents."""
+    _pulse_view(tmp_path)
+    _activate(tmp_path, {}, ["off"], ANCHOR)
+    monkeypatch.setattr(archive_module.time, "time", (ANCHOR + timedelta(hours=1)).timestamp)
+    samples, waveforms = _Collection(), _Collection()
+
+    seed_base(
+        samples,  # type: ignore[arg-type]
+        container_lifecycle._archiver_seed_inputs({}, tmp_path),
+        KNOBS,
+        t0=ANCHOR + timedelta(hours=1),
+        waveforms=waveforms,  # type: ignore[arg-type]
+    )
+
+    assert all(field_name(WAVE) not in sample for sample in samples.samples().values())
+    off_at = ANCHOR.timestamp() + SPIKE_OFFSET_S
+    traces = {
+        stamp.timestamp(): sample[field_name(WAVE)] for stamp, sample in waveforms.samples().items()
+    }
+    assert len(traces) == KNOBS.retention_s // KNOBS.tail_cadence_sec + 1
+    before = [moment for moment in traces if moment < off_at]
+    after = [moment for moment in traces if moment >= off_at]
+    assert before and after
+    for moment in before[-3:]:
+        assert traces[moment] == pulse.trace(WAVE, moment, 2.0, True).tolist()
+    assert all(not any(traces[moment]) for moment in after)
 
 
 def test_the_archive_composite_places_the_event_from_the_anchor_it_is_given(

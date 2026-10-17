@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK = "osprey_cf_feedback_capture.py"
 BUILD_CHANNELS = "mcp__channel-finder__build_channels"

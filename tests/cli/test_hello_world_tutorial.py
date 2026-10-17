@@ -147,7 +147,7 @@ class TestVAInProcessConnectorTutorialChannels:
 
     async def test_in_process_connector_reads_tutorial_channels(self, tmp_path: Path):
         """Instantiate VAInProcessConnector and read tutorial channels."""
-        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
         channel_names = ["SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB"]
         connector = VAInProcessConnector()
@@ -162,7 +162,7 @@ class TestVAInProcessConnectorTutorialChannels:
         self, hello_world_project: Path
     ):
         """The tutorial's first reading is a stored beam near its seeded nominal."""
-        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
         connector = VAInProcessConnector()
         await connector.connect(in_process_config(hello_world_project / "data" / "simulator"))

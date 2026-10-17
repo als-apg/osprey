@@ -238,7 +238,7 @@ def test_main_serves_the_app_through_the_trajectory_server(
     sentinel = FastAPI()
     monkeypatch.setattr(TrajectoryServer, "run", run)
     monkeypatch.setattr("osprey.services.trajectory.app.create_app", lambda: sentinel)
-    monkeypatch.setattr("osprey.utils.logger.configure_logging", lambda: None)
+    monkeypatch.setattr("osprey_connectors.logger.configure_logging", lambda: None)
     monkeypatch.setattr(
         "osprey_connectors.workspace.load_osprey_config",
         lambda: {"services": {"trajectory": {"port": 18123}}},

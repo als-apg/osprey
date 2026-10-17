@@ -29,7 +29,7 @@ from osprey.cli.build_profile_schema import (
     VALID_NETWORK_MODES,
     network_mode_errors,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

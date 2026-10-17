@@ -288,7 +288,9 @@ class _ViewSurface(ModelSurface):
             :data:`SURFACE_SERVED`, then one per variable of each built
             model, named ``<model>/<name>``, with ``surface``
             :data:`SURFACE_MODEL_ONLY`. Each carries ``name``, ``unit``,
-            ``value_range``, ``read_only`` and ``surface``.
+            ``value_range``, ``read_only``, ``shape`` and ``surface``;
+            ``shape`` is an array's dimensions -- ``[500]`` for a 500-sample
+            waveform -- and ``None`` for a scalar.
         """
         declared = self._composite.supported_variables
         served = [_describe(declared[name], SURFACE_SERVED) for name in self._served]
@@ -300,6 +302,9 @@ class _ViewSurface(ModelSurface):
 
     def get(self, names: Iterable[str]) -> dict[str, Any]:
         """Read served addresses from the composite and model variables from their model.
+
+        A served address reads as the composite serves it at this instant, so a
+        texture channel's ``gate`` shows on the first read after its input moves.
 
         Raises:
             ModelRpcError: the composite refuses a name; its text is the
@@ -417,14 +422,17 @@ def _describe(variable: Variable, surface: str, *, name: str | None = None) -> d
     """One ``info`` entry: the fields a client needs to address ``variable``.
 
     ``name`` is the name a client addresses it by, when that is not the
-    variable's own.
+    variable's own. ``shape`` is an array variable's dimensions, so a client
+    knows how many elements a read returns; a scalar has none.
     """
     value_range = getattr(variable, "value_range", None)
+    shape = getattr(variable, "shape", None)
     return {
         "name": variable.name if name is None else name,
         "unit": getattr(variable, "unit", None),
         "value_range": None if value_range is None else [float(v) for v in value_range],
         "read_only": bool(variable.read_only),
+        "shape": None if shape is None else [int(size) for size in shape],
         "surface": surface,
     }
 

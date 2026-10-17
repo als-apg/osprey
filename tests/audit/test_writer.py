@@ -39,7 +39,7 @@ from osprey.audit.envelope import (
     SURFACE_EXECUTOR,
     AuditEnvelope,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, UNKNOWN_IDENTITY
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, UNKNOWN_IDENTITY
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
@@ -1035,7 +1035,7 @@ class TestAuditDirSeam:
     """``audit_dir()`` is the one seam, and it is spelled by the workspace."""
 
     def test_it_is_the_workspace_audit_relpath_under_the_project_root(self, tmp_path, monkeypatch):
-        from osprey.utils import workspace
+        from osprey_connectors import workspace
 
         monkeypatch.setattr(workspace, "load_osprey_config", lambda: {}, raising=False)
         monkeypatch.setattr(workspace, "resolve_project_root", lambda cfg: tmp_path, raising=False)
@@ -1047,9 +1047,11 @@ class TestAuditDirSeam:
         MCP middleware and the HTTP layer without dragging the workspace
         resolver — and so tests have one seam instead of a project root."""
         source = Path(writer.__file__).read_text()
-        assert "from osprey.utils.workspace import" in source
+        assert "from osprey_connectors.workspace import" in source
         module_scope_imports = [
-            line for line in source.splitlines() if line.startswith("from osprey.utils.workspace")
+            line
+            for line in source.splitlines()
+            if line.startswith("from osprey_connectors.workspace")
         ]
         assert module_scope_imports == []
 

@@ -18,7 +18,7 @@ from osprey.health.core import CORE_CATEGORIES, get_core_category_factory
 from osprey.health.core import file_system as file_system_module
 from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 _GB = 1024**3
 

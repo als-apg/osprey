@@ -33,7 +33,7 @@ from osprey.cli.phase_reporter import report_step
 from osprey.deployment.compose_watch import positive_seconds
 from osprey.deployment.errors import DeploymentError
 from osprey.deployment.runtime_helper import UNHEALTHY_LOG_TAIL_LINES, container_log_tail
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 

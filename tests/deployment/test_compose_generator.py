@@ -58,7 +58,7 @@ from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 from tests._preset_data import bundle_data_root
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
@@ -6699,7 +6699,7 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
     container port — which is what `archiver_read` inside the worker connects
     to. The Docker-level proof of the same claim rides the archiver-world e2e.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+    from osprey_connectors.archiver.mongodb_archiver_connector import address_overrides
 
     rendered = _render_worker_template(
         env_present=True, deployed_services=["dispatch_worker", "mongodb"]
@@ -8941,8 +8941,11 @@ class TestBuildPathProvisionsTheControlTree:
         environment here — the record the build provisions for has to be the
         record that account's own process writes.
         """
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+        from osprey_connectors.identity import (
+            AUDIT_IDENTITY_ENV,
+            TERMINAL_USER_ENV,
+            acting_identity,
+        )
 
         monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "rung-two")
@@ -8966,8 +8969,7 @@ class TestBuildPathProvisionsTheControlTree:
         container may be unable to read.
         """
         from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import TERMINAL_USER_ENV
+        from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity
 
         monkeypatch.setenv(TERMINAL_USER_ENV, "BuildAcct")
         assert acting_identity() == "BuildAcct", "the ladder accepts what the seam refuses"

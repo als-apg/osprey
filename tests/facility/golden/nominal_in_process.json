@@ -90,6 +90,66 @@
     "BR:DIAG:DCCT:01:STATUS:VALID": {
       "nominal": 500.0
     },
+    "BR:DIAG:TV:01:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:01:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:01:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:02:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:02:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:02:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:03:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:03:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:03:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:04:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:04:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:04:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:05:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:05:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:TV:05:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:GAIN:RB": {
+      "nominal": 1.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:GAIN:SP": {
+      "nominal": 1.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:OFFSET:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:OFFSET:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BR:MAG:DIPOLE:01:CURRENT:RB": {
       "nominal": 325.578
     },
@@ -186,6 +246,30 @@
     "BR:MAG:DIPOLE:08:STATUS:READY": {
       "nominal": 1.0
     },
+    "BR:MAG:KICKER:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:KICKER:01:VOLTAGE:RB": {
+      "nominal": 25.0
+    },
+    "BR:MAG:KICKER:01:VOLTAGE:SP": {
+      "nominal": 25.0
+    },
+    "BR:MAG:QD-RAMP:01:GAIN:RB": {
+      "nominal": 1.0
+    },
+    "BR:MAG:QD-RAMP:01:GAIN:SP": {
+      "nominal": 1.0
+    },
+    "BR:MAG:QD-RAMP:01:OFFSET:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:QD-RAMP:01:OFFSET:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:QD-RAMP:01:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BR:MAG:QD:01:CURRENT:RB": {
       "nominal": 38.662
     },
@@ -232,6 +316,21 @@
       "nominal": 0.0
     },
     "BR:MAG:QD:04:STATUS:READY": {
+      "nominal": 1.0
+    },
+    "BR:MAG:QF-RAMP:01:GAIN:RB": {
+      "nominal": 1.0
+    },
+    "BR:MAG:QF-RAMP:01:GAIN:SP": {
+      "nominal": 1.0
+    },
+    "BR:MAG:QF-RAMP:01:OFFSET:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:QF-RAMP:01:OFFSET:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:QF-RAMP:01:STATUS:ON": {
       "nominal": 1.0
     },
     "BR:MAG:QF:01:CURRENT:RB": {
@@ -282,6 +381,24 @@
     "BR:MAG:QF:04:STATUS:READY": {
       "nominal": 1.0
     },
+    "BR:MAG:SEPTUM:01:CURRENT:RB": {
+      "nominal": 800.0
+    },
+    "BR:MAG:SEPTUM:01:CURRENT:SP": {
+      "nominal": 800.0
+    },
+    "BR:MAG:SEPTUM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:SEPTUM:02:CURRENT:RB": {
+      "nominal": 3000.0
+    },
+    "BR:MAG:SEPTUM:02:CURRENT:SP": {
+      "nominal": 3000.0
+    },
+    "BR:MAG:SEPTUM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:DIAG:BPM:01:POSITION:X": {
       "nominal": 0.0
     },
@@ -290,6 +407,9 @@
     },
     "BTS:DIAG:BPM:01:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "BTS:DIAG:BPM:01:SUM:RB": {
+      "nominal": 1.0
     },
     "BTS:DIAG:BPM:02:POSITION:X": {
       "nominal": 0.0
@@ -300,6 +420,9 @@
     "BTS:DIAG:BPM:02:STATUS:VALID": {
       "nominal": 100.0
     },
+    "BTS:DIAG:BPM:02:SUM:RB": {
+      "nominal": 1.0
+    },
     "BTS:DIAG:BPM:03:POSITION:X": {
       "nominal": 0.0
     },
@@ -308,6 +431,9 @@
     },
     "BTS:DIAG:BPM:03:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "BTS:DIAG:BPM:03:SUM:RB": {
+      "nominal": 1.0
     },
     "BTS:DIAG:BPM:04:POSITION:X": {
       "nominal": 0.0
@@ -318,6 +444,9 @@
     "BTS:DIAG:BPM:04:STATUS:VALID": {
       "nominal": 100.0
     },
+    "BTS:DIAG:BPM:04:SUM:RB": {
+      "nominal": 1.0
+    },
     "BTS:DIAG:BPM:05:POSITION:X": {
       "nominal": 0.0
     },
@@ -326,6 +455,9 @@
     },
     "BTS:DIAG:BPM:05:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "BTS:DIAG:BPM:05:SUM:RB": {
+      "nominal": 1.0
     },
     "BTS:DIAG:BPM:06:POSITION:X": {
       "nominal": 0.0
@@ -336,11 +468,122 @@
     "BTS:DIAG:BPM:06:STATUS:VALID": {
       "nominal": 100.0
     },
+    "BTS:DIAG:BPM:06:SUM:RB": {
+      "nominal": 1.0
+    },
+    "BTS:DIAG:ICT:01:CHARGE:RB": {
+      "nominal": 0.8
+    },
+    "BTS:DIAG:PADDLES:01:COUNT:INSERTED": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:01:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:01:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:01:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:02:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:02:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:02:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:03:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:03:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:03:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:04:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:04:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:04:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:05:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:05:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:05:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:06:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:06:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:06:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:07:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:07:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "BTS:DIAG:TV:07:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "BTS:MAG:DIPOLE:01:CURRENT:RB": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:01:CURRENT:SP": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:DIPOLE:02:CURRENT:RB": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:02:CURRENT:SP": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:DIPOLE:03:CURRENT:RB": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:03:CURRENT:SP": {
+      "nominal": 700.0
+    },
+    "BTS:MAG:DIPOLE:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:DIPOLE:04:CURRENT:RB": {
+      "nominal": 644.0
+    },
+    "BTS:MAG:DIPOLE:04:CURRENT:SP": {
+      "nominal": 644.0
+    },
+    "BTS:MAG:DIPOLE:04:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:HCM:01:CURRENT:RB": {
       "nominal": 1.221
     },
     "BTS:MAG:HCM:01:CURRENT:SP": {
       "nominal": 1.221
+    },
+    "BTS:MAG:HCM:01:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:HCM:01:STATUS:READY": {
       "nominal": 1.0
@@ -351,6 +594,9 @@
     "BTS:MAG:HCM:02:CURRENT:SP": {
       "nominal": 1.234
     },
+    "BTS:MAG:HCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:HCM:02:STATUS:READY": {
       "nominal": 1.0
     },
@@ -359,6 +605,9 @@
     },
     "BTS:MAG:HCM:03:CURRENT:SP": {
       "nominal": 1.235
+    },
+    "BTS:MAG:HCM:03:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:HCM:03:STATUS:READY": {
       "nominal": 1.0
@@ -369,6 +618,9 @@
     "BTS:MAG:HCM:04:CURRENT:SP": {
       "nominal": 1.222
     },
+    "BTS:MAG:HCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:HCM:04:STATUS:READY": {
       "nominal": 1.0
     },
@@ -377,6 +629,9 @@
     },
     "BTS:MAG:HCM:05:CURRENT:SP": {
       "nominal": 1.201
+    },
+    "BTS:MAG:HCM:05:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:HCM:05:STATUS:READY": {
       "nominal": 1.0
@@ -387,7 +642,82 @@
     "BTS:MAG:HCM:06:CURRENT:SP": {
       "nominal": 1.18
     },
+    "BTS:MAG:HCM:06:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:HCM:06:STATUS:READY": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:HCM:07:CURRENT:RB": {
+      "nominal": 1.19
+    },
+    "BTS:MAG:HCM:07:CURRENT:SP": {
+      "nominal": 1.19
+    },
+    "BTS:MAG:HCM:07:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:HCM:08:CURRENT:RB": {
+      "nominal": 1.21
+    },
+    "BTS:MAG:HCM:08:CURRENT:SP": {
+      "nominal": 1.21
+    },
+    "BTS:MAG:HCM:08:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:HCM:09:CURRENT:RB": {
+      "nominal": 1.2
+    },
+    "BTS:MAG:HCM:09:CURRENT:SP": {
+      "nominal": 1.2
+    },
+    "BTS:MAG:HCM:09:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:QD:01:CURRENT:RB": {
+      "nominal": 12.6
+    },
+    "BTS:MAG:QD:01:CURRENT:SP": {
+      "nominal": 12.6
+    },
+    "BTS:MAG:QD:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:QD:02:CURRENT:RB": {
+      "nominal": 6.2
+    },
+    "BTS:MAG:QD:02:CURRENT:SP": {
+      "nominal": 6.2
+    },
+    "BTS:MAG:QD:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:QD:03:CURRENT:RB": {
+      "nominal": 8.2
+    },
+    "BTS:MAG:QD:03:CURRENT:SP": {
+      "nominal": 8.2
+    },
+    "BTS:MAG:QD:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:QD:04:CURRENT:RB": {
+      "nominal": 60.0
+    },
+    "BTS:MAG:QD:04:CURRENT:SP": {
+      "nominal": 60.0
+    },
+    "BTS:MAG:QD:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:QD:05:CURRENT:RB": {
+      "nominal": 42.5
+    },
+    "BTS:MAG:QD:05:CURRENT:SP": {
+      "nominal": 42.5
+    },
+    "BTS:MAG:QD:05:STATUS:ON": {
       "nominal": 1.0
     },
     "BTS:MAG:QF:01:CURRENT:RB": {
@@ -395,6 +725,9 @@
     },
     "BTS:MAG:QF:01:CURRENT:SP": {
       "nominal": 40.697
+    },
+    "BTS:MAG:QF:01:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:QF:01:STATUS:READY": {
       "nominal": 1.0
@@ -405,6 +738,9 @@
     "BTS:MAG:QF:02:CURRENT:SP": {
       "nominal": 41.135
     },
+    "BTS:MAG:QF:02:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:QF:02:STATUS:READY": {
       "nominal": 1.0
     },
@@ -413,6 +749,9 @@
     },
     "BTS:MAG:QF:03:CURRENT:SP": {
       "nominal": 41.15
+    },
+    "BTS:MAG:QF:03:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:QF:03:STATUS:READY": {
       "nominal": 1.0
@@ -423,6 +762,9 @@
     "BTS:MAG:QF:04:CURRENT:SP": {
       "nominal": 40.737
     },
+    "BTS:MAG:QF:04:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:QF:04:STATUS:READY": {
       "nominal": 1.0
     },
@@ -431,6 +773,9 @@
     },
     "BTS:MAG:QF:05:CURRENT:SP": {
       "nominal": 40.05
+    },
+    "BTS:MAG:QF:05:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:QF:05:STATUS:READY": {
       "nominal": 1.0
@@ -441,6 +786,9 @@
     "BTS:MAG:QF:06:CURRENT:SP": {
       "nominal": 39.344
     },
+    "BTS:MAG:QF:06:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:QF:06:STATUS:READY": {
       "nominal": 1.0
     },
@@ -449,6 +797,9 @@
     },
     "BTS:MAG:VCM:01:CURRENT:SP": {
       "nominal": 1.017
+    },
+    "BTS:MAG:VCM:01:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:VCM:01:STATUS:READY": {
       "nominal": 1.0
@@ -459,6 +810,9 @@
     "BTS:MAG:VCM:02:CURRENT:SP": {
       "nominal": 1.028
     },
+    "BTS:MAG:VCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:VCM:02:STATUS:READY": {
       "nominal": 1.0
     },
@@ -467,6 +821,9 @@
     },
     "BTS:MAG:VCM:03:CURRENT:SP": {
       "nominal": 1.029
+    },
+    "BTS:MAG:VCM:03:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:VCM:03:STATUS:READY": {
       "nominal": 1.0
@@ -477,6 +834,9 @@
     "BTS:MAG:VCM:04:CURRENT:SP": {
       "nominal": 1.018
     },
+    "BTS:MAG:VCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:VCM:04:STATUS:READY": {
       "nominal": 1.0
     },
@@ -485,6 +845,9 @@
     },
     "BTS:MAG:VCM:05:CURRENT:SP": {
       "nominal": 1.001
+    },
+    "BTS:MAG:VCM:05:STATUS:ON": {
+      "nominal": 1.0
     },
     "BTS:MAG:VCM:05:STATUS:READY": {
       "nominal": 1.0
@@ -495,7 +858,781 @@
     "BTS:MAG:VCM:06:CURRENT:SP": {
       "nominal": 0.984
     },
+    "BTS:MAG:VCM:06:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BTS:MAG:VCM:06:STATUS:READY": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:VCM:07:CURRENT:RB": {
+      "nominal": 0.99
+    },
+    "BTS:MAG:VCM:07:CURRENT:SP": {
+      "nominal": 0.99
+    },
+    "BTS:MAG:VCM:07:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:VCM:08:CURRENT:RB": {
+      "nominal": 1.01
+    },
+    "BTS:MAG:VCM:08:CURRENT:SP": {
+      "nominal": 1.01
+    },
+    "BTS:MAG:VCM:08:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:VCM:09:CURRENT:RB": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:VCM:09:CURRENT:SP": {
+      "nominal": 1.0
+    },
+    "BTS:MAG:VCM:09:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:BPM:01:POSITION:X": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:BPM:01:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:BPM:01:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:BPM:01:SUM:RB": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:BPM:02:POSITION:X": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:BPM:02:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:BPM:02:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:BPM:02:SUM:RB": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:ICT:01:CHARGE:RB": {
+      "nominal": 1.0
+    },
+    "GTL:DIAG:TV:01:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:TV:01:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:TV:01:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:TV:02:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:TV:02:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "GTL:DIAG:TV:02:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "GTL:GUN:EGUN:01:AUX_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:AUX_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:BIAS:RB": {
+      "nominal": 40.0
+    },
+    "GTL:GUN:EGUN:01:BIAS:SP": {
+      "nominal": 40.0
+    },
+    "GTL:GUN:EGUN:01:HEATER:RB": {
+      "nominal": 6.0
+    },
+    "GTL:GUN:EGUN:01:HEATER:SP": {
+      "nominal": 6.0
+    },
+    "GTL:GUN:EGUN:01:HEATER_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:HEATER_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:HV_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:HV_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:GUN:EGUN:01:PHASE:RB": {
+      "nominal": 0.0
+    },
+    "GTL:GUN:EGUN:01:PHASE:SP": {
+      "nominal": 0.0
+    },
+    "GTL:GUN:EGUN:01:VOLTAGE:RB": {
+      "nominal": 120.0
+    },
+    "GTL:GUN:EGUN:01:VOLTAGE:SP": {
+      "nominal": 120.0
+    },
+    "GTL:MAG:BC:01:CURRENT:RB": {
+      "nominal": 1.5
+    },
+    "GTL:MAG:BC:01:CURRENT:SP": {
+      "nominal": 1.5
+    },
+    "GTL:MAG:BC:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:BC:02:CURRENT:RB": {
+      "nominal": 1.5
+    },
+    "GTL:MAG:BC:02:CURRENT:SP": {
+      "nominal": 1.5
+    },
+    "GTL:MAG:BC:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:HCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:HCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:HCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:HCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:HCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:SOL:01:CURRENT:RB": {
+      "nominal": 5.0
+    },
+    "GTL:MAG:SOL:01:CURRENT:SP": {
+      "nominal": 5.0
+    },
+    "GTL:MAG:SOL:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:SOL:02:CURRENT:RB": {
+      "nominal": 6.0
+    },
+    "GTL:MAG:SOL:02:CURRENT:SP": {
+      "nominal": 6.0
+    },
+    "GTL:MAG:SOL:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:SOL:03:CURRENT:RB": {
+      "nominal": 7.0
+    },
+    "GTL:MAG:SOL:03:CURRENT:SP": {
+      "nominal": 7.0
+    },
+    "GTL:MAG:SOL:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:VCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:VCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:VCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:MAG:VCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "GTL:MAG:VCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:01:HV_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:01:HV_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:01:PHASE:RB": {
+      "nominal": 45.0
+    },
+    "GTL:RF:SHB:01:PHASE:SP": {
+      "nominal": 45.0
+    },
+    "GTL:RF:SHB:01:PHASE_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:01:PHASE_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:01:VOLTAGE:RB": {
+      "nominal": 10.0
+    },
+    "GTL:RF:SHB:01:VOLTAGE:SP": {
+      "nominal": 10.0
+    },
+    "GTL:RF:SHB:02:HV_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:02:HV_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:02:PHASE:RB": {
+      "nominal": 30.0
+    },
+    "GTL:RF:SHB:02:PHASE:SP": {
+      "nominal": 30.0
+    },
+    "GTL:RF:SHB:02:PHASE_ON:RB": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:02:PHASE_ON:SP": {
+      "nominal": 1.0
+    },
+    "GTL:RF:SHB:02:VOLTAGE:RB": {
+      "nominal": 12.0
+    },
+    "GTL:RF:SHB:02:VOLTAGE:SP": {
+      "nominal": 12.0
+    },
+    "LN:DIAG:BPM:01:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:BPM:01:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:BPM:01:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LN:DIAG:BPM:01:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LN:DIAG:BPM:02:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:BPM:02:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:BPM:02:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LN:DIAG:BPM:02:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LN:DIAG:ICT:01:CHARGE:RB": {
+      "nominal": 0.95
+    },
+    "LN:DIAG:TV:01:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:TV:01:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:TV:01:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:TV:02:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:TV:02:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LN:DIAG:TV:02:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LN:MAG:HCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LN:MAG:HCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LN:MAG:HCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:HCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LN:MAG:HCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LN:MAG:HCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:QD:01:CURRENT:RB": {
+      "nominal": 3.9
+    },
+    "LN:MAG:QD:01:CURRENT:SP": {
+      "nominal": 3.9
+    },
+    "LN:MAG:QD:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:QF:01:CURRENT:RB": {
+      "nominal": 2.5
+    },
+    "LN:MAG:QF:01:CURRENT:SP": {
+      "nominal": 2.5
+    },
+    "LN:MAG:QF:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:SOL:01:CURRENT:RB": {
+      "nominal": 10.0
+    },
+    "LN:MAG:SOL:01:CURRENT:SP": {
+      "nominal": 10.0
+    },
+    "LN:MAG:SOL:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:SOL:02:CURRENT:RB": {
+      "nominal": 12.0
+    },
+    "LN:MAG:SOL:02:CURRENT:SP": {
+      "nominal": 12.0
+    },
+    "LN:MAG:SOL:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:SOL:03:CURRENT:RB": {
+      "nominal": 14.0
+    },
+    "LN:MAG:SOL:03:CURRENT:SP": {
+      "nominal": 14.0
+    },
+    "LN:MAG:SOL:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:SOL:04:CURRENT:RB": {
+      "nominal": 16.0
+    },
+    "LN:MAG:SOL:04:CURRENT:SP": {
+      "nominal": 16.0
+    },
+    "LN:MAG:SOL:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:VCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LN:MAG:VCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LN:MAG:VCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:MAG:VCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LN:MAG:VCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LN:MAG:VCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:RF:ACC:01:TEMPERATURE:RB": {
+      "nominal": 45.0
+    },
+    "LN:RF:ACC:02:PHASE:RB": {
+      "nominal": 10.0
+    },
+    "LN:RF:ACC:02:PHASE:SP": {
+      "nominal": 10.0
+    },
+    "LN:RF:ACC:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:RF:ACC:02:TEMPERATURE:RB": {
+      "nominal": 45.0
+    },
+    "LN:RF:BUNCHER:01:TEMPERATURE:RB": {
+      "nominal": 45.0
+    },
+    "LN:RF:MASTER:01:PHASE:RB": {
+      "nominal": 0.0
+    },
+    "LN:RF:MASTER:01:PHASE:SP": {
+      "nominal": 0.0
+    },
+    "LN:RF:MASTER:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:RF:WATER:01:STATUS:INTERLOCK": {
+      "nominal": 0.0
+    },
+    "LN:RF:WATER:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LN:RF:WATER:01:TEMPERATURE:RB": {
+      "nominal": 45.0
+    },
+    "LN:RF:WATER:01:TEMPERATURE:SP": {
+      "nominal": 45.0
+    },
+    "LTB:DIAG:BPM:01:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:01:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:01:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:01:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:02:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:02:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:02:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:02:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:03:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:03:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:03:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:03:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:04:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:04:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:04:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:04:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:05:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:05:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:05:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:05:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:06:POSITION:X": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:06:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:BPM:06:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:BPM:06:SUM:RB": {
+      "nominal": 1.0
+    },
+    "LTB:DIAG:ICT:01:CHARGE:RB": {
+      "nominal": 0.9
+    },
+    "LTB:DIAG:TV:01:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:01:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:01:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:02:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:02:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:02:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:03:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:03:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:03:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:04:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:04:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:04:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:05:LAMP:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:05:PADDLE:RB": {
+      "nominal": 0.0
+    },
+    "LTB:DIAG:TV:05:PADDLE:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:DIPOLE:01:CURRENT:RB": {
+      "nominal": 119.99999999999999
+    },
+    "LTB:MAG:DIPOLE:01:CURRENT:SP": {
+      "nominal": 119.99999999999999
+    },
+    "LTB:MAG:DIPOLE:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:DIPOLE:02:CURRENT:RB": {
+      "nominal": 119.99999999999999
+    },
+    "LTB:MAG:DIPOLE:02:CURRENT:SP": {
+      "nominal": 119.99999999999999
+    },
+    "LTB:MAG:DIPOLE:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:DIPOLE:03:CURRENT:RB": {
+      "nominal": 60.00000000000001
+    },
+    "LTB:MAG:DIPOLE:03:CURRENT:SP": {
+      "nominal": 60.00000000000001
+    },
+    "LTB:MAG:DIPOLE:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:DIPOLE:04:CURRENT:RB": {
+      "nominal": 30.0
+    },
+    "LTB:MAG:DIPOLE:04:CURRENT:SP": {
+      "nominal": 30.0
+    },
+    "LTB:MAG:DIPOLE:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:HCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:HCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:HCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:HCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:HCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:HCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QD:01:CURRENT:RB": {
+      "nominal": 7.320000000000001
+    },
+    "LTB:MAG:QD:01:CURRENT:SP": {
+      "nominal": 7.320000000000001
+    },
+    "LTB:MAG:QD:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QD:02:CURRENT:RB": {
+      "nominal": 17.49
+    },
+    "LTB:MAG:QD:02:CURRENT:SP": {
+      "nominal": 17.49
+    },
+    "LTB:MAG:QD:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QD:03:CURRENT:RB": {
+      "nominal": 16.98
+    },
+    "LTB:MAG:QD:03:CURRENT:SP": {
+      "nominal": 16.98
+    },
+    "LTB:MAG:QD:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QD:04:CURRENT:RB": {
+      "nominal": 9.54
+    },
+    "LTB:MAG:QD:04:CURRENT:SP": {
+      "nominal": 9.54
+    },
+    "LTB:MAG:QD:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QF:01:CURRENT:RB": {
+      "nominal": 10.11
+    },
+    "LTB:MAG:QF:01:CURRENT:SP": {
+      "nominal": 10.11
+    },
+    "LTB:MAG:QF:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QF:02:CURRENT:RB": {
+      "nominal": 16.41
+    },
+    "LTB:MAG:QF:02:CURRENT:SP": {
+      "nominal": 16.41
+    },
+    "LTB:MAG:QF:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QF:03:CURRENT:RB": {
+      "nominal": 19.38
+    },
+    "LTB:MAG:QF:03:CURRENT:SP": {
+      "nominal": 19.38
+    },
+    "LTB:MAG:QF:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QF:04:CURRENT:RB": {
+      "nominal": 19.53
+    },
+    "LTB:MAG:QF:04:CURRENT:SP": {
+      "nominal": 19.53
+    },
+    "LTB:MAG:QF:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:QF:05:CURRENT:RB": {
+      "nominal": 12.9
+    },
+    "LTB:MAG:QF:05:CURRENT:SP": {
+      "nominal": 12.9
+    },
+    "LTB:MAG:QF:05:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:05:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:05:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:05:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:06:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:06:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:06:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "LTB:MAG:VCM:07:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:07:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "LTB:MAG:VCM:07:STATUS:ON": {
       "nominal": 1.0
     },
     "SR:DIAG:BPM:01:GOLDEN:X": {
@@ -522,6 +1659,12 @@
     "SR:DIAG:BPM:01:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:01:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:01:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:02:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -545,6 +1688,12 @@
     },
     "SR:DIAG:BPM:02:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:02:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:02:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:03:GOLDEN:X": {
       "nominal": 100.0
@@ -570,6 +1719,12 @@
     "SR:DIAG:BPM:03:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:03:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:03:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:04:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -593,6 +1748,12 @@
     },
     "SR:DIAG:BPM:04:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:04:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:04:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:05:GOLDEN:X": {
       "nominal": 100.0
@@ -618,6 +1779,12 @@
     "SR:DIAG:BPM:05:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:05:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:05:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:06:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -641,6 +1808,12 @@
     },
     "SR:DIAG:BPM:06:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:06:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:06:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:07:GOLDEN:X": {
       "nominal": 100.0
@@ -666,6 +1839,12 @@
     "SR:DIAG:BPM:07:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:07:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:07:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:08:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -689,6 +1868,12 @@
     },
     "SR:DIAG:BPM:08:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:08:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:08:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:09:GOLDEN:X": {
       "nominal": 100.0
@@ -714,6 +1899,12 @@
     "SR:DIAG:BPM:09:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:09:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:09:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:10:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -737,6 +1928,12 @@
     },
     "SR:DIAG:BPM:10:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:10:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:10:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:11:GOLDEN:X": {
       "nominal": 100.0
@@ -762,6 +1959,12 @@
     "SR:DIAG:BPM:11:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:11:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:11:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:12:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -785,6 +1988,12 @@
     },
     "SR:DIAG:BPM:12:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:12:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:12:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:13:GOLDEN:X": {
       "nominal": 100.0
@@ -810,6 +2019,12 @@
     "SR:DIAG:BPM:13:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:13:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:13:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:14:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -833,6 +2048,12 @@
     },
     "SR:DIAG:BPM:14:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:14:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:14:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:15:GOLDEN:X": {
       "nominal": 100.0
@@ -858,6 +2079,12 @@
     "SR:DIAG:BPM:15:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:15:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:15:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:16:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -881,6 +2108,12 @@
     },
     "SR:DIAG:BPM:16:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:16:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:16:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:17:GOLDEN:X": {
       "nominal": 100.0
@@ -906,6 +2139,12 @@
     "SR:DIAG:BPM:17:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:17:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:17:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:18:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -929,6 +2168,12 @@
     },
     "SR:DIAG:BPM:18:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:18:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:18:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:19:GOLDEN:X": {
       "nominal": 100.0
@@ -954,6 +2199,12 @@
     "SR:DIAG:BPM:19:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:19:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:19:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:20:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -977,6 +2228,12 @@
     },
     "SR:DIAG:BPM:20:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:20:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:20:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:21:GOLDEN:X": {
       "nominal": 100.0
@@ -1002,6 +2259,12 @@
     "SR:DIAG:BPM:21:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:21:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:21:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:22:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1025,6 +2288,12 @@
     },
     "SR:DIAG:BPM:22:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:22:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:22:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:23:GOLDEN:X": {
       "nominal": 100.0
@@ -1050,6 +2319,12 @@
     "SR:DIAG:BPM:23:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:23:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:23:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:24:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1073,6 +2348,12 @@
     },
     "SR:DIAG:BPM:24:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:24:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:24:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:25:GOLDEN:X": {
       "nominal": 100.0
@@ -1098,6 +2379,12 @@
     "SR:DIAG:BPM:25:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:25:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:25:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:26:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1121,6 +2408,12 @@
     },
     "SR:DIAG:BPM:26:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:26:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:26:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:27:GOLDEN:X": {
       "nominal": 100.0
@@ -1146,6 +2439,12 @@
     "SR:DIAG:BPM:27:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:27:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:27:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:28:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1169,6 +2468,12 @@
     },
     "SR:DIAG:BPM:28:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:28:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:28:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:29:GOLDEN:X": {
       "nominal": 100.0
@@ -1194,6 +2499,12 @@
     "SR:DIAG:BPM:29:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:29:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:29:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:30:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1217,6 +2528,12 @@
     },
     "SR:DIAG:BPM:30:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:30:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:30:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:31:GOLDEN:X": {
       "nominal": 100.0
@@ -1242,6 +2559,12 @@
     "SR:DIAG:BPM:31:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:31:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:31:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:32:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1265,6 +2588,12 @@
     },
     "SR:DIAG:BPM:32:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:32:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:32:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:33:GOLDEN:X": {
       "nominal": 100.0
@@ -1290,6 +2619,12 @@
     "SR:DIAG:BPM:33:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:33:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:33:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:34:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1313,6 +2648,12 @@
     },
     "SR:DIAG:BPM:34:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:34:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:34:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:35:GOLDEN:X": {
       "nominal": 100.0
@@ -1338,6 +2679,12 @@
     "SR:DIAG:BPM:35:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:35:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:35:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:36:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1361,6 +2708,12 @@
     },
     "SR:DIAG:BPM:36:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:36:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:36:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:37:GOLDEN:X": {
       "nominal": 100.0
@@ -1386,6 +2739,12 @@
     "SR:DIAG:BPM:37:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:37:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:37:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:38:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1409,6 +2768,12 @@
     },
     "SR:DIAG:BPM:38:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:38:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:38:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:39:GOLDEN:X": {
       "nominal": 100.0
@@ -1434,6 +2799,12 @@
     "SR:DIAG:BPM:39:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:39:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:39:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:40:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1457,6 +2828,12 @@
     },
     "SR:DIAG:BPM:40:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:40:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:40:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:41:GOLDEN:X": {
       "nominal": 100.0
@@ -1482,6 +2859,12 @@
     "SR:DIAG:BPM:41:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:41:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:41:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:42:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1505,6 +2888,12 @@
     },
     "SR:DIAG:BPM:42:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:42:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:42:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:43:GOLDEN:X": {
       "nominal": 100.0
@@ -1530,6 +2919,12 @@
     "SR:DIAG:BPM:43:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:43:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:43:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:44:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1553,6 +2948,12 @@
     },
     "SR:DIAG:BPM:44:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:44:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:44:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:45:GOLDEN:X": {
       "nominal": 100.0
@@ -1578,6 +2979,12 @@
     "SR:DIAG:BPM:45:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:45:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:45:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:46:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1601,6 +3008,12 @@
     },
     "SR:DIAG:BPM:46:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:46:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:46:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:47:GOLDEN:X": {
       "nominal": 100.0
@@ -1626,6 +3039,12 @@
     "SR:DIAG:BPM:47:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:47:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:47:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:48:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1649,6 +3068,12 @@
     },
     "SR:DIAG:BPM:48:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:48:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:48:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:49:GOLDEN:X": {
       "nominal": 100.0
@@ -1674,6 +3099,12 @@
     "SR:DIAG:BPM:49:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:49:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:49:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:50:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1697,6 +3128,12 @@
     },
     "SR:DIAG:BPM:50:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:50:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:50:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:51:GOLDEN:X": {
       "nominal": 100.0
@@ -1722,6 +3159,12 @@
     "SR:DIAG:BPM:51:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:51:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:51:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:52:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1745,6 +3188,12 @@
     },
     "SR:DIAG:BPM:52:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:52:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:52:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:53:GOLDEN:X": {
       "nominal": 100.0
@@ -1770,6 +3219,12 @@
     "SR:DIAG:BPM:53:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:53:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:53:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:54:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1793,6 +3248,12 @@
     },
     "SR:DIAG:BPM:54:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:54:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:54:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:55:GOLDEN:X": {
       "nominal": 100.0
@@ -1818,6 +3279,12 @@
     "SR:DIAG:BPM:55:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:55:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:55:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:56:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1841,6 +3308,12 @@
     },
     "SR:DIAG:BPM:56:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:56:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:56:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:57:GOLDEN:X": {
       "nominal": 100.0
@@ -1866,6 +3339,12 @@
     "SR:DIAG:BPM:57:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:57:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:57:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:58:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1889,6 +3368,12 @@
     },
     "SR:DIAG:BPM:58:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:58:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:58:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:59:GOLDEN:X": {
       "nominal": 100.0
@@ -1914,6 +3399,12 @@
     "SR:DIAG:BPM:59:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:59:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:59:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:60:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1937,6 +3428,12 @@
     },
     "SR:DIAG:BPM:60:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:60:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:60:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:61:GOLDEN:X": {
       "nominal": 100.0
@@ -1962,6 +3459,12 @@
     "SR:DIAG:BPM:61:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:61:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:61:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:62:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -1985,6 +3488,12 @@
     },
     "SR:DIAG:BPM:62:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:62:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:62:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:63:GOLDEN:X": {
       "nominal": 100.0
@@ -2010,6 +3519,12 @@
     "SR:DIAG:BPM:63:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:63:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:63:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:64:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -2033,6 +3548,12 @@
     },
     "SR:DIAG:BPM:64:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:64:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:64:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:65:GOLDEN:X": {
       "nominal": 100.0
@@ -2058,6 +3579,12 @@
     "SR:DIAG:BPM:65:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:65:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:65:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:66:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -2081,6 +3608,12 @@
     },
     "SR:DIAG:BPM:66:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:66:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:66:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:67:GOLDEN:X": {
       "nominal": 100.0
@@ -2106,6 +3639,12 @@
     "SR:DIAG:BPM:67:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:67:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:67:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:68:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -2129,6 +3668,12 @@
     },
     "SR:DIAG:BPM:68:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:68:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:68:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:69:GOLDEN:X": {
       "nominal": 100.0
@@ -2154,6 +3699,12 @@
     "SR:DIAG:BPM:69:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:69:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:69:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:70:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -2177,6 +3728,12 @@
     },
     "SR:DIAG:BPM:70:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:70:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:70:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:71:GOLDEN:X": {
       "nominal": 100.0
@@ -2202,6 +3759,12 @@
     "SR:DIAG:BPM:71:STATUS:VALID": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:71:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:71:TBT:ARMED": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:72:GOLDEN:X": {
       "nominal": 100.0
     },
@@ -2225,6 +3788,12 @@
     },
     "SR:DIAG:BPM:72:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:72:TBT:ARM": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:72:TBT:ARMED": {
+      "nominal": 0.0
     },
     "SR:DIAG:DCCT:01:CURRENT:RB": {
       "nominal": 500.0
@@ -2291,6 +3860,12 @@
     },
     "SR:DIAG:GAMMA:04:STATUS:VALID": {
       "nominal": 100.0
+    },
+    "SR:DIAG:INJECTION:BUSY": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:INJECTION:REQUEST": {
+      "nominal": 0.0
     },
     "SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1HR": {
       "nominal": 100.0
@@ -5807,6 +7382,24 @@
     },
     "SR:MAG:SD:24:STATUS:READY": {
       "nominal": 100.0
+    },
+    "SR:MAG:SEPTUM:01:CURRENT:RB": {
+      "nominal": 3000.0
+    },
+    "SR:MAG:SEPTUM:01:CURRENT:SP": {
+      "nominal": 3000.0
+    },
+    "SR:MAG:SEPTUM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "SR:MAG:SEPTUM:02:CURRENT:RB": {
+      "nominal": 800.0
+    },
+    "SR:MAG:SEPTUM:02:CURRENT:SP": {
+      "nominal": 800.0
+    },
+    "SR:MAG:SEPTUM:02:STATUS:ON": {
+      "nominal": 1.0
     },
     "SR:MAG:SF:01:CURRENT:GOLDEN": {
       "nominal": 150.0

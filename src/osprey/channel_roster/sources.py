@@ -44,7 +44,7 @@ from osprey.channel_roster.records import (
     RosterSourceKind,
 )
 from osprey.facility import FACILITY_FILE
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("channel_roster.sources")
 
@@ -125,7 +125,7 @@ def facility_file_path(config: dict) -> Path:
     """
     render_dir = _render_dir(config)
     if render_dir is None:
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         render_dir = Path(resolve_config_path()).parent
     return render_dir / FACILITY_FILE

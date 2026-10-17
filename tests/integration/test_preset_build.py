@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from osprey.facility.render import FACILITY_FILE
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import init_project, run_build
 
 pytestmark = pytest.mark.slow
@@ -50,11 +50,11 @@ def test_preset_builds(preset: str, tmp_path: Path) -> None:
 @pytest.fixture
 def _fresh_middle_layer_server() -> Iterator[None]:
     """A middle-layer server context and config cache built for this test only."""
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
     from osprey.mcp_server.channel_finder_middle_layer.server_context import (
         reset_cf_ml_context,
     )
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     def reset() -> None:
         reset_cf_ml_context()

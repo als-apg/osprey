@@ -251,8 +251,8 @@ autodoc_mock_imports = [
     "python-dotenv",
     "dotenv",
     # EPICS control system - specialized scientific software
-    "epics",
-    "pyepics",
+    "aioca",
+    "epicscorelibs",
     "p4p",
     "pvaccess",
     # Notebook format library - not needed for static documentation

@@ -31,9 +31,9 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     TERMINAL_SECRET_HEADER,
     _is_stripped_header,
 )
-from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
 
 from ._proxy_fakes import _lower, panel_app
 

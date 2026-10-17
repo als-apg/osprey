@@ -1796,7 +1796,7 @@ class WebAuthMiddleware:
         """File one ``401``/``403`` in the unified ledger.
 
         The record's *actor* is this container's own audit identity, filled in
-        by the writer from :func:`~osprey.utils.identity.acting_identity` (this
+        by the writer from :func:`~osprey_connectors.identity.acting_identity` (this
         layer names none) — never the forwarded account. The two are different
         questions: the actor says which deployment identity's ledger this
         belongs in (and which file it can be written to), while the account is

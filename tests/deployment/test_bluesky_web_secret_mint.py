@@ -62,7 +62,7 @@ def _clean_secret_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     path = tmp_path / ".env"
     return parse_dotenv_file(path) if path.is_file() else {}

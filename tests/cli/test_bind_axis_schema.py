@@ -22,7 +22,7 @@ import pytest
 from osprey.cli.build_profile import BuildProfile, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import bind_env_errors, listens_errors
 from osprey.deployment.host_binding import HostBinding
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 _FACILITY = "site_poller"
 

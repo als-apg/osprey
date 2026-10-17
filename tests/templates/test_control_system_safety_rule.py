@@ -4,8 +4,8 @@ Two contracts live here: the p4p (pvAccess) prohibition block, and the routing
 section that tells the agent which tool answers which request shape.
 
 The EPICS connector reads pvAccess channels through ``p4p``, so the shipped
-safety rule has to name that library the same way it names ``pyepics`` --
-otherwise an agent steered off ``epics.caput`` simply reaches for
+safety rule has to name that library the same way it names ``aioca`` --
+otherwise an agent steered off ``aioca.caput`` simply reaches for
 ``Context.put`` instead. Two details matter enough to pin here:
 
 * Both client flavors are named. ``p4p`` ships parallel ``thread`` and
@@ -167,7 +167,7 @@ def test_virtual_accelerator_rule_names_p4p(tmp_path):
 
 
 def test_both_client_flavors_and_rpc_carry_bypass_annotations(tmp_path):
-    """Every p4p example line is annotated the way the pyepics examples are --
+    """Every p4p example line is annotated the way the Channel Access examples are --
     a bare import list would not tell the agent what it is bypassing."""
     content = _render_safety_rule(tmp_path, "p4p-annot", "epics")
 
@@ -226,12 +226,15 @@ def test_non_epics_branches_have_no_p4p_lines(tmp_path):
             assert marker not in content, f"{cs_type}: unexpected p4p marker {marker!r}"
 
 
-def test_existing_pyepics_prohibitions_survive(tmp_path):
-    """Adding the p4p block must not displace the pyepics examples."""
+def test_existing_channel_access_prohibitions_survive(tmp_path):
+    """Adding the p4p block must not displace the Channel Access examples:
+    aioca, the client OSPREY ships, and pyepics, which a user may install."""
     content = _render_safety_rule(tmp_path, "p4p-pyepics", "epics")
 
+    assert "import aioca" in content
+    assert "aioca.caget" in content
+    assert "aioca.caput" in content
     assert "import epics" in content
-    assert "epics.caget" in content
     assert "epics.caput" in content
     assert "Bypasses audit logging" in content
     assert RAW_PUT_ANNOTATION in content
@@ -244,8 +247,8 @@ RAW_PUT_ANNOTATION = "# Refused at runtime: RAW_CLIENT_WRITE"
 #: The raw-put example lines of each refusing branch, stem before the ``#``.
 RAW_PUT_LINES = {
     "epics": (
+        'await aioca.caput("SR:MAG:QF:01:CURRENT:SP", 150)',
         'epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)',
-        "pv.put(150)",
     ),
     "doocs": ('doocs4py.set("FACILITY/DEVICE/LOCATION/SETPOINT", 150.0)',),
     "tango": (
@@ -477,7 +480,7 @@ PVACCESS_LINES = {
 @pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator"])
 def test_the_pvaccess_block_splits_on_the_provider(cs_type):
     """pvaPy speaks both protocols, so the rule names both channels: the CA
-    one's puts refused like ``epics.caput``, the PVA one's under the PVA
+    one's puts refused like ``aioca.caput``, the PVA one's under the PVA
     exception, MultiChannel writes refused, and the rpc not approvable."""
     content = _render_template_directly(cs_type, set())
     annotated = {
@@ -492,7 +495,7 @@ def test_the_pvaccess_block_splits_on_the_provider(cs_type):
         assert annotated[stem].strip() == annotation, f"{cs_type}: {stem!r} -> {annotated[stem]!r}"
     prose = " ".join(content.split())
     assert "the split follows the channel, not the library" in prose
-    assert "its puts are refused like `epics.caput`" in prose
+    assert "its puts are refused like `aioca.caput`" in prose
     assert "A `MultiChannel` write is refused whichever protocol it speaks" in prose
     # The p4p block above is untouched: still exactly one ``ctxt.put(`` line.
     assert len([line for line in content.splitlines() if line.startswith("ctxt.put(")]) == 1

@@ -142,7 +142,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.mcp_server.sandbox_env import PERIMETER_DENY_PORTS_ENV, PERIMETER_MARKER_ENV
 from osprey.services.python_executor.execution.net_guard import NET_GUARD_REFUSAL_PREFIX
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 

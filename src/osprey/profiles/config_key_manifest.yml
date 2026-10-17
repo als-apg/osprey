@@ -3816,8 +3816,7 @@ orphan_sites:
     why: the deleted ollama port line
   applications:
     # `root` may be a LIST: the config loader moved to the osprey-connectors
-    # workspace member, so src/osprey/utils/config.py is a shim this regex can
-    # never match. Both trees are scanned; the back-test sums hits across the
+    # workspace member, out of src/osprey/utils. Both trees are scanned; the back-test sums hits across the
     # roots, because the connectors tree postdates the baseline commit.
   - root:
     - src/osprey/utils
@@ -4202,6 +4201,15 @@ scan_rules:
 # that a PATH no longer exists, because no content grep can ever fire for them.
 # ---------------------------------------------------------------------------
 absent_paths:
+- path: src/osprey/connectors
+  assert: absent
+  back_test:
+    base_tracked_files: 17    # the connectors before they moved to osprey_connectors
+    branch_tracked_files: 0
+  why: >-
+    The connectors live in osprey_connectors; the old package is gone. Orphan
+    sites still name it as a root so their regex stays falsifiable against the
+    baseline, and this absence is what keeps that root empty on the branch.
 - path: src/osprey/services/machine_state
   assert: absent
   back_test:

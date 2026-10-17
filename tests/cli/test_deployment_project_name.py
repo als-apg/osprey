@@ -35,7 +35,7 @@ from osprey.deployment.web_terminals.persona_naming import (
     derived_persona_catalog,
     persona_project,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 

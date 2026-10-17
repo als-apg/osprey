@@ -5,6 +5,9 @@ transport already exported in the environment. Prints one
 ``BEHAVIOR <name> PASS|FAIL -- <detail>`` line per behaviour and exits 0 only
 if every behaviour passed.
 
+The client is aioca, which is asyncio-only: every behaviour is a coroutine, and
+the whole run is one ``asyncio.run``.
+
 Modes:
 
 - default: run the three behaviours against a reachable probe server.
@@ -16,6 +19,7 @@ Modes:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sys
 import time
@@ -57,22 +61,28 @@ def report_env() -> list[str]:
     return problems
 
 
-def behavior_transport(epics) -> tuple[bool, str, float]:
+async def caget(aioca, name: str, timeout: float) -> object | None:
+    """One read over the wire, or ``None`` if nothing answered in time."""
+    value = await aioca.caget(name, timeout=timeout, throw=False)
+    return None if isinstance(value, aioca.CANothing) else value
+
+
+async def behavior_transport(aioca) -> tuple[bool, str, float]:
     """1. Basic transport: host caget and caput reach the served PVs."""
     sp = PREFIX + "SYNC:SP"
     rb = PREFIX + "SYNC:RB"
-    initial = epics.caget(sp, timeout=CONNECT_TIMEOUT_S)
+    initial = await caget(aioca, sp, CONNECT_TIMEOUT_S)
     if initial is None:
-        return False, f"caget {sp} returned None (PV unreachable)", 0.0
+        return False, f"caget {sp} found nothing (PV unreachable)", 0.0
 
     target = 12.5
     started = time.monotonic()
-    put_result = epics.caput(sp, target, wait=True, timeout=10)
+    put_result = await aioca.caput(sp, target, wait=True, timeout=10, throw=False)
     elapsed = time.monotonic() - started
-    if put_result != 1:
-        return False, f"caput {sp} returned {put_result!r} (expected 1)", elapsed
+    if not put_result.ok:
+        return False, f"caput {sp} did not complete: {put_result!r}", elapsed
 
-    echoed = epics.caget(rb, timeout=CONNECT_TIMEOUT_S)
+    echoed = await caget(aioca, rb, CONNECT_TIMEOUT_S)
     if echoed is None or abs(echoed - target) > 1e-9:
         return False, f"caput {sp}={target} but {rb} reads {echoed!r}", elapsed
     return (
@@ -83,22 +93,22 @@ def behavior_transport(epics) -> tuple[bool, str, float]:
     )
 
 
-def behavior_async_completion(epics, sync_elapsed: float) -> tuple[bool, str]:
+async def behavior_async_completion(aioca, sync_elapsed: float) -> tuple[bool, str]:
     """2. Asynchronous write completion observed with put-completion."""
     sp = PREFIX + "ASYNC:SP"
     rb = PREFIX + "ASYNC:RB"
     target = 42.0
     started = time.monotonic()
-    put_result = epics.caput(sp, target, wait=True, timeout=ASYNC_DELAY_S + 20)
+    put_result = await aioca.caput(sp, target, wait=True, timeout=ASYNC_DELAY_S + 20, throw=False)
     elapsed = time.monotonic() - started
-    committed = epics.caget(rb, timeout=CONNECT_TIMEOUT_S)
+    committed = await caget(aioca, rb, CONNECT_TIMEOUT_S)
 
     detail = (
-        f"caput {sp}={target} wait=True returned {put_result!r} after "
+        f"caput {sp}={target} wait=True completed={put_result.ok} after "
         f"{elapsed:.3f}s (server delay {ASYNC_DELAY_S}s); {rb}={committed!r} "
         f"on unblock; synchronous control put took {sync_elapsed:.3f}s"
     )
-    if put_result != 1:
+    if not put_result.ok:
         return False, "put-completion did not report success: " + detail
     if elapsed < ASYNC_DELAY_S * 0.8:
         return False, "client did not block for the server delay: " + detail
@@ -109,25 +119,24 @@ def behavior_async_completion(epics, sync_elapsed: float) -> tuple[bool, str]:
     return True, detail
 
 
-def behavior_monitor_events(epics) -> tuple[bool, str]:
+async def behavior_monitor_events(aioca) -> tuple[bool, str]:
     """3. Server-initiated monitor events reach a host camonitor subscription."""
     name = PREFIX + "TELEM:COUNTER"
-    pv = epics.PV(name)
+    connected = await aioca.connect(name, timeout=CONNECT_TIMEOUT_S, throw=False)
+    if not connected.ok:
+        return False, f"{name} never connected for monitoring"
+
+    events: list[tuple[float, object]] = []
+    subscription = aioca.camonitor(name, lambda value: events.append((time.monotonic(), value)))
     try:
-        if not pv.wait_for_connection(timeout=CONNECT_TIMEOUT_S):
-            return False, f"{name} never connected for monitoring"
-
-        events: list[tuple[float, object]] = []
-        pv.add_callback(lambda **kw: events.append((time.monotonic(), kw.get("value"))))
-
         # Drain the initial subscription value, which every CA subscription
         # delivers on connect and which is therefore not server-initiated.
-        time.sleep(1.0)
+        await asyncio.sleep(1.0)
         events.clear()
 
         # No client write happens in this window: anything that arrives was
         # posted by the server on its own schedule.
-        time.sleep(MONITOR_WINDOW_S)
+        await asyncio.sleep(MONITOR_WINDOW_S)
         observed = list(events)
 
         values = [value for _, value in observed]
@@ -147,17 +156,13 @@ def behavior_monitor_events(epics) -> tuple[bool, str]:
             f"{MONITOR_WINDOW_S:.1f}s with no client write; values={values!r}"
         )
     finally:
-        try:
-            pv.clear_callbacks()
-            pv.disconnect()
-        except Exception:  # teardown must not mask the verdict
-            pass
+        subscription.close()
 
 
-def run_negative_control(epics) -> int:
+async def run_negative_control(aioca) -> int:
     """Confirm the PVs are unreachable when the name server address is wrong."""
     sp = PREFIX + "SYNC:SP"
-    value = epics.caget(sp, timeout=5)
+    value = await caget(aioca, sp, 5)
     if value is None:
         print(
             f"NEGATIVE-CONTROL PASS -- caget {sp} found nothing with a wrong "
@@ -174,7 +179,7 @@ def run_negative_control(epics) -> int:
     return 1
 
 
-def main() -> int:
+async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--expect-unreachable",
@@ -184,10 +189,10 @@ def main() -> int:
     args = parser.parse_args()
 
     problems = report_env()
-    import epics  # imported after the env is reported and checked
+    import aioca  # imported after the env is reported and checked
 
     if args.expect_unreachable:
-        return run_negative_control(epics)
+        return await run_negative_control(aioca)
 
     if problems:
         for problem in problems:
@@ -199,7 +204,7 @@ def main() -> int:
         )
         return 1
 
-    transport_ok, transport_detail, sync_elapsed = behavior_transport(epics)
+    transport_ok, transport_detail, sync_elapsed = await behavior_transport(aioca)
     print(
         f"BEHAVIOR transport {'PASS' if transport_ok else 'FAIL'} -- {transport_detail}", flush=True
     )
@@ -208,7 +213,7 @@ def main() -> int:
     # that cannot serve an asyn write may die trying, and a dead server would
     # otherwise be misreported as "monitors do not work".
     if transport_ok:
-        monitor_ok, monitor_detail = behavior_monitor_events(epics)
+        monitor_ok, monitor_detail = await behavior_monitor_events(aioca)
     else:
         monitor_ok, monitor_detail = False, "skipped: transport did not come up"
     print(
@@ -217,7 +222,7 @@ def main() -> int:
     )
 
     if transport_ok:
-        async_ok, async_detail = behavior_async_completion(epics, sync_elapsed)
+        async_ok, async_detail = await behavior_async_completion(aioca, sync_elapsed)
     else:
         async_ok, async_detail = False, "skipped: transport did not come up"
     print(
@@ -228,9 +233,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    code = main()
+    code = asyncio.run(main())
     sys.stdout.flush()
     sys.stderr.flush()
-    # Exit without unwinding: garbage-collecting live pyepics PVs can segfault
-    # libca on teardown and would corrupt an already-decided verdict.
+    # Exit without unwinding: the verdict is already decided and printed, and
+    # nothing in libca's teardown is allowed a chance to change the exit code.
     os._exit(code)

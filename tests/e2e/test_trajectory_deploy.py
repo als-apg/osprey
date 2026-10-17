@@ -237,7 +237,7 @@ def _action_http_timeout() -> float:
 
 def _minted(repo: Path, name: str) -> str:
     """A secret `osprey up` minted into the deployment repo's ``.env``."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — {name} was not minted"
@@ -345,7 +345,7 @@ def _author_corrector_limits(repo: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     osprey_bin = _orm_stack.find_osprey_console_script()
     base = tmp_path_factory.mktemp("trajectory_build")

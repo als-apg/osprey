@@ -338,7 +338,7 @@ async def test_slow_search_does_not_block_the_rest_of_the_panel():
 
 def test_factory_wires_a_qmd_client_from_the_project_config(monkeypatch):
     """``services.qmd`` in config.yml reaches the bundle the panel serves."""
-    import osprey.utils.workspace as workspace
+    import osprey_connectors.workspace as workspace
 
     monkeypatch.setattr(
         workspace,
@@ -351,7 +351,7 @@ def test_factory_wires_a_qmd_client_from_the_project_config(monkeypatch):
 
 def test_factory_without_services_qmd_opens_no_socket(monkeypatch):
     """No sidecar is a supported configuration: the client stays unconfigured."""
-    import osprey.utils.workspace as workspace
+    import osprey_connectors.workspace as workspace
 
     monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
     app = create_app(str(BUNDLE))
@@ -360,7 +360,7 @@ def test_factory_without_services_qmd_opens_no_socket(monkeypatch):
 
 def test_malformed_search_settings_degrade_to_substring_not_to_a_dead_panel(monkeypatch, caplog):
     """A bad search knob must not cost the operator the whole reading pane."""
-    import osprey.utils.workspace as workspace
+    import osprey_connectors.workspace as workspace
 
     monkeypatch.setattr(
         workspace,
@@ -385,7 +385,7 @@ def test_unreadable_config_degrades_to_substring_not_to_a_dead_panel(monkeypatch
     reading pane included. This pins that nothing gets that far, whatever the
     config layer raises.
     """
-    import osprey.utils.workspace as workspace
+    import osprey_connectors.workspace as workspace
 
     def boom():
         raise TypeError("config layer changed shape")
@@ -496,7 +496,7 @@ def test_relative_bundle_path_resolves_against_config_dir(monkeypatch, tmp_path)
     (Regression for the review finding: MCP/CLI resolve it this way; the panel
     must agree or a valid relative bundle_path silently yields an empty tab.)
     """
-    import osprey.utils.workspace as workspace
+    import osprey_connectors.workspace as workspace
 
     config_yml = tmp_path / "config.yml"
     config_yml.write_text("", encoding="utf-8")

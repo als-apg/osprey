@@ -72,7 +72,7 @@ _MOCK_COMPOSITION_CONFIG = {
 def _patch_model_resolution():
     """Context manager that patches provider/config resolution for compose tests."""
     return (
-        patch("osprey.utils.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
+        patch("osprey_connectors.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
         patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
     )
 
@@ -112,7 +112,9 @@ class TestLogbookCompose:
         entry = _make_artifact(store)
 
         with (
-            patch("osprey.utils.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
+            patch(
+                "osprey_connectors.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG
+            ),
             patch("osprey.models.config.get_provider_config", return_value={}),
         ):
             resp = app_client.post(
@@ -640,7 +642,7 @@ class TestComposeWithSteering:
 
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=lambda path, default=None: values.get(path, default),
             ),
             patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
@@ -680,7 +682,7 @@ class TestLogbookModels:
 
     def test_no_provider_is_a_503(self, app_client):
         with (
-            patch("osprey.utils.config.get_config_value", return_value={}),
+            patch("osprey_connectors.config.get_config_value", return_value={}),
             patch("osprey.models.config.get_provider_config", return_value={}),
         ):
             resp = app_client.get("/api/logbook/models")

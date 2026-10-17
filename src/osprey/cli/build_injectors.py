@@ -35,7 +35,6 @@ from osprey.deployment.host_binding import (
     LISTENS_KEY,
 )
 from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
-from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -44,8 +43,9 @@ from osprey.utils.config_writer import (
     save_config_document,
 )
 from osprey.utils.facility import facility_name as identity_name
-from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:

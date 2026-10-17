@@ -12,10 +12,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from osprey.connectors.archiver._timerange import Processing
-from osprey.connectors.archiver.base import ArchiverMetadata
-from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.archiver._timerange import Processing
+from osprey_connectors.archiver.base import ArchiverMetadata
+from osprey_connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from tests.connectors._loopback_https import Reply, loopback_pair
 
 
@@ -619,7 +619,7 @@ class TestQueryWindowTimezone:
     ):
         if facility_local:
             monkeypatch.setattr(
-                "osprey.utils.config.get_facility_timezone",
+                "osprey_connectors.config.get_facility_timezone",
                 lambda: ZoneInfo("America/Los_Angeles"),
             )
 
@@ -794,7 +794,7 @@ class TestSubSecondPrecision:
         through; the request must be refused, not downgraded to a bare PV name.
         """
         monkeypatch.setattr(
-            "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
+            "osprey_connectors.archiver.epics_archiver_connector.resolve_processing",
             lambda processing, precision_ms, window_start: Processing(
                 mode=processing,
                 precision_ms=precision_ms,

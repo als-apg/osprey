@@ -12,15 +12,14 @@ that failure through its own seam, keyed by address so the other two reads go
 through untouched:
 
 - **Mock** — ``_reading``, the store lookup behind ``read_channel``.
-- **EPICS** — an injected fake ``_epics.PV`` whose ``get`` raises for one pvname.
+- **EPICS** — an injected fake ``aioca`` whose channel read fails for one name.
 - **DOOCS** — a fake ``doocs4py`` module whose ``get`` raises for one address.
 - **TANGO** — a fake ``tango`` module whose ``DeviceProxy.read_attribute``
   raises for one address.
 
-The EPICS family has a second way to fail a read: a timed-out ``pv.get`` returns
-``None`` rather than raising, so the channel comes back *present* with no value.
-That is an EPICS-only row, and it is the reason ``read_channels`` treats a
-``None`` value as a failed read too.
+A connector may also answer a channel *present* with no value; ``read_channels``
+treats a ``None`` value as a failed read too, which the runtime tests below pin
+on a stub connector.
 
 The write-confirmation parity lives in ``test_cross_connector_parity.py``; its
 fakes answer every address with one object, which cannot express a batch where
@@ -33,13 +32,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aioca
 import pytest
 
-from osprey.connectors.control_system.base import ChannelValue
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
-from osprey.errors import ChannelReadFailedError
 from osprey.runtime import read_channels
+from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ChannelReadFailedError
+from tests.connectors._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
 
 # The value each of the three requested channels holds; the middle one is the
@@ -59,34 +60,23 @@ READ_ERROR = "read exploded"
 class ReadScenario:
     """One way the middle read of a three-channel batch can fail.
 
-    ``absent`` are the positions the connector leaves out of its result;
-    ``none_valued`` are the positions it returns with the value ``None``. Every
-    other position comes back with the value its channel holds. Either way, a
-    position in ``absent`` or ``none_valued`` is one ``read_channels`` names.
+    ``absent`` are the positions the connector leaves out of its result, the
+    ones ``read_channels`` names. Every other position comes back with the
+    value its channel holds.
     """
 
     name: str
     absent: tuple[int, ...]
-    none_valued: tuple[int, ...]
-
-    @property
-    def failed(self) -> tuple[int, ...]:
-        return tuple(sorted(self.absent + self.none_valued))
 
 
-MIDDLE_READ_RAISES = ReadScenario(name="middle_read_raises", absent=(FAILING,), none_valued=())
-MIDDLE_READ_RETURNS_NONE = ReadScenario(
-    name="middle_read_returns_none", absent=(), none_valued=(FAILING,)
-)
+MIDDLE_READ_RAISES = ReadScenario(name="middle_read_raises", absent=(FAILING,))
 
 
 def _raise_or_value(addresses, scenario, address):
-    """The per-address answer every fake shares: a value, ``None``, or a raise."""
+    """The per-address answer every fake shares: a value, or a raise."""
     position = addresses.index(address)
     if position in scenario.absent:
         raise RuntimeError(READ_ERROR)
-    if position in scenario.none_valued:
-        return None
     return VALUES[position]
 
 
@@ -121,52 +111,27 @@ async def _read_mock(scenario: ReadScenario, monkeypatch, tmp_path) -> tuple[lis
 
 
 # ---------------------------------------------------------------------------
-# EPICS — seam: an injected fake _epics.PV, one per pvname
+# EPICS — seam: an injected fake aioca, one channel per name
 # ---------------------------------------------------------------------------
 
 EPICS_ADDRESSES = ["SR:A:RB", "SR:B:RB", "SR:C:RB"]
 
 
-def _fake_pv(get):
-    pv = MagicMock()
-    pv.wait_for_connection.return_value = True
-    pv.connected = True
-    pv.get.side_effect = get
-    pv.timestamp = 1_750_000_000.0
-    pv.units = "mA"
-    pv.precision = 3
-    pv.status = 0
-    pv.severity = 0
-    pv.type = "time_double"
-    return pv
-
-
 def _epics_connector(scenario: ReadScenario) -> EPICSConnector:
-    """A connected EPICS connector whose ``_epics.PV`` answers per pvname.
+    """A connected EPICS connector whose fake aioca answers per channel name.
 
     connect() is skipped by injecting the runtime state it would have built.
-    A raising row raises ``TimeoutError`` from ``pv.get`` — what pyepics does
-    when the channel does not answer in time on a raising call path.
+    A raising row's channel answers its get with the timeout aioca reports
+    when the channel does not answer in time.
     """
-
-    def pv_for(pvname):
-        def get(*_args, **_kwargs):
-            try:
-                return _raise_or_value(EPICS_ADDRESSES, scenario, pvname)
-            except RuntimeError as exc:
-                raise TimeoutError(READ_ERROR) from exc
-
-        return _fake_pv(get)
-
-    epics = MagicMock()
-    epics.PV.side_effect = pv_for
-    connector = EPICSConnector()
-    connector._epics = epics
-    connector._limits_validator = None
-    connector._timeout = 5.0
-    connector._connected = True
-    connector._epics_configured = True
-    return connector
+    channels = {}
+    for address in EPICS_ADDRESSES:
+        try:
+            reading = ca_reading(_raise_or_value(EPICS_ADDRESSES, scenario, address))
+        except RuntimeError:
+            reading = aioca.CANothing(address, ECA_TIMEOUT)
+        channels[address] = FakeChannel(reading)
+    return ca_connector(channels=channels)
 
 
 async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
@@ -180,8 +145,8 @@ async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 DOOCS_ADDRESSES = ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B", "FAC/DEV/LOC/C"]
 
-_DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = "osprey_connectors.control_system.doocs_connector.LimitsValidator.from_config"
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system.doocs_connector.get_facility_timezone"
 
 
 def _eq_data(value):
@@ -209,7 +174,7 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         patch(_DOOCS_LIMITS_PATCH, return_value=None),
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -225,8 +190,8 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 TANGO_ADDRESSES = ["sr/ps/01/Current", "sr/ps/02/Current", "sr/ps/03/Current"]
 
-_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
+_TANGO_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
 
 
 def _device_attribute(value):
@@ -263,7 +228,7 @@ async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system.tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -280,9 +245,7 @@ _DRIVERS = {
     "tango": _read_tango,
 }
 
-# Every connector runs the raising row; only the EPICS family can return a
-# present ``None``, so that row is EPICS's alone.
-_ROWS = [(name, MIDDLE_READ_RAISES) for name in _DRIVERS] + [("epics", MIDDLE_READ_RETURNS_NONE)]
+_ROWS = [(name, MIDDLE_READ_RAISES) for name in _DRIVERS]
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +269,6 @@ class TestReadMultipleParity:
         for position, address in enumerate(addresses):
             if position in scenario.absent:
                 assert address not in result
-            elif position in scenario.none_valued:
-                assert result[address].value is None
             else:
                 assert result[address].value == VALUES[position]
 
@@ -379,14 +340,15 @@ class TestRuntimeReadChannels:
 
         assert values == [table[address] for address in requested]
 
-    def test_an_epics_read_that_returns_none_is_named_as_failed(self):
-        """The EPICS row's present-``None`` channel is a failed read, not a value."""
-        connector = _epics_connector(MIDDLE_READ_RETURNS_NONE)
+    def test_a_present_none_valued_channel_is_named_as_failed(self):
+        """A channel that comes back present with no value is a failed read, not a value."""
+        table = dict(zip(STUB_ADDRESSES, VALUES, strict=True))
+        table[STUB_ADDRESSES[FAILING]] = None
 
-        with _runtime_over(connector), pytest.raises(ChannelReadFailedError) as exc:
-            read_channels(EPICS_ADDRESSES)
+        with _runtime_over(_StubConnector(table)), pytest.raises(ChannelReadFailedError) as exc:
+            read_channels(STUB_ADDRESSES)
 
-        assert exc.value.addresses == [EPICS_ADDRESSES[FAILING]]
+        assert exc.value.addresses == [STUB_ADDRESSES[FAILING]]
 
 
 # ---------------------------------------------------------------------------
@@ -395,8 +357,8 @@ class TestRuntimeReadChannels:
 
 
 def _connector_classes():
-    from osprey.connectors.control_system.doocs_connector import DOOCSConnector
-    from osprey.connectors.control_system.tango_connector import TangoConnector
+    from osprey_connectors.control_system.doocs_connector import DOOCSConnector
+    from osprey_connectors.control_system.tango_connector import TangoConnector
 
     return {
         "in_process": VAInProcessConnector,

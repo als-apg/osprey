@@ -20,14 +20,14 @@ from typing import Any
 
 import pytest
 
-from osprey.connectors.control_system.base import (
+from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey.errors import (
+from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,

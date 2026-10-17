@@ -160,8 +160,8 @@ CALL_TIMEOUT_S = 20.0
 #: Bound on a read this module expects to FAIL. Short on purpose: it is paid in
 #: full every time an absent channel or a stopped container is asked for.
 ABSENT_TIMEOUT_S = 6.0
-#: Bound on "spawned and answered its init frame" -- a cold pyepics import is
-#: not fast.
+#: Bound on "spawned and answered its init frame" -- a cold import of the
+#: connector stack is not fast.
 SPAWN_TIMEOUT_S = 60.0
 PROBE_TIMEOUT_S = 15.0
 DRAIN_TIMEOUT_S = 2.0
@@ -204,25 +204,22 @@ def _va_served(port: int) -> bool:
     """Whether a virtual accelerator answers the probe channel on *port*.
 
     Out of process, for the reason this directory's ``conftest.py`` gives: libca
-    latches ``EPICS_CA_*`` at initialisation and its contexts are per-thread, so
-    a main-thread pyepics call in this process would deadlock the connector-host
-    children these tests spend their time talking to.
+    latches ``EPICS_CA_*`` when a process's context is created, and this probe
+    points it at *port*, so it cannot share a process with a client pointed
+    anywhere else.
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
-    nothing: a probe that will not die is read here as a container that is
-    not serving, and the word is written and flushed before the exit.
+    It leaves through ``os._exit`` for that file's other reason: aioca's exit
+    hook destroys the CA context, and that blocks for as long as a name-server
+    circuit is still retrying a port nothing serves yet -- the very case a
+    readiness probe polls through. The word is written and flushed before the
+    exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({PROBE_CHANNEL!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     environment = {
         **os.environ,
@@ -557,13 +554,13 @@ async def settled_reading(
 ) -> ChannelValue:
     """Re-read *address* until it reports *expected*, then hand that reading back.
 
-    Every post-write read in this module goes through here, and not out of
-    caution: the connector's read path is pyepics' ``pv.get()``, which defaults
-    to ``use_monitor=True`` and will answer from a monitor event that has not
-    been dispatched yet -- returning the value the channel held BEFORE the write.
-    That is the stale-cache class ``scripts/va/build_and_boot_check.sh`` states
-    its ``use_monitor=False`` doctrine for, and a bare read immediately after a
-    write is exactly the shape that flakes under it.
+    Every post-write read in this module goes through here. The connector's
+    read path is a fresh ``aioca.caget`` with no monitor cache behind it, so a
+    reading can no longer be answered from an update that has not been
+    dispatched yet. What is left is the server's side: a readback another
+    record posts -- through a link, or on its own scan -- can follow the
+    put-callback that ended the write, and a bare read immediately after a
+    write is exactly the shape that would flake on that.
 
     The deadline is a bound, not a wait: a channel that already reflects the
     write returns on the first read. Timing out fails naming the last reading

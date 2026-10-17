@@ -19,17 +19,17 @@ import os
 
 import pytest
 
-import osprey.connectors.control_system.epics_connector as epics_connector_module
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+import osprey_connectors.control_system.epics_connector as epics_connector_module
+from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
 from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
     clean_epics_env,
-    fake_pyepics,
+    fake_aioca,
 )
 
-# connect() runs against a stand-in pyepics: the real one would load libca and
-# keep the shutdown-hook change for every later test in the worker.
-pytestmark = pytest.mark.usefixtures("fake_pyepics")
+# connect() runs against a stand-in aioca and an inline CA loop: the real loop
+# would claim this process's Channel Access environment for every later test.
+pytestmark = pytest.mark.usefixtures("fake_aioca")
 
 
 def _both_gateways():
@@ -53,7 +53,7 @@ def _patch_control_system(monkeypatch, section: dict):
             return section.get("writes_enabled", default)
         return default  # limits_checking.enabled etc. fall back to default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 def _patch_writes_enabled(monkeypatch, enabled: bool):

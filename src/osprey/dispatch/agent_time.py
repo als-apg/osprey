@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from osprey.utils.config import to_facility_iso
+from osprey_connectors.config import to_facility_iso
 
 
 def _render(value: Any) -> Any:

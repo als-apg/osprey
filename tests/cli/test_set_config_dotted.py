@@ -37,7 +37,7 @@ from osprey.cli.build_profile_resolve import (
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _flat(text: str) -> str:

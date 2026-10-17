@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import osprey.runtime
-from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from pyaml_cs_osprey.errors import OspreyWriteRefused
 
 #: Why a device write outside a ``run_tool`` call is refused.

@@ -54,7 +54,7 @@ class TestLauncherConfigReader:
         from osprey.infrastructure import server_launcher
 
         reader = server_launcher._launchers[key]._config_reader
-        with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
             return reader()
 
     def test_defaults_when_section_empty(self):
@@ -120,25 +120,6 @@ class TestMakeAutoLaunchChecker:
             return_value={},
         ):
             assert checker() is True
-
-
-class TestBackwardCompatAliases:
-    """Named ensure_* functions remain importable."""
-
-    def test_ensure_channel_finder_server_exists(self):
-        from osprey.infrastructure.server_launcher import ensure_channel_finder_server
-
-        assert callable(ensure_channel_finder_server)
-
-    def test_ensure_artifact_server_exists(self):
-        from osprey.infrastructure.server_launcher import ensure_artifact_server
-
-        assert callable(ensure_artifact_server)
-
-    def test_ensure_ariel_server_exists(self):
-        from osprey.infrastructure.server_launcher import ensure_ariel_server
-
-        assert callable(ensure_ariel_server)
 
 
 class TestEnsureRunningOwnership:

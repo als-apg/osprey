@@ -127,9 +127,9 @@ class ConnectorRegistration:
        the factory pattern for runtime connector creation.
 
     .. seealso::
-       :class:`osprey.connectors.factory.ConnectorFactory` : Runtime connector factory
-       :class:`osprey.connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
-       :class:`osprey.connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
+       :class:`osprey_connectors.factory.ConnectorFactory` : Runtime connector factory
+       :class:`osprey_connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
+       :class:`osprey_connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
     """
 
     name: str

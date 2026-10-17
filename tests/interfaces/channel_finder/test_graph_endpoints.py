@@ -191,7 +191,7 @@ def graph_config(monkeypatch):
     the remedy the build command rather than the configure-a-corpus sentence.
     """
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}},
     )
 
@@ -478,7 +478,7 @@ class TestIndexUnavailable:
         # A store is not a build source: the build refuses without a corpus, so
         # the remedy is the corpus key, as the MCP tool says too.
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {"services": {"graphdb": {"uri": "bolt://graph.example.org:7687"}}},
         )
         absence = GraphIndexAbsence("missing", tmp_path / "graph.duckdb", "No search index at g.")

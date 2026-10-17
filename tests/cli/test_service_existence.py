@@ -28,7 +28,7 @@ from osprey.cli.build_cmd import (
     build,
 )
 from osprey.cli.init_cmd import init
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _stage(root: Path, config: dict[str, Any]) -> SimpleNamespace:
