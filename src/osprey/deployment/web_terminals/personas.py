@@ -58,6 +58,13 @@ from osprey_connectors.types import (
     target_writes_enabled_key,
 )
 
+#: The ``permissions.deny`` entries a persona must ship **all** of for its agent
+#: to have no shell: ``Bash`` is the shell itself and ``Monitor`` runs shell
+#: commands in the background, so denying either one alone leaves a shell open.
+#: Exact literals, as :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`
+#: explains — a scoped deny constrains one command family, not the shell.
+SHELL_DENY_ENTRIES: tuple[str, ...] = (BASH_DENY_ENTRY, "Monitor")
+
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -723,7 +730,7 @@ def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
     deployment reaches an artifact past them — so degrading here costs nothing
     and keeps a broken roster reportable. Degrading is also the inclusive
     direction, which is the same fail-closed reasoning
-    :func:`personas_not_denying_bash` documents: a persona named here is checked,
+    :func:`personas_with_open_shell` documents: a persona named here is checked,
     never skipped.
     """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
@@ -3240,22 +3247,24 @@ def referenced_persona_project_dirs(config: Any, project_root: Any) -> dict[str,
     return dirs
 
 
-def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
-    """Names of referenced personas whose shipped settings do **not** deny ``Bash``.
+def personas_with_open_shell(config: Any, project_root: Any) -> set[str]:
+    """Names of referenced personas whose shipped settings leave a shell open.
 
-    The roster-shaped form of :func:`settings_json_denies` for ``Bash``, phrased as the
-    *unsafe* set so its caller can name every offending persona in one error
-    rather than re-deriving them. A persona granted ``BLUESKY_LAUNCH_TOKEN``
-    while its agent may also run a shell can read that token out of its own
-    environment and arm a queue with a plain HTTP call, bypassing the chat
-    approval entirely — the approval gates the ``queue_start`` tool, not a
-    shell. Intersecting this set with the union of
-    :func:`personas_needing_launch_token_by_lane`
-    therefore names exactly the personas a deploy must refuse.
+    A shell is open unless the persona's rendered ``.claude/settings.json``
+    denies **both** ``Bash`` and ``Monitor``: ``Monitor`` runs shell commands in
+    the background, so a persona denying ``Bash`` alone still has one. Phrased
+    as the *unsafe* set so its caller can name every offending persona in one
+    error rather than re-deriving them. A persona granted
+    ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell can read that
+    token out of its own environment and arm a queue with a plain HTTP call,
+    bypassing the chat approval entirely — the approval gates the
+    ``queue_start`` tool, not a shell. Intersecting this set with the union of
+    :func:`personas_needing_launch_token_by_lane` therefore names exactly the
+    personas a deploy must refuse.
 
-    The one-tool case of :func:`personas_not_denying`, which describes the walk
-    and the fail-closed membership rule. Being inclusive never over-blocks a
-    deploy here, since a persona whose project is missing cannot satisfy
+    The shell-tools case of :func:`personas_not_denying`, which describes the
+    walk and the fail-closed membership rule. Being inclusive never over-blocks
+    a deploy here, since a persona whose project is missing cannot satisfy
     :func:`config_needs_launch_token` either and so drops out of the
     intersection anyway.
 
@@ -3266,6 +3275,6 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
 
     Returns:
         The subset of referenced persona names whose rendered
-        ``.claude/settings.json`` does not deny the shell.
+        ``.claude/settings.json`` does not deny every shell tool.
     """
-    return personas_not_denying(config, project_root, (BASH_DENY_ENTRY,))
+    return personas_not_denying(config, project_root, SHELL_DENY_ENTRIES)

@@ -1623,6 +1623,7 @@ def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch,
     banner = [r.getMessage() for r in caplog.records if "dangerously_allow_bash" in r.getMessage()]
     assert banner, caplog.text
     assert "readwrite" in banner[0]
+    assert "may run a shell (Bash or Monitor)" in banner[0]
 
 
 def test_preflight_stays_quiet_when_dangerously_allow_bash_waives_nothing(

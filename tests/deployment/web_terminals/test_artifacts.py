@@ -637,6 +637,37 @@ def test_the_refusal_states_both_conditions_and_the_remedy(tmp_path):
     assert "REBUILD" in message
 
 
+def test_entitled_persona_denying_bash_but_allowing_monitor_refuses_the_deploy(tmp_path):
+    """`Monitor` runs shell commands in the background, so a persona that ships the
+    `Bash` deny but lifts `Monitor` still has a shell that can read the token. The
+    guard asks about the shell, not about one tool, and refuses this pairing too."""
+    config = _tiered_roster_config(tmp_path)
+    rw_dir = tmp_path / "profiles" / "rw" / ".claude"
+    (rw_dir / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": [e for e in _SHIPPED_DENY if e != "Monitor"]}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == ["readwrite"]
+    assert bash_launch_token_offenders(config, tmp_path) == {"readwrite"}
+
+
+def test_the_refusal_names_the_shell_as_bash_or_monitor(tmp_path):
+    """The refusal says what a shell is here, so an operator who restored only the
+    `Bash` deny is told the `Monitor` one is part of the same fix."""
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(
+            _tiered_roster_config(tmp_path, rw_denies_bash=False), tmp_path
+        )
+
+    message = str(excinfo.value)
+    assert "shell (Bash or Monitor)" in message
+    assert 'restore "Bash" and "Monitor" to permissions.deny' in message
+
+
 def test_a_correctly_configured_deployment_renders_without_the_guard_firing(tmp_path):
     """The negative control. Every persona ships the shell deny — the state every
     OSPREY build produces unless its config removed the entry — so the entitled
@@ -909,6 +940,7 @@ def test_dangerously_allow_bash_accepts_only_the_boolean_true(tmp_path, value):
 
     assert "dangerously_allow_bash" in str(excinfo.value)
     assert repr(value) in str(excinfo.value)
+    assert "shell (Bash or Monitor)/launch-token refusal" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

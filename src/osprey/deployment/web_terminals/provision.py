@@ -53,12 +53,15 @@ from osprey.deployment.web_terminals.artifacts import (
     DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
     OpenModeEgressError,
+    TrajectoryPanelShellConflictError,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
+    check_trajectory_panel_shell_conflict,
     dangerously_allowed_bash_personas,
     deployment_is_open,
     open_mode_missing_by_persona,
+    trajectory_panel_shell_offenders,
     web_compose_file,
     write_web_terminal_artifacts,
 )
@@ -169,12 +172,16 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
         verify_persona_renders(config, resolved_users, repo_root=root)
     # BEFORE ensure_env_production, for the same reason auth provisioning runs
     # last: a persona that would hold BLUESKY_LAUNCH_TOKEN while its shipped
-    # settings still permit `Bash` is a deploy that must not come up, and
+    # settings still leave a shell (`Bash` or `Monitor`) open is a deploy that must not come up, and
     # discovering that after the image build would have already minted (and
     # printed) credentials for it. The render seam and `decommission_user` check
     # again — see check_bash_launch_token_conflict for why all three call sites
     # are load-bearing.
     check_bash_launch_token_conflict(config, root)
+    # The trajectory tab's twin, on the same terms and with no waiver: a persona
+    # holding the panel token while its shipped settings leave a shell open can
+    # call the trajectory agent door with no approval.
+    check_trajectory_panel_shell_conflict(config, root)
     # Immediately after, and ahead of the same steps: an OPEN deployment whose
     # personas can still reach the host network is refused on the same terms —
     # before the image build, and before any credential is minted or printed.
@@ -185,8 +192,9 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # silence is how a dev-box key reaches a machine.
     if waived := dangerously_allowed_bash_personas(config, root):
         logger.warning(
-            "%s is set: %s may run Bash while holding a launch token, so the "
-            "chat approval on queue_start is not the only way to arm a queue. "
+            "%s is set: %s may run a shell (Bash or Monitor) while holding a launch "
+            "token, so the chat approval on queue_start is not the only way to arm "
+            "a queue. "
             "For a dev box with one trusted operator only -- remove the key "
             "before this deployment arms a live machine.",
             DANGEROUSLY_ALLOW_BASH_KEY,
@@ -429,6 +437,9 @@ def web_terminal_preflight_report(
     # and an operator reading top-down should meet it first.
     if offenders := bash_launch_token_offenders(config, root):
         findings.append((str(BashLaunchTokenConflictError(offenders)), ""))
+    # The trajectory tab's shell gate, beside it in the gate's own order.
+    if offenders := trajectory_panel_shell_offenders(config, root):
+        findings.append((str(TrajectoryPanelShellConflictError(offenders)), ""))
     # Next, in the gate's own order: an open deployment whose personas can reach
     # its terminals is the other refusal an operator must see before being told
     # about anything the deploy merely needs. Reported through the gate's own

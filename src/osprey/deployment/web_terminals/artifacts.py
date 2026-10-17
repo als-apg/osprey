@@ -35,6 +35,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.env_production import personas_needing_telemetry_vars
 from osprey.deployment.web_terminals.personas import (
+    TRAJECTORY_PANEL_ID,
     as_dict,
     launch_token_writes_key,
     normalize_users,
@@ -48,7 +49,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
     personas_needing_phoebus_handles,
-    personas_not_denying_bash,
+    personas_with_open_shell,
     referenced_persona_project_dirs,
     rendered_persona_configs,
     settings_json_deny_entries,
@@ -89,7 +90,8 @@ class DangerouslyAllowBashValueError(DeploymentError):
         self.value = value
         super().__init__(
             f"{DANGEROUSLY_ALLOW_BASH_KEY} is {value!r}; the only value it takes is the "
-            f"boolean true. Remove the key to keep the Bash/launch-token refusal."
+            f"boolean true. Remove the key to keep the shell (Bash or Monitor)/launch-token "
+            f"refusal."
         )
 
 
@@ -119,7 +121,7 @@ class BashLaunchTokenConflictError(DeploymentError):
     ``BLUESKY_LAUNCH_TOKEN`` exists so a single chat approval is enough to arm a
     Bluesky queue start, which is physical accelerator hardware motion. That
     approval gates the ``queue_start`` MCP tool — and only that tool. An agent
-    that may also run ``Bash`` can read the token straight out of its own
+    that may also run a shell — ``Bash``, or ``Monitor`` in the background — can read the token straight out of its own
     environment and arm the queue with a plain HTTP call, reaching the same
     hardware with no approval prompt at any point. The chat gate is then
     decoration.
@@ -154,7 +156,7 @@ class BashLaunchTokenConflictError(DeploymentError):
     Args:
         personas: The offending persona names, across every lane — every persona
             that is both entitled to some lane's launch token and shipping a
-            settings artifact that does not deny ``Bash``. All of them are named in the message; an
+            settings artifact that does not deny both ``Bash`` and ``Monitor``. All of them are named in the message; an
             operator fixing one at a time would otherwise redeploy once per
             offender to discover the next.
         by_lane: The same offenders split by the lane that entitles them, so the
@@ -198,17 +200,19 @@ class BashLaunchTokenConflictError(DeploymentError):
         )
         super().__init__(
             f"Refusing to deploy: {named} would be granted a Bluesky launch token "
-            f"while also permitted to run a shell.{breakdown}\n"
+            f"while also permitted to run a shell (Bash or Monitor).{breakdown}\n"
             f"Each named persona is entitled to that lane's token — its rendered "
             f"config.yml arms writes for the control target the lane drives AND leaves "
             f"the bluesky MCP server enabled — and its shipped "
-            f'.claude/settings.json does not list "Bash" in permissions.deny (a '
+            f'.claude/settings.json does not list both "Bash" and "Monitor" in '
+            f"permissions.deny (a "
             f"missing or unparseable settings.json counts the same — it is not "
             f"evidence of a deny). The token arms a queue start on that lane, which "
             f"moves accelerator hardware; the chat approval gates only the queue_start "
             f"tool, so an agent with a shell can read the token out of its own "
             f"environment and arm a queue with no approval at all. Fix either half "
-            f'of the conflict: restore "Bash" to permissions.deny for that persona '
+            f'of the conflict: restore "Bash" and "Monitor" to permissions.deny for '
+            f"that persona "
             f"and REBUILD its image (or republish and re-pull it in registry mode) "
             f"— a re-render alone is not enough, because the settings.json read here "
             f"is the one baked into the image, and the per-user services declare only "
@@ -220,7 +224,7 @@ class BashLaunchTokenConflictError(DeploymentError):
 
 
 def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> dict[str, set[str]]:
-    """Refuse the deploy if any launch-token persona's shipped settings permit ``Bash``.
+    """Refuse the deploy if any launch-token persona's shipped settings leave a shell open.
 
     The whole guard in one callable, because it runs at **three** points and the
     three must never be able to disagree about what a conflict is:
@@ -272,7 +276,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
 
     Raises:
         BashLaunchTokenConflictError: One or more personas entitled on SOME lane
-            ship a ``.claude/settings.json`` that does not deny ``Bash``.
+            ship a ``.claude/settings.json`` that does not deny both ``Bash`` and ``Monitor``.
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
     """
@@ -280,7 +284,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
     # conflict to waive.
     waived = dangerously_allow_bash(config)
     entitled_by_lane = personas_needing_launch_token_by_lane(config, project_root)
-    permitting = personas_not_denying_bash(config, project_root)
+    permitting = personas_with_open_shell(config, project_root)
     offenders_by_lane = {
         lane: conflicted
         for lane, personas in entitled_by_lane.items()
@@ -332,7 +336,7 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
 
     Returns:
         Every persona both entitled to SOME lane's launch token and shipping
-        settings that do not deny ``Bash`` — the union across lanes, because one
+        settings that do not deny both ``Bash`` and ``Monitor`` — the union across lanes, because one
         token in the container's environment is one shell away from arming its
         lane. Empty when there is no conflict.
     """
@@ -364,7 +368,107 @@ def dangerously_allowed_bash_personas(config: Any, project_root: Path | str) -> 
 def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set[str]:
     """The conflict set with :data:`DANGEROUSLY_ALLOW_BASH_KEY` left out of it."""
     entitled = set().union(*personas_needing_launch_token_by_lane(config, project_root).values())
-    return entitled & personas_not_denying_bash(config, project_root)
+    return entitled & personas_with_open_shell(config, project_root)
+
+
+# ---------------------------------------------------------------------------
+# The TRAJECTORY-panel shell gate
+#
+# The trajectory tab's declaration puts the panel token in the persona's agent
+# environment: the agent's trajectory tools reach the service's agent door with
+# it, through the terminal proxy, and the chat approval gates those tools only.
+# A shell reads the same token and calls the door directly. Same predicate as
+# the launch-token guard above, same call sites, and no waiver: the trajectory
+# door commands the machine with no second key to withhold.
+# ---------------------------------------------------------------------------
+
+
+class TrajectoryPanelShellConflictError(DeploymentError):
+    """A persona declaring the trajectory tab ships settings that leave a shell open.
+
+    The tab's declaration is the entitlement to the trajectory service's agent
+    door: the persona's agent holds the panel token the door accepts, so its
+    ``trajectory_shot`` / ``trajectory_apply`` tools can ask for approval and
+    then write. A shell — ``Bash``, or ``Monitor`` in the background — reads
+    that token out of the agent's own environment and calls the door with a
+    plain HTTP request, so the approval prompt is decoration. There is no
+    waiver; the remedy is one half of the conflict or the other.
+
+    Args:
+        personas: Every offending persona, all named in the message so an
+            operator fixes them in one pass.
+    """
+
+    def __init__(self, personas: set[str]) -> None:
+        self.personas = set(personas)
+        named = ", ".join(repr(p) for p in sorted(self.personas))
+        super().__init__(
+            f"Refusing to deploy: {named} would show the trajectory tab while also "
+            f"permitted to run a shell (Bash or Monitor). The tab puts the panel "
+            f"token in the persona's agent environment — the token its trajectory "
+            f"tools reach the service's agent door with — and the chat approval "
+            f"gates only those tools, so a shell can read the token and command "
+            f"the machine with no approval at all. Each named persona's rendered "
+            f"config.yml declares web.panels.{TRAJECTORY_PANEL_ID} and its shipped "
+            f'.claude/settings.json does not list both "Bash" and "Monitor" in '
+            f"permissions.deny (a missing or unparseable settings.json counts the "
+            f"same — it is not evidence of a deny). Fix either half: restore "
+            f'"Bash" and "Monitor" to permissions.deny for that persona, or drop '
+            f"`- {TRAJECTORY_PANEL_ID}` from its web_panels, and REBUILD its image "
+            f"(or republish and re-pull it in registry mode) — the settings.json "
+            f"read here is the one baked into the image. This refusal has no "
+            f"waiver."
+        )
+
+
+def trajectory_panel_shell_offenders(config: Any, project_root: Path | str) -> set[str]:
+    """Referenced personas declaring the trajectory tab whose settings leave a shell open.
+
+    The non-raising reader behind :func:`check_trajectory_panel_shell_conflict`,
+    for the collect-all preflight. Reads rendered files and writes nothing.
+    Both sides walk the same referenced roster, so an unreferenced catalog
+    entry never appears; a declaring persona whose ``settings.json`` is missing
+    counts as open (see :func:`personas_with_open_shell`).
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        The offending persona names; empty when there is no conflict.
+    """
+    root = Path(project_root)
+    declaring = personas_declaring_trajectory_panel(config, root)
+    if not declaring:
+        return set()
+    return declaring & personas_with_open_shell(config, root)
+
+
+def check_trajectory_panel_shell_conflict(config: Any, project_root: Path | str) -> set[str]:
+    """Refuse the deploy if a trajectory-tab persona's shipped settings leave a shell open.
+
+    Wired into every call site of :func:`check_bash_launch_token_conflict` —
+    ``osprey up``, ``decommission_user`` on the post-removal roster, and the
+    render seam :func:`resolve_render_inputs` — for the same reasons that guard
+    gives for each.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root.
+
+    Returns:
+        The personas entitled to the trajectory tab, so the render is handed
+        exactly the set this guard cleared.
+
+    Raises:
+        TrajectoryPanelShellConflictError: One or more referenced personas
+            declaring the tab ship settings that do not deny both ``Bash`` and
+            ``Monitor``.
+    """
+    if offenders := trajectory_panel_shell_offenders(config, project_root):
+        raise TrajectoryPanelShellConflictError(offenders)
+    return personas_declaring_trajectory_panel(config, Path(project_root))
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +982,8 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     Raises:
         BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
         OpenModeEgressError: See :func:`check_open_mode_requirements`.
+        TrajectoryPanelShellConflictError: See
+            :func:`check_trajectory_panel_shell_conflict`.
     """
     from osprey.deployment.compose_generator import (
         resolve_ariel_mirror_dir,
@@ -889,7 +995,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
 
     root = Path(repo_root)
     launch_token_personas_by_lane = check_bash_launch_token_conflict(config, root)
-    # The second fail-closed gate, in the same position and for the same reason:
+    # The trajectory tab's shell gate, in the order `osprey up` runs them; it
+    # hands back the entitled set so the render grants exactly what it cleared.
+    trajectory_personas = check_trajectory_panel_shell_conflict(config, root)
+    # The next fail-closed gate, in the same position and for the same reason:
     # an open deployment whose personas can still reach its own terminals must
     # leave no half-written artifacts behind either.
     check_open_mode_requirements(config, root)
@@ -907,7 +1016,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # The trajectory tab's declaration is the entitlement to the service's
         # launch token, read off each persona's rendered config like the grants
         # around it — the same walk that hands the service that user's secret.
-        "trajectory_personas": personas_declaring_trajectory_panel(config, root),
+        "trajectory_personas": trajectory_personas,
         "graphdb_personas": personas_needing_graphdb_password(config, root),
         "archiver_credential_personas": personas_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_personas": personas_needing_archiver_ca_bundles(config, root),

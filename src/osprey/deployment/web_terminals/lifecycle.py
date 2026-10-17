@@ -105,6 +105,7 @@ from osprey.deployment.runtime_helper import (
 from osprey.deployment.web_terminals.artifacts import (
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
+    check_trajectory_panel_shell_conflict,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import (
@@ -272,6 +273,9 @@ def decommission_user(
         },
     }
     check_bash_launch_token_conflict(post_removal_config, repo_root)
+    # The trajectory tab's shell gate on the same roster, with the same escape
+    # hatch: removing the offending persona's last user drops it from the set.
+    check_trajectory_panel_shell_conflict(post_removal_config, repo_root)
     # The open-mode gate on the same roster, for the same reason and with the
     # same escape hatch: removing the last user of a persona that can reach the
     # host network drops it from the referenced set, and that removal is the

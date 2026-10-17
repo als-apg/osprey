@@ -7,13 +7,13 @@ TIERS over the same deployment, and two are standalone services that happen to
 live on the same landing page:
 
 * ``control-assistant-readonly`` — read-only tier; simple chat-first surface;
-  every write surface refuses on every target; built without the EVENTS/BLUESKY
-  panels.
+  every write surface refuses on every target; built without the
+  EVENTS/BLUESKY/TRAJECTORY panels.
 * ``control-assistant-readwrite`` — write-capable tier; expert workspace;
   armed on the virtual accelerator alone and read-only on both hardware-shaped
   targets, because write posture is per connector type; channel writes pass the
   ordinary safety chain (writes-check, limits, human approval); declares the
-  EVENTS/BLUESKY panels.
+  EVENTS/BLUESKY/TRAJECTORY panels.
 * ``control-assistant-admin`` — deployment-editing tier; readwrite's write
   posture over the MACHINE (armed on the simulator alone, ``ui_mode``) and its
   operator panels, plus the privileges the base floors off: the
@@ -30,8 +30,8 @@ below rather than key-by-key. The MACHINE axes separate readonly from
 readwrite: enforcement (the simulator's own
 ``control_system.connector.virtual_accelerator.writes_enabled`` leaf, the one
 posture key the two tiers set differently), surface (``web.ui_mode``), and
-the write-oriented panel declarations (EVENTS + BLUESKY, declared by every
-write-armed tier and absent from readonly). The
+the write-oriented panel declarations (EVENTS + BLUESKY + TRAJECTORY, declared
+by every write-armed tier and absent from readonly). The
 DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
 ``web.config_panel.enabled``, ``web.scaffold_gallery.write_enabled``, and the
@@ -151,7 +151,7 @@ ADMIN_ONLY_SKILL = "setup-mode"
 # preset config — the build projects them from the hosting deployment's render
 # (osprey.deployment.reach), which is asserted on a real build in
 # test_readwrite_is_told_its_panel_urls.
-WRITE_TIER_PANELS = ("events", "bluesky")
+WRITE_TIER_PANELS = ("events", "bluesky", "trajectory")
 
 # The literal dotted key the hosting preset must carry: the whole web-terminals
 # module subtree addressed as one leaf so config_writer sets only this leaf and
@@ -902,7 +902,7 @@ class TestControlAssistantPersonas:
         assert ADMIN_ONLY_SKILL not in base.skills
         assert readonly.web_panels == base.web_panels
         for tier in (readwrite, admin):
-            assert set(tier.web_panels) == set(base.web_panels) | {"events", "bluesky"}
+            assert set(tier.web_panels) == set(base.web_panels) | set(WRITE_TIER_PANELS)
 
     @pytest.mark.parametrize("tier", ["readonly", "readwrite", "admin"])
     def test_tiers_page_names_the_panels_each_tier_declares(self, tier: str) -> None:
@@ -1122,7 +1122,7 @@ class TestControlAssistantPersonas:
         host = yaml.safe_load(
             (built_persona_stack / "build" / "config.yml").read_text(encoding="utf-8")
         )
-        for panel in ("events", "bluesky"):
+        for panel in WRITE_TIER_PANELS:
             told = config["web"]["panels"][panel]
             hosts = host["web"]["panels"][panel]
             assert told["url"] == hosts["url"], panel
@@ -1136,8 +1136,8 @@ class TestControlAssistantPersonas:
                 / "config.yml"
             ).read_text(encoding="utf-8")
         )
-        assert "events" not in readonly["web"]["panels"]
-        assert "bluesky" not in readonly["web"]["panels"]
+        for panel in WRITE_TIER_PANELS:
+            assert panel not in readonly["web"]["panels"], panel
 
     @pytest.mark.parametrize("persona", ("readonly", "readwrite", "logbook"))
     def test_attached_personas_resolve_the_qmd_sidecar(
@@ -1666,3 +1666,160 @@ class TestWebTerminalContextShipped:
         )
 
         assert seeded == [base_content.encode("utf-8")]
+
+
+# ---------------------------------------------------------------------------
+# The TRAJECTORY tab's shell gate
+# ---------------------------------------------------------------------------
+
+
+def _trajectory_roster(root: Path, deny: list[str] | None) -> dict:
+    """A registry-mode roster of one persona that declares the trajectory tab.
+
+    The persona arms no writes and runs no bluesky server, so the launch-token
+    guard has nothing to say and only the trajectory gate can refuse. ``deny``
+    is the persona's shipped ``permissions.deny``; ``None`` ships no
+    ``settings.json`` at all.
+    """
+    project_dir = root / "profiles" / "traj"
+    (project_dir / ".claude").mkdir(parents=True)
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "traj",
+                "web": {"panels": {"trajectory": {"url": "http://127.0.0.1:9"}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    if deny is not None:
+        (project_dir / ".claude" / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
+        )
+    return {
+        "project_name": "demo-project",
+        "modules": {
+            "web_terminals": {
+                "users": [{"name": "alice", "index": 0, "persona": "traj"}],
+                "default_persona": "traj",
+                "auth": {"method": "none"},
+                "personas": {"traj": {"project": "traj", "project_path": str(project_dir)}},
+            }
+        },
+    }
+
+
+class TestTrajectoryPanelShellGate:
+    """The trajectory tab puts the panel token in the agent's environment, so a
+    persona declaring it must deny both shells; deploy and render refuse with
+    the one predicate, ``personas_with_open_shell``, and neither has a waiver."""
+
+    @pytest.mark.parametrize("lifted", ["Bash", "Monitor", None])
+    def test_deploy_refuses_a_trajectory_persona_with_an_open_shell(
+        self, tmp_path: Path, monkeypatch, lifted: str | None
+    ) -> None:
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
+        from osprey.deployment.web_terminals import provision
+        from osprey.deployment.web_terminals.artifacts import (
+            TrajectoryPanelShellConflictError,
+        )
+
+        monkeypatch.chdir(tmp_path)
+        # `None` ships no settings.json at all, which is no evidence of a deny.
+        deny = None if lifted is None else [e for e in DENY_DEFAULTS if e != lifted]
+        config = _trajectory_roster(tmp_path, deny)
+
+        with pytest.raises(TrajectoryPanelShellConflictError) as excinfo:
+            provision.preflight_web_terminals(config)
+        assert "'traj'" in str(excinfo.value)
+        assert "no waiver" in str(excinfo.value)
+
+    def test_the_waiver_does_not_lift_the_trajectory_refusal(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
+        from osprey.deployment.web_terminals import provision
+        from osprey.deployment.web_terminals.artifacts import (
+            DANGEROUSLY_ALLOW_BASH_KEY,
+            TrajectoryPanelShellConflictError,
+        )
+
+        monkeypatch.chdir(tmp_path)
+        config = _trajectory_roster(tmp_path, [e for e in DENY_DEFAULTS if e != "Bash"])
+        config[DANGEROUSLY_ALLOW_BASH_KEY] = True
+
+        with pytest.raises(TrajectoryPanelShellConflictError):
+            provision.preflight_web_terminals(config)
+
+    @pytest.mark.parametrize("lifted", ["Bash", "Monitor"])
+    def test_render_refuses_a_trajectory_persona_with_an_open_shell(
+        self, tmp_path: Path, lifted: str
+    ) -> None:
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
+        from osprey.deployment.web_terminals.artifacts import (
+            TrajectoryPanelShellConflictError,
+            resolve_render_inputs,
+            trajectory_panel_shell_offenders,
+        )
+        from osprey.deployment.web_terminals.personas import personas_with_open_shell
+
+        config = _trajectory_roster(tmp_path, [e for e in DENY_DEFAULTS if e != lifted])
+
+        # One predicate: the offenders are exactly the open-shell personas
+        # among those declaring the tab.
+        assert personas_with_open_shell(config, tmp_path) == {"traj"}
+        assert trajectory_panel_shell_offenders(config, tmp_path) == {"traj"}
+        with pytest.raises(TrajectoryPanelShellConflictError):
+            resolve_render_inputs(config, tmp_path)
+
+    def test_the_preflight_report_names_the_trajectory_conflict(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
+        from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
+
+        monkeypatch.chdir(tmp_path)
+        config = _trajectory_roster(tmp_path, [e for e in DENY_DEFAULTS if e != "Monitor"])
+
+        blocking, _ = web_terminal_preflight_report(config, repo_root=tmp_path)
+        assert any("trajectory tab" in problem for problem, _ in blocking), blocking
+
+    def test_a_persona_denying_both_shells_passes_both_gates(self, tmp_path: Path) -> None:
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
+        from osprey.deployment.web_terminals.artifacts import (
+            check_trajectory_panel_shell_conflict,
+            trajectory_panel_shell_offenders,
+        )
+
+        config = _trajectory_roster(tmp_path, list(DENY_DEFAULTS))
+
+        assert trajectory_panel_shell_offenders(config, tmp_path) == set()
+        assert check_trajectory_panel_shell_conflict(config, tmp_path) == {"traj"}
+
+    @pytest.mark.parametrize("persona", ("readwrite", "admin"))
+    def test_write_tiers_render_the_trajectory_tab(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert "trajectory" in resolve_preset(f"control-assistant-{persona}").web_panels
+        assert config["web"]["panels"]["trajectory"].get("url"), persona
+
+    def test_neither_refusal_fires_for_the_shipped_presets(self, built_persona_stack: Path) -> None:
+        from osprey.deployment.web_terminals.artifacts import (
+            check_trajectory_panel_shell_conflict,
+            resolve_render_inputs,
+            trajectory_panel_shell_offenders,
+        )
+
+        host = yaml.safe_load(
+            (built_persona_stack / "build" / "config.yml").read_text(encoding="utf-8")
+        )
+
+        assert trajectory_panel_shell_offenders(host, built_persona_stack) == set()
+        entitled = check_trajectory_panel_shell_conflict(host, built_persona_stack)
+        assert {"readwrite", "admin"} <= entitled
+        assert "readonly" not in entitled
+        # The render seam runs the same gate and hands the render the same set.
+        inputs = resolve_render_inputs(host, built_persona_stack)
+        assert inputs["trajectory_personas"] == entitled
