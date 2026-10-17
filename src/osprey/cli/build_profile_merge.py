@@ -618,24 +618,45 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
         )
 
 
-# Hook short names, as the built-in library spells them
-# (``_hook_short_name``). ``target-state`` is a helper library rather than a
-# wired hook: selecting it is the only thing that copies it into
-# ``.claude/hooks/`` beside the gates that import it.
-TARGET_STATE_HOOK = "target-state"
-WRITE_POSTURE_HOOKS: tuple[str, ...] = ("writes-check", "approval")
+# Hook short names, as the built-in library spells them (``_hook_short_name``).
+# A helper is a library rather than a wired hook: selecting it is the only thing
+# that copies it into ``.claude/hooks/`` beside the hooks that import it. Each
+# entry maps a helper to the hooks that import it and to what those hooks do
+# without it.
+HOOK_HELPER_IMPORTERS: dict[str, tuple[str, ...]] = {
+    "target-state": ("writes-check", "approval", "limits", "control-context"),
+    "safety-file": (
+        "approval",
+        "control-context",
+        "panels-context",
+        "workspace-delta",
+        "cf-feedback-capture",
+    ),
+}
+
+_HOOK_HELPER_ABSENT_OUTCOME: dict[str, str] = {
+    "target-state": (
+        "without it the write gates resolve write posture to the most restrictive "
+        "answer and refuse writes this deployment is configured to allow, and the "
+        "agent is not told the active control target"
+    ),
+    "safety-file": (
+        "without it the hooks write nothing: no approval stamps, context snapshots "
+        "or captured feedback"
+    ),
+}
 
 
-def _warn_missing_target_state(root_dir: Path, resolved: dict[str, Any]) -> None:
-    """Warn when a write gate is selected without the posture helper it imports.
+def _warn_missing_hook_helpers(root_dir: Path, resolved: dict[str, Any]) -> None:
+    """Warn, once per helper, when a hook is selected without a helper it imports.
 
-    ``writes-check`` and ``approval`` resolve a target's write posture by
-    importing ``target-state`` from beside them in ``.claude/hooks/``. A profile
-    that selects a gate but not the helper builds and runs — the gates fall back
-    to the most restrictive answer — so the deployment comes out silently
-    write-less, with nothing in the build saying which line caused it. Warning
-    rather than refusing: the selection lists are the author's to compose, and a
-    profile may have its own reason to run a gate with no posture source.
+    A hook imports its helpers from beside it in ``.claude/hooks/``. A profile
+    that selects the hook but not the helper builds and runs, and the hook then
+    does what ``_HOOK_HELPER_ABSENT_OUTCOME`` names for that helper, so the
+    deployment loses what the helper gave with nothing in the build saying which
+    line caused it. Warning rather
+    than refusing: the selection lists are the author's to compose, and a
+    profile may have its own reason to run a hook without a helper.
 
     Args:
         root_dir: The profile root, named in the warning.
@@ -645,25 +666,25 @@ def _warn_missing_target_state(root_dir: Path, resolved: dict[str, Any]) -> None
     if not isinstance(hooks, list):
         return
     selected = {entry for entry in hooks if isinstance(entry, str)}
-    # A profile shipping its own ``hooks/osprey_target_state.py`` renders it
-    # whether or not the short name is selected, so the import resolves.
-    if TARGET_STATE_HOOK in selected or _profile_ships(root_dir, f"hooks/{TARGET_STATE_HOOK}"):
-        return
-    triggering = [name for name in WRITE_POSTURE_HOOKS if name in selected]
-    if not triggering:
-        return
-    _LOGGER.warning(
-        "Profile %s selects %s but not %r. Those hooks import the %r helper from "
-        "beside them in .claude/hooks/, and selecting it is what puts it there — "
-        "without it the hooks resolve write posture to the most restrictive "
-        "answer and refuse writes this deployment is configured to allow. Add "
-        "%r to the profile's 'hooks:' list.",
-        root_dir,
-        ", ".join(repr(name) for name in triggering),
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
-    )
+    for helper, importers in HOOK_HELPER_IMPORTERS.items():
+        # A profile shipping its own copy of the helper renders it whether or
+        # not the short name is selected, so the import resolves.
+        if helper in selected or _profile_ships(root_dir, f"hooks/{helper}"):
+            continue
+        triggering = [name for name in importers if name in selected]
+        if not triggering:
+            continue
+        _LOGGER.warning(
+            "Profile %s selects %s but not %r. Those hooks import the %r helper from "
+            "beside them in .claude/hooks/, and selecting it is what puts it there — "
+            "%s. Add %r to the profile's 'hooks:' list.",
+            root_dir,
+            ", ".join(repr(name) for name in triggering),
+            helper,
+            helper,
+            _HOOK_HELPER_ABSENT_OUTCOME[helper],
+            helper,
+        )
 
 
 @dataclass(frozen=True)
@@ -752,7 +773,7 @@ def resolve_profile_document(
         if warn:
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
-            _warn_missing_target_state(root_dir, resolved)
+            _warn_missing_hook_helpers(root_dir, resolved)
         return ResolvedProfileDocument(
             resolved,
             root_dir,

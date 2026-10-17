@@ -85,6 +85,8 @@ class TestBuildArtifactCatalogDefault:
             "hooks/notebook-update",
             "hooks/cf-feedback-capture",
             "hooks/hook-log",
+            "hooks/target-state",
+            "hooks/safety-file",
             "hooks/config-drift",
             "skills/session-report",
             "skills/session-report/reference",

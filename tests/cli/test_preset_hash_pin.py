@@ -313,29 +313,33 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # shorter, so the advisory firing is correct. The five `extends` children
     # inherit it (logbook and knowledge do not select the panel, and their
     # build writes the block off); the other three stand still.
-    "ariel-standalone": ("sha256:2c89e6847871ea21f8d6a4841a038e4ae30a064ea8965d8975de2ec2e05f3628"),
+    # The forty-third move, and every preset: each selects the `safety-file`
+    # hook helper, the atomic file replace the hooks that write files import.
+    # A rebuilt project gains the helper in `.claude/hooks/` and no
+    # settings.json registration, so the advisory firing is correct.
+    "ariel-standalone": ("sha256:f64fa0888adca7b3c7cb12f25b994df4029f30e879fa312c6960d0d6c0cdd6f0"),
     "channel-finder-standalone": (
-        "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
+        "sha256:b583ba2a4bcb84b0191df6ca60c4932fcc797c36230941a5a565c68b775f635e"
     ),
     "control-assistant": (
-        "sha256:9170b938245a14119cacdab85f6f4baec32b251060f1753d4431fa30fc5fab0d"
+        "sha256:d11bf5ce875409beaebea622dd597b6808638a078a1dd799da9c23f996ef9aad"
     ),
     "control-assistant-admin": (
-        "sha256:348eaf114e5363047e4abf07a9ee8b2847622d1cc91b377e3cc4b2dc116ba119"
+        "sha256:0623170846fe41db5c1ca0ee51ba8be852c08b64e868e6bed09854d8a641e525"
     ),
     "control-assistant-knowledge": (
-        "sha256:e8b255203656017bb1d0999d1d1c89c084a424dd41cfc065c0113c5c136043b4"
+        "sha256:ae71a6988042862861dc32af93ca5b4806a790f85306f17eb0c0be380b6ed55d"
     ),
     "control-assistant-logbook": (
-        "sha256:027e39b7a498a8613066b8048e20bf9d0e5426edc610a72a7134647ef2ee3d2b"
+        "sha256:d5f61bfc607a72e646a30d3318a03ab72a766e612cf80a52c4bfd9f7a67dc0fb"
     ),
     "control-assistant-readonly": (
-        "sha256:134a458d21668f3670d95f466e1b793b05ad353bd677226179b4150248467eac"
+        "sha256:f0359bc45c5cd060174268c93d4b9f93ac1605f5b96e09d4940ee4fbe3aaef10"
     ),
     "control-assistant-readwrite": (
-        "sha256:4aa499440a33a919afc0da1b849441e2d9e6cb1b482f933a227a408c824d9ae2"
+        "sha256:50f2a2a875b4575448d843f97f6ce92d9cf1f06032f601c71fe177c72ebcb661"
     ),
-    "hello-world": ("sha256:7c70f737295971c63093e823a2021e78251ca6c285b5da4c1f04cb0afd964803"),
+    "hello-world": ("sha256:518b2f3ca007fc68cf8304231e2047497c01901e975407a5b70dd32678765bbb"),
 }
 
 

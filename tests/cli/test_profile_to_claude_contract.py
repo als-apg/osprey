@@ -1708,13 +1708,20 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
             # build's write-gate lint: a profile whose PreToolUse chain never
             # matches `Write` refuses to build at all, and a test that pins
             # copied-vs-wired needs a profile that builds.
-            "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
+            "hooks": [
+                "hook-log",
+                "target-state",
+                "safety-file",
+                "hook-config",
+                "approval",
+                "memory-guard",
+            ],
             "rules": ["safety"],
         },
         data_root=bundle_data_root("control_assistant"),
     )
 
-    helpers = ("osprey_hook_log.py", "osprey_target_state.py")
+    helpers = ("osprey_hook_log.py", "osprey_target_state.py", "osprey_safety_file.py")
 
     # Half one: the files are on disk beside the hook that imports them.
     hooks_dir = project / ".claude" / "hooks"

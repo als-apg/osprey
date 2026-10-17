@@ -77,7 +77,7 @@ accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
 
 The parts that *are* set are short. The agent's capabilities are lists of named
-artifacts from the OSPREY library — fourteen hooks (three of which form the
+artifacts from the OSPREY library — fifteen hooks (three of which form the
 write-safety chain), three rules, and one output style:
 
 .. code-block:: yaml
