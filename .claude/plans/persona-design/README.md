@@ -12,14 +12,15 @@ Before the PR goes ready, decide whether these files stay in main or are dropped
 
 | File | What |
 |---|---|
-| `BRIEF.md` | The persona-pairs brief, written 2026-10-01 against staging `a73b7f83f` (before C1 merged). Copied unchanged; needs re-measuring on current main. |
+| `BRIEF.md` | The P1 design brief. Written 2026-10-01 against staging `a73b7f83f`; re-measured 2026-10-17 on this branch (`d026bb7f7`, = current main). Rows marked **Δ** changed since the first version. |
+| `measure.py` / `MEASURE.md` | The measurement: every bundled preset through the real resolver and MCP registry, the two agent pairs and the access-level axis diffed, the profile-card omission. Re-run: `PYTHONPATH=src:packages/osprey-connectors/src ~/.venv/bin/python .claude/plans/persona-design/measure.py > .claude/plans/persona-design/MEASURE.md` |
+| `RULINGS.md` | The owner's answers (step 2): the 8 questions, the two public words, the agent preset names, R5′/R12′. |
 | `ref/agent-tree-2026-09-08/` | The agent-tree design (rulings R1–R12), its open questions and two research inventories. Reference for card AT; its PLAN.md is lost. |
 
 ## Order
 
-1. Re-measure `BRIEF.md` on current main: drift table, file:line refs, the 8 questions in §4.
-   Add how agent-tree R5 ("select, never re-render": a persona is exclude/additions on a base)
-   and R12 (web editor writes persona shadows) interact with "one definition per agent".
+1. ~~Re-measure `BRIEF.md` on current main~~ — done 2026-10-17 (`measure.py`, `MEASURE.md`,
+   BRIEF §1–§2 updated, §4 reworded, §5 names, §6 R5/R12 options).
 2. The owner answers the 8 questions, approves the public names for access level and agent kind,
    and rules on R5/R12.
 3. P1 build (P1.1 split access level from agent kind · P1.2 one definition per agent · P1.3
