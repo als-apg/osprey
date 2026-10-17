@@ -39,12 +39,13 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
 from osprey.services.python_executor.execution import wrapper
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ClientLibraryRefusedError,
 )
+from osprey_connectors.types import baseline_target
 from tests._control_context_fixtures import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
@@ -1037,6 +1038,37 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "3"
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
+
+    @pytest.mark.usefixtures("kernel_env", "named_kernel")
+    def test_an_unswitched_in_process_deployment_stamps_va(
+        self, monkeypatch, control_context_root, write_control_context
+    ):
+        """A generation-0 record on ``live`` is claimed onto the baseline before a cell reads it.
+
+        On a deployment serving the simulator in process beside a real block,
+        the baseline is ``va``; the record's writers rewrite an unswitched
+        record to it at claim, so the cell is stamped ``va`` and never ``live``.
+        """
+        section = {
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": {"serving": "in_process"},
+                "epics": {"server": "epics-server"},
+            },
+        }
+
+        def get_config_value(path, default=None, _config_path=None):
+            return section if path == "control_system" else default
+
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+        unswitched = control_context.ControlContext(target="live", generation=0)
+        record = control_context.claimed(unswitched, baseline_target(section))
+        write_control_context(control_context_root, target=record.target, generation=0)
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(executor.ENV_CONTROL_TARGET) == "va"
+        assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "0"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_narrowed_target_pins_the_cell_sandboxed_on_it(
