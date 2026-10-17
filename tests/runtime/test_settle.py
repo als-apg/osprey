@@ -228,6 +228,27 @@ def test_a_render_without_a_facility_file_is_refused(repo: Path, served: Readbac
     assert served.reads == []
 
 
+def test_no_deployment_config_is_the_loaders_answer(
+    tmp_path: Path, served: Readbacks, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    for name in ("CONFIG_FILE", "OSPREY_CONFIG"):
+        monkeypatch.delenv(name, raising=False)
+    reset_config_cache()
+
+    try:
+        with pytest.raises(FileNotFoundError) as info:
+            osprey.runtime.settle({"Q1:SP": 2.0})
+    finally:
+        reset_config_cache()
+
+    message = str(info.value)
+    assert message.startswith("No config.yml found") and "facility.json" not in message
+    assert served.reads == []
+
+
 def test_a_rewritten_facility_file_is_read_again(repo: Path, served: Readbacks) -> None:
     path = _plant(
         repo, {"id": "Q1:SP", "role": "setpoint", "pair": "Q1:RB", "tolerance": {"absolute": 0.1}}

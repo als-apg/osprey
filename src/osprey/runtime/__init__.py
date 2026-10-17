@@ -963,10 +963,14 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
             when omitted.
 
     Raises:
-        FileNotFoundError: The render has no facility file.
+        FileNotFoundError: No deployment config is found, or the render has no
+            facility file; nothing was read.
         ValueError: An address is no setpoint in the facility file; nothing was read.
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
+        SettleReadError: A readback could not be read, or answered no value
+            (:class:`osprey_connectors.settle.SettleReadError`, a
+            ``ChannelReadFailedError``); names the readback.
 
     Examples:
         >>> from osprey.runtime import settle, write_channel
@@ -1019,7 +1023,7 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     Parsed once per path and modification time.
 
     Raises:
-        FileNotFoundError: The render has no facility file.
+        FileNotFoundError: No deployment config is found, or the render has no facility file.
         ValueError: The facility file holds no ``channels`` list.
     """
     global _facility_parsed
@@ -1027,10 +1031,7 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     from osprey.channel_roster.sources import facility_file_path
     from osprey_connectors.config import get_full_configuration
 
-    try:
-        config = get_full_configuration()
-    except FileNotFoundError:
-        config = {}
+    config = get_full_configuration()
     path = facility_file_path(config)
     try:
         mtime_ns = path.stat().st_mtime_ns
