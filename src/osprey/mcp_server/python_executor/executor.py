@@ -50,6 +50,7 @@ from osprey.stores.artifact_manifest import (
 )
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 from osprey_connectors import posture_store
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -916,7 +917,6 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
     exercise the switch gate through this contextmanager).
     """
     path = None
-    tmp = None
     try:
         from osprey.mcp_server.control_system import target_state
 
@@ -935,17 +935,10 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
             "launch_posture": launch_posture,
             "started_at": datetime.now().astimezone().isoformat(),
         }
-        # Temp file in the same directory, then a rename: os.replace is atomic
-        # only within one filesystem, and a reader must never meet a half-written
-        # marker. The temp file is removed on failure so a state directory this
-        # process could not write to does not fill with litter either.
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(record), encoding="utf-8")
-        os.replace(tmp, path)
+        # A reader must never meet half a marker, so it is replaced whole
+        # through atomic_replace.
+        atomic_replace(path, json.dumps(record).encode("utf-8"), mode=0o640, sync="best_effort")
     except Exception:
-        if tmp is not None:
-            with contextlib.suppress(OSError):
-                tmp.unlink(missing_ok=True)
         logger.warning(
             "Could not record the in-flight execution marker; a target switch during "
             "this run will not be refused",

@@ -83,6 +83,7 @@ from osprey.runtime.guarded_run import (
 )
 from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.base import values_match
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -430,11 +431,9 @@ def _claim_cell() -> None:
             "launch_posture": os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR),
             "started_at": datetime.now().astimezone().isoformat(),
         }
-        # Temp file beside it and a rename, as the executor's marker is written:
-        # a reader must never meet half of one.
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(marker), encoding="utf-8")
-        os.replace(tmp, path)
+        # A reader must never meet half a marker, so it is replaced whole
+        # through atomic_replace.
+        atomic_replace(path, json.dumps(marker).encode("utf-8"), mode=0o640, sync="best_effort")
         _cell_marker = path
     except Exception:  # an unclaimed cell is not worth the cell
         logger.warning("Could not claim this cell against a target switch", exc_info=True)
