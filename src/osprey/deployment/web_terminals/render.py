@@ -35,7 +35,11 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     simulated_target_configured,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_PATH,
+    SAFETY_FILE_CONTAINER_PATH,
+    SAFETY_FILE_FILENAME,
+)
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.telemetry_config import (
     HISTORY_SERVICE,
@@ -114,8 +118,10 @@ _LANDING_TEMPLATE = "landing.html.j2"
 _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
-# Mounted as `./build/control_identity/control_identity.py` by the template.
+# Mounted as `./build/control_identity/control_identity.py` by the template,
+# beside the safety-file helper it replaces files through.
 _CONTROL_IDENTITY_OUTPUT = "control_identity/control_identity.py"
+_SAFETY_FILE_OUTPUT = "control_identity/" + SAFETY_FILE_FILENAME
 
 # The one button a `names: hidden` users section shows in place of its cards.
 _SIGN_IN_LABEL = "Log in to your terminal"
@@ -1038,9 +1044,11 @@ def render_web_terminals(
         first (see
         :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
         cannot survive a re-render. Plus ``control_identity/control_identity.py``
-        — the packaged :mod:`osprey.deployment.control_identity` source, byte
-        for byte — only when the deployment is walled and some card sets a
-        ``control_identity``, i.e. exactly when the compose file binds it.
+        and ``control_identity/osprey_safety_file.py`` — the packaged
+        :mod:`osprey.deployment.control_identity` source and the
+        :mod:`osprey_connectors.safety_file` helper it writes through, byte for
+        byte — only when the deployment is walled and some card sets a
+        ``control_identity``, i.e. exactly when the compose file binds them.
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is set to something
@@ -1572,6 +1580,7 @@ def render_web_terminals(
         # to the template from the module's own constant: the bind target and
         # the path the entrypoint runs must be one spelling, not two.
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
         # Which CHECKOUT this stack belongs to, baked into every container and
         # volume label the template emits. Derived through the same helper the
         # services stack renders from, so one deployment cannot end up with two
@@ -1712,18 +1721,22 @@ def render_web_terminals(
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)
         rendered_landing = html_env.get_template(_LANDING_TEMPLATE).render(**landing_ctx)
 
-    # The source of the identity module's bind, written beside the compose file
-    # whenever the template emits that bind — the same predicate, so a card
-    # never mounts a missing file (which the runtime would turn into an empty
-    # directory) and a deployment with no identity stages nothing. Byte-equal
-    # to the packaged module, exactly as the build-context stager copies it.
+    # The sources of the identity module's bind and its helper's, written beside
+    # the compose file whenever the template emits those binds — the same
+    # predicate, so a card never mounts a missing file (which the runtime would
+    # turn into an empty directory) and a deployment with no identity stages
+    # nothing. Byte-equal to the packaged sources, exactly as the build-context
+    # stager copies them.
     identity_module: dict[str, str] = {}
     if auth_tls_ctx["walled"] and any(svc.get("control_identity") for svc in services):
         from osprey.deployment import control_identity
+        from osprey_connectors import safety_file
 
-        identity_module[_CONTROL_IDENTITY_OUTPUT] = Path(control_identity.__file__).read_text(
-            encoding="utf-8"
-        )
+        for output, source in (
+            (_CONTROL_IDENTITY_OUTPUT, control_identity.__file__),
+            (_SAFETY_FILE_OUTPUT, safety_file.__file__),
+        ):
+            identity_module[output] = Path(source).read_text(encoding="utf-8")
 
     return {
         _COMPOSE_OUTPUT: rendered_compose,

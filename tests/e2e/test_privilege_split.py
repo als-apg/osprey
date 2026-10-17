@@ -1240,17 +1240,19 @@ def identity_containers(ro_image):
     The identity container is started by hand with the env/mount contract the
     walled web-terminal compose emits for a card that carries a
     ``control_identity``: ``OSPREY_CONTROL_IDENTITY``, the module path in
-    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the module itself bind-mounted
-    read-only. The module is mounted from THIS tree, so the rewrite under test
-    is the local one whatever the image carries. Two group-shared binds with
-    foreign gids stand in for the audit and control-context directories, so
-    the join-then-rewrite order is exercised on real memberships.
+    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the module and its safety-file
+    helper bind-mounted read-only. Both are mounted from THIS tree, so the
+    rewrite under test is the local one whatever the image carries. Two
+    group-shared binds with foreign gids stand in for the audit and
+    control-context directories, so the join-then-rewrite order is exercised
+    on real memberships.
 
     ``sleep infinity`` rather than the server CMD: every assertion here is about
     the account database the entrypoint left behind and the name a dropped
     process resolves, and the entrypoint wraps any command identically.
     """
     from osprey.deployment import control_identity
+    from osprey_connectors import safety_file
 
     tag, project = ro_image
     root = f"/app/{project}"
@@ -1258,6 +1260,8 @@ def identity_containers(ro_image):
     context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
     module_host_path = Path(control_identity.__file__).resolve()
     module_path = control_identity.CONTROL_IDENTITY_CONTAINER_PATH
+    helper_host_path = Path(safety_file.__file__).resolve()
+    helper_path = control_identity.SAFETY_FILE_CONTAINER_PATH
 
     volumes: list[str] = []
     names: list[str] = []
@@ -1273,6 +1277,8 @@ def identity_containers(ro_image):
                 f"OSPREY_CONTROL_IDENTITY_MODULE={module_path}",
                 "-v",
                 f"{module_host_path}:{module_path}:ro",
+                "-v",
+                f"{helper_host_path}:{helper_path}:ro",
                 "-v",
                 f"{volumes[0]}:{audit_dir}",
                 "-e",

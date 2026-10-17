@@ -303,12 +303,14 @@
       system sees this card's writes arrive under, straight off the roster
       entry, validated by render.py's `_check_roster_control_identities`.
       Read only when `walled` is true; it then emits OSPREY_CONTROL_IDENTITY,
-      OSPREY_CONTROL_IDENTITY_MODULE and the read-only bind of the staged
-      module. Absent, or unwalled, emits nothing, so a roster without the key
+      OSPREY_CONTROL_IDENTITY_MODULE and the read-only binds of the staged
+      module and its helper. Absent, or unwalled, emits nothing, so a roster without the key
       renders byte-identically.
     control_identity_container_path: str, required — where the staged identity
       module sits inside the container; both the bind target and the
       OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
+    safety_file_container_path: str, required — where the safety-file helper
+      the identity module writes through sits, beside it.
     services[].oidc_subject_env: str — the env-var name the above is emitted
       under, pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
@@ -1572,13 +1574,14 @@ services:
       - {{ mount }}
 {%- endfor %}
 {%- if walled and svc.control_identity %}
-      {#- The identity module the entrypoint runs, read-only, under the same
-         guard as its env lines above. Its source is render output: the
-         render writes `build/control_identity/control_identity.py` from the
-         packaged module whenever a card emits this line, so the bind never
-         names a missing file (which the runtime would replace with an empty
-         directory). #}
+      {#- The identity module the entrypoint runs and the safety-file helper
+         it writes through, read-only, under the same guard as its env lines
+         above. Their sources are render output: the render writes both into
+         `build/control_identity/` from the packaged sources whenever a card
+         emits these lines, so a bind never names a missing file (which the
+         runtime would replace with an empty directory). #}
       - ./build/control_identity/control_identity.py:{{ control_identity_container_path }}:ro
+      - ./build/control_identity/osprey_safety_file.py:{{ safety_file_container_path }}:ro
 {%- endif %}
 {#- Every shared host directory bound above, and the group each was provisioned
     with: the bundle and the mirror, where this service is entitled to them.

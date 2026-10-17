@@ -18,6 +18,8 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
     IDENTITY_RE,
     RESERVED_RE,
+    SAFETY_FILE_CONTAINER_PATH,
+    SAFETY_FILE_FILENAME,
     append_group_members,
     apply,
     main,
@@ -54,6 +56,7 @@ class TestValidateLeafModule:
 
     def test_validate_constants(self) -> None:
         assert CONTROL_IDENTITY_CONTAINER_PATH == "/opt/osprey/control_identity.py"
+        assert SAFETY_FILE_CONTAINER_PATH == "/opt/osprey/osprey_safety_file.py"
         assert CANONICAL_NAME == {1000: "osprey", 0: "root"}
         assert IDENTITY_RE.pattern == r"^[a-z_][a-z0-9_-]{0,31}\Z"
         assert RESERVED_RE.pattern == r"^(root|osprey(-[a-z0-9_-]*)?)\Z"
@@ -478,8 +481,64 @@ class TestApplyCli:
         _assert_one_line_failure(_run_script(*argv))
 
 
+class TestStagedHelper:
+    """Run by path beside its staged helper, the way a container runs it."""
+
+    @staticmethod
+    def _stage(directory: Path, *, helper: bool) -> Path:
+        from osprey_connectors import safety_file
+
+        directory.mkdir()
+        staged = directory / "control_identity.py"
+        staged.write_bytes(MODULE_PATH.read_bytes())
+        if helper:
+            (directory / SAFETY_FILE_FILENAME).write_bytes(Path(safety_file.__file__).read_bytes())
+        return staged
+
+    @staticmethod
+    def _run_staged(staged: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        # -S keeps site-packages off the path, so the only helper the module
+        # can bind is the copy beside it.
+        return subprocess.run(
+            [sys.executable, "-S", "-E", str(staged), *args],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        )
+
+    def test_staged_module_writes_through_the_helper_beside_it(self, tmp_path: Path) -> None:
+        passwd, group = _write_targets(tmp_path)
+        staged = self._stage(tmp_path / "opt", helper=True)
+        result = self._run_staged(staged, tmp_path, *_apply_args(1000, "alice", passwd, group))
+        assert result.returncode == 0, result.stderr
+        assert passwd.read_text(encoding="utf-8") == rewrite(PASSWD, 1000, "alice")
+        assert stat.S_IMODE(passwd.stat().st_mode) == 0o644
+
+    def test_staged_module_without_the_helper_refuses_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        passwd, group = _write_targets(tmp_path)
+        staged = self._stage(tmp_path / "opt", helper=False)
+        result = self._run_staged(staged, tmp_path, *_apply_args(1000, "alice", passwd, group))
+        _assert_one_line_failure(result)
+        assert SAFETY_FILE_FILENAME in result.stderr
+        assert passwd.read_text(encoding="utf-8") == PASSWD
+        assert group.read_text(encoding="utf-8") == GROUP
+        assert _leftovers(passwd.parent) == []
+
+
 class TestApplyFunction:
     """In-process ``apply`` and ``main``, including forced write failures."""
+
+    def test_apply_function_without_the_helper_refuses_and_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        passwd, group = _write_targets(tmp_path)
+        monkeypatch.setattr(control_identity, "_safety_file", None)
+        with pytest.raises(RuntimeError, match=SAFETY_FILE_FILENAME):
+            apply(1000, "alice", passwd=passwd, group=group)
+        assert passwd.read_text(encoding="utf-8") == PASSWD
+        assert group.read_text(encoding="utf-8") == GROUP
 
     def test_apply_function_writes_files(self, tmp_path: Path) -> None:
         passwd, group = _write_targets(tmp_path)
@@ -495,7 +554,7 @@ class TestApplyFunction:
         def boom(*_args: object) -> None:
             raise OSError("forced replace failure")
 
-        monkeypatch.setattr(control_identity.os, "replace", boom)
+        monkeypatch.setattr(control_identity._safety_file.os, "replace", boom)
         with pytest.raises(OSError, match="forced"):
             apply(1000, "alice", passwd=passwd, group=group)
         assert _leftovers(passwd.parent) == []

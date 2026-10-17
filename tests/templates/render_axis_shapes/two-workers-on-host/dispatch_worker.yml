@@ -223,10 +223,12 @@ services:
       # (compose_generator.ensure_guarded_run_dirs).
       - ./var/guarded_run:/app/golden-project/var/guarded_run
 
-      # The control-identity module, staged into this build context by
-      # compose_generator byte for byte from the packaged source. Read-only:
-      # the entrypoint runs it as root, so nothing inside may edit it.
+      # The control-identity module and the safety-file helper it writes
+      # through, staged into this build context by compose_generator byte for
+      # byte from the packaged sources. Read-only: the entrypoint runs them as
+      # root, so nothing inside may edit them.
       - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
+      - ./build/services/dispatch_worker/osprey_safety_file.py:/opt/osprey/osprey_safety_file.py:ro
     network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10011/health').status==200 else 1)\""]
@@ -448,10 +450,12 @@ services:
       # (compose_generator.ensure_guarded_run_dirs).
       - ./var/guarded_run:/app/golden-project/var/guarded_run
 
-      # The control-identity module, staged into this build context by
-      # compose_generator byte for byte from the packaged source. Read-only:
-      # the entrypoint runs it as root, so nothing inside may edit it.
+      # The control-identity module and the safety-file helper it writes
+      # through, staged into this build context by compose_generator byte for
+      # byte from the packaged sources. Read-only: the entrypoint runs them as
+      # root, so nothing inside may edit them.
       - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
+      - ./build/services/dispatch_worker/osprey_safety_file.py:/opt/osprey/osprey_safety_file.py:ro
     network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10012/health').status==200 else 1)\""]

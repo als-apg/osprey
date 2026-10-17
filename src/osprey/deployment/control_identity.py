@@ -7,17 +7,29 @@ behind the card instead of the shared ``osprey`` account.
 
 This module is a stdlib-only leaf: it is copied byte-for-byte into the build
 directory and run inside containers by path, where the ``osprey`` package may
-not be importable. It must never import anything from ``osprey.*``.
+not be importable. It must never import anything from ``osprey.*``. It replaces
+files through the safety-file helper, which the build stages beside it as
+``osprey_safety_file.py``; with the helper absent :func:`apply` refuses and
+writes nothing.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import os
 import re
 import sys
-import tempfile
+from pathlib import Path
+
+# Run by path in a container, the helper is the copy staged beside this file;
+# imported from the package, it is the connectors module of the same bytes.
+try:
+    import osprey_safety_file as _safety_file
+except ImportError:
+    try:
+        from osprey_connectors import safety_file as _safety_file
+    except ImportError:
+        _safety_file = None
 
 __all__ = [
     "BASE_IMAGE_ACCOUNTS",
@@ -25,6 +37,8 @@ __all__ = [
     "CONTROL_IDENTITY_CONTAINER_PATH",
     "IDENTITY_RE",
     "RESERVED_RE",
+    "SAFETY_FILE_CONTAINER_PATH",
+    "SAFETY_FILE_FILENAME",
     "SKIPPED_ENV_VAR",
     "append_group_members",
     "apply",
@@ -36,6 +50,12 @@ __all__ = [
 
 CONTROL_IDENTITY_CONTAINER_PATH = "/opt/osprey/control_identity.py"
 """Where the staged copy of this module is mounted inside a container."""
+
+SAFETY_FILE_FILENAME = "osprey_safety_file.py"
+"""The file name of the safety-file helper staged beside this module."""
+
+SAFETY_FILE_CONTAINER_PATH = "/opt/osprey/" + SAFETY_FILE_FILENAME
+"""Where the staged helper is mounted, beside :data:`CONTROL_IDENTITY_CONTAINER_PATH`."""
 
 IDENTITY_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}\Z")
 """A portable POSIX login name: lowercase, at most 32 characters."""
@@ -223,21 +243,6 @@ SYSTEM_GROUP = "/etc/group"
 _FILE_MODE = 0o644
 
 
-def _atomic_write(path: str, text: str) -> None:
-    """Replace ``path`` with ``text`` via a same-directory temp file (mode 0644)."""
-    directory, base = os.path.split(os.path.abspath(path))
-    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{base}.", suffix=".tmp")
-    try:
-        os.fchmod(fd, _FILE_MODE)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.replace(tmp_name, path)
-    except BaseException:
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(tmp_name)
-        raise
-
-
 def _read(path: str) -> str:
     with open(path, encoding="utf-8") as handle:
         return handle.read()
@@ -276,22 +281,28 @@ def apply(
 
     Both files are read and transformed (:func:`rewrite`,
     :func:`append_group_members`) before either is written, so a refused name
-    or a malformed file changes nothing. Each file is then replaced atomically
-    with mode 0644. The written passwd is re-parsed to confirm ``name`` is the
+    or a malformed file changes nothing. Each file is then replaced whole through
+    the safety-file helper with mode 0644, the mode every reader of the account
+    files expects. The written passwd is re-parsed to confirm ``name`` is the
     first line for ``uid`` and the canonical line survives; when ``passwd`` is
     :data:`SYSTEM_PASSWD`, ``getpwuid`` must also report ``name``.
 
     Raises ``ValueError`` for a refused name or uid, ``OSError`` for an I/O
-    failure, and ``RuntimeError`` when a post-check fails.
+    failure, and ``RuntimeError`` when the helper is absent or a post-check
+    fails.
     """
+    if _safety_file is None:
+        raise RuntimeError(f"{SAFETY_FILE_FILENAME} is not beside this module; nothing was written")
     passwd_path = os.fspath(passwd)
     group_path = os.fspath(group)
     new_passwd = rewrite(_read(passwd_path), uid, name)
     canonical = CANONICAL_NAME[uid]
     new_group = append_group_members(_read(group_path), canonical, name)
 
-    _atomic_write(passwd_path, new_passwd)
-    _atomic_write(group_path, new_group)
+    for path, text in ((passwd_path, new_passwd), (group_path, new_group)):
+        _safety_file.atomic_replace(
+            Path(path), text.encode("utf-8"), mode=_FILE_MODE, sync="best_effort"
+        )
 
     _post_check(_read(passwd_path), uid, name, canonical)
     if os.path.realpath(passwd_path) == os.path.realpath(SYSTEM_PASSWD):

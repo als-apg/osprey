@@ -6589,10 +6589,14 @@ def test_control_identity_is_independent_of_the_other_svc_fields() -> None:
 
 
 def test_compose_ctx_hands_the_template_the_control_identity_container_path() -> None:
-    """The staged module's container path reaches the compose template from the
-    module's own constant, so the template never spells the path itself."""
+    """The staged module's and its helper's container paths reach the compose
+    template from the module's own constants, so the template never spells a
+    path itself."""
     # Arrange
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+    from osprey.deployment.control_identity import (
+        CONTROL_IDENTITY_CONTAINER_PATH,
+        SAFETY_FILE_CONTAINER_PATH,
+    )
 
     # Act
     contexts = _capture_render_contexts(copy.deepcopy(_config(["alice"])))
@@ -6600,6 +6604,7 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_path() ->
     # Assert
     compose_ctx = contexts["docker-compose.web.yml.j2"]
     assert compose_ctx["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert compose_ctx["safety_file_container_path"] == SAFETY_FILE_CONTAINER_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -6709,6 +6714,7 @@ def test_render_accepts_one_person_on_two_cards_under_one_control_identity() -> 
 # ---------------------------------------------------------------------------
 
 _CONTROL_IDENTITY_ARTIFACT = "control_identity/control_identity.py"
+_SAFETY_FILE_ARTIFACT = "control_identity/osprey_safety_file.py"
 
 
 def _identity_roster() -> list:
@@ -6728,6 +6734,12 @@ def _identity_mount() -> str:
     from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 
     return f"./build/control_identity/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+
+
+def _safety_file_mount() -> str:
+    from osprey.deployment.control_identity import SAFETY_FILE_CONTAINER_PATH
+
+    return f"./build/control_identity/osprey_safety_file.py:{SAFETY_FILE_CONTAINER_PATH}:ro"
 
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
@@ -6757,7 +6769,8 @@ def test_walled_card_with_control_identity_mounts_the_staged_module_read_only(
     method: str,
 ) -> None:
     """The module the entrypoint runs is bound read-only from the build zone at
-    the path the env names, and only into the card that applies an identity."""
+    the path the env names, beside the safety-file helper it writes through,
+    and only into the card that applies an identity."""
     # Arrange
     config = copy.deepcopy(_walled_identity_config(method))
 
@@ -6766,6 +6779,7 @@ def test_walled_card_with_control_identity_mounts_the_staged_module_read_only(
 
     # Assert
     assert _identity_mount() in compose["services"]["web-alice"]["volumes"]
+    assert _safety_file_mount() in compose["services"]["web-alice"]["volumes"]
     assert not any("control_identity" in str(v) for v in compose["services"]["web-bob"]["volumes"])
 
 
@@ -6787,10 +6801,11 @@ def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
 def test_walled_render_stages_the_module_byte_equal_to_the_package_source(method: str) -> None:
-    """The mount source is written by the render itself, byte-equal to the
-    packaged module, so the bind never lands on a missing file."""
+    """The mount sources are written by the render itself, byte-equal to the
+    packaged module and helper, so a bind never lands on a missing file."""
     # Arrange
     from osprey.deployment import control_identity
+    from osprey_connectors import safety_file
 
     config = copy.deepcopy(_walled_identity_config(method))
 
@@ -6799,6 +6814,7 @@ def test_walled_render_stages_the_module_byte_equal_to_the_package_source(method
 
     # Assert
     assert artifacts[_CONTROL_IDENTITY_ARTIFACT] == Path(control_identity.__file__).read_text()
+    assert artifacts[_SAFETY_FILE_ARTIFACT] == Path(safety_file.__file__).read_text()
 
 
 @pytest.mark.parametrize("method", ["none", "token"])
@@ -6818,6 +6834,7 @@ def test_unwalled_card_with_control_identity_emits_nothing(method: str) -> None:
 
     # Assert
     assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
+    assert _SAFETY_FILE_ARTIFACT not in artifacts
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert artifacts["docker-compose.web.yml"] == baseline["docker-compose.web.yml"]
 
@@ -6833,5 +6850,7 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
 
     # Assert
     assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
+    assert _SAFETY_FILE_ARTIFACT not in artifacts
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert "control_identity.py" not in artifacts["docker-compose.web.yml"]
+    assert "osprey_safety_file.py" not in artifacts["docker-compose.web.yml"]

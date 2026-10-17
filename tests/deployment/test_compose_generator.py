@@ -53,7 +53,10 @@ from osprey.deployment.compose_generator import (
     resolve_user_volume_names,
     simulator_log_mount_sources,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_PATH,
+    SAFETY_FILE_CONTAINER_PATH,
+)
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -357,7 +360,7 @@ _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
 
 
 def _control_identity_context() -> dict[str, Any]:
-    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+    """The control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
 
     Every bluesky lane's queueserver renames root to its lane identity before
     ``start-re-manager`` runs, so the template reads both keys with no fallback:
@@ -365,6 +368,7 @@ def _control_identity_context() -> dict[str, Any]:
     """
     return {
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
 
@@ -9559,10 +9563,11 @@ class TestTerminalControlContextBind:
 # ---------------------------------------------------------------------------
 # The control-identity module (``_stage_control_identity_module``)
 #
-# The dispatch worker and every bluesky lane mount ``control_identity.py``
-# unconditionally, so for those two build contexts staging is mandatory: the
-# file is always there, byte-for-byte the packaged module, or the render
-# refuses. Every other context carries no copy at all.
+# The dispatch worker and every bluesky lane mount ``control_identity.py`` and
+# the ``osprey_safety_file.py`` helper it writes through unconditionally, so
+# for those two build contexts staging is mandatory: both files are always
+# there, byte-for-byte the packaged sources, or the render refuses. Every other
+# context carries no copy at all.
 # ---------------------------------------------------------------------------
 
 #: A stand-in service template: what is under test is that the module lands
@@ -9581,6 +9586,12 @@ def _control_identity_source_bytes() -> bytes:
     return Path(control_identity.__file__).read_bytes()
 
 
+def _safety_file_source_bytes() -> bytes:
+    from osprey_connectors import safety_file
+
+    return Path(safety_file.__file__).read_bytes()
+
+
 def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
     from osprey.deployment.compose_generator import _stage_control_identity_module
 
@@ -9591,12 +9602,13 @@ def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
 def test_stage_control_identity_copies_the_module_byte_for_byte(
     tmp_path: Path, service: str
 ) -> None:
-    """A mandatory context receives the packaged module, unchanged."""
+    """A mandatory context receives the packaged module and its helper, unchanged."""
     out_dir = tmp_path / service
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is True
     assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
 
 
 @pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
@@ -9607,16 +9619,19 @@ def test_stage_control_identity_skips_every_other_context(tmp_path: Path, servic
 
     assert _stage_control_identity(out_dir, f"services/{service}") is False
     assert not (out_dir / "control_identity.py").exists()
+    assert not (out_dir / "osprey_safety_file.py").exists()
 
 
 def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
-    """A copy an earlier build left in a non-mandatory context is removed."""
+    """Copies an earlier build left in a non-mandatory context are removed."""
     out_dir = tmp_path / "bluesky_web"
     out_dir.mkdir()
     (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/bluesky_web") is False
     assert not (out_dir / "control_identity.py").exists()
+    assert not (out_dir / "osprey_safety_file.py").exists()
 
 
 def test_stage_control_identity_stale_removal_failure_only_warns(
@@ -9635,7 +9650,7 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
     monkeypatch.setattr(compose_generator.os, "remove", refuse)
     with caplog.at_level(logging.WARNING):
         assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert "stale control-identity module" in caplog.text
+    assert "stale control-identity file" in caplog.text
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
@@ -9655,9 +9670,11 @@ def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
     out_dir = tmp_path / "dispatch_worker"
     out_dir.mkdir()
     (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
     assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
 
 
 def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -9692,9 +9709,11 @@ def test_both_render_paths_stage_the_control_identity_module(
     else:
         out_dir.mkdir(parents=True)
         (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+        (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
         _incremental_setup_build_dir(template, config, {}, str(out_dir))
 
     assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
     assert (out_dir / "docker-compose.yml").is_file()
 
 
@@ -9846,12 +9865,16 @@ def test_inject_project_metadata_carries_control_identity_keys(
     reach every render context, goldens included."""
     from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
     from osprey.deployment.compose_generator import _inject_project_metadata
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+    from osprey.deployment.control_identity import (
+        CONTROL_IDENTITY_CONTAINER_PATH,
+        SAFETY_FILE_CONTAINER_PATH,
+    )
 
     monkeypatch.chdir(tmp_path)
     context = _inject_project_metadata({})
 
     assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert context["safety_file_container_path"] == SAFETY_FILE_CONTAINER_PATH
     assert context["lane_control_identities"] == {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
@@ -9900,16 +9923,23 @@ def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
 
 
 def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
-    """The staged module is bind-mounted read-only at the path the env names."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+    """The staged module is bind-mounted read-only at the path the env names,
+    with the safety-file helper it writes through beside it."""
+    from osprey.deployment.control_identity import (
+        CONTROL_IDENTITY_CONTAINER_PATH,
+        SAFETY_FILE_CONTAINER_PATH,
+    )
 
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
 
-    expected = (
-        f"./build/services/dispatch_worker/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
-    )
+    build = "./build/services/dispatch_worker"
+    expected = [
+        f"{build}/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro",
+        f"{build}/osprey_safety_file.py:{SAFETY_FILE_CONTAINER_PATH}:ro",
+    ]
     for body in _dispatch_worker_services(rendered).values():
-        assert body["volumes"].count(expected) == 1, body["volumes"]
+        for mount in expected:
+            assert body["volumes"].count(mount) == 1, body["volumes"]
 
 
 # ---------------------------------------------------------------------------

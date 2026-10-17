@@ -19,7 +19,10 @@ from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_c
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_PATH,
+    SAFETY_FILE_CONTAINER_PATH,
+)
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
@@ -137,6 +140,7 @@ def _control_identity_context() -> dict[str, Any]:
     """
     return {
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
 

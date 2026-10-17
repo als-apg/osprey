@@ -90,6 +90,7 @@ from osprey.utils.dotenv import (
     parse_dotenv_file,
 )
 from osprey.utils.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("deployment.lifecycle")
 
@@ -1222,26 +1223,22 @@ def purge_auth_credentials(username: str, project_root: str | Path) -> bool:
 
 
 def _atomic_rewrite(env_auth_path: Path, lines: list[str]) -> None:
-    """Replace ``.env.auth``'s whole content with ``lines``, atomically and 0600.
+    """Replace ``.env.auth``'s whole content with ``lines``, at mode 0600.
 
-    Write-to-temporary-then-rename, so an interrupted write cannot leave a
-    truncated credential file: a reader sees either the previous content or the
-    new content, never a half-written line. The temporary is created 0600 rather
-    than chmod'ed afterwards, so a hash is never briefly world-readable, and
-    ``os.replace`` carries that mode onto the destination — which is why callers
-    need no separate mode fix-up.
+    The file is replaced whole through ``atomic_replace``, so an interrupted
+    write cannot leave a truncated credential file: a reader sees either the
+    previous content or the new content, never a half-written line. The mode is
+    set on the new file before it holds a hash, so a hash is never briefly
+    readable by anyone but the owner.
 
     Shared by :func:`purge_auth_credentials` and :func:`set_auth_password` so
     there is one definition of how this file is rewritten.
 
     Raises:
-        OSError: If the temporary or the destination cannot be written.
+        OSError: If the file cannot be written.
     """
-    tmp_path = env_auth_path.with_name(f"{env_auth_path.name}.tmp")
-    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("".join(f"{line}\n" for line in lines))
-    os.replace(tmp_path, env_auth_path)
+    text = "".join(f"{line}\n" for line in lines)
+    atomic_replace(env_auth_path, text.encode("utf-8"), mode=0o600, sync="best_effort")
 
 
 def set_auth_password(username: str, password: str, project_root: str | Path) -> Path:

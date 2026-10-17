@@ -37,7 +37,8 @@ and the image's size is reported so a provenance change's size delta is on the
 record.
 
 The ``test_whoami_*`` tests cover the entrypoint's control-identity step, with
-this tree's ``control_identity`` module bind-mounted where compose stages it:
+this tree's ``control_identity`` module and its safety-file helper
+bind-mounted where compose stages them:
 an applied identity is what ``whoami`` prints and the only thing on stdout; a
 person identity under ``--user`` refuses to start; an ``osprey-*`` identity
 under ``--user`` starts with a warning; a root start without the module dies,
@@ -92,9 +93,13 @@ from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.deployment import control_identity
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_PATH,
+    SAFETY_FILE_CONTAINER_PATH,
+)
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
+from osprey_connectors import safety_file
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests.e2e._telemetry_sender import sender_env_file_args
 
@@ -289,13 +294,20 @@ def _identity_env(name: str) -> list[str]:
 
 
 def _identity_module_mount() -> list[str]:
-    """Bind this tree's module read-only where compose stages it.
+    """Bind this tree's module and helper read-only where compose stages them.
 
-    The image installs OSPREY from PyPI by default, so the module under test is
-    the host copy, mounted exactly the way a deployment mounts its staged copy.
+    The image installs OSPREY from PyPI by default, so the files under test are
+    the host copies, mounted exactly the way a deployment mounts its staged
+    copies.
     """
     source = Path(control_identity.__file__).resolve()
-    return ["-v", f"{source}:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"]
+    helper = Path(safety_file.__file__).resolve()
+    return [
+        "-v",
+        f"{source}:{CONTROL_IDENTITY_CONTAINER_PATH}:ro",
+        "-v",
+        f"{helper}:{SAFETY_FILE_CONTAINER_PATH}:ro",
+    ]
 
 
 def _streams(proc: subprocess.CompletedProcess) -> str:

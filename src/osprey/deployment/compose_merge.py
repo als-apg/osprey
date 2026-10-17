@@ -53,8 +53,6 @@ than replace it.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -63,6 +61,7 @@ import yaml
 
 from osprey.deployment.errors import DeploymentError
 from osprey.utils.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("deployment.compose_merge")
 
@@ -217,7 +216,12 @@ def write_merged_compose(
     if overlay is not None:
         documents.append(overlay)
     target = root / MERGED_COMPOSE_FILENAME
-    _atomic_write(target, render_merged_compose(documents))
+    atomic_replace(
+        target,
+        render_merged_compose(documents).encode("utf-8"),
+        mode=_FILE_MODE,
+        sync="best_effort",
+    )
     logger.debug("Wrote merged compose document %s from %d file(s)", target, len(documents))
     return target
 
@@ -264,16 +268,3 @@ def _merge_into(target: dict[str, Any], source: Mapping[str, Any]) -> None:
             target[key] = nested
         else:
             target[key] = value
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    """Write *text* to *path* via a same-directory temp file and ``os.replace``."""
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.chmod(tmp_name, _FILE_MODE)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
