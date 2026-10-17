@@ -18,11 +18,14 @@ as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
 still recognisable by eye. It's bind-mounted against a *scratch* data root
 rendered from the Control Assistant preset (never the repo's own copy --
 ``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
-synthetic scenario), so the fixture is free to write into it. What gets
+synthetic scenarios), so the fixture is free to write into it. What gets
 rendered is the layout ``osprey build`` writes for a project: the simulator
-view under ``data/simulator/``, from the preset's ``data/facility``. The
-container serves as the instance ``VA_INSTANCE`` names: the entrypoint refuses
-to boot without one. See ``stage_demo_data_dir``.
+view under ``data/simulator/``, from the preset's ``data/facility``. Every
+container of this suite starts in the suite set (:data:`SUITE_SCENARIOS`),
+which serves the monitor readings without their declared motion, and every set
+the suite applies keeps it. The container serves as the instance
+``VA_INSTANCE`` names: the entrypoint refuses to boot without one. See
+``stage_demo_data_dir``.
 
 Process-boundary note: this conftest and every test module in this directory
 may import ``aioca`` (a CA *client*), but must NEVER import a Channel Access
@@ -164,7 +167,7 @@ INSTANCE = "virtual_accelerator"
 DEMO_NAMESPACE_RUN_ARGS = ("-e", f"VA_INSTANCE={INSTANCE}")
 
 
-def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
+def stage_demo_data_dir(root: Path) -> Path:
     """Render, under *root*, the data root a demo container mounts; return *root*.
 
     The layout the IOC reads is the one ``osprey build`` writes for a project:
@@ -180,14 +183,16 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
       closed orbit at :data:`KICK_MONITOR`;
     * the seeded-readout scenario (:data:`SEEDED_READOUT_SCENARIO_NAME`),
       which gives :data:`SEEDED_READOUT_BPM` a readout offset and gain;
+    * the still-monitors scenario (:data:`STILL_MONITORS_SCENARIO_NAME`),
+      which serves every monitor reading without its declared noise and drift;
     * a string channel (:data:`STRING_CHANNEL`) seeded with
       :data:`STRING_NOMINAL`, so the served view holds a string channel the
       texture owns beside the physics model's status channel.
 
-    The shared container serves monitors without their declared motion: the
-    scratch tree's ``nominal`` scenario stills them, so every container and
-    every applied set serves them still. A caller that needs the declared
-    motion renders with ``still_monitors=False``.
+    The ``nominal`` scenario is the shipped one. The still-monitors scenario
+    is what serves the monitors still, and a container starts in it by its
+    active set (:data:`SUITE_SCENARIOS`); one booted with no scenario state
+    serves ``nominal`` alone, with the declared motion.
 
     Rendered rather than layered on with extra bind mounts because a bind
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
@@ -244,6 +249,17 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             ),
             encoding="utf-8",
         )
+        monitors = _monitor_addresses(facility)
+        (facility / "scenarios" / f"{STILL_MONITORS_SCENARIO_NAME}.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "description": "e2e-only synthetic scenario: every monitor reading serves "
+                    "without its declared noise and drift, so a reading is the solved orbit.",
+                    "still": monitors,
+                }
+            ),
+            encoding="utf-8",
+        )
         with (facility / "records" / "channels.yaml").open("a", encoding="utf-8") as records:
             records.write(
                 yaml.safe_dump(
@@ -258,12 +274,6 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             )
         with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump({STRING_CHANNEL: {"nominal": STRING_NOMINAL}}))
-        monitors = _monitor_addresses(facility) if still_monitors else []
-        if monitors:
-            nominal = facility / "scenarios" / "nominal.yaml"
-            scenario = yaml.safe_load(nominal.read_text(encoding="utf-8")) or {}
-            scenario["still"] = monitors
-            nominal.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
         doc = build_facility(facility, project_name="control_assistant")
         write_simulator_view(
             root / VIEW_RELPATH.name,
@@ -276,8 +286,15 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             ),
         )
     view = SimulatorView.open(root / VIEW_RELPATH.name)
-    moving = {address for address in monitors if view.motion_envelope(address) != 0.0}
-    assert not moving, f"the nominal scenario leaves these monitors moving: {sorted(moving)}"
+    moving = {
+        address
+        for address in monitors
+        if view.motion_envelope(address, active=SUITE_SCENARIOS) != 0.0
+    }
+    assert not moving, f"the suite set leaves these monitors moving: {sorted(moving)}"
+    assert any(view.motion_envelope(address, active=()) != 0.0 for address in monitors), (
+        "no monitor moves under nominal alone: the staged baseline stills the monitors"
+    )
     return root
 
 
@@ -320,11 +337,24 @@ def data_root_run_args(data_root: Path) -> tuple[str, ...]:
 
 
 def demo_data_run_args() -> tuple[str, ...]:
-    """:func:`data_root_run_args` for this process's rendered demo data root."""
-    return data_root_run_args(demo_data_dir())
+    """The ``docker run`` arguments that serve this process's demo data root in the suite set.
+
+    :func:`data_root_run_args` for the rendered demo data root, plus the
+    scenario state mount of :func:`demo_state_dir`, so a container booted with
+    these starts in :data:`SUITE_SCENARIOS`. A container that wants the
+    declared motion mounts the data root alone and serves ``nominal``.
+    """
+    return (
+        *data_root_run_args(demo_data_dir()),
+        "-v",
+        f"{demo_state_dir()}:/state/simulation:ro",
+        "-e",
+        "VA_STATE_DIR=/state/simulation",
+    )
 
 
 _DEMO_DATA_DIR: Path | None = None
+_DEMO_STATE_DIR: Path | None = None
 
 
 def demo_data_dir() -> Path:
@@ -342,6 +372,37 @@ def demo_data_dir() -> Path:
         atexit.register(shutil.rmtree, root, ignore_errors=True)
         _DEMO_DATA_DIR = stage_demo_data_dir(root)
     return _DEMO_DATA_DIR
+
+
+def demo_state_dir() -> Path:
+    """The scenario state of the demo data root's containers, one per pytest process.
+
+    Its ``active_scenarios`` names :data:`SUITE_SCENARIOS`, written by the
+    state writer ``osprey sim apply`` uses against the scenarios the rendered
+    view lists, so the set is validated as an apply validates it. Readable by
+    the container's user, which is not this process's.
+    """
+    from osprey_connectors.simulation.state import (
+        ACTIVE_SCENARIOS_FILENAME,
+        scenario_targets,
+        write_active_state,
+    )
+    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+
+    global _DEMO_STATE_DIR
+    if _DEMO_STATE_DIR is None:
+        view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
+        state_dir = Path(tempfile.mkdtemp(prefix="osprey-va-demo-state-"))
+        atexit.register(shutil.rmtree, state_dir, ignore_errors=True)
+        active = write_active_state(
+            state_dir / ACTIVE_SCENARIOS_FILENAME,
+            {str(scenario["name"]): scenario_targets(scenario) for scenario in view.scenarios()},
+            SUITE_SCENARIOS,
+        )
+        assert STILL_MONITORS_SCENARIO_NAME in active, active
+        state_dir.chmod(0o755)
+        _DEMO_STATE_DIR = state_dir
+    return _DEMO_STATE_DIR
 
 
 # A channel harmless to read at boot time: pyat-coupled, never written by the
@@ -379,6 +440,13 @@ SEEDED_READOUT_SCENARIO_NAME = "va-e2e-seeded-readout"
 SEEDED_READOUT_BPM = "SR:DIAG:BPM:11:POSITION:X"
 SEEDED_READOUT_OFFSET = 50e-6
 SEEDED_READOUT_GAIN = 1.05
+
+#: Synthetic scenario that serves every monitor reading without its declared
+#: noise and drift, so a monitor reading is the solved orbit.
+STILL_MONITORS_SCENARIO_NAME = "va-e2e-still-monitors"
+
+#: The set every container of this suite starts in, and every set it applies keeps.
+SUITE_SCENARIOS: tuple[str, ...] = (STILL_MONITORS_SCENARIO_NAME,)
 
 #: Synthetic string channel, owned by the texture, and the text it is seeded with.
 STRING_CHANNEL = "SR:DIAG:E2E:TEXT"
@@ -513,15 +581,22 @@ class VaProject:
     ``build/`` holding its ``config.yml`` and the simulator view under
     ``build/data/simulator/`` (``data_dir`` is that render's data root), and the
     mutable state dir under ``var/agent_data/`` -- the three zones ``osprey sim
-    apply`` resolves, and nothing more."""
+    apply`` resolves, and nothing more. Its active set starts as
+    :data:`SUITE_SCENARIOS` and every set :meth:`sim_apply` writes keeps it."""
 
     project_dir: Path
     data_dir: Path
     state_dir: Path
 
     def sim_apply(self, *scenario_names: str, timeout: float = 30.0) -> subprocess.CompletedProcess:
+        """``osprey sim apply`` the scenarios, with :data:`SUITE_SCENARIOS` kept in the set.
+
+        Every set this suite applies keeps the suite scenarios, so a test names
+        only the scenarios it is about, and ``nominal`` means the suite's
+        baseline.
+        """
         return subprocess.run(
-            [str(OSPREY_CLI), "sim", "apply", *scenario_names, "--no-seed"],
+            [str(OSPREY_CLI), "sim", "apply", *SUITE_SCENARIOS, *scenario_names, "--no-seed"],
             cwd=self.project_dir,
             capture_output=True,
             text=True,
@@ -537,11 +612,15 @@ def stage_va_project(root: Path) -> VaProject:
     zone it writes ``active_scenarios`` into; a stubbed render supplies the
     ``build/config.yml`` every repo-scoped verb reads, and the preset's
     simulator view is rendered beside it (see ``stage_demo_data_dir``), so
-    ``osprey sim apply`` and the container read the same view.
+    ``osprey sim apply`` and the container read the same view. The render's
+    config names :data:`SUITE_SCENARIOS` in ``simulation.default_scenarios``,
+    and the repo starts in that set the way a deploy's first start activates
+    it.
 
     A plain function rather than the fixture body so a caller can stage the
     repo and drive ``osprey sim apply`` at it without a pytest session.
     """
+    from osprey.simulation.apply import activate_default_scenarios
     from osprey_connectors.workspace import resolve_simulation_state_dir
     from tests.cli._lifecycle_build import stub_build
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
@@ -553,13 +632,14 @@ def stage_va_project(root: Path) -> VaProject:
             "type": "virtual_accelerator",
             "writes_enabled": True,
         },
+        "simulation": {"default_scenarios": list(SUITE_SCENARIOS)},
     }
     build = stub_build(project_dir, config=yaml.safe_dump(config))
     data_dir = stage_demo_data_dir(build / "data")
 
+    active = activate_default_scenarios(config, project_dir)
+    assert STILL_MONITORS_SCENARIO_NAME in active, active
     state_dir = resolve_simulation_state_dir(config, project_dir)
-    state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "active_scenarios").write_text("nominal\n")
 
     return VaProject(project_dir=project_dir, data_dir=data_dir, state_dir=state_dir)
 

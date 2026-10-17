@@ -140,8 +140,11 @@ LIVE_PROBE = VA_PROBE
 #: state.
 SEEDED_BPM = e2e_conftest.SEEDED_READOUT_BPM
 
-#: The ``active_scenarios`` file container L boots with.
-SEEDED_ACTIVE_SCENARIOS = f"nominal\n{e2e_conftest.SEEDED_READOUT_SCENARIO_NAME}\n"
+#: The ``active_scenarios`` file container L boots with: the suite set, which
+#: serves the monitors still, and the readout fault.
+SEEDED_ACTIVE_SCENARIOS = "\n".join(
+    ("nominal", *e2e_conftest.SUITE_SCENARIOS, e2e_conftest.SEEDED_READOUT_SCENARIO_NAME, "")
+)
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
@@ -265,7 +268,8 @@ def _serving(prefix: str, *, state_dir: Path | None):
     The published port and the server's own port are the same number by
     construction, and that number also names the container. ``state_dir``,
     when given, is the directory holding the ``active_scenarios`` file the
-    container boots with; ``None`` serves ``nominal`` alone.
+    container boots with; ``None`` serves the suite set
+    (``e2e_conftest.SUITE_SCENARIOS``).
     """
     port = _free_port()
     name = f"{prefix}-{port}"
@@ -273,6 +277,17 @@ def _serving(prefix: str, *, state_dir: Path | None):
     # a concurrent run is using -- which is the point of the suffix.
     _docker("rm", "-f", name, timeout=60)
 
+    data = (
+        e2e_conftest.demo_data_run_args()
+        if state_dir is None
+        else (
+            *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
+            "-v",
+            f"{state_dir}:/state/simulation:ro",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+        )
+    )
     arguments = [
         "run",
         "-d",
@@ -282,18 +297,11 @@ def _serving(prefix: str, *, state_dir: Path | None):
         f"EPICS_CA_SERVER_PORT={port}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
+        *data,
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
     ]
-    if state_dir is not None:
-        arguments += [
-            "-v",
-            f"{state_dir}:/state/simulation:ro",
-            "-e",
-            "VA_STATE_DIR=/state/simulation",
-        ]
     started = _docker(*arguments, IMAGE)
     if started.returncode != 0:
         raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
@@ -600,8 +608,9 @@ class TestALiveVaRoundTrip:
             "both ends served the same value for the seeded BPM, so the switch "
             "moved the session between two indistinguishable machines"
         )
-        # Both containers serve the same stilled view at the same operating
-        # point, with no write before this test, so they solve the same orbit
+        # Both containers serve the same view at the same operating point in
+        # the suite scenario, which serves every monitor still, with no write
+        # before this test, so they solve the same orbit
         # x at the BPM. V reads x through the identity readout; L reads it
         # through the fault's offset and gain with roll, calibration and noise
         # at identity, which is (x - offset) * gain.

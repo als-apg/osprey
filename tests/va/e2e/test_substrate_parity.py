@@ -29,11 +29,11 @@ rendered view, on every served channel:
 **Two containers.** The held, nominal, scenario-switch, failed-scenario and
 string checks use
 this directory's session container (``conftest.va_container``), which serves
-its monitors without their declared motion so a monitor reading is the solved
-orbit. The noise statistics need the declared motion, so they run against a
-module-scoped container of their own, booted from an unstilled render of the
-same facility tree with a fast runner tick; that is this module's only extra
-boot.
+its monitors without their declared motion, so a monitor reading is the solved
+orbit, because it starts in the suite scenario. The noise statistics need the
+declared motion, so they run against a module-scoped container of their own:
+the same render booted without the suite scenario, in ``nominal`` alone, with
+a fast runner tick; that is this module's only extra boot.
 
 **Every Channel Access operation runs in a subprocess**, for the reasons the
 directory conftest gives: libca latches the ``EPICS_CA_*`` environment when it
@@ -741,15 +741,14 @@ class NoisyVa:
 
 
 @pytest.fixture(scope="module")
-def noisy_va(tmp_path_factory: pytest.TempPathFactory) -> Iterator[NoisyVa]:
-    """A container serving an unstilled render of the session container's facility.
+def noisy_va() -> Iterator[NoisyVa]:
+    """A container serving the demo data root in ``nominal`` alone, with its declared motion.
 
-    Booted and torn down the way the session container is: one name, removed
+    It mounts the data root with no scenario state, so the suite scenario is
+    not active. Booted and torn down the way the session container is: one name, removed
     on the way in as stale-cleanup and on the way out whatever happens.
     """
-    root = e2e_conftest.stage_demo_data_dir(
-        tmp_path_factory.mktemp("va_noise_data"), still_monitors=False
-    )
+    root = e2e_conftest.demo_data_dir()
 
     def container(port: int) -> tuple[str, list[str]]:
         return NOISE_CONTAINER, [
@@ -784,7 +783,9 @@ def noisy_va(tmp_path_factory: pytest.TempPathFactory) -> Iterator[NoisyVa]:
         _docker("rm", "-f", NOISE_CONTAINER)
 
 
-def test_the_unstilled_render_serves_the_demos_noisy_channels(noisy_va: NoisyVa) -> None:
+def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channels(
+    noisy_va: NoisyVa,
+) -> None:
     noisy = [address for address in noisy_va.view.served if noisy_va.view.moving(address)]
 
     assert len(noisy) == EXPECTED_NOISY_CHANNELS
