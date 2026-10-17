@@ -236,7 +236,7 @@ def test_existing_pyepics_prohibitions_survive(tmp_path):
 
 
 #: The annotation every raw client put example carries in the branches whose
-#: client libraries the executor and the notebook kernels refuse at runtime.
+#: client puts the Python executor refuses at runtime.
 RAW_PUT_ANNOTATION = "# Refused at runtime: RAW_CLIENT_WRITE"
 
 #: The raw-put example lines of each refusing branch, keyed by the wire the
@@ -260,7 +260,8 @@ RAW_PUT_LINES = {
 def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
     """Where the runtime refuses a raw client put, the rule says so -- a put
     marked merely as a bypass reads as a riskier route that approval could
-    still let through -- and names the calls that do write."""
+    still let through -- and names the calls that do write. A notebook kernel
+    refuses the client library itself, which the rule says beside it."""
     content = _render_template_directly(cs_type, set())
     branch = connector_transport(section_for(cs_type))
 
@@ -276,7 +277,10 @@ def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
         )
 
     prose = " ".join(content.split())
-    assert "refuse it at runtime with `RAW_CLIENT_WRITE`" in prose
+    assert "the Python executor (`execute`, `execute_file`) refuses it at runtime" in prose
+    assert "refuses it at runtime with `RAW_CLIENT_WRITE`" in prose
+    assert "A notebook kernel refuses the client library's import itself" in prose
+    assert "`RAW_CLIENT_IMPORT`" in prose
     assert "in readwrite runs too" in prose
     assert "approving the run does not change that" in prose
     assert "`write_channel(address, value)`" in prose
@@ -301,6 +305,7 @@ def test_the_pva_put_is_named_as_the_one_exception(cs_type):
     assert "`write_channel` does not write pvAccess channels yet" in prose
     assert "asks for approval" in prose
     assert "a Channel Access channel goes through `write_channel`" in prose
+    assert "a notebook kernel refuses the `p4p` and `pvaccess` imports" in prose
 
 
 #: A connector type no transport row names: a facility's own dotted connector.
@@ -314,6 +319,8 @@ def test_non_refusing_branches_make_no_runtime_refusal_claim(cs_type):
     content = _render_template_directly(cs_type, set())
 
     assert "RAW_CLIENT_WRITE" not in content
+    assert "RAW_CLIENT_IMPORT" not in content
+    assert "notebook kernel" not in content
 
 
 def test_rule_heading_contract_intact(tmp_path):
