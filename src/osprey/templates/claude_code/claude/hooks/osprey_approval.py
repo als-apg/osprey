@@ -126,6 +126,7 @@ import re
 import sys
 import time
 import tokenize
+from pathlib import Path
 from typing import TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -161,6 +162,14 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
+
+# The shared, stdlib-only file helper the stamps are written through, a sibling
+# script like the reader above. Guarded the same way: without it no stamp is
+# written, which every caller already treats as "no stamp".
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - render without the helper
+    _safety_file = None
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
@@ -797,18 +806,21 @@ def _approval_stamps_in(directory, prefix) -> list[str]:
 
 
 def _write_stamp(path, payload) -> None:
-    """Put *payload* at *path* atomically.
+    """Put *payload* at *path*, replaced whole through the ``osprey_safety_file`` helper.
 
     Another process reads these the moment they land, so one lands whole: a
     reader sees the stamp that was there before or this one, never half of
-    either. Raises on an unwritable disk, which every caller swallows into "no
-    stamp" — the one failure mode that costs a comparison rather than making a
-    wrong one.
+    either. Mode 0640, as every file in the control-state directory: the
+    python executor reads it, possibly as another uid through the directory's
+    group. Raises on an unwritable disk or a missing helper, which every caller
+    swallows into "no stamp" — the one failure mode that costs a comparison
+    rather than making a wrong one.
     """
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
-    os.replace(tmp, path)
+    if _safety_file is None:
+        raise OSError("osprey_safety_file is not installed beside the hooks")
+    _safety_file.atomic_replace(
+        Path(path), json.dumps(payload).encode("utf-8"), mode=0o640, sync="best_effort"
+    )
 
 
 def _prune_approval_stamps(directory, prefix, ttl_s: float = WRITE_APPROVAL_TTL_S) -> None:

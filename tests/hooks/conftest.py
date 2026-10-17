@@ -124,6 +124,7 @@ _SEAM_IMPORTABLE_HOOKS = frozenset(
         "osprey_notebook_update",
         "osprey_panels_context",
         "osprey_safety_file",
+        "osprey_workspace_delta",
         "osprey_writes_check",
     }
 )

@@ -49,16 +49,22 @@ COMPLETELY SILENT: never writes to stdout. Always exits 0.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
 import sys
-import tempfile
+from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_repo_root, log_hook, repo_agent_data_root
+
+# The stdlib-only file helper the inline fallback writes the store through, a
+# sibling script. Without it the item is not captured, and the hook logs why.
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - render without the helper
+    _safety_file = None
 
 # The text Claude Code sends in place of an MCP answer past its tool-output
 # limit. The answer itself is saved to the file the notice names.
@@ -367,16 +373,15 @@ try:
                     for evict_id in sorted_ids[: len(items) - 500]:
                         del items[evict_id]
 
-                # Atomic write via tmp + replace
-                fd_num, tmp_path = tempfile.mkstemp(dir=os.path.dirname(store_path), suffix=".tmp")
-                try:
-                    with os.fdopen(fd_num, "w") as tmp_f:
-                        json.dump(data, tmp_f, indent=2)
-                    os.replace(tmp_path, store_path)
-                except BaseException:
-                    with contextlib.suppress(OSError):
-                        os.unlink(tmp_path)
-                    raise
+                # Replaced whole, at the mode PendingReviewStore writes it with.
+                if _safety_file is None:
+                    raise RuntimeError("osprey_safety_file is not installed beside the hooks")
+                _safety_file.atomic_replace(
+                    Path(store_path),
+                    json.dumps(data, indent=2).encode("utf-8"),
+                    mode=0o644,
+                    sync="best_effort",
+                )
             finally:
                 fcntl.flock(lf, fcntl.LOCK_UN)
 

@@ -109,6 +109,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import load_osprey_config, log_hook
@@ -117,6 +118,13 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
+
+# The stdlib-only file helper the memo is written through; without it no memo
+# is kept, which costs one redundant context block on the next prompt.
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - render without the helper
+    _safety_file = None
 
 #: The event that always emits: a context that has just been built or rebuilt.
 _SESSION_START = "SessionStart"
@@ -203,16 +211,16 @@ def _remembered(session_id):
 
 
 def _remember(session_id, state):
-    if session_id is None:
+    """Keep *state* as this session's memo, replaced whole. Never raises."""
+    if session_id is None or _safety_file is None:
         return
-    try:
-        path = memo_path(session_id)
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as handle:
-            json.dump(state, handle)
-        os.replace(tmp, path)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        _safety_file.atomic_replace(
+            Path(memo_path(session_id)),
+            json.dumps(state).encode("utf-8"),
+            mode=0o600,
+            sync="best_effort",
+        )
 
 
 def render_block(state, previous=None):
