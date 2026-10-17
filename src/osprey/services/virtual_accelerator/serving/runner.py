@@ -38,8 +38,10 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
     command_addresses,
+    command_readback,
     periodic_addresses,
     restorable_state,
+    shot_records,
 )
 from osprey_connectors.control_system.va_in_process_connector import shot_times
 
@@ -56,8 +58,12 @@ class ModelRunner(Runner):
     the view's write safety applied
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
     A write pass reads back every served channel except those the view says
-    refresh ``periodic``, which the next periodic pass publishes; a pass with
-    no input values reads them all.
+    refresh ``periodic``, which the next periodic pass publishes; a write
+    pass of commands alone reads back only the shot records of the
+    commands' models
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.command_readback`),
+    the one part of the composite a command changes; a pass with no input
+    values reads them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The cache holds settings only: a command acts once
@@ -105,6 +111,8 @@ class ModelRunner(Runner):
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
         self._commands = command_addresses(view)
+        self._shot_records = shot_records(view)
+        self._written: frozenset[str] = frozenset()
         self._write_pass = False
         self._set_landed = False
         self._pass_started = False
@@ -134,8 +142,9 @@ class ModelRunner(Runner):
         return self._first_pass_error
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note whether this pass carries input values, then run it and record its outcome."""
-        self._write_pass = bool(item["values"])
+        """Note the input values this pass writes, then run it and record its outcome."""
+        self._written = frozenset(item["values"])
+        self._write_pass = bool(self._written)
         self._set_landed = False
         self._pass_started = False
         item["done"].append(self._record_pass)
@@ -158,11 +167,18 @@ class ModelRunner(Runner):
             write_document(self._health_file, document)
 
     def _cycle_output_names(self) -> list[str]:
-        """The roster read after ``model.set``; a write pass leaves the periodic addresses out."""
+        """The roster read after ``model.set``, narrowed for a write pass.
+
+        A write pass leaves the periodic addresses out; one of commands alone
+        reads only the shot records of the commands' models.
+        """
         self._set_landed = True
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
+        shot = command_readback(self._shot_records, self._written)
+        if shot is not None:
+            return [name for name in roster if name in shot]
         return [name for name in roster if name not in self._periodic]
 
     def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:

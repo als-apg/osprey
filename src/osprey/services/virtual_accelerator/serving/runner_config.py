@@ -24,6 +24,13 @@ it back would act again -- arm an acquisition or fire a shot -- and a batch
 mixing one model's command with another owner's channel is refused whole by the
 composite. A command is therefore never restored.
 
+:func:`shot_records` and :func:`command_readback` name what a write pass of
+commands alone reads back. A command writes no setting of its model, so such a
+pass changes only the shot its models hold: the commands, the armed flag and
+the turn series, which the view describes as ``turn_series``. Every other
+value stands as the last pass left it, and reading it back again would make
+each command write -- one per device for an arm -- cost the whole roster.
+
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
 
@@ -34,7 +41,7 @@ tested in process.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -45,8 +52,10 @@ __all__ = [
     "SAFETY_KEYS",
     "apply_safety",
     "command_addresses",
+    "command_readback",
     "periodic_addresses",
     "restorable_state",
+    "shot_records",
 ]
 
 #: The write-path keys every model runner configuration carries.
@@ -66,6 +75,7 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 _SETPOINT = "setpoint"
 _FLOAT = "float"
 _PERIODIC = "periodic"
+_TURN_SERIES = "turn_series"
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -147,3 +157,44 @@ def restorable_state(state: Mapping[str, Any], commands: frozenset[str]) -> dict
         A new mapping: ``state`` without any address of ``commands``.
     """
     return {address: value for address, value in state.items() if address not in commands}
+
+
+def shot_records(view: SimulatorView) -> dict[str, frozenset[str]]:
+    """The records a command's write can change, by command address, across every model.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        For each command, every command and ``turn_series`` record of the
+        model the command belongs to: the armed flag and the turn series
+        included.
+    """
+    bindings = view.bindings(served_only=False)
+    held: dict[str, set[str]] = {}
+    for binding in bindings:
+        if binding.command or binding.role == _TURN_SERIES:
+            held.setdefault(binding.model, set()).add(binding.address)
+    return {
+        binding.address: frozenset(held[binding.model]) for binding in bindings if binding.command
+    }
+
+
+def command_readback(
+    records: Mapping[str, frozenset[str]], written: Iterable[str]
+) -> frozenset[str] | None:
+    """What a write pass of ``written`` reads back when every value of it is a command.
+
+    Args:
+        records: The shot records by command address, as :func:`shot_records`
+            names them.
+        written: The addresses the pass writes.
+
+    Returns:
+        The shot records of every written command, or ``None`` when the pass
+        writes nothing or writes any address that is not a command.
+    """
+    addresses = set(written)
+    if not addresses or not addresses <= records.keys():
+        return None
+    return frozenset().union(*(records[address] for address in addresses))
