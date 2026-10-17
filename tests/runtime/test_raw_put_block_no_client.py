@@ -42,7 +42,6 @@ def _contract(**overrides):
         "library_names": (_FAKE_LIBRARY,),
         "library_symbols": ("osprey_no_such_symbol",),
         "loader_targets": (),
-        "marker": ClientLibraryRefusedError.MARKER,
     }
     contract.update(overrides)
     return contract
@@ -127,7 +126,6 @@ def test_contract_is_literals_from_the_one_table(monkeypatch):
         "library_names": _CLIENT_LIBRARY_NAMES,
         "library_symbols": _CLIENT_LIBRARY_SYMBOLS,
         "loader_targets": _CLIENT_LOADER_ROWS,
-        "marker": ClientLibraryRefusedError.MARKER,
     }
     # Literals only: the contract survives a round trip through its repr.
     assert eval(repr(contract)) == contract

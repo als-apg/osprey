@@ -35,7 +35,7 @@ from osprey.services.python_executor.write_surface import (
     CLIENT_PACKAGES,
 )
 from osprey.utils.logger import get_logger
-from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ClientLibraryRefusedError
+from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
 
 logger = get_logger("execution_wrapper")
 
@@ -168,7 +168,6 @@ def no_client_contract() -> dict:
         "library_names": tuple(_CLIENT_LIBRARY_NAMES),
         "library_symbols": tuple(_CLIENT_LIBRARY_SYMBOLS),
         "loader_targets": tuple((dotted, tuple(attrs)) for dotted, attrs in _CLIENT_LOADER_ROWS),
-        "marker": ClientLibraryRefusedError.MARKER,
     }
 
 

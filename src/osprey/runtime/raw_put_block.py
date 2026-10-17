@@ -863,7 +863,6 @@ def _install_no_client(
     library_names: Iterable[str],
     library_symbols: Iterable[str],
     loader_targets: Rows,
-    marker: str,  # noqa: ARG001 - the contract's marker; the error spells its own text
 ) -> None:
     """Refuse every client package at import and every client library at load."""
     import _ctypes
@@ -973,7 +972,7 @@ def install(mode: str, **contract: Any) -> None:
     is touched.
 
     ``"no_client"`` takes ``denied_packages``, ``library_names``,
-    ``library_symbols``, ``loader_targets`` and ``marker``. Importing a
+    ``library_symbols`` and ``loader_targets``. Importing a
     module whose top-level package is in *denied_packages* raises
     ``ClientLibraryRefusedError`` with reason ``RAW_CLIENT_IMPORT``, and so
     does the install when one is already imported. Loading a shared library
