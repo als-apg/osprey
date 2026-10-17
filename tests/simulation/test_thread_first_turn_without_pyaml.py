@@ -113,9 +113,16 @@ async def main():
     columns = rm["variable_names"]
     assert matrix.shape == (len(rows), len(columns)), matrix.shape
     assert len(index["bpm_index"]) == len(rows)
-    assert len(index["hcor_index"]) + len(index["vcor_index"]) == len(columns)
+    assert len(index["hcorr_index"]) + len(index["vcorr_index"]) == len(columns)
     # A row's monitor sees beam when its sum signal does.
-    sums = [row.rsplit(":", 1)[0] + ":SUM" for row in rows]
+    sums = index["sum_names"]
+    assert len(sums) == len(rows)
+    # The columns are in lattice order within each plane, as are the rows.
+    for key in ("hcorr_index", "vcorr_index"):
+        assert index[key] == sorted(index[key]), key
+    half = len(rows) // 2
+    for places in (index["bpm_index"][:half], index["bpm_index"][half:]):
+        assert all(a < b for a, b in zip(places, places[1:])), places
 
     state = simulation_state_dir(VIEW)
     state.mkdir(parents=True, exist_ok=True)

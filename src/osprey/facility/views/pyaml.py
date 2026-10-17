@@ -29,7 +29,7 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          engine solves it on the deck: the matrix as a pyAML
                          orbit response matrix whose names are channel
                          addresses, and beside it the lattice index of every
-                         row and column
+                         row and column and the sum reading of every row
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
@@ -965,6 +965,18 @@ def _solved_response(
     return _SOLVED[key]
 
 
+#: The role the engine's description gives a turn-by-turn reading.
+_TURN_SERIES = "turn_series"
+
+#: :func:`_monitor` of a wiring entry that names no element and no slices.
+_NO_MONITOR = "[null, null]"
+
+
+def _monitor(entry: Mapping[str, Any]) -> str:
+    """The monitor a wiring entry reads: its element or slices, as one comparable text."""
+    return json.dumps([entry.get("element"), entry.get("slices")], sort_keys=True)
+
+
 def _trajectory_files(
     inputs: ViewInputs, record: Mapping[str, Any], hcor: Sequence[str], vcor: Sequence[str]
 ) -> dict[str, str]:
@@ -974,12 +986,18 @@ def _trajectory_files(
     settings, each corrector stepped by the hardware width whose kick-angle
     span is the measurement file's ``corrector_delta``. The matrix is hardware
     reading per hardware setpoint, a row per turn-by-turn reading and a column
-    per corrector, each named by its channel address. A corrector whose step
-    has no solve on the model, its kick losing the launched particle, keeps
-    its column as a column of zeros. The sidecar holds the lattice index of
-    every row (``bpm_index``) and of every column (``hcor_index`` then
-    ``vcor_index``), and each unsolved corrector mapped to the engine's text
-    (``unsolved``).
+    per corrector, each named by its channel address. The rows are the ``x``
+    readings, then the ``y`` readings of the same monitors in the same order,
+    each half at strictly increasing lattice indices; the columns are the
+    horizontal correctors, then the vertical ones, each plane in lattice
+    order, a tie kept in the order asked. Every index is the engine's,
+    counted from the injection marker along the lattice rotated to it. A
+    corrector whose step has no solve on the model, its kick losing the
+    launched particle, keeps its column as a column of zeros. The sidecar
+    holds the lattice index of every row (``bpm_index``), the sum reading of
+    every row's monitor (``sum_names``), the lattice index of every column
+    (``hcorr_index`` then ``vcorr_index``), and each unsolved corrector mapped
+    to the engine's text (``unsolved``).
 
     Args:
         inputs: The render's view inputs.
@@ -996,7 +1014,10 @@ def _trajectory_files(
             ``response_matrix()``, refuses the response, answers it with no
             corrector solved, or answers one that is not a finite matrix of
             the correctors asked for with a plane and an index for every row
-            and column; ``value-invalid``: a corrector's calibration gives no
+            and column; answers ``x`` and ``y`` rows that do not read the same
+            monitors in the same order, or a half whose indices do not
+            increase strictly; or reads a monitor the model wires no sum
+            series on; ``value-invalid``: a corrector's calibration gives no
             hardware step.
     """
     from importlib import metadata
@@ -1102,32 +1123,76 @@ def _trajectory_files(
         raise unanswered(f"no index for {', '.join(missing)}")
     if not all(math.isfinite(value) for row in solved for value in row):
         raise unanswered("a value that is not finite")
-    at = {column: place for place, column in enumerate(columns)}
-    values = [
-        [row[at[corrector]] if corrector in at else 0.0 for corrector in correctors]
-        for row in solved
-    ]
-    indices: dict[str, Any] = {
-        "bpm_index": [index[row] for row in rows],
-        "hcor_index": [index[corrector] for corrector in hcor],
-        "vcor_index": [index[corrector] for corrector in vcor],
-        "unsolved": unsolved,
-    }
     row_planes: list[str] = []
     for row in rows:
         plane = (by_address.get(row) or {}).get("plane")
         if plane not in PLANE_WORDS:
             raise unanswered(f"row {row}, which the model wires in no transverse plane")
         row_planes.append(PLANE_WORDS[plane])
+    across = [row for row, plane in zip(rows, row_planes, strict=True) if plane == "H"]
+    up = [row for row, plane in zip(rows, row_planes, strict=True) if plane == "V"]
+    if rows != [*across, *up] or [_monitor(by_address[row]) for row in across] != [
+        _monitor(by_address[row]) for row in up
+    ]:
+        raise stop(
+            "engine-invalid",
+            f"engine {engine_name} answers {asked} for model {model} with x rows "
+            f"{', '.join(across) or 'none'} and y rows {', '.join(up) or 'none'}, which do "
+            "not read the same monitors in the same order",
+            "wire every monitor the response reads with one x and one y turn series",
+        )
+    for half in (across, up):
+        places = [index[row] for row in half]
+        if any(later <= earlier for earlier, later in zip(places, places[1:], strict=False)):
+            raise stop(
+                "engine-invalid",
+                f"engine {engine_name} answers {asked} for model {model} with rows "
+                f"{', '.join(half)} at indices {', '.join(map(str, places))}, which do not "
+                "increase strictly",
+                f"make {_RESPONSE_FUNCTION}() answer each plane's rows in lattice order from "
+                "the injection, one monitor per element",
+            )
+    sums: dict[str, str] = {}
+    for entry in wiring:
+        if entry.get("role") == _TURN_SERIES and entry.get("plane") is None:
+            monitor = _monitor(entry)
+            if monitor != _NO_MONITOR:
+                sums.setdefault(monitor, str(entry["address"]))
+    sum_names: list[str] = []
+    for row in rows:
+        name = sums.get(_monitor(by_address[row]))
+        if name is None:
+            raise stop(
+                "engine-invalid",
+                f"row {row} of model {model}'s {asked} reads a monitor the model wires no "
+                "sum series on",
+                "wire a sum turn series on every monitor the response reads",
+            )
+        sum_names.append(name)
+    # The asked order keys the solve and the column check; the files are in lattice order.
+    across_correctors = sorted(hcor, key=lambda corrector: index[corrector])
+    up_correctors = sorted(vcor, key=lambda corrector: index[corrector])
+    ordered = [*across_correctors, *up_correctors]
+    at = {column: place for place, column in enumerate(columns)}
+    values = [
+        [row[at[corrector]] if corrector in at else 0.0 for corrector in ordered] for row in solved
+    ]
+    indices: dict[str, Any] = {
+        "bpm_index": [index[row] for row in rows],
+        "sum_names": sum_names,
+        "hcorr_index": [index[corrector] for corrector in across_correctors],
+        "vcorr_index": [index[corrector] for corrector in up_correctors],
+        "unsolved": unsolved,
+    }
     body = {
         "type": ORBIT_RESPONSE_MATRIX_DATA_TYPE,
         "matrix": values,
         "observable_names": rows,
-        "variable_names": correctors,
+        "variable_names": ordered,
         "observable_planes": row_planes,
         "variable_planes": [
-            *(PLANE_WORDS["x"] for _ in indices["hcor_index"]),
-            *(PLANE_WORDS["y"] for _ in indices["vcor_index"]),
+            *(PLANE_WORDS["x"] for _ in across_correctors),
+            *(PLANE_WORDS["y"] for _ in up_correctors),
         ],
     }
     return {
