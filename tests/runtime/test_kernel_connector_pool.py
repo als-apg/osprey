@@ -4,9 +4,9 @@ A kernel is re-stamped from the deployment's record before every cell, so its
 stamp moves under it when the control target is switched. A Channel Access
 client keeps the first context it created in a process, so a connector rebuilt
 in the same process after a switch reports the new target while it still
-reaches the old one's server. These tests pin the fix: a process that opted in
-(:func:`osprey.runtime._route_connector_through_pool`) on a deployment that can
-switch is served each stamp by a connector-host child of its own.
+reaches the old one's server. These tests pin the fix: every process that opted
+in (:func:`osprey.runtime._route_connector_through_pool`) is served each stamp by
+a connector-host child of its own, whatever shape the deployment has.
 
 The failure shape is reproduced first with a fake whose servers name themselves,
 so the regression below cannot pass vacuously. No Channel Access server and no
@@ -45,6 +45,12 @@ SWITCHABLE = {
 
 #: A deployment with one target, which cannot switch.
 SINGLE = {"type": "epics", "connector": {"epics": {"server": "epics-server"}}}
+
+#: A deployment serving the simulator in process; its baseline target is ``va``.
+IN_PROCESS = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process", "server": "va-server"}},
+}
 
 
 def _serve(monkeypatch, section: dict[str, Any]) -> None:
@@ -399,16 +405,69 @@ class TestTheKernelPool:
 
         assert fake_pool == []
 
-    @pytest.mark.usefixtures("in_process_registry")
-    def test_a_deployment_that_cannot_switch_builds_in_process(self, monkeypatch):
-        _serve(monkeypatch, SINGLE)
+    @pytest.mark.parametrize(
+        "section",
+        [
+            SINGLE,
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"server": "va-server"}},
+            },
+            {"type": "live_standin", "connector": {"live_standin": {"server": "standin-server"}}},
+            IN_PROCESS,
+        ],
+        ids=["epics", "va-served", "standin", "in-process"],
+    )
+    def test_a_single_target_deployment_is_served_by_the_pool(
+        self, monkeypatch, fake_pool, section
+    ):
+        _serve(monkeypatch, section)
         runtime._route_connector_through_pool()
 
-        assert runtime.read_channel("SR:X") == "epics-server/SR:X"
+        runtime.read_channel("SR:X")
 
-        assert isinstance(runtime._runtime_connector, _FirstContextConnector)
+        (pool,) = fake_pool
+        assert pool.asked == [(baseline_target(section), None)]
+        assert runtime._runtime_connector is pool.handles[0]
+
+    def test_an_in_process_deployment_beside_a_real_block_asks_for_va_never_live(
+        self, monkeypatch, fake_pool
+    ):
+        section = {
+            **IN_PROCESS,
+            "connector": {**IN_PROCESS["connector"], "epics": {"server": "epics-server"}},
+        }
+        _serve(monkeypatch, section)
+        runtime._route_connector_through_pool()
+
+        assert runtime.read_channel("SR:X") == "va-server/SR:X"
+
+        assert fake_pool[0].asked == [("va", None)]
+
+    def test_an_unreadable_section_raises_in_the_cell(self, monkeypatch, fake_pool):
+        from osprey_connectors.factory import ConnectorFactory
+
+        class SectionUnreadable(Exception):
+            pass
+
+        class InProcessBuild(Exception):
+            pass
+
+        def get_config_value(path, _default=None, _config_path=None):
+            raise SectionUnreadable(path)
+
+        async def in_process_build(*args, **kwargs):
+            raise InProcessBuild
+
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+        monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", in_process_build)
+        runtime._route_connector_through_pool()
+
+        with pytest.raises(SectionUnreadable):
+            runtime.read_channel("SR:X")
+
+        assert fake_pool == []
         assert runtime._connector_pool is None
-        assert runtime._pool_loop is None
 
 
 class TestPooledWrites:
@@ -577,3 +636,30 @@ class TestRealChildren:
 
         assert not _alive(second_pid)
         assert runtime._connector_pool is None
+
+    def test_an_in_process_deployment_reads_through_a_real_child(
+        self, monkeypatch, tmp_path, pool_view
+    ):
+        section = {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": in_process_config(pool_view)},
+        }
+        config = tmp_path / "config.yml"
+        config.write_text(yaml.safe_dump({"control_system": section}))
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+        _serve(monkeypatch, section)
+        runtime._route_connector_through_pool()
+
+        try:
+            value = inside_a_running_loop(lambda: runtime.read_channel("SR:DCCT", timeout=10))
+            assert value is not None
+            pool = runtime._connector_pool
+            assert list(pool.pids()) == [("va", None)]
+            pid = runtime._runtime_connector.pid
+        finally:
+            asyncio.run(runtime.cleanup_runtime())
+
+        assert not _alive(pid)

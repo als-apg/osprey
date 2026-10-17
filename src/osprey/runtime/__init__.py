@@ -57,12 +57,11 @@ Control Target:
 
     A notebook kernel is the one process that outlives a switch, so it is the
     one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
-    stamp from the deployment's record before every cell. On a deployment that
-    can switch, the kernel takes its connector from a
-    :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so each stamp is
-    served by a connector-host child of its own: a moved stamp stops the child
-    in hand and selects a fresh one, and the kernel never holds a control-system
-    client itself. A cell the kernel could route nowhere at all is refused by
+    stamp from the deployment's record before every cell. Every kernel takes its
+    connector from a :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so
+    each stamp is served by a connector-host child of its own: a moved stamp
+    stops the child in hand and selects a fresh one, and the kernel never holds
+    a control-system client itself. A cell the kernel could route nowhere at all is refused by
     :func:`_get_connector` on its first control-system call.
 """
 
@@ -185,8 +184,8 @@ _runtime_connector: Any | None = None
 #: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
 _connector_stamp: tuple[str | None, int | None] | None = None
 _connector_lock = asyncio.Lock()
-#: Whether this process takes its connector from a connector-host pool when the
-#: deployment can switch. Set only by :func:`_route_connector_through_pool`.
+#: Whether this process takes its connector from a connector-host pool. Set only
+#: by :func:`_route_connector_through_pool`.
 _pool_routing = False
 #: The pool an opted-in process draws its connector from, built on first need.
 _connector_pool: Any | None = None
@@ -247,9 +246,8 @@ def _route_connector_through_pool() -> None:
 
     For a process whose stamp moves under it: one connector-host child serves
     each stamp, so a switch never re-points a client library that is already
-    bound to the old target in this address space. It applies only where the
-    deployment can switch (:func:`~osprey_connectors.types.switch_capable`); a
-    deployment with one target builds its connector in process as before.
+    bound to the old target in this address space, and the process itself
+    holds no control-system client on any deployment.
 
     The pooled connector is driven from one event loop for the life of the
     process, and :data:`_limits_validator` is never set where this is called,
@@ -262,16 +260,8 @@ def _route_connector_through_pool() -> None:
 
 
 def _pool_mode() -> bool:
-    """Whether this process's connector comes from the pool. Never raises."""
-    if not _pool_routing:
-        return False
-    try:
-        from osprey_connectors.types import switch_capable
-
-        return switch_capable(_control_system_section())
-    except Exception:
-        logger.debug("Control system section unreadable; building in process", exc_info=True)
-        return False
+    """Whether this process's connector comes from the pool: every process routed through it."""
+    return _pool_routing
 
 
 def _pool_event_loop() -> asyncio.AbstractEventLoop:
@@ -292,7 +282,8 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     """The pool's connector for *target*, building the pool on first need.
 
     An unstamped cell is served the deployment's baseline target, the machine
-    it would read with no switch made. The lock must be held already.
+    it would read with no switch made: ``va`` on a deployment serving the
+    simulator in process. The lock must be held already.
     """
     global _connector_pool
 
@@ -457,7 +448,7 @@ async def _get_connector():
     (:func:`_route_connector_through_pool`) that stops the stamp's child, and
     the next connector is a fresh child's; the launch pin is part of the
     comparison there, because a child selects its gateway on the posture it was
-    spawned with. Anywhere else the connector is rebuilt in process. The
+    spawned with. Only an unrouted process rebuilds its connector in process. The
     disconnect goes through :func:`_disconnect_locked` because
     ``_connector_lock`` is already held here and is not reentrant.
 
@@ -484,13 +475,15 @@ async def _get_connector():
             logger.debug("Control target moved to %s; replacing the connector", stamp)
             await _disconnect_locked()
 
-        if _runtime_connector is None and pooled:
-            _runtime_connector = await _pooled_connector_locked(stamp[0])
-            _connector_stamp = stamp
-            _connector_launch_pin = launch_pin
+        if pooled:
+            if _runtime_connector is None:
+                _runtime_connector = await _pooled_connector_locked(stamp[0])
+                _connector_stamp = stamp
+                _connector_launch_pin = launch_pin
+            return _runtime_connector
 
         if _runtime_connector is None:
-            from osprey.connectors.factory import ConnectorFactory
+            from osprey_connectors.factory import ConnectorFactory
 
             config = _target_connector_config()
             if config is None:
