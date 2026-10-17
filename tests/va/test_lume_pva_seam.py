@@ -810,11 +810,16 @@ def _ca(address: str) -> dict[str, Any]:
 
 
 def _ca_text(address: str) -> str:
-    """A string channel's text, read once over CA."""
+    """A string channel's text, read once over CA.
+
+    The server serves a string variable as a char array, so its text is the
+    array read as a NUL-terminated string (``DBR_CHAR_STR``); a ``DBR_STRING``
+    read of it answers one number per character.
+    """
     import aioca
 
     text = _on_ca_loop(
-        aioca.caget(address, datatype=aioca.DBR_STRING, timeout=CA_TIMEOUT_S, throw=False)
+        aioca.caget(address, datatype=aioca.DBR_CHAR_STR, timeout=CA_TIMEOUT_S, throw=False)
     )
     assert text.ok, f"{address} returned nothing over CA"
     return str(text)
