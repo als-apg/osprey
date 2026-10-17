@@ -826,19 +826,21 @@ def test_an_over_cap_load_full_is_a_non_200_naming_the_error_never_a_partial_200
         f"arrayStringConcat(arrayMap(i -> repeat('x', {piece}), range({cap // piece + 2}))), "
         f"map('osprey.user', '{ALICE}'), map('session.id', '{session}', 'event.name', 'assistant_response')"
     )
-    ts, body_hash = (
-        _sql(
-            "SELECT toString(Timestamp), cityHash64(Body) FROM telemetry.otel_logs "
-            f"WHERE User = '{ALICE}' AND SessionId = '{session}'"
+    view = accounts.person_view_user(ALICE)
+    # The page's "load full" link carries a conversation row's key.
+    (row,) = _rows(
+        _contract(
+            stack,
+            view,
+            "conversation",
+            {"user": ALICE, "session": session, "after_ts": queries.FIRST_CURSOR, "after_hash": 0},
         )
-        .strip()
-        .split("\t")
     )
     response = _contract(
         stack,
-        accounts.person_view_user(ALICE),
+        view,
         "load_full_log",
-        {"user": ALICE, "session": session, "ts": ts, "body_hash": body_hash},
+        {"user": ALICE, "session": session, "ts": row["Timestamp"], "body_hash": row["body_hash"]},
     )
     assert response.status_code != 200, (
         f"an over-cap row came back as 200 with {len(response.content)} bytes"

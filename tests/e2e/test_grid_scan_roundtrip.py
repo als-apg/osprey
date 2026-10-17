@@ -61,7 +61,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -161,7 +161,7 @@ def deployed_grid_scan_stack(
     # the orm plan, grid_scan doesn't sweep every named corrector against
     # every named detector, so there is no benefit to _orm_stack's usual
     # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
-    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=1, model=model)
 
@@ -317,7 +317,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         f"the commanded grid points {commanded} are not {NUM_POINTS} distinct values"
     )
     readback = deployed_grid_scan_stack.corrector_readback
-    band = _orm_stack.repo_view(deployed_grid_scan_stack.repo).motion_envelope(readback)
+    band = _facility_select.repo_view(deployed_grid_scan_stack.repo).motion_envelope(readback)
     visits = list(zip(commanded, corrector_values, strict=True))
     missed = [(point, read, band) for point, read in visits if abs(read - point) > band]
     assert not missed, (

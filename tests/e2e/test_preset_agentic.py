@@ -31,8 +31,8 @@ import yaml
 
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_credentials as creds
+from tests.e2e._facility_select import bounded_setpoint, repo_view, seeded_readback
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.hello_world_channels import READ_CHANNEL, WRITE_CHANNEL, WRITE_VALUE
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -149,8 +149,9 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     """
     repo = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
+    channel = seeded_readback(repo_view(repo))
     query = (
-        f"Use the controls MCP server to read the channel named '{READ_CHANNEL}' "
+        f"Use the controls MCP server to read the channel named '{channel}' "
         "and report its current value."
     )
     result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
@@ -216,14 +217,15 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     """
     repo = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
     enable_writes_in_project(repo)
+    channel, value = bounded_setpoint(repo_view(repo))
     await _assert_approval_hook_fires(
         repo,
         # Directive prompt: explicit tool name so the agent commits to the write
         # path on its first turn instead of dithering with reads or refusals.
         # The channel holds a limits record whose band contains the value, so the
         # limits hook (ahead of approval in the PreToolUse chain) passes it on.
-        f"Use the mcp__controls__channel_write tool to write the value {WRITE_VALUE} "
-        f"to the channel '{WRITE_CHANNEL}'.",
+        f"Use the mcp__controls__channel_write tool to write the value {value} "
+        f"to the channel '{channel}'.",
         expected_write_tool="mcp__controls__channel_write",
     )
 
@@ -234,6 +236,7 @@ async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) ->
     """Control-assistant write probe: same contract on the heavier preset."""
     repo = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
     enable_writes_in_project(repo)
+    channel, value = bounded_setpoint(repo_view(repo))
     await _assert_approval_hook_fires(
         repo,
         # Directive prompt: explicit tool name + concrete channel address so the
@@ -242,10 +245,10 @@ async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) ->
         # of the approval hook in the PreToolUse chain, and its deny on a
         # read-only channel short-circuits the chain before approval ever runs
         # (correct safety behavior — but then this test observes no hook events).
-        # BTS:MAG:HCM:01:CURRENT:SP is a setpoint the view holds no record for,
-        # which the preset's optional limits mode writes as is.
-        "Use the mcp__controls__channel_write tool to write the value 0.0 to "
-        "the channel 'BTS:MAG:HCM:01:CURRENT:SP'.",
+        # The channel is a bounded writable setpoint and the value lies inside its
+        # band, so the limits hook passes it on.
+        f"Use the mcp__controls__channel_write tool to write the value {value} to "
+        f"the channel '{channel}'.",
         expected_write_tool="mcp__controls__channel_write",
     )
 

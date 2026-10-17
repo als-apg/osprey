@@ -93,7 +93,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -490,7 +490,7 @@ def deployed_sandbox_stack(
     # The escape target is one of the staged devices -- it has to be IN the
     # worker's namespace for the refusal under test to be the limits facade
     # refusing a legal device, not the worker rejecting an unknown name.
-    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=CORRECTOR_COUNT, model=model)
     bpms = _orm_stack.select_bpms(repo, count=BPM_COUNT, model=model)
     escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]

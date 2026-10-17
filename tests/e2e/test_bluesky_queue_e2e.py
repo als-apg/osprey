@@ -145,7 +145,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_EXECUTABLE,
 )
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
-from tests.e2e import _orm_stack
+from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -234,25 +234,28 @@ DRAIN_TIMEOUT_SEC = 900.0
 # show up on the read surface (proxy hop + the dispatcher's poll).
 DOC_PLANE_ARRIVAL_TIMEOUT_SEC = 45.0
 
-# Grid sizes, calibrated against the real VA rather than guessed: a
-# connector-mediated grid_scan on this stack runs at ~18 points/second
-# (measured: 2000 points in 112 s). That number is what these three constants
-# are for.
+# Grid sizes, calibrated against the real VA rather than guessed. One
+# connector-mediated grid_scan point costs one VA publishing pass over every
+# served channel: 0.33-0.67 s per point on the CI runner (measured: 604 points
+# in 201-407 s). A lighter VA reaches 18 points/second, the fast end. Each
+# constant holds at both ends of that range.
 #
-#   SHORT          — drains in well under a second; used wherever only the
-#                    fact of a completed run matters.
+#   SHORT          — drains in seconds; used wherever only the fact of a
+#                    completed run matters.
 #   LIVE_SAMPLE    — must stay under way for TENS of seconds so ~1 s polling
 #                    can actually observe rows accumulating. At 12 points the
 #                    whole run finished between two polls and stage 3 failed
-#                    for a sampling artifact, not a product fault; 600 points
-#                    is ~34 s, i.e. ~30 samples.
+#                    for a sampling artifact, not a product fault. 300 points
+#                    run at least ~17 s at the fast end and at most ~200 s at
+#                    the slow end, under half of RUN_TIMEOUT_SEC.
 #   LONG           — must still be running when stage 6 aborts it, with room
-#                    for the abort's own pause-poll composition. ~4 minutes.
+#                    for the abort's own pause-poll composition. At least
+#                    ~220 s at the fast end; a slower pace only adds margin.
 #
 # All three sweep a narrow band inside the corrector's own channel_limits,
 # derived from the built project (never a hardcoded channel).
 SHORT_POINTS = 4
-LIVE_SAMPLE_POINTS = 600
+LIVE_SAMPLE_POINTS = 300
 LONG_POINTS = 4000
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
@@ -927,7 +930,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # the answer is about the channels these containers serve, and a
         # deployment harvested from a facility export wires an entirely
         # different set.
-        modelled = _orm_stack.claimed_addresses(_orm_stack.repo_view(repo))
+        modelled = _facility_select.claimed_addresses(_facility_select.repo_view(repo))
         correctors = {name: pair for name, pair in correctors.items() if pair[0] in modelled}
         bpms = {name: pv for name, pv in bpms.items() if pv in modelled}
         assert correctors, "the build staged no modelled settable device -- nothing to drive"
@@ -1794,9 +1797,10 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
             assert analysis["points"] == data["row_count"]
             assert analysis["channels"], f"an available analysis with no channels: {analysis}"
 
-    # The long run is the positive control: 600 clean points, one declared
-    # movable and one declared readable is exactly the shape the analysis is
-    # for, so an absent one here is a real gap rather than an honest refusal.
+    # The long run is the positive control: LIVE_SAMPLE_POINTS clean points,
+    # one declared movable and one declared readable is exactly the shape the
+    # analysis is for, so an absent one here is a real gap rather than an
+    # honest refusal.
     live_analysis = _analysis_of(_get(f"/runs/{_S.run_live}/data?max_rows=1000")[1])
     assert live_analysis["available"] is True, (
         f"the analysis is absent for a completed single-axis run: {live_analysis}"

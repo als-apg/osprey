@@ -11,5 +11,5 @@ FROM telemetry.otel_logs
 WHERE User = {user:String}
     AND SessionId = {session:String}
     AND Timestamp = {ts:DateTime64(9)}
-    AND cityHash64(Body) = {body_hash:UInt64}
+    AND cityHash64(Body, toJSONString(LogAttributes)) = {body_hash:UInt64}
 LIMIT 1

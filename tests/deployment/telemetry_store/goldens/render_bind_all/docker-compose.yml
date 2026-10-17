@@ -18,10 +18,7 @@ services:
     env_file:
       - .env.telemetry-admin
     mem_limit: 2147483648
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
+    # No ulimits: the store raises its open-file limit to the runtime's own ceiling.
     # Loopback only, whatever deployment.bind_address says: remote readers
     # reach the store through the readers' origin, never this port.
     ports:

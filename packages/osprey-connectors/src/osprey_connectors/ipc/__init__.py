@@ -9,6 +9,7 @@ that codec uses, so a failure crosses the boundary with its fields intact.
 
 from osprey_connectors.ipc.exceptions import (
     CHANNEL_LIMITS_VIOLATION_FIELDS,
+    CHANNEL_NOT_FOUND_FIELDS,
     CHANNEL_WRITE_BLOCKED_FIELDS,
     EXCEPTION_SPECS,
     ExceptionSpec,
@@ -33,6 +34,7 @@ from osprey_connectors.ipc.frames import (
 
 __all__ = [
     "CHANNEL_LIMITS_VIOLATION_FIELDS",
+    "CHANNEL_NOT_FOUND_FIELDS",
     "CHANNEL_WRITE_BLOCKED_FIELDS",
     "EXCEPTION_SPECS",
     "ErrorFrame",

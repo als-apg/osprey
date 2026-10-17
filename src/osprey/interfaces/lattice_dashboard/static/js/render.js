@@ -94,8 +94,10 @@ export function hideSpinner(name) {
 // ── Figure Error ────────────────────────────────────────
 
 /**
+ * Show that a figure's computation failed; the error text is shown beneath
+ * the headline only when one is known.
  * @param {string} name
- * @param {string} error
+ * @param {string | null} error
  */
 export function showFigureError(name, error) {
   const plotEl = document.getElementById(`plot-${name}`);
@@ -120,10 +122,12 @@ export function showFigureError(name, error) {
   msgDiv.textContent = 'Computation failed';
   errorEl.appendChild(msgDiv);
 
-  const detailDiv = document.createElement('div');
-  detailDiv.className = 'figure-error-msg';
-  detailDiv.textContent = error.slice(0, 200);
-  errorEl.appendChild(detailDiv);
+  if (error) {
+    const detailDiv = document.createElement('div');
+    detailDiv.className = 'figure-error-msg';
+    detailDiv.textContent = error.slice(0, 200);
+    errorEl.appendChild(detailDiv);
+  }
 
   plotEl.appendChild(errorEl);
 }

@@ -2290,11 +2290,11 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
     """
     from click.testing import CliRunner
 
-    from tests.e2e import _orm_stack
+    from tests.e2e import _facility_select, _orm_stack
 
     repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
 
-    setpoint, readback, model = _orm_stack.bounded_corrector(repo)
+    setpoint, readback, model = _facility_select.bounded_corrector(repo)
     entry = _orm_stack.channel_limits(repo)[setpoint]
     assert float(entry["min_value"]) < float(entry["max_value"]), entry
     assert _orm_stack.select_correctors(repo, count=None, model=model)[setpoint] == (
@@ -2304,7 +2304,7 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
 
     bpms = _orm_stack.select_bpms(repo, count=None, model=model)
     assert bpms, f"model {model} serves no monitor the worker registered"
-    view = _orm_stack.repo_view(repo)
+    view = _facility_select.repo_view(repo)
     model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
@@ -2321,11 +2321,11 @@ def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
 
     from osprey_connectors.simulation.composite import Composite, WriteRefusedError
     from osprey_connectors.simulation.view import SimulatorView
-    from tests.e2e import _orm_stack, test_orm_roundtrip
+    from tests.e2e import _facility_select, _orm_stack, test_orm_roundtrip
 
     repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
 
-    model = _orm_stack.bounded_corrector(repo)[2]
+    model = _facility_select.bounded_corrector(repo)[2]
     correctors = _orm_stack.select_correctors(repo, test_orm_roundtrip.CORRECTOR_COUNT, model=model)
     composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
     for setpoint in sorted(correctors):

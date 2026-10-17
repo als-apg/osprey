@@ -39,11 +39,14 @@ const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', '
 const SINGLE_PASS_409 = { status: 'unavailable', reason: 'not available for a single-pass model' };
 
 
-/** GET /api/models as the server lists it: served models first. */
+/**
+ * GET /api/models as the server lists it: served models first.
+ * @type {import('../../../src/osprey/interfaces/lattice_dashboard/static/js/models.js').ModelEntry[]}
+ */
 const MODELS = [
-  { name: 'main', served: true, solve: 'periodic', selected: true },
-  { name: 'transfer', served: true, solve: 'single_pass', selected: false },
-  { name: 'spare', served: false, solve: 'periodic', selected: false },
+  { name: 'main', served: true, solve: 'periodic', selected: true, error: null },
+  { name: 'transfer', served: true, solve: 'single_pass', selected: false, error: null },
+  { name: 'spare', served: false, solve: 'periodic', selected: false, error: null },
 ];
 
 /**
@@ -385,6 +388,18 @@ describe('notice banner', () => {
     };
 
     expect(selectionNotice(state)).toBe('main did not load: ValueError: no deck');
+  });
+
+  test('a model that failed with no known error says only that it did not load', () => {
+    const state = { notice: null, selection: { model: 'main', status: 'failed', error: null } };
+
+    expect(selectionNotice(state)).toBe('main did not load');
+  });
+
+  test('a failed pick with no model and no error says no model loaded', () => {
+    const state = { notice: null, selection: { model: null, status: 'failed', error: null } };
+
+    expect(selectionNotice(state)).toBe('No model loaded');
   });
 
   test('the build notice wins over a selection error', () => {

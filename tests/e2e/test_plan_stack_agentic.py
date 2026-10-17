@@ -158,7 +158,7 @@ from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
@@ -3151,7 +3151,7 @@ class DeployedScanStack:
     a wired corrector and read a wired monitor checks against all of them.
 
     ``named`` is the ``(setpoint, model)`` of the corrector a limits record
-    bounds (``_orm_stack.bounded_corrector``), the one device a prompt or a
+    bounds (``_facility_select.bounded_corrector``), the one device a prompt or a
     protocol-side plan names when it depends on a range. ``named_bpms`` are
     that model's monitors, the readings that respond to it.
     """
@@ -3218,8 +3218,8 @@ def _describe_queue_deployment(repo: Path) -> None:
     bounded = next(
         (
             address
-            for address in sorted(_orm_stack.corrector_addresses(view))
-            if _orm_stack.has_band(limits.get(address))
+            for address in sorted(_facility_select.corrector_addresses(view))
+            if view.channel(address).value_range is not None
         ),
         None,
     )
@@ -3295,7 +3295,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # what the liveness and hysteresis floors mean by "wired".
     correctors = _orm_stack.select_correctors(repo, count=None, model=None)
     bpms = _orm_stack.select_bpms(repo, count=None, model=None)
-    named_setpoint, _named_readback, named_model = _orm_stack.bounded_corrector(repo)
+    named_setpoint, _named_readback, named_model = _facility_select.bounded_corrector(repo)
     named_bpms = list(_orm_stack.select_bpms(repo, count=None, model=named_model))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
@@ -4318,32 +4318,35 @@ async def test_starting_a_queued_scan_costs_one_approval_per_plan_version(
 # so the agent's task begins where an operator's would: something is moving.
 # ---------------------------------------------------------------------------
 
-#: Points for the plan the abort test starts and the agent must stop. Sized
-#: against the measured VA pace (~18 points/s — see the grid-size calibration
-#: in test_bluesky_queue_e2e.py): ~7 minutes of running plan. That has to
-#: outlive SDK session startup plus the discovery turns between "stop it now"
-#: and the agent's abort — the queue e2e aborts its 4000-point plan within
-#: seconds over raw HTTP, but an agent needs minutes, so this one is double.
-#: If the plan completes before the abort lands, the floor fails as an
-#: AssertionError and ``flaky`` retries against a fresh plan.
+#: Points for the plan the abort test starts and the agent must stop. The
+#: bound that matters is the FASTEST pace a grid_scan point reaches on this
+#: stack shape (18 points/s, see the grid-size calibration in
+#: test_bluesky_queue_e2e.py): even there the plan runs ~7 minutes, which has
+#: to outlive SDK session startup plus the discovery turns between "stop it
+#: now" and the agent's abort. At the served VA's slower per-point pace it runs
+#: far longer, which only widens the abort window. The queue e2e aborts its
+#: 4000-point plan within seconds over raw HTTP, but an agent needs minutes,
+#: so this one is double. If the plan completes before the abort lands, the
+#: floor fails as an AssertionError and ``flaky`` retries against a fresh plan.
 ABORT_PLAN_POINTS = 8000
 
-#: Points for the re-arm twin's SETUP plan. This one is aborted by the test
-#: itself over raw HTTP within seconds of the run reporting ``running``, so
-#: it only has to outlive the abort's own pause-poll composition (~10 s) —
-#: and the agent's restart then re-runs the SAME plan to completion inside
-#: ``REARM_RUN_TIMEOUT_SEC``. A sweep of a storage-ring corrector runs at
-#: about 2 points/s on a CI runner, so the restart takes about 150 s, under
-#: half the wait, and the setup plan outlives the abort even at many times
-#: that pace.
+#: Points for the re-arm twin's SETUP plan, bounded at both ends of the
+#: measured grid_scan pace on this stack shape (18 points/s fast, 0.67 s per
+#: point slow; see the grid-size calibration in test_bluesky_queue_e2e.py).
+#: Lower bound: the test aborts this plan itself over raw HTTP, and the abort
+#: lands ~1.5 s after the run reports ``running`` (running, pausing, aborting),
+#: so even at the fastest pace the plan must still be running then; 300 points
+#: is ~17 s there. Upper bound: the agent's restart re-runs the SAME plan to
+#: completion inside REARM_RUN_TIMEOUT_SEC, so at the slowest pace it must
+#: take at most half that budget; 300 points is ~200 s there.
 REARM_PLAN_POINTS = 300
 
 #: How long a protocol-started plan may take to reach ``running`` — covers
 #: the manager handing the item to the worker, not the plan's own duration.
 RUNNING_WAIT_TIMEOUT_SEC = 180.0
 
-#: Budget for the restarted plan to complete, matching the per-plan
-#: wall-clock budget test_bluesky_queue_e2e.py uses on this same stack shape.
+#: Budget for the restarted plan to complete: at least twice what
+#: REARM_PLAN_POINTS takes at the slowest measured pace.
 REARM_RUN_TIMEOUT_SEC = 420.0
 
 #: Client id for the draft operations this module performs protocol-side.
@@ -4359,10 +4362,10 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     band.
 
     The axis is the corrector a limits record bounds
-    (``_orm_stack.bounded_corrector``), and the readback a monitor of that
+    (``_facility_select.bounded_corrector``), and the readback a monitor of that
     corrector's own model, the readings that respond to it.
     """
-    axis_name, _readback, _model = _orm_stack.bounded_corrector(stack.repo)
+    axis_name, _readback, _model = _facility_select.bounded_corrector(stack.repo)
     entry = _orm_stack.channel_limits(stack.repo)[axis_name]
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {

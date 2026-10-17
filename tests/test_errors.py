@@ -16,7 +16,7 @@ class TestChannelWriteBlockedError:
         assert err.channel_address == "RING:MAG:PS:SP"
         assert err.reason == "WRITES_DISABLED"
         assert str(err) == (
-            "Write to 'RING:MAG:PS:SP' refused by reference monitor (WRITES_DISABLED)"
+            "Write to 'RING:MAG:PS:SP' refused by the reference monitor (WRITES_DISABLED)"
         )
 
     def test_custom_message(self):
@@ -43,6 +43,14 @@ class TestChannelWriteBlockedError:
         # Constructor does not validate against _VALID_REASONS (permissive by design).
         err = ChannelWriteBlockedError("chan", "SOMETHING_ELSE")
         assert err.reason == "SOMETHING_ELSE"
+        assert str(err) == "Write to 'chan' refused (SOMETHING_ELSE)"
+
+    def test_every_reason_has_a_refuser_entry(self):
+        assert tuple(ChannelWriteBlockedError._REFUSERS) == ChannelWriteBlockedError._VALID_REASONS
+
+    def test_unknown_reason_names_no_refuser(self):
+        assert ChannelWriteBlockedError.refuser("SOMETHING_ELSE") is None
+        assert ChannelWriteBlockedError.refuser(None) is None
 
 
 class TestChannelNotFoundError:

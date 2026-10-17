@@ -283,8 +283,7 @@ class ChannelWriteResult:
     channel_address: str  # Channel that was written
     value_written: Any  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
-    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" | "CONTROL_SYSTEM_REFUSED"
-    # | "CHANNEL_NOT_FOUND" when refused, else None
+    # One of ``ChannelWriteBlockedError._VALID_REASONS`` when refused, else None
     refusal_reason: str | None = None
     error_message: str | None = None  # Set iff refused, failed or unconfirmed
     observed_value: Any = None  # What the confirming re-read returned
@@ -825,9 +824,8 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
 
     Raises:
         ChannelWriteBlockedError: The outcome is ``refused``: no value was
-            written, and ``refusal_reason`` names the policy that refused —
-            the monitor on posture, limits or validation grounds, or the
-            control system itself (``CONTROL_SYSTEM_REFUSED``).
+            written. ``refusal_reason`` names why;
+            :meth:`ChannelWriteBlockedError.refuser` says who refused.
         ChannelWriteFailedError: The value was sent and the write did not come
             back confirmed — ``failed``, ``mismatch`` or ``unconfirmed``, each
             raising under its own word. The exception carries the outcome, the
@@ -839,7 +837,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
     if result.outcome is WriteOutcome.REFUSED:
         raise ChannelWriteBlockedError(
             result.channel_address,
-            result.refusal_reason or "WRITES_DISABLED",
+            result.refusal_reason,
             message=result.error_message,
         )
     if result.outcome in _PROCEEDABLE_OUTCOMES:

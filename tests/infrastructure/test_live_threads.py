@@ -1,4 +1,4 @@
-"""The end-of-run report that names what keeps a finished pytest process alive.
+"""The exit report that names what keeps a finished pytest process alive.
 
 Every thread or process a test here starts is released and joined in a
 ``finally``, so none of them outlives its test and shows up in the report this
@@ -10,6 +10,8 @@ fresh interpreter.
 
 from __future__ import annotations
 
+import atexit
+import gc
 import io
 import multiprocessing
 import os
@@ -23,14 +25,15 @@ from pathlib import Path
 import pytest
 
 from tests import _live_threads
-from tests._live_threads import report_live_threads
-from tests._nested_pytest import run_nested_pytest
+from tests._live_threads import (
+    arm_exit_watch,
+    final_collection,
+    registered_exit_callbacks,
+    report_live_threads,
+)
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-
-#: Keys of the outer run that must not reach an inner pytest: its worker id,
-#: its diagnostics directory, and any options it was started with.
-_OUTER_RUN_KEYS = ("PYTEST_XDIST_", "PYTEST_ADDOPTS", "OSPREY_CI_DIAG_DIR")
 
 #: The inner run loads only the plugins it names, so its start-up cost does not
 #: grow with every plugin installed in the environment.
@@ -53,7 +56,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_OUTER_RUN_KEYS)}
+    env = outer_run_free_env()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(
@@ -114,6 +117,9 @@ def test_nothing_left_writes_nothing(tmp_path):
     assert "1 passed" in result.stdout
     assert "pytest has finished" not in result.stderr
     assert "live-thread report failed" not in result.stderr
+    assert "final garbage collection" not in result.stderr
+    assert "still exiting" not in result.stderr
+    assert "exit report failed" not in result.stderr
 
 
 def test_a_thread_that_finishes_within_the_grace_is_not_reported():
@@ -218,3 +224,178 @@ def test_a_leaked_thread_is_reported_after_the_summary(tmp_path, extra):
         assert "[gw" in result.stderr
         header = next(line for line in result.stderr.splitlines() if "pytest has finished" in line)
         assert header.lstrip().startswith("[gw")
+
+
+def _named_exit_callback() -> None:
+    pass
+
+
+def test_an_exit_callback_is_recorded_by_name_and_module_until_unregistered():
+    atexit.register(_named_exit_callback)
+    try:
+        assert f"_named_exit_callback ({__name__})" in registered_exit_callbacks()
+    finally:
+        atexit.unregister(_named_exit_callback)
+    assert f"_named_exit_callback ({__name__})" not in registered_exit_callbacks()
+
+
+def test_register_keeps_its_decorator_return():
+    assert atexit.register(_named_exit_callback) is _named_exit_callback
+    atexit.unregister(_named_exit_callback)
+
+
+def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named():
+    buf = io.StringIO()
+    frozen = gc.get_freeze_count()
+    final_collection(buf, slow=60.0)
+    assert buf.getvalue() == ""
+    final_collection(buf, slow=-1.0)
+    assert gc.get_freeze_count() == frozen
+    line = buf.getvalue()
+    assert "final garbage collection took" in line
+    assert "objects" in line
+    assert line.count("\n") == 1
+
+
+_FINALIZED_PROBE = textwrap.dedent(
+    """
+    import sys
+
+    from tests._live_threads import final_collection
+
+
+    class Cycle:
+        def __init__(self):
+            self.me = self
+
+        def __del__(self):
+            sys.stderr.write("finalized-at-teardown\\n")
+            sys.stderr.flush()
+
+
+    alive = Cycle()
+    final_collection(sys.stderr)
+    """
+)
+
+
+def test_teardown_still_finalizes_what_was_alive_at_the_final_collection():
+    result = subprocess.run(
+        [sys.executable, "-c", _FINALIZED_PROBE],
+        cwd=_REPO_ROOT,
+        env=outer_run_free_env(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "finalized-at-teardown" in result.stderr
+
+
+def _held_here(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def test_the_exit_watch_names_where_the_main_thread_is_held(capsys):
+    watch = arm_exit_watch(0.2, "its summary")
+    assert watch.daemon
+    _held_here(1.0)
+    watch.join(10)
+    err = capsys.readouterr().err
+    assert "still exiting 0.2 s after its summary" in err
+    assert "in _held_here" in err
+    assert "exit callbacks:" in err
+    assert err.count("still exiting") == 1
+
+
+_SLOW_COLLECTION_MODULE = textwrap.dedent(
+    """
+    from tests import _live_threads
+
+    _live_threads.SLOW_CLEANUP_SECONDS = 0
+
+
+    def test_clean():
+        assert True
+    """
+)
+
+
+def test_a_slow_final_collection_is_named_after_the_summary(tmp_path):
+    module_file = tmp_path / "test_slow_collection.py"
+    module_file.write_text(_SLOW_COLLECTION_MODULE)
+    result = _run_inner_pytest(tmp_path, module_file, [])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "final garbage collection took" in result.stderr
+
+
+_SLOW_EXIT_MODULE = textwrap.dedent(
+    """
+    import atexit
+    import time
+
+    from tests import _live_threads
+
+    _live_threads.EXIT_BOUND_SECONDS = 0.5
+
+
+    def _slow_exit():
+        time.sleep(3)
+
+
+    atexit.register(_slow_exit)
+
+
+    def test_one():
+        assert True
+
+
+    def test_two():
+        assert True
+    """
+)
+
+
+@pytest.mark.parametrize("extra", [[], ["-n", "2"]], ids=["serial", "xdist"])
+def test_a_process_that_outlives_its_bound_names_its_exit_callback(tmp_path, extra):
+    module_file = tmp_path / "test_slow_exit.py"
+    module_file.write_text(_SLOW_EXIT_MODULE)
+    result = _run_inner_pytest(tmp_path, module_file, extra)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+    assert "in _slow_exit" in result.stderr
+    assert "_slow_exit (test_slow_exit)" in result.stderr
+    header = next(line for line in result.stderr.splitlines() if "still exiting" in line)
+    if extra:
+        assert header.lstrip().startswith("[gw"), header
+        assert "after its exit began" in header
+    else:
+        assert "after its summary" in header
+
+
+_UNEVEN_TAIL_MODULE = textwrap.dedent(
+    """
+    import time
+
+    from tests import _live_threads
+
+    _live_threads.EXIT_BOUND_SECONDS = 0.5
+
+
+    def test_quick():
+        assert True
+
+
+    def test_slow():
+        time.sleep(3)
+    """
+)
+
+
+def test_a_worker_idle_while_its_sibling_finishes_is_not_reported(tmp_path):
+    module_file = tmp_path / "test_uneven_tail.py"
+    module_file.write_text(_UNEVEN_TAIL_MODULE)
+    result = _run_inner_pytest(tmp_path, module_file, ["-n", "2"])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+    assert "still exiting" not in result.stderr, result.stderr

@@ -117,6 +117,48 @@ def test_row_queries_deduplicate_on_their_natural_key(name: str) -> None:
     assert "LIMIT 1 BY" in queries.load(name)
 
 
+# Body names an agent event's kind, not the record: two events of one kind in
+# one millisecond differ only in their attributes.
+_LOG_ROW_IDENTITY = "cityHash64(Body, toJSONString(LogAttributes))"
+
+
+def _hash_calls(tokens: list[str]) -> list[str]:
+    calls = []
+    for i, token in enumerate(tokens):
+        if token == "cityHash64":
+            depth, j = 0, i + 1
+            while True:
+                depth += {"(": 1, ")": -1}.get(tokens[j], 0)
+                j += 1
+                if depth == 0:
+                    break
+            calls.append(tokens[i:j])
+    return calls
+
+
+def _arms(tokens: list[str]) -> list[list[str]]:
+    arms: list[list[str]] = [[]]
+    for token in tokens:
+        if token.upper() == "UNION":
+            arms.append([])
+        else:
+            arms[-1].append(token)
+    return arms
+
+
+def test_every_log_row_hash_includes_its_attributes() -> None:
+    identity = _tokens(_LOG_ROW_IDENTITY)
+    hashed = set()
+    for name in queries.QUERIES:
+        for arm in _arms(_tokens(queries.load(name))):
+            if (ddl.DATABASE, "otel_logs") not in _read_tables(arm):
+                continue
+            for call in _hash_calls(arm):
+                assert call == identity, f"{name} keys an otel_logs row by {' '.join(call)}"
+                hashed.add(name)
+    assert hashed >= {"conversation", "load_full_log", queries.RECIPE}, hashed
+
+
 @pytest.mark.parametrize(
     ("name", "cursor"),
     [

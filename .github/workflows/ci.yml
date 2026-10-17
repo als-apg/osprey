@@ -164,43 +164,54 @@ jobs:
     # included, runs 1.5-1.7x slower on some runners than on others, so the
     # spread is the runner pool, not the suite (the coverage cell is no
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
-    # which costs near enough nothing). The shard axis below halves what one
-    # job runs, which is what keeps a slow runner clear of this cap. What
-    # forces the headroom on top is a known intermittent tail worth ~12 minutes:
-    # a worker wedges mid-test and its share has to be redistributed to a
-    # replacement, or the session hangs after the last test on non-daemon
-    # threads that outlive it. Both are visible in this lane's uploaded
-    # diagnostics, and neither is bounded by anything the suite controls, so
-    # a cap tight enough to catch them also reds the runs where they merely
-    # cost time. The 40-minute step cap below sat at the healthy runtime for
-    # a day and did exactly that: main timed out on the macOS cell at 99%
-    # three times on 2026-09-01 with zero test failures.
+    # which costs near enough nothing). The shard axis below splits what one
+    # cell runs three ways, which is what keeps a slow runner clear of this
+    # cap. What forces the headroom on top is a known intermittent tail worth
+    # ~12 minutes: a worker wedges mid-test and its share has to be
+    # redistributed to a replacement, or the session hangs after the last test
+    # on non-daemon threads that outlive it. Both are visible in this lane's
+    # uploaded diagnostics, and neither is bounded by anything the suite
+    # controls, so a cap tight enough to catch them also reds the runs where
+    # they merely cost time. The 40-minute step cap below sat at the healthy
+    # runtime for a day and did exactly that: main timed out on the macOS cell
+    # at 99% three times on 2026-09-01 with zero test failures.
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.14']
         os: [ubuntu-latest, macos-latest]
-        # Each cell runs as two jobs. `cli` is tests/cli alone; `rest` is
-        # everything else. Measured on the per-test event logs of a full run,
-        # tests/cli is 49% of the suite's test time on both OSes (its ~120
-        # tests that run a real `osprey build` are most of that), so the two
-        # halves finish together and a job takes half the wall clock of a
-        # whole-suite cell on the same runner. A shard is a directory, not a
-        # duration file or a hash: nothing to regenerate, and the balance is
-        # re-checked by reading `--durations` when tests/cli drifts far from
-        # half. Runner-minutes are unchanged; the macOS concurrency ceiling
-        # discussed below sees twice the jobs at half the length each.
-        shard: [cli, rest]
+        # Each cell runs as three jobs, one per set of directories. `cli` is
+        # tests/cli alone, the heaviest single directory (its ~120 tests that
+        # run a real `osprey build` are most of that). `rest-a` is
+        # tests/facility, tests/mcp_server and tests/deployment. `rest-b` is
+        # everything else, spelled as ignores in "Run unit tests" so a new test
+        # directory lands there rather than in no shard. Measured on the
+        # per-test event logs of a full run, rest-a is 43-51% of the non-cli
+        # test time across the cells (the top of that band on the slowest macOS
+        # runner), so the two rest shards finish together and each stays near
+        # half the step cap below on the slowest runner in the pool. A shard
+        # is a set of directories, not a duration file or a hash: nothing to
+        # regenerate, and the balance is re-checked by reading `--durations`
+        # when one side drifts far from half. test_ci_workflow_wiring.py holds
+        # that the three sets cover tests/ exactly once.
+        #
+        # Runner-minutes are unchanged by the split; the macOS concurrency
+        # ceiling discussed below sees more jobs at a shorter length each. A
+        # main push runs two macOS cells, so 6 macOS jobs against the ceiling
+        # of 5: one queues until the first finishes, which delays that one
+        # job's start and costs no runner-minutes.
+        shard: [cli, rest-a, rest-b]
         # Pull requests drop the 3.11/macOS cell; every other event runs the
         # full product.
         #
         # Two reasons, and neither is "macOS does not matter". The macOS
         # concurrency ceiling is 5 jobs across the whole account and does not
-        # move on Free, Pro or Team -- only on Enterprise. At two macOS cells
-        # per PR, four in-flight PRs want 8 of those 5 slots, which is why the
-        # 3.12/macOS cell was measured sitting 24.8 minutes in the queue behind
-        # other PRs. At one cell they fit. The second reason is load: the four
+        # move on Free, Pro or Team -- only on Enterprise. Every macOS cell is
+        # three jobs (the shard axis above), so at one cell per PR two in-flight
+        # PRs already want 6 of those 5 slots, and at two cells they would want
+        # 12. A 3.12/macOS cell was measured sitting 24.8 minutes in the queue
+        # behind other PRs at two cells per PR. The second reason is load: the four
         # test cells are ~101 of the ~350 job-minutes a PR run costs, the
         # largest single item in this file.
         #
@@ -219,7 +230,8 @@ jobs:
         # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
         # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
         # and 3.14 raises on -- and those do not depend on the OS. A third macOS
-        # cell would put a main-push run at 6 macOS jobs against the ceiling of 5.
+        # cell would add three more macOS jobs to a main-push run that already
+        # queues one against the ceiling of 5.
         exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
 
     steps:
@@ -274,9 +286,9 @@ jobs:
       # have passed anyway; the value is deliberately loose for that reason, and
       # tightening it is how this lane starts flaking. 55 was sized when a cell
       # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs half of it, so the same cap now leaves room for the slowest runner
-      # in the pool AND the tail. The previous 40 was sized for a ~18 min cell
-      # and became the healthy runtime itself.
+      # runs about half of it or less, so the same cap leaves room for the
+      # slowest runner in the pool AND the tail. The previous 40 was sized for
+      # a ~18 min cell and became the healthy runtime itself.
       timeout-minutes: 55
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
@@ -422,12 +434,16 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        # The shard: `cli` narrows the path to tests/cli, `rest` keeps tests/
-        # and ignores tests/cli. Spelled as two variables on the one pytest
-        # line so the invocation test_ci_workflow_wiring.py pins stays one line.
+        # The shard: SHARD_PATH completes the first path, SHARD_ARGS names the
+        # shard's further directories or, for rest-b, ignores every directory
+        # another shard names, so rest-b is everything else by construction.
+        # Spelled as two variables on the one pytest line so the invocation
+        # test_ci_workflow_wiring.py pins stays one line; the same file holds
+        # that the shards cover tests/ exactly once.
         case "${{ matrix.shard }}" in
-          cli)  SHARD_PATH="cli"; SHARD_IGNORE="" ;;
-          rest) SHARD_PATH="";    SHARD_IGNORE="--ignore=tests/cli" ;;
+          cli)    SHARD_PATH="cli";      SHARD_ARGS="" ;;
+          rest-a) SHARD_PATH="facility"; SHARD_ARGS="tests/mcp_server tests/deployment" ;;
+          rest-b) SHARD_PATH="";         SHARD_ARGS="--ignore=tests/cli --ignore=tests/facility --ignore=tests/mcp_server --ignore=tests/deployment" ;;
         esac
         # Three integration modules are dropped by name rather than by marker. Each
         # renders and builds a real project, and each is run by name in a job that
@@ -439,7 +455,7 @@ jobs:
         # read on fewer events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -477,9 +493,9 @@ jobs:
       # it covers is not OS-specific either: it is how OSPREY's own renderer
       # drives a terminal. Both Linux Python cells run it, so it is not
       # single-interpreter, and a developer on macOS runs it locally. One shard
-      # per cell: the suite is not part of either half and would otherwise run
-      # twice.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
+      # per cell, rest-b, the one whose directories hold tests/pty: the suite
+      # would otherwise run once per shard.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
       # Serial by construction, and no xdist flags. Each scenario allocates a
       # pty, starts a real verb on it in its own session, and asserts on what
       # the terminal showed, including that a spinner ADVANCED between two
@@ -518,13 +534,15 @@ jobs:
       # 0 with zero skips and at least one pass, which closes the gap the
       # in-sweep venue guard cannot: a skipped live suite fails THIS step even
       # if a future marker or fixture skip slips past the import guard. One
-      # shard per cell, as for the pty suite above.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
+      # shard per cell, rest-b, the one whose directories hold tests/va, as for
+      # the pty suite above.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
       run: uv run python scripts/va/live_ca/gate.py --pva
 
     - name: Upload coverage reports to Codecov
-      # Both shards of the coverage cell upload; Codecov merges reports for
-      # one commit, so the two halves add up to the whole suite's coverage.
+      # Every shard of the coverage cell uploads under its own name; Codecov
+      # merges reports for one commit, so the shards add up to the whole
+      # suite's coverage.
       uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       with:

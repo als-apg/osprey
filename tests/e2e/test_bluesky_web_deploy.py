@@ -84,7 +84,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -331,7 +331,7 @@ def _build_minimal_plan_args(
             return None
         axis_name = corrector_names[0]
         sp_address, _rb_address = correctors[axis_name]
-        band = _orm_stack.repo_view(repo).channel(sp_address).value_range
+        band = _facility_select.repo_view(repo).channel(sp_address).value_range
         assert band is not None, (
             f"grid_scan axis {sp_address} has no band in the view: its limits record "
             "states no min_value and max_value to size the sweep from"
@@ -464,7 +464,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
-    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=2, model=model)
 

@@ -81,6 +81,10 @@ characters of each entry's ``raw_text``, and ``entries_by_ids`` the first
 ``raw_text_truncated: true`` and its full ``raw_text_length``. ``entry_get``
 returns the whole entry. See :ref:`config-ariel-entry-text`.
 
+``entries_by_ids`` names each requested ID the logbook does not hold under
+``missing``, mapped to ``null``; when it holds none of them the call fails as
+``nothing_answered``. See :doc:`partial-answers`.
+
 Attachment summaries
 --------------------
 

@@ -116,14 +116,14 @@ from typing import Any
 
 from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
-from osprey.errors import ChannelWriteBlockedError
+from osprey.errors import ChannelNotFoundError, ChannelWriteBlockedError
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import NOT_A_CHANNEL, ChannelLimitsViolationError
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
@@ -645,6 +645,43 @@ def _check_execution_window(entry: tuple[str, int] | None) -> None:
         )
 
 
+def _all_refused_headline(results: list[dict]) -> str:
+    """Return the headline of a batch whose every write was refused.
+
+    Rows are grouped by the refuser their reason names, in first-appearance
+    order. A batch with one refuser reads as one sentence; otherwise each
+    refuser gets its own clause, then the addresses that are not channels, then
+    the rows whose reason names no refuser.
+    """
+    by_refuser: dict[str, list[str]] = {}
+    not_channels: list[str] = []
+    unattributed: list[str] = []
+    for entry in results:
+        reason = entry["refusal_reason"]
+        refuser = ChannelWriteBlockedError.refuser(reason)
+        if refuser is not None:
+            by_refuser.setdefault(refuser, []).append(entry["channel"])
+        elif reason == ChannelNotFoundError.reason:
+            not_channels.append(entry["channel"])
+        else:
+            unattributed.append(entry["channel"])
+
+    head = f"All {len(results)} write(s) refused"
+    if len(by_refuser) == 1 and not not_channels and not unattributed:
+        ((refuser, channels),) = by_refuser.items()
+        return f"{head} by {refuser}: {', '.join(channels)}"
+
+    clauses = [f"by {refuser}: {', '.join(channels)}" for refuser, channels in by_refuser.items()]
+    if len(not_channels) == 1:
+        clauses.append(f"{not_channels[0]} is {NOT_A_CHANNEL}")
+    elif not_channels:
+        plural = NOT_A_CHANNEL.replace("a channel", "channels", 1)
+        clauses.append(f"{', '.join(not_channels)} are {plural}")
+    if unattributed:
+        clauses.append(f"refused: {', '.join(unattributed)}")
+    return f"{head} — {'; '.join(clauses)}"
+
+
 @mcp.tool()
 async def channel_write(
     operations: list[dict],
@@ -916,20 +953,20 @@ async def channel_write(
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
             if not failed:
                 # Every op was a refusal that put no value on a channel: surface
-                # a typed write-refusal envelope, not internal_error. Who refused
-                # decides the wording — a control-system denial was sent and
-                # turned down, so calling it a reference-monitor policy refusal
-                # would send the operator to the wrong place.
-                first = results[0]
-                reason = first["refusal_reason"] or "WRITES_DISABLED"
-                refuser = (
-                    "the control system"
-                    if reason == "CONTROL_SYSTEM_REFUSED"
-                    else "the reference monitor"
-                )
-                headline = (
-                    f"All {len(results)} write(s) refused by {refuser}: "
-                    f"{', '.join(entry['channel'] for entry in results)}"
+                # a typed write-refusal envelope, not internal_error. Each row is
+                # attributed to the refuser its own reason names, so a mixed
+                # batch never lets one row's refuser speak for another's.
+                headline = _all_refused_headline(results)
+                # The envelope's reason and channel come from the first row
+                # that names a refuser: an address that is not a channel must
+                # not stand in for a limits or policy refusal on another row.
+                first = next(
+                    (
+                        entry
+                        for entry in results
+                        if ChannelWriteBlockedError.refuser(entry["refusal_reason"])
+                    ),
+                    results[0],
                 )
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
@@ -941,7 +978,7 @@ async def channel_write(
                 detail = first["error"]
                 raise ChannelWriteBlockedError(
                     first["channel"],
-                    reason,
+                    first["refusal_reason"],
                     message=f"{headline} — {detail}" if detail else headline,
                 )
             # At least one write was attempted and failed (an I/O failure, not a
