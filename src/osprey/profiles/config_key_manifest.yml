@@ -748,6 +748,60 @@ keys:
       The address the trajectory service binds, rendered into TRAJECTORY_BIND.
     default: derived
     default_note: "127.0.0.1 under `network: host`, 0.0.0.0 on the compose bridge"
+  services.trajectory.loss_sum_cutoff:
+    rendered: false
+    evidence: 'LOSS_SUM_CUTOFF_KEY = f"\{SERVICE_KEY\}\.loss_sum_cutoff"'
+    note: >-
+      The rise of a BPM's turn-by-turn sum, in the sum record's calibrated
+      units, above which the beam reached that BPM; the first BPM that does
+      not rise and every BPM after it are lost. The default fits the virtual
+      accelerator, whose sum reads 1.0 with beam and 0 without.
+    default: 0.5
+  services.trajectory.shot_sum_threshold:
+    rendered: false
+    evidence: 'SHOT_SUM_THRESHOLD_KEY = f"\{SERVICE_KEY\}\.shot_sum_threshold"'
+    note: >-
+      The first BPM's first-turn sum, in the sum record's calibrated units,
+      below which a shot failed. Same units and VA fit as
+      `services.trajectory.loss_sum_cutoff`.
+    default: 0.5
+  services.trajectory.armed_timeout_s:
+    rendered: false
+    evidence: 'ARMED_TIMEOUT_KEY = f"\{SERVICE_KEY\}\.armed_timeout_s"'
+    note: >-
+      Seconds each wait on the BPMs' armed flags may take during a shot (set
+      after arming, cleared after the injection); a BPM still waiting is
+      named as a straggler.
+    default: 5.0
+  services.trajectory.raw_window_turns:
+    rendered: false
+    evidence: 'RAW_WINDOW_TURNS_KEY = f"\{SERVICE_KEY\}\.raw_window_turns"'
+    note: >-
+      Turns of raw turn-by-turn waveform a shot keeps after its first turn.
+    default: 20
+  services.trajectory.continuous_max_shots:
+    rendered: false
+    evidence: 'CONTINUOUS_MAX_SHOTS_KEY = f"\{SERVICE_KEY\}\.continuous_max_shots"'
+    note: >-
+      Shot actions a continuous run submits before it ends on its own.
+    default: 100
+  services.trajectory.sequence_dir:
+    evidence: 'SEQUENCE_DIR_KEY = f"\{SERVICE_KEY\}\.sequence_dir"'
+    note: >-
+      Host directory holding the facility's sequence module, relative to the
+      repo root. The compose render binds it read-only at
+      /app/project/sequence and names that in OSPREY_TRAJECTORY_SEQUENCE_DIR.
+      The trajectory injector writes the shipped VA module's directory for a
+      virtual-accelerator target.
+    default: derived
+    default_note: "./build/services/trajectory/sequence on a VA target; unset elsewhere, and the service then refuses shots and setup with no_sequence_module"
+  services.trajectory.action_timeout_s:
+    rendered: false
+    evidence: 'ACTION_TIMEOUT_KEY = f"\{SERVICE_KEY\}\.action_timeout_s"'
+    note: >-
+      Seconds one admitted action may run before the service asks it to stop;
+      a shot whose budget exceeds it is refused before it starts.
+    default: 60.0
   services.virtual_accelerator.image:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
@@ -3974,7 +4028,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 410
+  expected_union_size: 411
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

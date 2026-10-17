@@ -24,15 +24,32 @@ from tests.facility._pyaml_trees import measured_tree, with_correctors
 from tests.facility._synthetic_trees import with_shot_wiring, with_trajectory, write_tree
 from tests.facility.served_tree import in_process_config
 
-from osprey.services.trajectory import startup
+from osprey.services.trajectory import constants, startup
+from osprey.services.trajectory.constants import (
+    ACTION_TIMEOUT_KEY,
+    ARMED_TIMEOUT_KEY,
+    CONTINUOUS_MAX_SHOTS_KEY,
+    LOSS_SUM_CUTOFF_KEY,
+    MAX_PAUSE_CEILING_S,
+    RAW_WINDOW_TURNS_KEY,
+    SEQUENCE_DIR_ENV_VAR,
+    SEQUENCE_DIR_KEY,
+    SEQUENCE_MOUNT,
+    SHOT_SUM_THRESHOLD_KEY,
+    VA_SEQUENCE_DIR,
+)
 from osprey.services.trajectory.startup import (
     GUARDED_RUN_DIR_ENV_VAR,
     MODEL_KEY,
     TARGET_KEY,
     StartupRefused,
     TrajectoryCommands,
+    TrajectorySettings,
+    resolve_sequence_dir,
     select_commands,
+    service_settings,
 )
+from osprey.services.trajectory.step import ToolUnavailable
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR
 
@@ -41,6 +58,7 @@ if TYPE_CHECKING:
 
 MODEL = "SR"
 ARM = "SR:BPM:ARM"
+ARMED = "SR:BPM:ARMED"
 REQUEST = "SR:INJ:REQ"
 BUSY = "SR:INJ:BUSY"
 LIMITS = Path("data") / "channel_limits.json"
@@ -137,6 +155,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     (root / "profile.yml").write_text("name: served\n", encoding="utf-8")
     monkeypatch.chdir(root)
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
+    monkeypatch.delenv(SEQUENCE_DIR_ENV_VAR, raising=False)
     _render(root)
     _deploy(root, monkeypatch)
     _shared_dirs(root, monkeypatch)
@@ -166,14 +185,75 @@ async def test_starts_on_the_baseline_with_the_one_models_commands(
         assert started.connector._control_target == "va"
         assert started.connector._connector_type == "virtual_accelerator"
         assert started.commands == TrajectoryCommands(
-            model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY
+            model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY, armed=(ARMED,)
         )
         assert started.commands.commands == frozenset({ARM, REQUEST})
         assert started.writing_available
         assert started.guarded_run_dir == repo / "var" / "guarded_run" / "va"
+        assert started.settings == TrajectorySettings()
+        assert started.sequence_dir is None
+        assert started.sequence is None
+        # This tree's response matrix is all zero, so the slot names why there is no tool.
+        assert isinstance(started.tool, ToolUnavailable)
         assert armed == [1]
     finally:
         await started.connector.disconnect()
+
+
+async def test_the_tunable_keys_and_the_sequence_dir_reach_the_started_service(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deploy(
+        repo,
+        monkeypatch,
+        service={"armed_timeout_s": 2.5, "continuous_max_shots": 7, "sequence_dir": "seq"},
+    )
+
+    started = await _started()
+
+    assert started.settings.armed_timeout_s == 2.5
+    assert started.settings.continuous_max_shots == 7
+    assert started.sequence_dir == repo / "seq"
+
+
+async def test_the_mounted_sequence_dir_wins_over_the_key(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deploy(repo, monkeypatch, service={"sequence_dir": "host/path"})
+    monkeypatch.setenv(SEQUENCE_DIR_ENV_VAR, SEQUENCE_MOUNT)
+
+    started = await _started()
+
+    assert started.sequence_dir == Path(SEQUENCE_MOUNT)
+
+
+async def test_the_service_connector_reads_fresh(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the service's own connector config gains ``fresh_reads``; the section is untouched."""
+    from osprey_connectors.factory import ConnectorFactory
+
+    seen: list[tuple[dict[str, Any], str]] = []
+
+    async def create(config: dict[str, Any], *, control_target: str) -> object:
+        seen.append((config, control_target))
+        return object()
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+    section = _config(repo)["control_system"]
+    original = json.loads(json.dumps(section))
+
+    await startup._connect(section, "va")
+
+    ((config, target),) = seen
+    assert target == "va"
+    assert config["type"] == "virtual_accelerator"
+    assert config["connector"]["virtual_accelerator"]["fresh_reads"] is True
+    assert (
+        config["connector"]["virtual_accelerator"]["simulator_view"]
+        == original["connector"]["virtual_accelerator"]["simulator_view"]
+    )
+    assert section == original
 
 
 @pytest.mark.usefixtures("repo")
@@ -255,6 +335,36 @@ async def test_an_unconfigured_limits_file_refuses_an_armed_checking_target(repo
 
     with pytest.raises(StartupRefused, match="database_path"):
         await _start()
+
+
+async def test_an_optional_posture_with_no_limits_file_starts(repo: Path) -> None:
+    """Optional + no path is legal at service start (q-0001/1, q-0002)."""
+    config = _config(repo)
+    config["control_system"]["limits_checking"]["mode"] = "optional"
+    del config["control_system"]["limits_checking"]["database_path"]
+    path = repo / "build" / "config.yml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    reset_config_cache()
+
+    started = await _started()
+
+    assert started.commands is not None
+
+
+async def test_an_optional_posture_naming_a_missing_limits_file_refuses(repo: Path) -> None:
+    """A configured path must name a file whatever the mode."""
+    config = _config(repo)
+    config["control_system"]["limits_checking"]["mode"] = "optional"
+    path = repo / "build" / "config.yml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    reset_config_cache()
+    missing = repo / "build" / LIMITS
+    missing.unlink()
+
+    with pytest.raises(StartupRefused) as refused:
+        await _start()
+
+    assert str(missing) in str(refused.value)
 
 
 @pytest.mark.parametrize(
@@ -346,6 +456,7 @@ def test_the_named_model_is_selected_among_several() -> None:
         arm=("BR:BPM:ARM",),
         injection_request="BR:INJ:REQ",
         injection_busy="BR:INJ:BUSY",
+        armed=("BR:BPM:ARMED",),
     )
     assert selected.commands == frozenset({"BR:BPM:ARM", "BR:INJ:REQ"})
 
@@ -361,6 +472,9 @@ def test_a_named_model_without_slots_is_refused_naming_it(slots: dict[str, Any])
     [
         ("arm", []),
         ("arm", None),
+        ("armed", []),
+        ("armed", None),
+        ("armed", [""]),
         ("injection_request", None),
         ("injection_request", ""),
         ("injection_busy", None),
@@ -381,6 +495,25 @@ def test_an_empty_slot_of_the_selected_model_is_refused_naming_both(
 
     message = str(refused.value)
     assert "'SR'" in message and repr(slot) in message
+
+
+def test_an_armed_flag_count_unlike_the_arm_count_is_refused() -> None:
+    slots = _slots("SR")
+    slots["armed"] = ["SR:BPM:ARMED", "SR:BPM2:ARMED"]
+
+    with pytest.raises(StartupRefused) as refused:
+        select_commands({"trajectory_slots": {"SR": slots}}, None)
+
+    message = str(refused.value)
+    assert "'SR'" in message and "'arm'" in message and "'armed'" in message
+
+
+def test_the_armed_flags_are_watched_never_commanded() -> None:
+    selected = select_commands({"trajectory_slots": {"SR": _slots("SR")}}, None)
+
+    assert selected is not None
+    assert selected.armed == ("SR:BPM:ARMED",)
+    assert "SR:BPM:ARMED" not in selected.commands
 
 
 async def test_several_models_refuse_the_start(repo: Path, armed: list[int]) -> None:
@@ -446,3 +579,225 @@ async def test_starts_against_the_degraded_example_ring(
     finally:
         await started.connector.disconnect()
         reset_config_cache()
+
+
+# -- the tunable keys -----------------------------------------------------------
+
+
+def _settings_of(block: dict[str, Any]) -> TrajectorySettings:
+    return service_settings(
+        {"control_system": {"type": "virtual_accelerator"}, "services": {"trajectory": block}}
+    )[2]
+
+
+def test_an_unstated_tunable_key_takes_its_default() -> None:
+    settings = _settings_of({})
+
+    assert settings == TrajectorySettings(
+        loss_sum_cutoff=constants.DEFAULT_LOSS_SUM_CUTOFF,
+        shot_sum_threshold=constants.DEFAULT_SHOT_SUM_THRESHOLD,
+        armed_timeout_s=constants.DEFAULT_ARMED_TIMEOUT_S,
+        raw_window_turns=constants.DEFAULT_RAW_WINDOW_TURNS,
+        continuous_max_shots=constants.DEFAULT_CONTINUOUS_MAX_SHOTS,
+        sequence_dir=None,
+        action_timeout_s=constants.DEFAULT_ACTION_TIMEOUT_S,
+    )
+
+
+def test_the_va_example_sum_thresholds_are_the_defaults() -> None:
+    """The VA's sum reads 1.0 with beam and 0 without; halfway is its example."""
+    assert constants.DEFAULT_LOSS_SUM_CUTOFF == 0.5
+    assert constants.DEFAULT_SHOT_SUM_THRESHOLD == 0.5
+
+
+def test_stated_tunable_keys_are_read() -> None:
+    settings = _settings_of(
+        {
+            "loss_sum_cutoff": 0,
+            "shot_sum_threshold": "1.5",
+            "armed_timeout_s": 3,
+            "raw_window_turns": "40",
+            "continuous_max_shots": 2,
+            "sequence_dir": "./facility/sequence",
+            "action_timeout_s": 12.5,
+        }
+    )
+
+    assert settings == TrajectorySettings(
+        loss_sum_cutoff=0.0,
+        shot_sum_threshold=1.5,
+        armed_timeout_s=3.0,
+        raw_window_turns=40,
+        continuous_max_shots=2,
+        sequence_dir="./facility/sequence",
+        action_timeout_s=12.5,
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        (LOSS_SUM_CUTOFF_KEY, -0.1),
+        (LOSS_SUM_CUTOFF_KEY, True),
+        (LOSS_SUM_CUTOFF_KEY, "high"),
+        (SHOT_SUM_THRESHOLD_KEY, float("nan")),
+        (ARMED_TIMEOUT_KEY, 0),
+        (ARMED_TIMEOUT_KEY, float("inf")),
+        (ACTION_TIMEOUT_KEY, -1),
+        (ACTION_TIMEOUT_KEY, False),
+        (RAW_WINDOW_TURNS_KEY, 0),
+        (RAW_WINDOW_TURNS_KEY, 2.5),
+        (RAW_WINDOW_TURNS_KEY, True),
+        (CONTINUOUS_MAX_SHOTS_KEY, -3),
+        (CONTINUOUS_MAX_SHOTS_KEY, "many"),
+        (SEQUENCE_DIR_KEY, ""),
+        (SEQUENCE_DIR_KEY, 3),
+    ],
+)
+def test_an_unusable_tunable_key_is_refused_naming_it(key: str, value: Any) -> None:
+    with pytest.raises(StartupRefused, match=key.replace(".", r"\.")):
+        _settings_of({key.rsplit(".", 1)[1]: value})
+
+
+async def test_an_unusable_tunable_key_refuses_the_start(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, armed: list[int]
+) -> None:
+    _deploy(repo, monkeypatch, service={"armed_timeout_s": 0})
+
+    with pytest.raises(StartupRefused, match=ARMED_TIMEOUT_KEY):
+        await _start()
+
+    assert armed == []
+
+
+# -- the sequence module directory ----------------------------------------------
+
+
+def test_no_sequence_dir_named_resolves_to_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(SEQUENCE_DIR_ENV_VAR, raising=False)
+
+    assert resolve_sequence_dir(TrajectorySettings(), tmp_path) is None
+
+
+def test_a_relative_sequence_dir_is_the_project_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(SEQUENCE_DIR_ENV_VAR, raising=False)
+    settings = TrajectorySettings(sequence_dir=VA_SEQUENCE_DIR)
+
+    assert (
+        resolve_sequence_dir(settings, tmp_path) == tmp_path / "build/services/trajectory/sequence"
+    )
+
+
+def test_an_absolute_sequence_dir_is_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(SEQUENCE_DIR_ENV_VAR, raising=False)
+    elsewhere = tmp_path / "elsewhere"
+
+    settings = TrajectorySettings(sequence_dir=str(elsewhere))
+
+    assert resolve_sequence_dir(settings, tmp_path / "root") == elsewhere
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_mount_variable_falls_back_to_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    monkeypatch.setenv(SEQUENCE_DIR_ENV_VAR, blank)
+
+    assert (
+        resolve_sequence_dir(TrajectorySettings(sequence_dir="seq"), tmp_path) == tmp_path / "seq"
+    )
+
+
+def test_the_va_default_names_the_package_dir_the_build_copies() -> None:
+    """The injector's VA default is the template's ``sequence/``, as copied into the project."""
+    from osprey.cli.build_injectors import _locate_pkg_services
+
+    shipped = _locate_pkg_services() / "trajectory" / "sequence"
+    assert shipped.is_dir()
+    assert Path(VA_SEQUENCE_DIR).parts == ("build", "services", "trajectory", "sequence")
+
+
+def test_the_compose_template_binds_the_fixed_target_it_exports() -> None:
+    """The mount target and the variable the template spells are the constants the service reads."""
+    from osprey.cli.build_injectors import _locate_pkg_services
+
+    text = (_locate_pkg_services() / "trajectory" / "docker-compose.yml.j2").read_text()
+
+    assert f"{SEQUENCE_DIR_ENV_VAR}: {SEQUENCE_MOUNT}\n" in text
+    assert f"- {{{{ svc.sequence_dir }}}}:{SEQUENCE_MOUNT}:ro\n" in text
+
+
+# -- the sequence module delivery, at build -------------------------------------
+
+
+def _inject(tmp_path: Path, *, target: str | None, authored: dict[str, Any] | None = None) -> Any:
+    from osprey.cli.build_injectors import _inject_trajectory
+    from osprey.cli.build_profile_schema import TrajectoryConfig
+
+    project = tmp_path / "build"
+    project.mkdir()
+    config: dict[str, Any] = {"control_system": {"type": "virtual_accelerator"}}
+    if authored is not None:
+        config["services"] = {"trajectory": authored}
+    (project / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    _inject_trajectory(TrajectoryConfig(target=target), project)
+    written = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+    return project, written["services"]["trajectory"]
+
+
+@pytest.mark.parametrize("target", [None, "va"], ids=["baseline", "named"])
+def test_the_build_defaults_a_va_target_to_the_shipped_module(
+    tmp_path: Path, target: str | None
+) -> None:
+    project, block = _inject(tmp_path, target=target)
+
+    assert block["sequence_dir"] == VA_SEQUENCE_DIR
+    assert (project.parent / VA_SEQUENCE_DIR).is_dir()
+
+
+def test_the_build_leaves_a_live_target_without_a_module(tmp_path: Path) -> None:
+    _, block = _inject(tmp_path, target="live")
+
+    assert "sequence_dir" not in block
+
+
+def test_the_build_carries_the_authored_tunable_keys(tmp_path: Path) -> None:
+    authored = {
+        "loss_sum_cutoff": 120.0,
+        "shot_sum_threshold": 80.0,
+        "armed_timeout_s": 2.0,
+        "raw_window_turns": 50,
+        "continuous_max_shots": 10,
+        "sequence_dir": "./facility/sequence",
+        "action_timeout_s": 30.0,
+    }
+
+    _, block = _inject(tmp_path, target=None, authored=authored)
+
+    assert {key: block[key] for key in authored} == authored
+
+
+# -- the budgets ----------------------------------------------------------------
+
+
+def test_the_stop_budget_is_one_pause_one_call_and_one_poll() -> None:
+    budgets = constants.budgets(max_pause_s=2.0, call_timeout_s=5.0, action_timeout_s=30.0)
+
+    assert budgets.stop_budget_s == pytest.approx(2.0 + 5.0 + constants.CHECKPOINT_POLL_S)
+    assert budgets.action_budget_s == pytest.approx(30.0 + budgets.stop_budget_s)
+
+
+def test_the_stop_grace_period_covers_shutdown_drain_and_disconnect() -> None:
+    call = 5.0
+    stop = MAX_PAUSE_CEILING_S + call + constants.CHECKPOINT_POLL_S
+
+    grace = constants.stop_grace_period_s(call)
+
+    assert isinstance(grace, int)
+    assert grace >= 2 * stop + call
+    assert grace == constants.stop_grace_period_s(call)
+    assert constants.stop_grace_period_s(call + 10) > grace
