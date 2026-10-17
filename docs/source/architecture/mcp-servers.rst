@@ -5,9 +5,9 @@ OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The OSPREY agent discovers servers from ``.mcp.json`` at startup and calls
 tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
-deployment normally renders. The ``phoebus`` server, last on this page, ships
-in-tree too but is off unless a deployment switches it on; build profiles can
-inject additional servers beyond these.
+deployment normally renders. The ``trajectory`` and ``phoebus`` servers, last
+on this page, ship in-tree too but are rendered only where a deployment asks
+for them; build profiles can inject additional servers beyond these.
 
 .. raw:: html
    :file: ../_diagrams/mcp-server-map.html
@@ -332,6 +332,48 @@ refused before the store is dialed. See :doc:`/how-to/facility-knowledge/use-fac
 - ``example_queries`` -- Return curated, runnable Cypher examples for the common
   question shapes, each with per-corpus parameter values.
 - ``capabilities`` -- Report the server description, tool list and operating notes.
+
+
+.. _trajectory-mcp-server:
+
+Trajectory
+----------
+
+``trajectory``
+~~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.trajectory``
+
+Drives the first-turn threading loop on the trajectory service's agent door:
+take a shot, read the correction step it leaves, apply that step or put
+recorded values back. Rendered only where the deployment declares the
+trajectory tab (``web.panels.trajectory``), for a persona that lists
+``- trajectory`` in its web panels and denies both ``Bash`` and ``Monitor``.
+The server reaches the service only through its own web terminal's proxy, at
+``/panel/trajectory/api/*``, with the panel token; the proxy adds the
+service's launch token on that hop, so the agent never holds it. Every
+action it takes is the terminal owner's and passes the service's own
+admission check and the target's guarded-run lock. The server opens the
+agent's session on its first shot or apply and releases it when it exits.
+See :doc:`/how-to/thread-the-first-turn`.
+
+**Tools:**
+
+- ``trajectory_shot`` -- Take ``n_shots`` injections, averaged by ``mean`` or
+  ``nanmean``, and compute the correction step from them (requires human
+  approval).
+- ``trajectory_step`` -- Read the pending step: its digest, the corrector
+  increments, the factor they were scaled by and the solve's status.
+- ``trajectory_apply`` -- Write the pending step by its digest, or put the
+  ``before`` values an earlier action listed back (requires human approval).
+
+The approval prompt of a shot shows the service's target; the prompt of an
+apply shows the pending step it would write, fetched from the service, or
+every value a put-back would restore. The server refuses a call
+``approval_missing``, writing nothing, unless the approved target is the
+service's target and, for an apply, the approved step digest or put-back
+values digest is the call's. None of the three is offered to a dispatched
+job.
 
 
 Phoebus

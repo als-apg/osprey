@@ -346,12 +346,14 @@ deployment should know them:
   token nor the port is there. The job still runs as the real person, under their narrowing.
 - **A direct login at the Bluesky panel's own address.** Unnamed, as above, and at the lane's
   ceiling.
-- **A shell reaching the trajectory service's agent door.** The same panel token lets that
-  shell open, take over or release a trajectory session through the terminal's proxy without
-  the approval prompt. A sandboxed run cannot, for the same reason as above. The session is
-  still the terminal owner's, and every action in it still passes the service's admission
-  check --- the owner's control context, narrowing and the writes posture --- and the target's
-  guarded-run lock.
+- **A shell reaching the trajectory service's agent door.** The same panel token would let
+  that shell take a shot or apply a step through the terminal's proxy without the approval
+  prompt. A deploy therefore refuses, with no waiver, any persona that shows the trajectory
+  tab while its settings leave a shell (``Bash`` or ``Monitor``) open, and a sandboxed run
+  cannot reach the door, for the same reason as above. A call that does reach the door is
+  still the terminal owner's, and every action passes the service's admission check --- the
+  owner's control context, narrowing and the writes posture --- and the target's guarded-run
+  lock.
 - **A single-user terminal under another account.** The trajectory service names the build
   account for the deployment secret, whoever runs the terminal. A terminal started under
   another account acts under the build account's name and narrowing; the service's state reply

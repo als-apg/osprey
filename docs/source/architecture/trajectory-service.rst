@@ -12,11 +12,14 @@ reach it through the web terminal's panel proxy, both name the person acting
 the same way, and both put every writing action through the same admission
 check and the same guarded-run lock as every other write path on that target.
 
-Its writing actions are a session's open, take-over and release. A session
-says who drives the target; the service fires nothing physical outside one.
-The exact routes, bodies and refusal codes are in
-:ref:`reference-trajectory-service`; the model the service drives is in
-:ref:`reference-trajectory-model`.
+Its writing actions are the first-turn threading loop --- a shot, the
+apply of the step computed from it, a put-back of earlier values --- with a
+setup, a continuous run of shots, a reference's save and selection, a Stop,
+and a session's open, take-over and release. A session says who drives the
+target; the service fires nothing physical outside one. The exact routes,
+bodies and refusal codes are in :ref:`reference-trajectory-service`; how the
+loop is driven is in :doc:`/how-to/thread-the-first-turn`; the model the
+service drives is in :ref:`reference-trajectory-model`.
 
 .. raw:: html
 
@@ -88,10 +91,13 @@ service uses. It serves:
   service's launch token;
 - ``GET /health`` --- outside the gate; it reads the target live.
 
-Each door serves the same four routes: open a session, take one over, release
-it, and read the session's state. The door a request came through is its
-route, never something the request says, and an action records which door it
-took as its ``kind``, ``panel`` or ``agent``.
+Both doors serve the loop itself: open a session, take one over, release
+it, read the state, Stop, take a shot, read the pending step, and apply it or
+put values back. The panel door alone serves the rest: setup, the continuous
+run and its heartbeat, the references, the shot listing and the state stream.
+The door a request came through is its route, never something the request
+says, and an action records which door it took as its ``kind``, ``panel`` or
+``agent``.
 
 The two kinds are not equally strong evidence. ``panel`` proves an operator
 credential: the panel token the agent holds cannot reach the panel door
@@ -150,21 +156,36 @@ the first check that refuses decides:
 2. **The session.** The caller holds the session it acts in.
 3. **Reachability.** A live, short read of the model's injection status; the
    service latches nothing at startup.
-4. **Limits.** A limits validator rebuilt for the target. None, or the
-   fail-safe one that stands in for a limits file that could not be read, is
-   refused, because a command fires without a confirmation read-back only when
-   a limits record says so.
+4. **Limits.** A limits validator rebuilt for the target. The fail-safe one
+   that stands in for a limits file that could not be read is refused. When
+   none is built, the action runs with limits checking off only where the
+   deployment's config states it off for the target; a posture it does not
+   state, or a config that cannot be read, is refused, because a command
+   fires unchecked only where the deployment says so.
 5. **The run lock.** The target's guarded-run lock, taken with a record of
    whose action it is (:ref:`reference-guarded-run`). Another run on the target
    --- an agent's Python run, a ``pyaml_measure`` run --- refuses the action,
    and the lock refuses theirs while the action runs.
 
-Take-over and release do not wait their turn. They are decided at admission,
-take no lock, probe nothing and write nothing, so a take-over is answered
-while an action is in flight and an unreachable target never blocks one. A
-take-over stops the old holder: its queued and later calls are refused. A
-release checks only that the caller is the holder, so a narrowed holder or an
-unreachable target never keeps a session open.
+Inside the action, the service writes two kinds of channel. A **command**
+--- a BPM's arm, the injection request --- acts and holds no setting. It goes
+out with no confirmation read-back, checked against the limits validator in
+the validator's own mode: under ``optional`` a command with no limits record
+is written with no limits, under ``exclusive`` it is refused, and a record's
+bounds always apply. A **setting** --- a corrector an apply or a put-back
+writes, a slot the facility's sequence module declares --- is written through
+the connector's checked path, held to its limits record and confirmed as that
+record asks. An apply is refused whole, before its first write, when any
+value it would write breaks the validator.
+
+Take-over, release, Stop and a continuous run's heartbeat do not wait their
+turn. They are decided at admission, take no lock, probe nothing and write
+nothing, so each is answered while an action is in flight and an unreachable
+target never blocks one. A Stop or a take-over sets the running action's stop
+event, and the action ends at its next checkpoint, listing what it moved; the
+service never undoes a write. A take-over also refuses the old holder's
+queued and later calls. A release checks only that the caller is the holder,
+so a narrowed holder or an unreachable target never keeps a session open.
 
 Sessions live in memory. A restarted service holds no session.
 
@@ -172,8 +193,10 @@ Where it runs
 =============
 
 ``osprey up`` deploys the service as its own container on the project image
-when a profile carries a ``trajectory:`` block, and the build selects its panel
-for the personas that select the Bluesky panel. The container:
+when a profile carries a ``trajectory:`` block. A persona shows its tab, and
+its agent gets the ``trajectory`` tools, when it lists ``- trajectory`` in its
+web panels, as the ``control-assistant-readwrite`` and
+``control-assistant-admin`` presets do. The container:
 
 - holds one connector for its target, the deployment's baseline unless the
   profile names one;
@@ -182,7 +205,10 @@ for the personas that select the Bluesky panel. The container:
 - files its audit records under ``var/audit/trajectory/``
   (:ref:`reference-audit-trail`);
 - shares the guarded-run directory and the control-context tree with every
-  other writer of the deployment.
+  other writer of the deployment;
+- loads the facility's sequence module, read-only, from
+  ``services.trajectory.sequence_dir``
+  (:ref:`reference-trajectory-sequence`).
 
 A missing limits file on a target that arms writes and checks limits, an unset
 control-context tree or an unset guarded-run directory stops the service at
@@ -204,6 +230,10 @@ deployment's ``.env``.
 
    :ref:`reference-trajectory-service`
       The routes, the request and reply bodies, and every refusal code.
+
+   :doc:`/how-to/thread-the-first-turn`
+      Driving the loop from the agent and the panel, and what a stopped
+      action leaves behind.
 
    :doc:`safety-chain`
       The checks every write passes, and whose write it is.

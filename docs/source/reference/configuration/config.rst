@@ -1145,6 +1145,45 @@ port block, and these are the keys a profile may set beside it:
        and every interface on the compose bridge.
    * - ``services.trajectory.image``
      - The image it runs; see :ref:`deployment-image-overrides`.
+   * - ``services.trajectory.loss_sum_cutoff``
+     - The rise of a BPM's turn-by-turn sum, in the sum record's calibrated
+       units, above which the beam reached it. The first BPM that does not
+       rise, and every BPM after it, are lost. Default ``0.5``.
+   * - ``services.trajectory.shot_sum_threshold``
+     - The first BPM's first-turn sum, in the same units, below which a shot
+       failed; a failed shot is reported and left out of the average, never
+       retried. Default ``0.5``.
+   * - ``services.trajectory.armed_timeout_s``
+     - Seconds each wait on the BPMs' armed flags may take, once after arming
+       and once after the injection. A BPM still waiting is named. Default
+       ``5.0``.
+   * - ``services.trajectory.raw_window_turns``
+     - Turns of raw waveform a shot keeps after its first turn. Default
+       ``20``.
+   * - ``services.trajectory.continuous_max_shots``
+     - Shots a continuous run takes before it ends on its own. Default
+       ``100``.
+   * - ``services.trajectory.sequence_dir``
+     - The directory holding the facility's sequence module, the code that
+       fires an injection. Relative to the repo root; mounted read-only into
+       the service. On a virtual-accelerator target the build defaults it to
+       the shipped VA module; elsewhere it is unset until the facility names
+       its own, and shots are refused until then.
+   * - ``services.trajectory.action_timeout_s``
+     - Seconds one shot, setup or apply may run before the service asks it to
+       stop. A shot request whose worst case exceeds it is refused before it
+       starts. Default ``60.0``.
+
+The two sum thresholds are in the units of the facility's BPM sum record. The
+defaults fit the virtual accelerator, whose sum reads 1.0 where the beam
+arrives and 0 where it does not, so halfway is the example setting; a facility
+states both in its own units:
+
+.. code-block:: yaml
+
+   config:
+     services.trajectory.loss_sum_cutoff: 0.5
+     services.trajectory.shot_sum_threshold: 0.5
 
 Who may hold the service, and how each request is tied to the person it acts
 for, is in :doc:`/architecture/safety-chain`.
