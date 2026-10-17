@@ -168,6 +168,13 @@ def test_get_run_docstring_does_not_still_promise_retired_keys():
         )
 
 
+def test_get_run_docstring_points_at_get_run_data_for_rows():
+    """The run record is status only; the docstring sends the agent to the rows."""
+    doc = " ".join((read_tools.get_run.__doc__ or "").split())
+    assert "carries no measured values" in doc
+    assert "get_run_data" in doc
+
+
 # ---------------------------------------------------------------------------
 # list_plans — GET /plans
 # ---------------------------------------------------------------------------
