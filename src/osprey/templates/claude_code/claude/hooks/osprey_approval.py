@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, trajectory_shot, trajectory_apply
 safety_layer: 2
 ---
 
@@ -404,6 +404,17 @@ def build_allow_output() -> dict:
     }
 
 
+def _panel_auth_headers() -> dict[str, str]:
+    """``Authorization: Bearer <OSPREY_PANEL_TOKEN>``, or nothing when the token is blank.
+
+    The web terminal exports the token into the agent it launches, so the hook
+    reads it from its inherited environment, as
+    ``mcp_server.http._panel_auth_headers`` reads the same carrier.
+    """
+    token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     """Fire-and-forget POST to bring an artifact into focus in the gallery.
 
@@ -423,10 +434,7 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
         import urllib.request
 
         data = json.dumps({"artifact_id": artifact_id}).encode()
-        headers = {"Content-Type": "application/json"}
-        token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        headers = {"Content-Type": "application/json", **_panel_auth_headers()}
         req = urllib.request.Request(
             f"{gallery_base_url}/api/focus",
             data=data,
@@ -1216,11 +1224,9 @@ def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=No
     the call being approved rather than from anywhere that could answer for a
     different one.
 
-    Nothing is fetched. The dispatcher is reached through the terminal's panel
-    proxy on a token this hook does not hold, so what the trigger is wired to
-    do, and whether it is enabled at all, are the dispatcher's answers to give
-    when the fire arrives. Naming the call is what this prompt can state
-    truthfully.
+    Nothing is fetched. What the trigger is wired to do, and whether it is
+    enabled at all, are the dispatcher's answers to give when the fire arrives;
+    naming the call is what this prompt can state truthfully.
     """
     name = tool_input.get("name")
     if not isinstance(name, str) or not name.strip():
@@ -3205,6 +3211,261 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
     return lines, _bound_input(tool_input, binding), binding
 
 
+# -- trajectory_shot / trajectory_apply ----------------------------------------
+#
+# A shot fires the injection chain and an apply writes correctors, so both are
+# put to a human, bound to the trajectory SERVICE's own target — the target the
+# server compares the stamp with — read from one snapshot the hook fetches
+# through the web terminal's proxy with the panel token and no session. An apply
+# of the pending step renders that step from the same snapshot and binds its
+# digest; a put-back renders from the call's own values and binds their digest.
+# A prompt that cannot show what the call would act on is not asked: the call is
+# denied. The path, the field names and the put-back digest are the trajectory
+# server's (`osprey.mcp_server.trajectory`, `osprey.mcp_server.approval_stamp`),
+# restated because this hook is deployed standalone;
+# tests/templates/test_approval_trajectory.py pins them.
+
+#: The trajectory service's agent door, as the web terminal proxies it.
+_TRAJECTORY_BASE_PATH = "/panel/trajectory/api"
+
+#: The tools this section describes, by short name.
+_TRAJECTORY_SHOT = "trajectory_shot"
+_TRAJECTORY_APPLY = "trajectory_apply"
+_TRAJECTORY_TOOLS = frozenset({_TRAJECTORY_SHOT, _TRAJECTORY_APPLY})
+
+#: The apply's two digest bindings; exactly one is set per call.
+_APPROVED_STEP_DIGEST_KEY = "approved_step_digest"
+_APPROVED_VALUES_SHA256_KEY = "approved_values_sha256"
+
+
+class _TrajectoryRefused(_MeasureRefused):
+    """A trajectory call is refused before any human is asked."""
+
+
+def _approved_values_sha256(target, model, values) -> str:
+    """The digest an apply prompt binds a put-back to.
+
+    The sha256 hex digest of the canonical JSON object
+    ``{"model": model, "pairs": [[name, before], ...], "target": target}``,
+    pairs sorted by name, keys sorted, no whitespace, ASCII only — the shared
+    stamp module's ``approved_values_sha256``, restated.
+
+    Raises:
+        KeyError: A value entry lacks ``name`` or ``before``.
+        ValueError: A ``before`` is not finite.
+        TypeError: An entry is not a mapping.
+    """
+    pairs = sorted(([str(entry["name"]), entry["before"]] for entry in values), key=lambda p: p[0])
+    canonical = json.dumps(
+        {"model": model, "pairs": pairs, "target": target},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
+def _web_terminal_url(config: dict) -> str:
+    """The web terminal's base URL, as the trajectory server derives it.
+
+    ``OSPREY_WEB_PORT`` wins over ``web_terminal.port``, which wins over the
+    ``web`` slot at this config's own port base; the host is
+    ``web_terminal.host``, loopback by default. ``""`` when no port can be
+    derived.
+    """
+    block = config.get("web_terminal") if isinstance(config, dict) else None
+    block = block if isinstance(block, dict) else {}
+    host = block.get("host") or "127.0.0.1"
+    port = os.environ.get("OSPREY_WEB_PORT") or block.get("port") or _layout_port("web", config)
+    try:
+        return f"http://{host}:{int(port)}" if port else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def _trajectory_unreadable(tool: str, detail: str) -> _TrajectoryRefused:
+    """The refusal for a snapshot this prompt could not read."""
+    return _TrajectoryRefused(
+        f"Not asked: the trajectory service could not be read through the web terminal "
+        f"({detail}), so this prompt cannot show what {tool} would act on. Check that the "
+        "web terminal and the trajectory service are running, then call the tool again.",
+        f"trajectory_state_unavailable: {detail}",
+    )
+
+
+def _trajectory_snapshot(config: dict, tool: str, deadline: float) -> dict:
+    """The trajectory service's snapshot, fetched within *deadline*.
+
+    One ``GET /state`` through the terminal's proxy, carrying the panel token
+    (``OSPREY_PANEL_TOKEN``, when set) and no session header: reading the
+    snapshot needs no session, and the proxy injects the service's own token.
+    The snapshot carries both the service's target and its pending step, so one
+    prompt describes one read.
+
+    Raises:
+        _TrajectoryRefused: The terminal is unaddressable, the budget is spent,
+            the fetch failed, or the answer names no target.
+    """
+    import urllib.error
+    import urllib.request
+
+    base = _web_terminal_url(config)
+    if not base:
+        raise _trajectory_unreadable(tool, "no web terminal address")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _trajectory_unreadable(tool, "the prompt's budget is spent")
+    headers = {"Accept": "application/json", **_panel_auth_headers()}
+    request = urllib.request.Request(
+        f"{base}{_TRAJECTORY_BASE_PATH}/state", headers=headers, method="GET"
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=remaining) as resp:
+            snapshot = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise _trajectory_unreadable(tool, f"HTTP {exc.code}") from None
+    except Exception as exc:
+        raise _trajectory_unreadable(tool, type(exc).__name__) from None
+    target = snapshot.get("target") if isinstance(snapshot, dict) else None
+    if not isinstance(target, str) or not target:
+        raise _trajectory_unreadable(tool, "the answer names no target")
+    return snapshot
+
+
+def _names_line(label: str, names) -> str:
+    """``label: "a", "b"`` — or ``label: none``."""
+    listed = [_prompt_text(str(name)) for name in names or []]
+    return f"{label}: {', '.join(listed) if listed else 'none'}"
+
+
+def _trajectory_step_lines(step: dict, step_digest) -> list[str]:
+    """The prompt lines of a step apply.
+
+    Raises:
+        _TrajectoryRefused: No step is pending, its digest is not the call's,
+            or its deltas cannot be shown.
+    """
+    if not isinstance(step, dict):
+        raise _TrajectoryRefused(
+            "Not asked: the trajectory service holds no pending step. Take a shot, read "
+            "the step with trajectory_step, then call the tool again with its digest.",
+            "trajectory_no_step",
+        )
+    digest = step.get("digest")
+    if digest != step_digest:
+        raise _TrajectoryRefused(
+            f"Not asked: the step digest in this call ({_prompt_text(step_digest)}) is not the "
+            f"pending step's ({_prompt_text(digest)}); the step changed since it was read. "
+            "Read it again with trajectory_step and call the tool again.",
+            "trajectory_step_digest_mismatch",
+        )
+    deltas = step.get("deltas")
+    factor = step.get("factor")
+    if not isinstance(deltas, dict) or not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) for value in deltas.values()
+    ):
+        raise _TrajectoryRefused(
+            "Not asked: the pending step's deltas cannot be shown. Read the step with "
+            "trajectory_step and call the tool again.",
+            "trajectory_step_unreadable",
+        )
+    lines = [
+        f"Step: {_prompt_text(digest)}",
+        f"Solve: {_prompt_text(step.get('reason'))} — {_prompt_text(step.get('status'))}",
+        f"Factor: {factor!r} (every delta is scaled by it)",
+    ]
+    if step.get("all_zero"):
+        lines.append("Every delta is zero: the service refuses to apply this step.")
+    lines.append(f"Corrector deltas ({len(deltas)}):")
+    lines.extend(f"  {_prompt_text(str(name))}: {value:+.6g}" for name, value in deltas.items())
+    lines.append(_names_line("Zeroed horizontal correctors", step.get("zeroed_h")))
+    lines.append(_names_line("Zeroed vertical correctors", step.get("zeroed_v")))
+    lines.append(_names_line("Unsolved correctors", step.get("unsolved")))
+    return lines
+
+
+def _trajectory_put_back_lines(target: str, model, values) -> tuple[list[str], str]:
+    """The prompt lines of a put-back and the digest that binds it.
+
+    Raises:
+        _TrajectoryRefused: The values cannot be digested.
+    """
+    try:
+        digest = _approved_values_sha256(target, model, values)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise _TrajectoryRefused(
+            "Not asked: the put-back values cannot be shown — each entry needs a `name` "
+            f"and a finite `before` ({type(exc).__name__}). Call the tool again.",
+            "trajectory_put_back_unreadable",
+        ) from None
+    lines = [
+        f"Put-back on model {_prompt_text(model)}: {len(values)} correctors back to recorded values",
+    ]
+    lines.extend(
+        f"  {_prompt_text(str(entry['name']))} -> {entry['before']!r}"
+        for entry in sorted(values, key=lambda entry: str(entry["name"]))
+    )
+    lines.append(f"Values sha256: {digest}")
+    return lines, digest
+
+
+def _trajectory_call_lines(config: dict, short_name: str, tool_input: dict, deadline: float):
+    """The prompt lines and binding of a trajectory shot or apply.
+
+    Returns:
+        ``(lines, binding)``: the binding is ``approved_target`` — the
+        service's target — plus, on an apply, ``approved_step_digest`` or
+        ``approved_values_sha256``.
+
+    Raises:
+        _TrajectoryRefused: The call cannot be described truthfully.
+    """
+    put_back = False
+    if short_name == _TRAJECTORY_APPLY:
+        model = tool_input.get("model")
+        values = tool_input.get("values")
+        step_digest = tool_input.get("step_digest")
+        put_back = model is not None or values is not None
+        if put_back == (step_digest is not None) or (
+            put_back and (not model or not isinstance(values, list) or not values)
+        ):
+            raise _TrajectoryRefused(
+                "Not asked: pass exactly one of `step_digest`, or `model` and `values` "
+                "for a put-back.",
+                "trajectory_apply_bad_request",
+            )
+    snapshot = _trajectory_snapshot(config, short_name, deadline)
+    target = snapshot["target"]
+    lines = [f"Trajectory service target: {_prompt_text(target)}"]
+    binding = {_APPROVED_TARGET_KEY: target}
+    if short_name == _TRAJECTORY_SHOT:
+        n_shots = tool_input.get("n_shots", 1)
+        average = tool_input.get("average", "mean")
+        lines.append(f"Shots: {_prompt_text(n_shots)}, averaged by {_prompt_text(average)}")
+    elif put_back:
+        put_back_lines, digest = _trajectory_put_back_lines(target, model, values)
+        lines.extend(put_back_lines)
+        binding[_APPROVED_VALUES_SHA256_KEY] = digest
+    else:
+        lines.extend(_trajectory_step_lines(snapshot.get("step"), step_digest))
+        binding[_APPROVED_STEP_DIGEST_KEY] = step_digest
+    return lines, binding
+
+
+def _trajectory_call(hook_input, tool_name, short_name, tool_input, config):
+    """The prompt lines, rewritten input and binding of a trajectory call, or a deny.
+
+    Every ``approved_*`` field the agent sent is replaced by the binding.
+    """
+    try:
+        lines, binding = _trajectory_call_lines(config, short_name, tool_input, _preview_deadline())
+    except _TrajectoryRefused as refusal:
+        _deny_measure(hook_input, tool_name, refusal)
+    return lines, _bound_input(tool_input, binding), binding
+
+
 def main():
     # What the harness will allow this hook, straight from the rendered
     # command. The render derives the `--budget` value and the harness timeout
@@ -3401,6 +3662,11 @@ def main():
             sys.exit(0)
         measure_lines, updated_input, binding = measured
         reason_parts.extend(measure_lines)
+    elif short_name in _TRAJECTORY_TOOLS:
+        trajectory_lines, updated_input, binding = _trajectory_call(
+            hook_input, tool_name, short_name, tool_input, config
+        )
+        reason_parts.extend(trajectory_lines)
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)
         if channel_list:
