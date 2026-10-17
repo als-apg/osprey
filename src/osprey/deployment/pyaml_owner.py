@@ -1,8 +1,8 @@
 """Assert that the ``pyaml`` import package has exactly one owning distribution.
 
 pyAML ships under more than one distribution name — ``accelerator-middle-layer``
-upstream and ``accelerator-middle-layer-apg`` as ALS-APG's staging release — and
-every one of them writes the same ``pyaml/`` package directory. Two of them in
+upstream and ``accelerator-middle-layer-apg`` as a staging release — and every
+one of them writes the same ``pyaml/`` package directory. Two of them in
 one environment do not fail to install: the second silently overwrites files of
 the first, and uninstalling either later deletes files the other still claims.
 Neither resolver nor ``pip check`` sees it, because the two names do not
@@ -19,6 +19,8 @@ never uninstalls or reinstalls anything, so a failing build is fixed where the
 second owner came from, not papered over here.
 
 Standard library only, so it runs in any image whatever else is installed.
+It cannot reach the CLI's renderer for the same reason, so it writes its one
+verdict line straight to the stream.
 """
 
 from __future__ import annotations
@@ -78,23 +80,21 @@ def owners(import_package: str = IMPORT_PACKAGE, path: Iterable[str] | None = No
 
 
 def main(path: Iterable[str] | None = None) -> int:
-    """Print the verdict and return the process exit status (0 = one owner)."""
+    """Write the verdict and return the process exit status (0 = one owner)."""
     found = owners(IMPORT_PACKAGE, path)
     if len(found) == 1:
-        print(f"{IMPORT_PACKAGE}: one owning distribution ({found[0]})")
+        sys.stdout.write(f"{IMPORT_PACKAGE}: one owning distribution ({found[0]})\n")
         return 0
     if not found:
-        print(
+        sys.stderr.write(
             f"ERROR: no installed distribution owns the `{IMPORT_PACKAGE}` package; "
-            "the framework requires exactly one",
-            file=sys.stderr,
+            "the framework requires exactly one\n"
         )
     else:
-        print(
+        sys.stderr.write(
             f"ERROR: the `{IMPORT_PACKAGE}` package has {len(found)} owning distributions "
             f"({', '.join(found)}); they write the same files, so exactly one may be "
-            "installed — remove the requirement that brought in the extra one",
-            file=sys.stderr,
+            "installed. Remove the requirement that brought in the extra one.\n"
         )
     return 1
 

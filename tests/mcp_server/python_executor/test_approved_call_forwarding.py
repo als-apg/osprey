@@ -755,7 +755,11 @@ _HOLD_PROBE = textwrap.dedent(
 def test_a_readwrite_run_fills_one_action_context(
     tmp_path: Path, env_extra: dict[str, str], owner: str | None
 ) -> None:
-    """The wrapper's one lock entry carries the stamped target, the owner and that target."""
+    """The wrapper's one lock entry carries the stamped target, the owner and that target.
+
+    A sandbox run never claims limits checking is off: its writes go through
+    the sandbox's own validator, so its context leaves ``limits_off`` false.
+    """
     sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0})
     calls = tmp_path / "lock_calls.jsonl"
     env = {**env_extra, "LOCK_CALLS": str(calls)}
@@ -767,7 +771,7 @@ def test_a_readwrite_run_fills_one_action_context(
     metadata = sandbox.run(env, _HOLD_PROBE)
 
     assert metadata["success"] is True, metadata.get("traceback")
-    expected = {"target": "live", "owner": owner, "approved_target": "live"}
+    expected = {"target": "live", "owner": owner, "approved_target": "live", "limits_off": False}
     lines = calls.read_text(encoding="utf-8").splitlines()
     assert [json.loads(line) for line in lines] == [expected], "exactly one context per run"
     results = metadata["_results"]

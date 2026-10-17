@@ -1597,6 +1597,10 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/panel/trajectory/api/takeover"),
     ("DELETE", "/panel/trajectory/api/session"),
     ("GET", "/panel/trajectory/api/state"),
+    ("POST", "/panel/trajectory/api/stop"),
+    ("POST", "/panel/trajectory/api/shot"),
+    ("GET", "/panel/trajectory/api/step"),
+    ("POST", "/panel/trajectory/api/apply"),
 }
 
 #: Routes that must stay operator-only. Each is a real route in the tree (see

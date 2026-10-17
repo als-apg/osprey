@@ -251,7 +251,7 @@ def _no_host_dependencies(monkeypatch):
     monkeypatch.setattr(
         "osprey.utils.shell_resolver.resolve_shell_command", lambda command: f"/abs/{command}"
     )
-    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
 
 def _render(repo: Path, session_lifetime: str | None) -> None:

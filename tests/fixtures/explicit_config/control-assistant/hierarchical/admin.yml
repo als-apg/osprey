@@ -339,6 +339,12 @@ web:
     system-health:
       enabled: true
       hidden: true
+    trajectory:
+      enabled: true
+      health_endpoint: /health
+      label: TRAJECTORY
+      path: /panel/
+      url: ${TRAJECTORY_URL:-http://localhost:10082}
   scaffold_gallery:
     write_enabled: true
   theme: light

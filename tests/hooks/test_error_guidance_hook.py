@@ -638,6 +638,7 @@ EXPECTED_ERROR_CLASSES = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    "trajectory_unreachable": "Connection",
     "manager_unreachable": "Connection",
     "environment_unavailable": "Connection",
     "abort_pause_timeout": "Connection",
@@ -674,6 +675,7 @@ EXPECTED_ERROR_CLASSES = {
     "invalid_item": "Validation",
     "figure_not_current": "Validation",
     "figure_unavailable": "Validation",
+    "bad_request": "Validation",
     # Data
     "not_found": "Data",
     "not_archived": "Data",
@@ -713,6 +715,7 @@ EXPECTED_ERROR_CLASSES = {
     "not_supported": "Safety",
     "interrupted_item_in_queue": "Safety",
     "queue_changed_since_approval": "Safety",
+    "approval_missing": "Safety",
     # Internal
     "internal_error": "Internal",
     "platform_error": "Internal",
@@ -731,6 +734,8 @@ EXPECTED_ERROR_CLASSES = {
     "gallery_error": "Internal",
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    "approval_config_invalid": "Internal",
+    "trajectory_refused": "Internal",
 }
 
 #: The taxonomy documented in ``.claude/rules/error-handling.md``. Every class

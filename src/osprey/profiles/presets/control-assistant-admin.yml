@@ -39,7 +39,8 @@ deploy_services: false
 # inherited builtin set. Each tab's URL, path and label are not spelled here:
 # the hosting deployment's build derives them when it injects the event
 # dispatcher, the bluesky-web sidecar and the trajectory service, and this
-# attached render is told them from that render (the Reach Contract, `osprey.deployment.reach`).
+# attached render is told them from that render (the Reach Contract,
+# `osprey.deployment.reach`).
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results

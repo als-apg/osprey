@@ -317,6 +317,11 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # preset gains a `trajectory:` block on the host network, so a rebuilt
     # project deploys the trajectory service and its panel entry. The five
     # `extends` children inherit the block; the other three presets stand still.
+    # The forty-fourth move, and two presets: the write-capable tiers,
+    # control-assistant-readwrite and control-assistant-admin, list
+    # `trajectory` in `web_panels:`, so a rebuilt project of either serves the
+    # TRAJECTORY tab. The root preset deploys the service but lists no tab, so
+    # the read-only login is built without it; every other preset stands still.
     "ariel-standalone": ("sha256:2c89e6847871ea21f8d6a4841a038e4ae30a064ea8965d8975de2ec2e05f3628"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
@@ -325,7 +330,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:363f983218d4c8e20063c9d46a68a9e85fd318e93c1ae524ce670b6b67b3e664"
     ),
     "control-assistant-admin": (
-        "sha256:ec99efccd6d536c88bcd4e7f9c93474aa06469d10c98b6121935bdc5d0e76a74"
+        "sha256:7deb9b61e8de995e21df47c0a065bcc0f1a1512b70f3ab7ebf20981b3d07b5f5"
     ),
     "control-assistant-knowledge": (
         "sha256:ab88737fd9a613b4451a474decaf0cf5565c7cd9438622a55de729bb07c719bb"
@@ -337,7 +342,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:e9e20643567209407e1e21d67402da40b44f9a979bb6d56d8bdd233aef69e1ed"
     ),
     "control-assistant-readwrite": (
-        "sha256:cd1b9eba6e5590fd1947d51900f98b410a0524fe71b4e292d75d636565e4f9ad"
+        "sha256:bd71b301e4f758aa95341e1ca01bd381f32a2beb4f1823b5d8a8c45f9f508e74"
     ),
     "hello-world": ("sha256:7c70f737295971c63093e823a2021e78251ca6c285b5da4c1f04cb0afd964803"),
 }

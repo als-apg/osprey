@@ -362,6 +362,7 @@ services:
     network: host
     path: ./services/trajectory
     port: 10082
+    sequence_dir: ./build/services/trajectory/sequence
     target: va
   virtual_accelerator:
     path: ./services/virtual_accelerator
