@@ -49,6 +49,7 @@ from osprey.facility.errors import (
 )
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
+from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import STILL_ALL
 
 __all__ = [
@@ -2211,15 +2212,13 @@ def tolerance_bound(channel: Mapping[str, Any]) -> float | None:
     record = channel.get("tolerance")
     if not isinstance(record, Mapping):
         return None
-    if "absolute" in record:
-        return abs(float(record["absolute"]))
     seed = channel.get("simulation")
     nominal = seed.get("nominal") if isinstance(seed, Mapping) else None
     if not _numeric(nominal):
         nominal = None
-    if _RELATIVE not in record or nominal is None:
-        return None
-    return abs(float(record[_RELATIVE])) * abs(float(nominal))
+    if nominal is None:
+        return declared_tolerance(record, 0.0) if "absolute" in record else None
+    return declared_tolerance(record, float(nominal))
 
 
 def _terms_stated(keys: Sequence[str]) -> str:
