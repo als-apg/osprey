@@ -1,49 +1,20 @@
-"""Pin: a profile that selects a hook must also select the helpers it imports.
+"""Pin: which bundled presets gate writes, and which hook files each one renders.
 
-Two helpers are imported by hooks and wired to no event: ``target-state`` (the
-write gates' posture source) and ``safety-file`` (the atomic file replace every
-hook that writes a file uses). ``HOOK_HELPER_IMPORTERS`` names, per helper, the
-hooks that import it; every shipped preset and the exemplar golden are held to
-that one table, and a facility profile that breaks it gets one build-time
-warning per missing helper.
-
-``writes-check`` and ``approval`` decide whether a write may proceed by reading
-the control target's write posture, and they read it by importing the
-``target-state`` helper from beside them in ``.claude/hooks/``. That helper is
-wired to no event, so nothing but SELECTION puts it there: a profile whose
-``hooks:`` list names a gate and not the helper builds cleanly, deploys
-cleanly, and then refuses every write, because a gate with no posture source
-falls back to the most restrictive answer.
-
-Fail-closed is the right default and not the right outcome here — the
-deployment was configured to allow those writes. So the pairing is pinned two
-ways: every preset OSPREY ships is checked here against its RESOLVED hook list
-(what a facility actually gets, after ``extends`` and ``exclude``), and a
-facility profile that breaks the pairing gets a build-time warning naming the
-line to add. The warning does not refuse the build; the selection lists are the
-author's to compose.
+A profile names only the hooks it wants. The helper files those hooks import or
+read beside themselves in ``.claude/hooks/`` (the logger, the target-state
+reader, the atomic file replace and ``hook_config.json``) ship as the closure of
+that selection, so no preset names them. These pins hold each preset's resolved
+write gates and the exact hook file set its render produces, so either one only
+changes on purpose.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.cli.build_profile import _load_preset_raw, _resolve_extends, list_presets
-from osprey.cli.build_profile_merge import (
-    HOOK_HELPER_IMPORTERS,
-    _warn_missing_hook_helpers,
-    resolve_profile_document,
-)
-
-#: The helper the gates import, spelled as a profile selects it.
-TARGET_STATE = "target-state"
-
-#: The helper the file-writing hooks import, spelled as a profile selects it.
-SAFETY_FILE = "safety-file"
 
 #: The hooks that read write posture, spelled as a profile selects them.
 WRITE_GATES = ("approval", "writes-check")
@@ -85,15 +56,6 @@ def _resolved_hooks(preset: str) -> list[str]:
     return [entry for entry in hooks if isinstance(entry, str)]
 
 
-def _write_profile(directory: Path, hooks: list[str]) -> tuple[dict, Path]:
-    """A minimal profile mapping selecting ``hooks``, and where it lives."""
-    directory.mkdir(parents=True, exist_ok=True)
-    profile_path = directory / "profile.yml"
-    raw = {"name": "posture-fixture", "hooks": hooks}
-    profile_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    return raw, profile_path
-
-
 # ── The pin ──────────────────────────────────────────────────────────
 
 
@@ -113,170 +75,6 @@ def test_every_bundled_preset_selects_the_write_gates_it_is_pinned_to():
         for name in list_presets()
     }
     assert actual == PINNED_PRESET_WRITE_GATES
-
-
-def test_every_bundled_preset_that_gates_writes_also_selects_target_state():
-    """The pairing itself, over what a facility actually receives."""
-    offenders = sorted(
-        name
-        for name in list_presets()
-        if any(gate in _resolved_hooks(name) for gate in WRITE_GATES)
-        and TARGET_STATE not in _resolved_hooks(name)
-    )
-    assert not offenders, (
-        f"{offenders} select a write gate without {TARGET_STATE!r}; those gates "
-        "would resolve write posture to the most restrictive answer"
-    )
-
-
-def test_every_bundled_preset_selects_every_helper_its_hooks_import():
-    """The whole helper table, over what a facility actually receives."""
-    offenders = sorted(
-        (name, helper)
-        for name in list_presets()
-        for helper, importers in HOOK_HELPER_IMPORTERS.items()
-        if any(hook in _resolved_hooks(name) for hook in importers)
-        and helper not in _resolved_hooks(name)
-    )
-    assert not offenders, f"(preset, missing helper) pairs: {offenders}"
-
-
-def test_the_exemplar_golden_profile_selects_every_helper_its_hooks_import():
-    hooks = yaml.safe_load(EXEMPLAR_PROFILE.read_text(encoding="utf-8"))["hooks"]
-
-    missing = sorted(
-        helper
-        for helper, importers in HOOK_HELPER_IMPORTERS.items()
-        if any(hook in hooks for hook in importers) and helper not in hooks
-    )
-    assert not missing
-
-
-def test_the_exemplar_golden_profile_pairs_its_write_gates_with_target_state():
-    """The profile every scaffolded deployment is modelled on obeys the rule."""
-    hooks = yaml.safe_load(EXEMPLAR_PROFILE.read_text(encoding="utf-8"))["hooks"]
-
-    assert any(gate in hooks for gate in WRITE_GATES)
-    assert TARGET_STATE in hooks
-
-
-# ── The build-time warning ───────────────────────────────────────────
-
-
-def test_a_profile_selecting_a_write_gate_without_target_state_is_diagnosed(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    """The warning has to name the fix, because the build otherwise succeeds."""
-    # Arrange
-    raw, profile_path = _write_profile(tmp_path / "profile", ["writes-check", "hook-log"])
-
-    # Act
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    # Assert
-    assert TARGET_STATE in caplog.text
-    assert "writes-check" in caplog.text
-    assert "most restrictive" in caplog.text
-
-
-def test_the_approval_hook_alone_also_triggers_the_diagnosis(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    """Both gates read posture, so either one on its own is the same mistake."""
-    raw, profile_path = _write_profile(tmp_path / "profile", ["approval"])
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    assert "approval" in caplog.text
-    assert TARGET_STATE in caplog.text
-
-
-@pytest.mark.parametrize(
-    "hook",
-    ["approval", "control-context", "panels-context", "workspace-delta", "cf-feedback-capture"],
-)
-def test_a_file_writing_hook_without_safety_file_is_diagnosed(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, hook: str
-):
-    """A writer hook without the helper writes nothing, and the build says so."""
-    raw, profile_path = _write_profile(tmp_path / "profile", [hook, TARGET_STATE])
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    assert repr(SAFETY_FILE) in caplog.text
-    assert hook in caplog.text
-    assert "write nothing" in caplog.text
-
-
-def test_each_missing_helper_is_warned_once(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    """The approval hook imports both helpers; missing both is two warnings."""
-    raw, profile_path = _write_profile(tmp_path / "profile", ["approval", "control-context"])
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    warned = sorted(
-        helper
-        for record in caplog.records
-        for helper in HOOK_HELPER_IMPORTERS
-        if f"but not {helper!r}" in record.getMessage()
-    )
-    assert warned == [SAFETY_FILE, TARGET_STATE]
-    assert len(caplog.records) == 2
-
-
-def test_a_profile_pairing_the_gate_with_target_state_is_quiet(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    raw, profile_path = _write_profile(
-        tmp_path / "profile", ["writes-check", "approval", TARGET_STATE, SAFETY_FILE]
-    )
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    assert caplog.text == ""
-
-
-def test_a_profile_selecting_neither_gate_is_quiet(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    """Nothing imports the helper, so its absence costs nothing."""
-    raw, profile_path = _write_profile(tmp_path / "profile", ["hook-log", "error-guidance"])
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        resolve_profile_document(raw, profile_path)
-
-    assert caplog.text == ""
-
-
-def test_a_profile_shipping_its_own_posture_helper_is_quiet(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-):
-    """A profile's own ``hooks/`` file renders whether or not it is selected.
-
-    The import the gates make resolves against the rendered directory, not
-    against the selection list, so the file being there is the whole condition.
-    """
-    profile = tmp_path / "profile"
-    (profile / "hooks").mkdir(parents=True)
-    (profile / "hooks" / "osprey_target_state.py").write_text("# facility edit\n", encoding="utf-8")
-
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        _warn_missing_hook_helpers(profile, {"hooks": ["writes-check"]})
-
-    assert caplog.text == ""
-
-
-def test_a_profile_with_no_hooks_key_is_quiet(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    """No selection list, no gate to be missing a helper."""
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_merge"):
-        _warn_missing_hook_helpers(tmp_path, {})
-
-    assert caplog.text == ""
 
 
 # ── The rendered hook files ──────────────────────────────────────────

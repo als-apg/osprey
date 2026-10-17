@@ -618,75 +618,6 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
         )
 
 
-# Hook short names, as the built-in library spells them (``_hook_short_name``).
-# A helper is a library rather than a wired hook: selecting it is the only thing
-# that copies it into ``.claude/hooks/`` beside the hooks that import it. Each
-# entry maps a helper to the hooks that import it and to what those hooks do
-# without it.
-HOOK_HELPER_IMPORTERS: dict[str, tuple[str, ...]] = {
-    "target-state": ("writes-check", "approval", "limits", "control-context"),
-    "safety-file": (
-        "approval",
-        "control-context",
-        "panels-context",
-        "workspace-delta",
-        "cf-feedback-capture",
-    ),
-}
-
-_HOOK_HELPER_ABSENT_OUTCOME: dict[str, str] = {
-    "target-state": (
-        "without it the write gates resolve write posture to the most restrictive "
-        "answer and refuse writes this deployment is configured to allow, and the "
-        "agent is not told the active control target"
-    ),
-    "safety-file": (
-        "without it the hooks write nothing: no approval stamps, context snapshots "
-        "or captured feedback"
-    ),
-}
-
-
-def _warn_missing_hook_helpers(root_dir: Path, resolved: dict[str, Any]) -> None:
-    """Warn, once per helper, when a hook is selected without a helper it imports.
-
-    A hook imports its helpers from beside it in ``.claude/hooks/``. A profile
-    that selects the hook but not the helper builds and runs, and the hook then
-    does what ``_HOOK_HELPER_ABSENT_OUTCOME`` names for that helper, so the
-    deployment loses what the helper gave with nothing in the build saying which
-    line caused it. Warning rather
-    than refusing: the selection lists are the author's to compose, and a
-    profile may have its own reason to run a hook without a helper.
-
-    Args:
-        root_dir: The profile root, named in the warning.
-        resolved: The fully resolved profile mapping.
-    """
-    hooks = resolved.get("hooks")
-    if not isinstance(hooks, list):
-        return
-    selected = {entry for entry in hooks if isinstance(entry, str)}
-    for helper, importers in HOOK_HELPER_IMPORTERS.items():
-        # A profile shipping its own copy of the helper renders it whether or
-        # not the short name is selected, so the import resolves.
-        if helper in selected or _profile_ships(root_dir, f"hooks/{helper}"):
-            continue
-        triggering = [name for name in importers if name in selected]
-        if not triggering:
-            continue
-        _LOGGER.warning(
-            "Profile %s selects %s but not %r. Those hooks import the %r helper from "
-            "beside them in .claude/hooks/, and selecting it is what puts it there — "
-            "%s. Add %r to the profile's 'hooks:' list.",
-            root_dir,
-            ", ".join(repr(name) for name in triggering),
-            helper,
-            helper,
-            _HOOK_HELPER_ABSENT_OUTCOME[helper],
-            helper,
-        )
-
-
 @dataclass(frozen=True)
 class ResolvedProfileDocument:
     """One profile document resolved into what the build actually reads.
@@ -737,9 +668,9 @@ def resolve_profile_document(
         raw: The profile document as read.
         profile_path: Where that document lives — the classification is made
             from its location, not its contents.
-        warn: Whether to log the resolution diagnostics — exclusions that match
-            no file, and a write gate selected without the posture helper it
-            imports. ``False`` for the hash path, which resolves the same
+        warn: Whether to log the exclusion diagnostics — exclusions that match
+            no file, and bare exclusions a profile file shadows. ``False`` for
+            the hash path, which resolves the same
             document a build already loaded — without it every build reports
             each one twice, and a warning that repeats is one people learn to
             skip. The loader is the user-facing surface, so it keeps the
@@ -763,17 +694,15 @@ def resolve_profile_document(
     lineage: list[str] = []
 
     def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
-        """Report the resolution diagnostics, then package the result.
+        """Report the exclusion diagnostics, then package the result.
 
         Both branches end the same way, and they must: the diagnostics read the
-        sets every layer of either branch fed — and the resolved selection lists
-        only both branches produce — so a branch that skipped one would leave
-        that whole shape of profile without the warning.
+        exclusion sets every layer of either branch fed, so a branch that
+        skipped one would leave that whole shape of profile without the warning.
         """
         if warn:
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
-            _warn_missing_hook_helpers(root_dir, resolved)
         return ResolvedProfileDocument(
             resolved,
             root_dir,
