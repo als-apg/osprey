@@ -177,6 +177,17 @@ class TestOperatingBlueskyPlansSkillStructure:
         for tool in ("get_run", "get_run_data", "get_run_figure", "list_runs", "list_plans"):
             assert tool in skill_text, f"Missing run tool: {tool}"
 
+    def test_reading_a_launched_run_back_is_get_run_data(self, skill_text):
+        """get_run is status only; analysing a run starts from its rows."""
+        prose = _prose(skill_text)
+        assert "reading a run back means get_run_data" in prose
+        assert "before you analyse or report anything about it" in prose
+        assert "holds no measured value" in prose
+        assert (
+            "never analyse or report on a run you launched without first reading its rows "
+            "with get_run_data" in prose
+        )
+
     # --- the choreography ---
 
     def test_stage_complete_config_in_one_call(self, skill_text):
