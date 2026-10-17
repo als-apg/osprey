@@ -21,7 +21,7 @@ resolution-markers = [
 [options.exclude-newer-package]
 lume-pyat = "2026-09-18T00:00:00Z"
 lume-pva-apg = "2026-09-30T00:00:00Z"
-accelerator-middle-layer-apg = "2026-10-11T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-17T00:00:00Z"
 
 [manifest]
 members = [
@@ -52,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "accelerator-middle-layer-apg"
-version = "0.3.1.post1"
+version = "0.3.1.post2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "accelerator-commissioning" },
@@ -65,9 +65,9 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/94/e1b4e808c570f9f139c214f3897607b4ae8391b553a79bc87063430d7288/accelerator_middle_layer_apg-0.3.1.post1.tar.gz", hash = "sha256:d77956193d91892cb0f37bf6c66888d35ace2fcfeb3e29498001e90f65994070", size = 4572861, upload-time = "2026-10-10T17:38:00.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/d6/be50570c87530bc3b684d7e7bd5984df4db8b189aba4e9d7b83cda2274cb/accelerator_middle_layer_apg-0.3.1.post2.tar.gz", hash = "sha256:83f86c08e23e6902aeefdff92e6897030436de79dc298afa397e21d9d96c5082", size = 4585800, upload-time = "2026-10-16T19:43:03.52Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/af/65b6aaa816bfaec7fcb4f720762e34b64c134d43948dc8e84ccf02e6205f/accelerator_middle_layer_apg-0.3.1.post1-py3-none-any.whl", hash = "sha256:495a7f2c1ad9ee6ca9d8ca56a035b7c7393d1e381c454f9890ed835a770cc651", size = 211352, upload-time = "2026-10-10T17:37:58.655Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/21/031778b1974114f9fd86090bf8157532de74a06f142bda7f5144e9584628/accelerator_middle_layer_apg-0.3.1.post2-py3-none-any.whl", hash = "sha256:cca5bd1032372d83a476c76fb366e5223231f129ff54a6a305b06ece4dac8e00", size = 224222, upload-time = "2026-10-16T19:43:01.598Z" },
 ]
 
 [[package]]
@@ -5243,7 +5243,7 @@ virtual-accelerator = [
 [package.metadata]
 requires-dist = [
     { name = "accelerator-commissioning", specifier = "==1.5.3" },
-    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" },
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post2" },
     { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.8.0" },
     { name = "aioca", marker = "extra == 'virtual-accelerator'", specifier = ">=1.7" },
     { name = "aiofiles", specifier = ">=25.1.0" },
@@ -6144,7 +6144,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" }]
+requires-dist = [{ name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post2" }]
 
 [[package]]
 name = "pyaml-test-lattice"
