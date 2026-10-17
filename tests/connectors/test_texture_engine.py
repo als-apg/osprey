@@ -16,7 +16,7 @@ from lume.variables import (
     StrVariable,
 )
 
-from osprey_connectors.simulation import series
+from osprey_connectors.simulation import pulse, series
 from osprey_connectors.simulation.texture import TextureModel
 
 T0 = 1_760_000_000.0
@@ -574,3 +574,231 @@ def test_active_writes_are_the_start_state_a_reset_returns_to():
     assert model.get("T:HEAT:SP") == 33.0
     model.set_active({})
     assert model.get("T:HEAT:SP") == 20.0
+
+
+_SEK_SP = "T:SEK:SP"
+_SEK_ON = "T:SEK:STATUS:ON"
+_SEK_WAVE = "T:SEK:WAVEFORM"
+
+
+def _pulse_view() -> tuple[dict[str, Any], dict[str, Any]]:
+    variables, seeds = _view()
+    variables["channels"] += [
+        _channel(_SEK_SP, role="setpoint", writable=True, value_range=[0, 100]),
+        _channel(_SEK_ON, role="setpoint", value_type="bool", writable=True),
+        _channel(_SEK_WAVE, value_type="waveform", shape=[pulse.TRACE_POINTS]),
+    ]
+    seeds["seeds"].update(
+        {
+            _SEK_SP: {"nominal": 40.0},
+            _SEK_ON: {"nominal": "TRUE"},
+            _SEK_WAVE: {"pulse": {"driver": _SEK_SP, "enable": _SEK_ON}},
+        }
+    )
+    return variables, seeds
+
+
+def _pulse_model() -> tuple[TextureModel, list[float]]:
+    variables, seeds = _pulse_view()
+    clock = [T0]
+    return TextureModel(variables, seeds, clock=lambda: clock[0]), clock
+
+
+def test_a_pulse_channel_reads_the_trace_at_the_read_time():
+    model, clock = _pulse_model()
+
+    first = model.get(_SEK_WAVE)
+    clock[0] = T0 + 1.0
+    second = model.get(_SEK_WAVE)
+
+    assert first.shape == (pulse.TRACE_POINTS,)
+    np.testing.assert_array_equal(first, pulse.trace(_SEK_WAVE, T0, 40.0, True))
+    np.testing.assert_array_equal(second, pulse.trace(_SEK_WAVE, T0 + 1.0, 40.0, True))
+    assert not np.array_equal(first, second)
+
+
+def test_doubling_the_driver_setpoint_doubles_the_peak():
+    model, _ = _pulse_model()
+    before = model.get(_SEK_WAVE)
+
+    model.set({_SEK_SP: 80.0})
+    after = model.get(_SEK_WAVE)
+
+    assert after.max() == pytest.approx(2.0 * before.max(), rel=1e-12)
+    np.testing.assert_array_equal(after, pulse.trace(_SEK_WAVE, T0, 80.0, True))
+
+
+def test_a_disabled_supply_reads_a_flat_zero_trace():
+    model, _ = _pulse_model()
+
+    model.set({_SEK_ON: "FALSE"})
+    off = model.get(_SEK_WAVE)
+    model.set({_SEK_ON: "TRUE"})
+    on = model.get(_SEK_WAVE)
+
+    assert off.shape == (pulse.TRACE_POINTS,)
+    assert not np.any(off)
+    assert on.max() > 0.0
+
+
+def test_has_motion_is_true_for_a_pulse_channel_only():
+    model, _ = _pulse_model()
+
+    assert model.has_motion(_SEK_WAVE) is True
+    assert model.has_motion("T:TRACE") is False
+    assert model.has_motion(_SEK_SP) is False
+    assert model.has_motion("T:NOISY") is True
+
+
+def test_a_static_waveform_still_reads_its_nominal():
+    model, clock = _pulse_model()
+
+    first = model.get("T:TRACE")
+    clock[0] = T0 + 5.0
+    np.testing.assert_array_equal(first, [[1, 2, 3], [4, 5, 6]])
+    np.testing.assert_array_equal(model.get("T:TRACE"), first)
+
+
+_PADDLE_SP = "T:PADDLE:SP"
+_PADDLE_RB = "T:PADDLE:RB"
+_GUN_ON = "T:GUN:ON"
+_GATED_SUM = "T:BPM:SUM"
+_GATED_VALID = "T:BPM:STATUS:VALID"
+_GATED_LAMP = "T:LAMP"
+_GATED_COUNT = "T:PADDLES:IN"
+_CHAINED = "T:DOWNSTREAM:SUM"
+_GATE_INPUTS = {_PADDLE_RB: "TRUE", _GUN_ON: "FALSE"}
+
+
+def _gate_view() -> tuple[dict[str, Any], dict[str, Any]]:
+    variables, seeds = _view()
+    variables["channels"] += [
+        _channel(_PADDLE_SP, role="setpoint", pair=_PADDLE_RB, value_type="bool", writable=True),
+        _channel(_PADDLE_RB, value_type="bool"),
+        _channel(_GUN_ON, role="setpoint", value_type="bool", writable=True),
+        _channel(_GATED_SUM),
+        _channel(_GATED_VALID, value_type="bool"),
+        _channel(_GATED_LAMP, value_type="enum", options=["DARK", "LIT"]),
+        _channel(_GATED_COUNT, value_type="int"),
+        _channel(_CHAINED),
+    ]
+    seeds["seeds"].update(
+        {
+            _PADDLE_SP: {"nominal": "FALSE"},
+            _GUN_ON: {"nominal": "TRUE"},
+            _GATED_SUM: {"nominal": 2.0, "gate": {"inputs": _GATE_INPUTS, "gated": 0.01}},
+            _GATED_VALID: {"nominal": "TRUE", "gate": {"inputs": _GATE_INPUTS, "gated": "FALSE"}},
+            _GATED_LAMP: {"nominal": "DARK", "gate": {"inputs": _GATE_INPUTS, "gated": "LIT"}},
+            _GATED_COUNT: {"nominal": 0, "gate": {"inputs": _GATE_INPUTS, "gated": 1}},
+            _CHAINED: {"nominal": 4.0, "gate": {"inputs": {_GATED_VALID: "FALSE"}, "gated": 0.5}},
+        }
+    )
+    return variables, seeds
+
+
+def _gate_model() -> TextureModel:
+    variables, seeds = _gate_view()
+    return TextureModel(variables, seeds, clock=lambda: T0)
+
+
+_GATED = (_GATED_SUM, _GATED_VALID, _GATED_LAMP, _GATED_COUNT, _CHAINED)
+_NOMINAL = {
+    _GATED_SUM: 2.0,
+    _GATED_VALID: "TRUE",
+    _GATED_LAMP: "DARK",
+    _GATED_COUNT: 0,
+    _CHAINED: 4.0,
+}
+
+
+def test_in_the_nominal_state_no_gate_is_active():
+    model = _gate_model()
+
+    assert model.get(list(_GATED)) == _NOMINAL
+    assert model.held(list(_GATED)) == _NOMINAL
+
+
+def test_a_blocking_input_gates_every_target_by_its_type():
+    model = _gate_model()
+
+    model.set({_PADDLE_SP: "TRUE"})
+    read = model.get(list(_GATED))
+
+    assert read[_GATED_SUM] == pytest.approx(0.02)
+    assert read[_GATED_SUM] > 0.0
+    assert read[_GATED_VALID] == "FALSE"
+    assert read[_GATED_LAMP] == "LIT"
+    assert read[_GATED_COUNT] == 1
+    assert isinstance(read[_GATED_COUNT], int)
+
+
+def test_any_one_blocking_input_is_enough():
+    model = _gate_model()
+
+    model.set({_GUN_ON: "FALSE"})
+
+    assert model.get(_GATED_SUM) == pytest.approx(0.02)
+    assert model.get(_GATED_VALID) == "FALSE"
+
+
+def test_clearing_the_input_restores_the_nominal_reading():
+    model = _gate_model()
+
+    model.set({_PADDLE_SP: "TRUE"})
+    model.set({_PADDLE_SP: "FALSE"})
+
+    assert model.get(list(_GATED)) == _NOMINAL
+
+
+def test_a_gated_input_gates_the_channel_it_feeds():
+    model = _gate_model()
+
+    model.set({_GUN_ON: "FALSE"})
+
+    assert model.get(_CHAINED) == pytest.approx(2.0)
+
+
+def test_the_held_value_carries_the_gate():
+    model = _gate_model()
+
+    model.set({_PADDLE_SP: "TRUE"})
+
+    assert model.held([_GATED_SUM, _GATED_VALID]) == {
+        _GATED_SUM: pytest.approx(0.02),
+        _GATED_VALID: "FALSE",
+    }
+
+
+def test_a_gated_float_keeps_its_noise_and_scales_a_relative_term():
+    variables, seeds = _gate_view()
+    seeds["seeds"][_GATED_SUM]["noise"] = {"relative": 0.1}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    open_reading = model.get(_GATED_SUM)
+
+    model.set({_PADDLE_SP: "TRUE"})
+    gated_reading = model.get(_GATED_SUM)
+
+    assert gated_reading == pytest.approx(open_reading * 0.01, rel=1e-12)
+    assert gated_reading != 0.0
+    assert math.isfinite(gated_reading)
+
+
+def test_an_active_write_on_an_input_gates_from_the_start_state():
+    model = _gate_model()
+
+    model.set_active({_GUN_ON: "FALSE"})
+
+    assert model.get(_GATED_VALID) == "FALSE"
+    model.set_active({})
+    assert model.get(_GATED_VALID) == "TRUE"
+
+
+def test_a_gate_beside_a_linear_seed_scales_the_weighted_sum():
+    variables, seeds = _gate_view()
+    seeds["seeds"]["T:SUM"]["gate"] = {"inputs": {_GUN_ON: "FALSE"}, "gated": 0.5}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    open_sum = model.held(["T:SUM"])["T:SUM"]
+
+    model.set({_GUN_ON: "FALSE"})
+
+    assert model.held(["T:SUM"])["T:SUM"] == pytest.approx(open_sum * 0.5)

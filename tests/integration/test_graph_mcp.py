@@ -89,17 +89,17 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # Stated here rather than derived, so a change to the demo facility has to be
 # acknowledged in this module.
 
-EXPECTED_DEVICES = 532
+EXPECTED_DEVICES = 644
 #: Places carrying channels of their own: the top place ``SR``, whose tune and
 #: chromaticity channels sit on the place rather than on a device. The store
 #: matches a place on ``(:Resource)-[:HASBINDING]->`` as it matches a device.
 EXPECTED_BOUND_PLACES = 1
-EXPECTED_BINDINGS = 3314
-EXPECTED_WRITE_ONLY = 485
-EXPECTED_READ_ONLY = 2825
+EXPECTED_BINDINGS = 3700
+EXPECTED_WRITE_ONLY = 595
+EXPECTED_READ_ONLY = 3101
 #: The place's tune and chromaticity channels name no signal.
 EXPECTED_UNSIGNALLED = 4
-EXPECTED_MAGNETS = 398
+EXPECTED_MAGNETS = 466
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
@@ -601,7 +601,7 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1a_counts_the_verified_devices() -> None:
-    """The device census sums to the 532 verified devices, and no place."""
+    """The device census sums to the 644 verified devices, and no place."""
     payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
@@ -609,7 +609,7 @@ def test_example_q1a_counts_the_verified_devices() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q5_reproduces_the_verified_direction_split() -> None:
-    """The binding rollup reproduces 485 write-only / 2825 read-only / 3314 total."""
+    """The binding rollup reproduces 595 write-only / 3101 read-only / 3700 total."""
     payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row
@@ -619,11 +619,11 @@ def test_example_q5_reproduces_the_verified_direction_split() -> None:
 
 
 def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
-    """Rolling ``Magnet`` up its subclasses lists exactly the 398 verified devices.
+    """Rolling ``Magnet`` up its subclasses lists exactly the 466 verified devices.
 
     The rollup is larger than the shipped row cap, so the cap is lifted to the
     example's own ``LIMIT`` for this test: the claim here is the count, and a
-    capped answer would compare 200 against 398 and say nothing about the
+    capped answer would compare 200 against 466 and say nothing about the
     hierarchy.
     """
     assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
@@ -640,7 +640,7 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1b_puts_the_magnets_under_one_branch() -> None:
-    """The branch rollup reaches the same 398 without naming a magnet subclass."""
+    """The branch rollup reaches the same 466 without naming a magnet subclass."""
     payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
@@ -687,7 +687,7 @@ def _assert_usable(key: str, payload: dict[str, Any]) -> None:
 
     Truncation is deliberately not asserted here: whether an example's own
     ``LIMIT`` lands above or below the row cap is a property of the corpus (the
-    demo machine has 398 magnets to a 200-row cap), and the tests that need a
+    demo machine has 466 magnets to a 200-row cap), and the tests that need a
     *complete* answer to compare against a verified count say so themselves.
     """
     assert payload["row_count"] >= 1, f"{key} returned no rows: {payload}"
@@ -913,7 +913,10 @@ def test_search_by_device_name_returns_only_that_device(demo_read: Any) -> None:
     assert {hit["device"] for hit in row["rows"]} == {
         "BR/BPM01",
         "BTS/BPM01",
+        "GTL/BPM01",
         "LINE/BPM01",
+        "LN/BPM01",
+        "LTB/BPM01",
         "SR/BPM01",
     }, row["rows"]
 

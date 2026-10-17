@@ -7,6 +7,7 @@ WorkspaceWatcher uses watchdog to detect file changes and broadcast them.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
@@ -48,19 +49,15 @@ class FileEventBroadcaster:
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
         with self._lock:
-            try:
+            with contextlib.suppress(ValueError):
                 self._queues.remove(q)
-            except ValueError:
-                pass
 
     def broadcast(self, data: dict) -> None:
         """Push data to all connected SSE clients (called from sync context)."""
         with self._lock:
             for q in self._queues:
-                try:
+                with contextlib.suppress(asyncio.QueueFull):
                     q.put_nowait(data)
-                except asyncio.QueueFull:
-                    pass
 
 
 # Patterns to ignore in file watching

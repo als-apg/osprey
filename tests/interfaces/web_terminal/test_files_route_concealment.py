@@ -362,7 +362,7 @@ class TestStateKeyContract:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.workspace.resolve_shared_data_root",
+                "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir,
             ),
         ):
@@ -388,7 +388,7 @@ class TestStateKeyContract:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.workspace.resolve_shared_data_root",
+                "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir / "agent_data",
             ),
             # The artifact server would otherwise write under that root from a

@@ -30,8 +30,8 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, WORKER_MAX, default_port
+from osprey_connectors.errors import BuildProfileError
 
 #: The bundled trigger file every dispatch block below points at. The dispatch
 #: stanza requires a resolvable one, and which file it is has nothing to do

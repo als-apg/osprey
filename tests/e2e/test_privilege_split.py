@@ -113,7 +113,7 @@ from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
-from osprey.utils.workspace import container_image_context
+from osprey_connectors.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests.e2e._telemetry_sender import sender_env_file_args
 
@@ -757,7 +757,7 @@ class TestScaffoldRestoreReservedGate:
             f"render = Path({admin_state.root!r}) / 'build'\n"
             "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
             "from osprey.audit.writer import ledger_path\n"
-            "from osprey.utils.identity import acting_identity\n"
+            "from osprey_connectors.identity import acting_identity\n"
             f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
             "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
@@ -879,7 +879,7 @@ class TestScaffoldRestoreReservedGate:
             ")\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
             "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
-            "from osprey.utils.identity import acting_identity\n"
+            "from osprey_connectors.identity import acting_identity\n"
             f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
             "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"

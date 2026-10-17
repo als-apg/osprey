@@ -1328,7 +1328,7 @@ def facility_berlin(monkeypatch) -> ZoneInfo:
     zone there.
     """
     zone = ZoneInfo("Europe/Berlin")
-    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
     return zone
 
 

@@ -58,10 +58,12 @@ ROWS = {
     "LINE": ["LINE:BPM:TBT:X", "LINE:BPM:TBT:Y"],
 }
 COLUMNS = {"SR": ["SCOR:H:SP", "SCOR:V:SP"], "LINE": ["LCOR:H:SP", "LCOR:V:SP"]}
+#: Each model's one sum series, the sum reading of both its rows.
+SUMS = {"SR": "SR:BPM:TBT:SUM", "LINE": "LINE:BPM:TBT:SUM"}
 MODELS = ("SR", "LINE")
 
 #: The sidecar's lists of lattice indices.
-INDEX_LISTS = ("bpm_index", "hcor_index", "vcor_index")
+INDEX_LISTS = ("bpm_index", "hcorr_index", "vcorr_index")
 
 
 def _with_series(tree: dict[str, Any], name: str, element: str) -> dict[str, Any]:
@@ -193,15 +195,15 @@ def test_the_index_lengths_match_the_rows_and_the_columns(
     view: tuple[Path, list[Path]], name: str
 ) -> None:
     matrix, index = _files(view[0], name)
-    assert list(index) == ["bpm_index", "hcor_index", "vcor_index", "unsolved"]
+    assert list(index) == ["bpm_index", "sum_names", "hcorr_index", "vcorr_index", "unsolved"]
     assert index["unsolved"] == {}
     assert all(type(entry) is int for key in INDEX_LISTS for entry in index[key])
     assert len(index["bpm_index"]) == len(matrix["matrix"]) == len(matrix["observable_names"])
-    columns = len(index["hcor_index"]) + len(index["vcor_index"])
+    columns = len(index["hcorr_index"]) + len(index["vcorr_index"])
     assert columns == len(matrix["variable_names"])
     assert all(len(row) == columns for row in matrix["matrix"])
-    assert matrix["variable_planes"] == ["H"] * len(index["hcor_index"]) + ["V"] * len(
-        index["vcor_index"]
+    assert matrix["variable_planes"] == ["H"] * len(index["hcorr_index"]) + ["V"] * len(
+        index["vcorr_index"]
     )
 
 
@@ -238,8 +240,9 @@ def test_the_matrix_is_the_engines_first_turn_response_at_the_stated_kick_step(
     horizontal, vertical = COLUMNS[name]
     assert index == {
         "bpm_index": [answer.index[row] for row in answer.rows],
-        "hcor_index": [answer.index[horizontal]],
-        "vcor_index": [answer.index[vertical]],
+        "sum_names": [SUMS[name]] * 2,
+        "hcorr_index": [answer.index[horizontal]],
+        "vcorr_index": [answer.index[vertical]],
         "unsolved": {},
     }
 
@@ -273,7 +276,7 @@ def test_a_corrector_the_view_gives_no_magnet_is_still_a_column(
     assert "LCOR:V:SP" not in json.dumps(configuration)
     matrix, index = _files(directory, "LINE")
     assert matrix["variable_names"] == COLUMNS["LINE"]
-    assert len(index["vcor_index"]) == 1
+    assert len(index["vcorr_index"]) == 1
 
 
 @pytest.mark.parametrize("name", MODELS)
@@ -518,8 +521,9 @@ def test_an_unsolved_corrector_keeps_a_zero_column_and_is_named_in_the_sidecar(
     assert matrix["matrix"] == [[2.0, 0.0], [3.0, 0.0]]
     assert index == {
         "bpm_index": [6, 6],
-        "hcor_index": [4],
-        "vcor_index": [4],
+        "sum_names": [SUMS["LINE"]] * 2,
+        "hcorr_index": [4],
+        "vcorr_index": [4],
         "unsolved": {"LCOR:V:SP": lost},
     }
 
@@ -567,6 +571,186 @@ def test_an_engine_whose_function_takes_no_kind_fails_as_python_does(
     inputs = view_inputs(tmp_path, trajectory_tree(), ["LINE"])
     with pytest.raises(TypeError, match="unexpected keyword argument 'kind'"):
         write_pyaml_view(tmp_path / "render" / "data" / "pyaml", inputs)
+
+
+# --- the order of the rows and columns ----------------------------------------
+
+#: LINE's second monitor and second corrector of each plane, wired as copies of the first.
+X1, Y1, S1 = "LINE:BPM:TBT:X", "LINE:BPM:TBT:Y", "LINE:BPM:TBT:SUM"
+X2, Y2, S2 = "LINE:BPM2:TBT:X", "LINE:BPM2:TBT:Y", "LINE:BPM2:TBT:SUM"
+H1, V1 = COLUMNS["LINE"]
+H2, V2 = "LCOR2:H:SP", "LCOR2:V:SP"
+
+
+def _widened(wiring: list[dict[str, Any]], *, drop: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """LINE's wiring with a second monitor ``LBPM2`` and a second corrector per plane."""
+    by_address = {entry["address"]: entry for entry in wiring}
+    added = [by_address[first] | {"address": second} for first, second in ((H1, H2), (V1, V2))] + [
+        by_address[first] | {"address": second, "element": "LBPM2"}
+        for first, second in ((X1, X2), (Y1, Y2), (S1, S2))
+    ]
+    return [entry for entry in [*wiring, *added] if entry["address"] not in drop]
+
+
+def _write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: Any,
+    hcor: list[str],
+    vcor: list[str],
+    drop: tuple[str, ...] = (),
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """LINE's two files written from ``answer`` for ``hcor`` then ``vcor``, over the widened wiring."""
+    from osprey.facility.views import simulator
+
+    inputs = view_inputs(tmp_path, trajectory_tree(), ["LINE"])
+    (record,) = [entry for entry in inputs.doc["models"] if entry["name"] == "LINE"]
+    wired = simulator.simulator_wiring
+    asked: list[list[str]] = []
+
+    def response_matrix(*request: Any, **kind: Any) -> Any:
+        asked.append(list(request[3]))
+        return answer
+
+    monkeypatch.setattr(
+        simulator, "simulator_wiring", lambda *args: _widened(wired(*args), drop=drop)
+    )
+    monkeypatch.setattr(engine, "response_matrix", response_matrix)
+    monkeypatch.setattr(pyaml_view, "_SOLVED", {})
+    files = pyaml_view._trajectory_files(inputs, record, hcor, vcor)
+    assert asked == [[*hcor, *vcor]]
+    return json.loads(files[TRAJECTORY_RM_FILE]), json.loads(files[TRAJECTORY_RM_INDEX_FILE])
+
+
+def _wide_answer(**changed: Any) -> Any:
+    """Two monitors at 3 and 8, the correctors asked against their lattice order."""
+    answer: dict[str, Any] = {
+        "rows": [X1, X2, Y1, Y2],
+        "columns": [H1, H2, V1, V2],
+        "matrix": np.arange(16.0).reshape(4, 4) + 1.0,
+        "unsolved": {},
+        "index": {X1: 3, X2: 8, Y1: 3, Y2: 8, H1: 9, H2: 2, V1: 7, V2: 5},
+    }
+    return engine.ResponseMatrix(**(answer | changed))
+
+
+def test_correctors_asked_out_of_lattice_order_are_written_in_it_per_plane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The solve is asked in the groups' order; the files are in lattice order from the injection."""
+    matrix, index = _write(tmp_path, monkeypatch, _wide_answer(), [H1, H2], [V1, V2])
+    assert matrix["variable_names"] == [H2, H1, V2, V1]
+    assert matrix["variable_planes"] == ["H", "H", "V", "V"]
+    solved = np.arange(16.0).reshape(4, 4) + 1.0
+    assert matrix["matrix"] == solved[:, [1, 0, 3, 2]].tolist()
+    assert index["hcorr_index"] == [2, 9]
+    assert index["vcorr_index"] == [5, 7]
+    assert matrix["observable_names"] == [X1, X2, Y1, Y2]
+    assert index["bpm_index"] == [3, 8, 3, 8]
+    assert index["sum_names"] == [S1, S2, S1, S2]
+
+
+def test_an_unsolved_corrector_moves_with_its_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lost = "lost (while stepping LCOR:V:SP)"
+    solved = np.arange(12.0).reshape(4, 3) + 1.0
+    answer = _wide_answer(columns=[H1, H2, V2], matrix=solved, unsolved={V1: lost})
+    matrix, index = _write(tmp_path, monkeypatch, answer, [H1, H2], [V1, V2])
+    assert matrix["variable_names"] == [H2, H1, V2, V1]
+    assert matrix["matrix"] == [[row[1], row[0], row[2], 0.0] for row in solved.tolist()]
+    assert index["vcorr_index"] == [5, 7]
+    assert index["unsolved"] == {V1: lost}
+
+
+def test_correctors_at_one_index_keep_the_order_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    places = {X1: 3, X2: 8, Y1: 3, Y2: 8, H1: 4, H2: 4, V1: 4, V2: 4}
+    matrix, index = _write(tmp_path, monkeypatch, _wide_answer(index=places), [H1, H2], [V1, V2])
+    assert matrix["variable_names"] == [H1, H2, V1, V2]
+    assert index["hcorr_index"] == index["vcorr_index"] == [4, 4]
+
+
+def _stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: Any, drop: tuple[str, ...] = ()
+) -> str:
+    with pytest.raises(FacilityBuildError) as stopped:
+        _write(tmp_path, monkeypatch, answer, [H1, H2], [V1, V2], drop)
+    return str(stopped.value.format_message())
+
+
+_ROWS_STOP = (
+    "facility: engine-invalid: model LINE — engine pyat answers "
+    "response_matrix(kind='trajectory') for model LINE with x rows {x} and y rows {y}, which "
+    "do not read the same monitors in the same order; fix: wire every monitor the response "
+    "reads with one x and one y turn series"
+)
+
+
+@pytest.mark.parametrize(
+    ("rows", "x", "y"),
+    [
+        ([X1, X2, Y1], f"{X1}, {X2}", Y1),
+        ([X1, Y1, Y2], X1, f"{Y1}, {Y2}"),
+        ([X1, X2], f"{X1}, {X2}", "none"),
+        ([X1, X2, Y2, Y1], f"{X1}, {X2}", f"{Y2}, {Y1}"),
+        ([X1, Y2], X1, Y2),
+        ([X1, Y1, X2, Y2], f"{X1}, {X2}", f"{Y1}, {Y2}"),
+    ],
+    ids=[
+        "a monitor without y",
+        "a monitor without x",
+        "no y at all",
+        "y in another order",
+        "x and y of different monitors",
+        "planes interleaved",
+    ],
+)
+def test_x_and_y_rows_that_are_not_the_same_monitors_in_order_stop_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: list[str], x: str, y: str
+) -> None:
+    answer = _wide_answer(rows=rows, matrix=np.ones((len(rows), 4)))
+    assert _stopped(tmp_path, monkeypatch, answer) == _ROWS_STOP.format(x=x, y=y)
+
+
+@pytest.mark.parametrize(
+    ("places", "half", "shown"),
+    [
+        ({X1: 8, X2: 3, Y1: 8, Y2: 3}, f"{X1}, {X2}", "8, 3"),
+        ({X1: 3, X2: 3, Y1: 3, Y2: 3}, f"{X1}, {X2}", "3, 3"),
+        ({X1: 3, X2: 8, Y1: 8, Y2: 8}, f"{Y1}, {Y2}", "8, 8"),
+    ],
+    ids=["decreasing", "equal", "equal in y alone"],
+)
+def test_a_half_whose_indices_do_not_increase_strictly_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, places: dict[str, int], half: str, shown: str
+) -> None:
+    index = places | {H1: 9, H2: 2, V1: 7, V2: 5}
+    assert _stopped(tmp_path, monkeypatch, _wide_answer(index=index)) == (
+        "facility: engine-invalid: model LINE — engine pyat answers "
+        f"response_matrix(kind='trajectory') for model LINE with rows {half} at indices "
+        f"{shown}, which do not increase strictly; fix: make response_matrix() answer each "
+        "plane's rows in lattice order from the injection, one monitor per element"
+    )
+
+
+def test_a_row_whose_monitor_wires_no_sum_series_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _stopped(tmp_path, monkeypatch, _wide_answer(), drop=(S2,)) == (
+        f"facility: engine-invalid: model LINE — row {X2} of model LINE's "
+        "response_matrix(kind='trajectory') reads a monitor the model wires no sum series on; "
+        "fix: wire a sum turn series on every monitor the response reads"
+    )
+
+
+@pytest.mark.parametrize("name", MODELS)
+def test_each_row_names_the_sum_series_of_its_monitor(
+    view: tuple[Path, list[Path]], name: str
+) -> None:
+    matrix, index = _files(view[0], name)
+    assert index["sum_names"] == [SUMS[name]] * len(matrix["observable_names"])
 
 
 # --- the kick step ------------------------------------------------------------

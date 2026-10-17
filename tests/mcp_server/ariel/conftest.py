@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.ariel.server_context import reset_ariel_context
-from osprey.utils.workspace import reset_config_cache
+from osprey_connectors.workspace import reset_config_cache
 from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 from tests.services.ariel_search.conftest import (
     install_attachment_fetch_fake,

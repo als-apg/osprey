@@ -95,6 +95,7 @@ exception it is; move it if the layout's ``web`` offset or default base ever
 moves.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -210,10 +211,8 @@ def notify_notebook_edit(detail):
     Fire-and-forget: an unreachable, refusing or slow web terminal costs the
     operator a badge and nothing else.
     """
-    try:
+    with contextlib.suppress(Exception):
         urllib.request.urlopen(_activity_request(detail), timeout=_ACTIVITY_TIMEOUT).close()
-    except Exception:
-        pass
 
 
 def main():

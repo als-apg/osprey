@@ -100,6 +100,7 @@ stage-2 refusal under `writes_disabled`, because a different action lifts it.
 A record is written before the deny is emitted and can never cost it.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -371,7 +372,8 @@ def _record_refusal(hook_input, tool_name, reason, detail=None):
     re-grants those tools via ``allow`` and leans on the hard deny. An
     unwritable audit zone costs a record, never the decision.
     """
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "writes-check",
             hook_input,
@@ -380,8 +382,6 @@ def _record_refusal(hook_input, tool_name, reason, detail=None):
             reason=reason,
             detail=detail,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
 
 
 def _deny_posture(hook_input, tool_name, target=None):
@@ -399,15 +399,14 @@ def _deny_posture(hook_input, tool_name, target=None):
     the decision.
     """
     detail = f"target={target}" if target else None
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook(
             "writes-check",
             hook_input,
             status="deny",
             detail="reason=posture" + (f" {detail}" if detail else ""),
         )
-    except Exception:
-        pass  # logging must never cost the deny
     _record_refusal(hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=detail)
     scope = _POSTURE_DENY_SCOPE.format(target=target) if target else ""
     output = {
@@ -429,15 +428,14 @@ def _deny_posture_unknown(hook_input, tool_name):
     spelling while the ledger keeps "could not be read" apart from "was
     narrowed". Same no-raise rule as :func:`_deny_posture`.
     """
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook(
             "writes-check",
             hook_input,
             status="deny",
             detail=f"reason={_POSTURE_UNKNOWN_DETAIL}",
         )
-    except Exception:
-        pass  # logging must never cost the deny
     _record_refusal(
         hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=_POSTURE_UNKNOWN_DETAIL
     )

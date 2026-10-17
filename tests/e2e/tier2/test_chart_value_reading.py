@@ -399,8 +399,8 @@ def _seed_world(repo: Path) -> str:
     seed. The Mongo password is read from the repo's ``.env`` by the rewrite
     itself.
     """
-    from osprey.utils.config import config_anchored_at, load_config
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.config import config_anchored_at, load_config
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(repo / ".env")
     patch = pytest.MonkeyPatch()

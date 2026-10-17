@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 from pyaml.common.exception import PyAMLException
 
-from osprey.errors import (
+from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
+from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelReadFailedError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,

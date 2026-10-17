@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -267,10 +268,8 @@ def cached_json(cache: Path | None, key: str, produce):
     value = produce()
     if value is None:
         return None
-    try:
+    with contextlib.suppress(OSError):
         entry.write_text(json.dumps(value))
-    except OSError:
-        pass
     return value
 
 

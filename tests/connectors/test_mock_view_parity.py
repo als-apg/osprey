@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 
-from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from tests.facility.served_tree import in_process_config
 
 FACILITY_FILE = "facility.json"

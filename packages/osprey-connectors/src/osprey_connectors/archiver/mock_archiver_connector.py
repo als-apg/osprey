@@ -28,7 +28,7 @@ from osprey_connectors.control_system.va_in_process_connector import (
     simulation_state_dir,
     simulator_view_dir,
 )
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotArchivedError, ChannelNotFoundError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
@@ -37,14 +37,6 @@ if TYPE_CHECKING:
     from osprey_connectors.simulation.archive import ArchiveComposite
 
 logger = get_logger("mock_archiver_connector")
-
-#: Why a channel of the view that the archive leaves out is refused.
-_NO_ARCHIVED_HISTORY = "has no archived history"
-
-
-def no_archived_history(address: str) -> str:
-    """The refusal for a channel the view holds and the archive leaves out."""
-    return f"{address} {_NO_ARCHIVED_HISTORY}"
 
 
 class MockArchiverConnector(ArchiverConnector):
@@ -157,8 +149,8 @@ class MockArchiverConnector(ArchiverConnector):
         """The archive composite, once every channel is one it archives.
 
         Raises:
-            ValueError: A channel is one the view holds and the archive leaves
-                out.
+            ChannelNotArchivedError: A channel is one the view holds and the
+                archive leaves out.
             ChannelNotFoundError: A channel is one the view does not hold.
         """
         archive = self._current()
@@ -168,7 +160,7 @@ class MockArchiverConnector(ArchiverConnector):
             if channel in archived:
                 continue
             if channel in held:
-                raise ValueError(no_archived_history(channel))
+                raise ChannelNotArchivedError(channel)
             raise ChannelNotFoundError(channel)
         return archive
 
@@ -208,9 +200,9 @@ class MockArchiverConnector(ArchiverConnector):
 
         Raises:
             ChannelNotFoundError: A channel is not a channel of the facility.
-            ValueError: A channel has no archived history, or ``processing``
-                other than ``"raw"`` is requested for a channel holding
-                non-numeric values.
+            ChannelNotArchivedError: A channel has no archived history.
+            ValueError: ``processing`` other than ``"raw"`` is requested for a
+                channel holding non-numeric values.
         """
         archive = self._require(list(channels))
 
@@ -254,7 +246,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         Raises:
             ChannelNotFoundError: The channel is not a channel of the facility.
-            ValueError: The channel has no archived history.
+            ChannelNotArchivedError: The channel has no archived history.
         """
         self._require([channel])
         return ArchiverMetadata(

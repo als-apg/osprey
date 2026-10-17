@@ -194,7 +194,7 @@ class TestLauncherAddressResolution:
 
     def test_launcher_reader_is_the_shared_resolver_bound_to_its_key(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {"artifact_server": {"host": "10.0.0.1", "port": 9000}},
         )
         monkeypatch.setenv("OSPREY_ARTIFACT_SERVER_PORT", "9191")
@@ -203,7 +203,7 @@ class TestLauncherAddressResolution:
         assert (host, port) == ("10.0.0.1", 9191)  # env wins over the configured 9000
 
     def test_every_launcher_resolves_its_own_key(self, monkeypatch):
-        monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: {})
+        monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: {})
         for key, defn in FRAMEWORK_WEB_SERVERS.items():
             monkeypatch.delenv(defn.port_env_var, raising=False)
             _host, port = server_launcher._launchers[key]._config_reader()
@@ -278,7 +278,7 @@ class TestAutoLaunchNesting:
     def test_a_misplaced_port_is_refused_too(self, monkeypatch):
         """``artifact_server.web.port`` was inert — the gallery stayed on 8086."""
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {"artifact_server": {"web": {"port": 9999}}},
         )
         with pytest.raises(WebServerConfigDepthError, match=r"artifact_server\.web\.port"):
@@ -287,7 +287,7 @@ class TestAutoLaunchNesting:
     def test_keys_at_the_read_depth_are_untouched(self, monkeypatch):
         """The check must not flag the legitimate spelling of either shape."""
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {
                 "ariel": {"web": {"port": 1111}, "database": {"uri": "postgres://x"}},
                 "artifact_server": {"port": 2222, "categories": {}},
@@ -380,12 +380,6 @@ class TestEnsureWebServerDispatch:
     def test_unknown_key_raises_keyerror(self):
         with pytest.raises(KeyError):
             ensure_web_server("no-such-server")
-
-    def test_named_alias_targets_expected_key(self, monkeypatch):
-        fake = MagicMock()
-        monkeypatch.setitem(server_launcher._launchers, "ariel", fake)
-        server_launcher.ensure_ariel_server()
-        fake.ensure_running.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,6 @@ from osprey.deployment.host_binding import (
     LISTENS_KEY,
 )
 from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
-from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -44,8 +43,9 @@ from osprey.utils.config_writer import (
     save_config_document,
 )
 from osprey.utils.facility import facility_name as identity_name
-from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
@@ -1406,8 +1406,9 @@ def _inject_bluesky(
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
-        "terminals receive it only for personas entitled to it; the rest are "
-        "refused with launch_token_required and hand arming to the operator."
+        "terminals receive it only for personas entitled to it; the rest call "
+        "without it, are refused with launch_token_invalid, and hand arming to "
+        "the operator."
     )
     logger.debug(
         "    Images:     `osprey up` builds the bluesky-bridge image locally "
@@ -1785,12 +1786,13 @@ def _inject_trajectory(
     1. Copy the bundled ``templates/services/trajectory/`` compose template
        into ``<project>/services/trajectory/``.
     2. Write ``services.trajectory {path, port, target, model?, network,
-       bind?}`` and register it in ``deployed_services``.
+       bind?, sequence_dir?}`` and register it in ``deployed_services``.
     3. Register the ``web.panels.trajectory`` entry pointing at the service
        root, with the ``/panel/`` mount as its ``path`` and the ``/health``
        endpoint the tab health-gates on.
-    4. Print a post-build hint naming the service's launch token and the
-       coded refusals it shares with every arming service.
+    4. Print a post-build hint naming the service's launch token, the coded
+       refusals its agent door shares with every arming service, and the
+       sequence module directory.
 
     The port is the layout's ``trajectory`` slot at the deployment's resolved
     base, unless a ``services.trajectory.port`` merged from the profile's
@@ -1803,6 +1805,14 @@ def _inject_trajectory(
     when the profile sets them, so the service's and the template's own
     defaults apply otherwise.
 
+    The service's tunable keys (:mod:`osprey.services.trajectory.constants`)
+    are the author's: a value merged from the profile's ``config:`` is carried
+    across the block replacement. ``sequence_dir`` left unset on a
+    virtual-accelerator target defaults to the VA sequence module the copied
+    template ships (``build/services/trajectory/sequence``); on any other target it
+    stays unset until the facility names its own module, and the service then
+    starts with shots and setup refused.
+
     Args:
         trajectory: Validated trajectory configuration from the build profile.
         project_path: Root of the built project.
@@ -1811,6 +1821,16 @@ def _inject_trajectory(
     """
     from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
     from osprey.port_layout import default_port
+    from osprey.services.trajectory.constants import (
+        ACTION_TIMEOUT_KEY,
+        ARMED_TIMEOUT_KEY,
+        CONTINUOUS_MAX_SHOTS_KEY,
+        LOSS_SUM_CUTOFF_KEY,
+        RAW_WINDOW_TURNS_KEY,
+        SEQUENCE_DIR_KEY,
+        SHOT_SUM_THRESHOLD_KEY,
+        VA_SEQUENCE_DIR,
+    )
     from osprey.utils.launch_token import (
         LAUNCH_TOKEN_HEADER,
         LAUNCH_TOKEN_INVALID,
@@ -1859,6 +1879,22 @@ def _inject_trajectory(
     block["network"] = trajectory.network or DEFAULT_NETWORK_MODE
     if trajectory.bind is not None:
         block["bind"] = trajectory.bind
+    if isinstance(previous, Mapping):
+        for key in (
+            LOSS_SUM_CUTOFF_KEY,
+            SHOT_SUM_THRESHOLD_KEY,
+            ARMED_TIMEOUT_KEY,
+            RAW_WINDOW_TURNS_KEY,
+            CONTINUOUS_MAX_SHOTS_KEY,
+            SEQUENCE_DIR_KEY,
+            ACTION_TIMEOUT_KEY,
+        ):
+            leaf = key.rsplit(".", 1)[1]
+            if previous.get(leaf) is not None:
+                block[leaf] = previous[leaf]
+    sequence_leaf = SEQUENCE_DIR_KEY.rsplit(".", 1)[1]
+    if sequence_leaf not in block and target == connector_types.TARGET_VA:
+        block[sequence_leaf] = VA_SEQUENCE_DIR
     anchored_put(services, name, _carry_authored_keys(services, name, block))
 
     deployed = config.get("deployed_services", []) or []
@@ -1899,12 +1935,26 @@ def _inject_trajectory(
     logger.debug(
         "    Token:      `osprey up` writes TRAJECTORY_LAUNCH_TOKEN to .env; the web "
         "terminal presents it in %s on the agent's panel-proxy hop, and no agent process "
-        "holds it. With the variable unset the service refuses every arming call "
-        "with %s; a caller with a missing or different token is refused with %s.",
+        "holds it. With the variable unset the service refuses every call on its "
+        "agent door (/api) with %s; a caller with a missing or different token is "
+        "refused with %s.",
         LAUNCH_TOKEN_HEADER,
         LAUNCH_TOKEN_REQUIRED,
         LAUNCH_TOKEN_INVALID,
     )
+    sequence_dir = block.get(sequence_leaf)
+    if sequence_dir:
+        logger.debug(
+            "    Sequence:   %s mounted read-only into the service; its module "
+            "fires the injection for every shot.",
+            sequence_dir,
+        )
+    else:
+        logger.debug(
+            "    Sequence:   no sequence module directory; the service starts with "
+            "shots and setup refused (no_sequence_module) until %s names one.",
+            SEQUENCE_DIR_KEY,
+        )
 
 
 def _inject_nextcloud_bridge(

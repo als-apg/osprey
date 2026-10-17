@@ -29,14 +29,12 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          engine solves it on the deck: the matrix as a pyAML
                          orbit response matrix whose names are channel
                          addresses, and beside it the lattice index of every
-                         row and column
+                         row and column and the sum reading of every row
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
 serves names a note on stderr saying why it has no view. A setpoint pyAML cannot
-convert is left out of the view and named in a note; a corrector whose element
-the engine cannot give its kick as polynomials is left out of the view and named
-in a note.
+convert is left out of the view and named in a note.
 
 Every name the configuration holds comes from :mod:`pyaml_cs_osprey.names`, so
 the view, the measurement tools and a reader of the configuration cannot spell
@@ -577,12 +575,17 @@ def _magnet_model(
     pyAML's strength is the integrated field over the rigidity. The deck holds
     ``curve(hardware) * weight`` on each slice, so the magnet's integrated
     strength is ``curve(hardware) * scale`` with ``scale`` the sum of the slice
-    weights times their lengths for a multipole and of the weights for a kick:
+    weights times their lengths for a multipole and of the weights for a kick
+    or for a magnet whose every slice is zero-length, which pyAML reads at
+    unit length:
     a linear curve becomes a ``linear_model`` of factor ``gain * scale * brho``,
     a table an ``inline_curve`` of ``(hardware, value * scale * brho)`` rows
     extended one knot span past each end and past the address's limits band.
     A curve pyAML cannot represent (one per slice, a zero gain or scale, a table
-    that is not strictly monotone) has no model.
+    that is not strictly monotone) has no model. Nor has a magnet whose slices
+    mix zero-length and thick elements: pyAML writes one polynomial into every
+    slice, which a zero-length slice reads as integrated and a thick one per
+    metre.
     """
     from osprey.simulation.engines.calibration import Linear, Table, curve_from_record
 
@@ -591,9 +594,13 @@ def _magnet_model(
     pieces = _slice_elements(entry)
     if any((piece.get("curve") is not None) for piece in entry.get("slices") or []):
         return None
-    kick = magnet.role in ("hcor", "vcor")
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
+    if 0.0 in lengths and any(lengths):
+        return None
+    unit = magnet.role in ("hcor", "vcor") or not any(lengths)
     scale = sum(
-        weight * (1.0 if kick else deck.lengths.get(element, 0.0)) for element, weight in pieces
+        weight * (1.0 if unit else length)
+        for (_, weight), length in zip(pieces, lengths, strict=True)
     )
     if scale == 0.0:
         return None
@@ -804,13 +811,20 @@ def _design_optics(deck: _Deck) -> _Optics | None:
 
 
 def _slice_average(magnet: _Magnet, deck: _Deck, optics: _Optics, quantity: Any) -> float | None:
-    """``sum(q_i * w_i * L_i) / sum(w_i * L_i)`` over the magnet's slices."""
+    """``sum(q_i * w_i * L_i) / sum(w_i * L_i)`` over the magnet's slices.
+
+    A magnet whose every slice is zero-length weighs each slice at unit length,
+    as its pyAML magnet model scales it.
+    """
+    pieces = _slice_elements(magnet.entry)
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
+    unit = not any(lengths)
     weighted = total = 0.0
-    for element, weight in _slice_elements(magnet.entry):
+    for (element, weight), length in zip(pieces, lengths, strict=True):
         position = optics.positions.get(element)
         if position is None:
             return None
-        share = weight * deck.lengths.get(element, 0.0)
+        share = weight * (1.0 if unit else length)
         weighted += float(quantity(position)) * share
         total += share
     return None if total == 0.0 else weighted / total
@@ -858,8 +872,8 @@ def _tuning_matrix(
 
     A tune column is ``(+beta_x, -beta_y) / 4pi``, a chromaticity column
     ``(+beta_x * eta_x, -beta_y * eta_x) / 2pi``, each averaged over the
-    magnet's slices by weight times length: the response per unit of the
-    integrated strength pyAML steps.
+    magnet's slices by weight times length (unit length when every slice is
+    zero-length): the response per unit of the integrated strength pyAML steps.
     """
     beta = optics.beta
     eta = optics.dispersion[:, 0]
@@ -951,6 +965,18 @@ def _solved_response(
     return _SOLVED[key]
 
 
+#: The role the engine's description gives a turn-by-turn reading.
+_TURN_SERIES = "turn_series"
+
+#: :func:`_monitor` of a wiring entry that names no element and no slices.
+_NO_MONITOR = "[null, null]"
+
+
+def _monitor(entry: Mapping[str, Any]) -> str:
+    """The monitor a wiring entry reads: its element or slices, as one comparable text."""
+    return json.dumps([entry.get("element"), entry.get("slices")], sort_keys=True)
+
+
 def _trajectory_files(
     inputs: ViewInputs, record: Mapping[str, Any], hcor: Sequence[str], vcor: Sequence[str]
 ) -> dict[str, str]:
@@ -960,12 +986,18 @@ def _trajectory_files(
     settings, each corrector stepped by the hardware width whose kick-angle
     span is the measurement file's ``corrector_delta``. The matrix is hardware
     reading per hardware setpoint, a row per turn-by-turn reading and a column
-    per corrector, each named by its channel address. A corrector whose step
-    has no solve on the model, its kick losing the launched particle, keeps
-    its column as a column of zeros. The sidecar holds the lattice index of
-    every row (``bpm_index``) and of every column (``hcor_index`` then
-    ``vcor_index``), and each unsolved corrector mapped to the engine's text
-    (``unsolved``).
+    per corrector, each named by its channel address. The rows are the ``x``
+    readings, then the ``y`` readings of the same monitors in the same order,
+    each half at strictly increasing lattice indices; the columns are the
+    horizontal correctors, then the vertical ones, each plane in lattice
+    order, a tie kept in the order asked. Every index is the engine's,
+    counted from the injection marker along the lattice rotated to it. A
+    corrector whose step has no solve on the model, its kick losing the
+    launched particle, keeps its column as a column of zeros. The sidecar
+    holds the lattice index of every row (``bpm_index``), the sum reading of
+    every row's monitor (``sum_names``), the lattice index of every column
+    (``hcorr_index`` then ``vcorr_index``), and each unsolved corrector mapped
+    to the engine's text (``unsolved``).
 
     Args:
         inputs: The render's view inputs.
@@ -982,7 +1014,10 @@ def _trajectory_files(
             ``response_matrix()``, refuses the response, answers it with no
             corrector solved, or answers one that is not a finite matrix of
             the correctors asked for with a plane and an index for every row
-            and column; ``value-invalid``: a corrector's calibration gives no
+            and column; answers ``x`` and ``y`` rows that do not read the same
+            monitors in the same order, or a half whose indices do not
+            increase strictly; or reads a monitor the model wires no sum
+            series on; ``value-invalid``: a corrector's calibration gives no
             hardware step.
     """
     from importlib import metadata
@@ -1088,32 +1123,76 @@ def _trajectory_files(
         raise unanswered(f"no index for {', '.join(missing)}")
     if not all(math.isfinite(value) for row in solved for value in row):
         raise unanswered("a value that is not finite")
-    at = {column: place for place, column in enumerate(columns)}
-    values = [
-        [row[at[corrector]] if corrector in at else 0.0 for corrector in correctors]
-        for row in solved
-    ]
-    indices: dict[str, Any] = {
-        "bpm_index": [index[row] for row in rows],
-        "hcor_index": [index[corrector] for corrector in hcor],
-        "vcor_index": [index[corrector] for corrector in vcor],
-        "unsolved": unsolved,
-    }
     row_planes: list[str] = []
     for row in rows:
         plane = (by_address.get(row) or {}).get("plane")
         if plane not in PLANE_WORDS:
             raise unanswered(f"row {row}, which the model wires in no transverse plane")
         row_planes.append(PLANE_WORDS[plane])
+    across = [row for row, plane in zip(rows, row_planes, strict=True) if plane == "H"]
+    up = [row for row, plane in zip(rows, row_planes, strict=True) if plane == "V"]
+    if rows != [*across, *up] or [_monitor(by_address[row]) for row in across] != [
+        _monitor(by_address[row]) for row in up
+    ]:
+        raise stop(
+            "engine-invalid",
+            f"engine {engine_name} answers {asked} for model {model} with x rows "
+            f"{', '.join(across) or 'none'} and y rows {', '.join(up) or 'none'}, which do "
+            "not read the same monitors in the same order",
+            "wire every monitor the response reads with one x and one y turn series",
+        )
+    for half in (across, up):
+        places = [index[row] for row in half]
+        if any(later <= earlier for earlier, later in zip(places, places[1:], strict=False)):
+            raise stop(
+                "engine-invalid",
+                f"engine {engine_name} answers {asked} for model {model} with rows "
+                f"{', '.join(half)} at indices {', '.join(map(str, places))}, which do not "
+                "increase strictly",
+                f"make {_RESPONSE_FUNCTION}() answer each plane's rows in lattice order from "
+                "the injection, one monitor per element",
+            )
+    sums: dict[str, str] = {}
+    for entry in wiring:
+        if entry.get("role") == _TURN_SERIES and entry.get("plane") is None:
+            monitor = _monitor(entry)
+            if monitor != _NO_MONITOR:
+                sums.setdefault(monitor, str(entry["address"]))
+    sum_names: list[str] = []
+    for row in rows:
+        name = sums.get(_monitor(by_address[row]))
+        if name is None:
+            raise stop(
+                "engine-invalid",
+                f"row {row} of model {model}'s {asked} reads a monitor the model wires no "
+                "sum series on",
+                "wire a sum turn series on every monitor the response reads",
+            )
+        sum_names.append(name)
+    # The asked order keys the solve and the column check; the files are in lattice order.
+    across_correctors = sorted(hcor, key=lambda corrector: index[corrector])
+    up_correctors = sorted(vcor, key=lambda corrector: index[corrector])
+    ordered = [*across_correctors, *up_correctors]
+    at = {column: place for place, column in enumerate(columns)}
+    values = [
+        [row[at[corrector]] if corrector in at else 0.0 for corrector in ordered] for row in solved
+    ]
+    indices: dict[str, Any] = {
+        "bpm_index": [index[row] for row in rows],
+        "sum_names": sum_names,
+        "hcorr_index": [index[corrector] for corrector in across_correctors],
+        "vcorr_index": [index[corrector] for corrector in up_correctors],
+        "unsolved": unsolved,
+    }
     body = {
         "type": ORBIT_RESPONSE_MATRIX_DATA_TYPE,
         "matrix": values,
         "observable_names": rows,
-        "variable_names": correctors,
+        "variable_names": ordered,
         "observable_planes": row_planes,
         "variable_planes": [
-            *(PLANE_WORDS["x"] for _ in indices["hcor_index"]),
-            *(PLANE_WORDS["y"] for _ in indices["vcor_index"]),
+            *(PLANE_WORDS["x"] for _ in across_correctors),
+            *(PLANE_WORDS["y"] for _ in up_correctors),
         ],
     }
     return {
@@ -1172,18 +1251,16 @@ def _measurement_value(measurement: Mapping[str, Any], key: str) -> float | int:
 
 def _configuration(
     inputs: ViewInputs, model: str
-) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """One model's pyAML configuration, the extra files it references and what it leaves out.
 
     A setpoint whose calibration pyAML cannot represent has no magnet and is in
     no array.
 
     Returns:
-        ``(configuration, files, unmodelled, unkicked)``: the configuration as
-        a mapping, each file beside it by name with its text, the setpoints
-        left out for want of a pyAML magnet model and the corrector setpoints
-        left out for want of an element that carries their kick as
-        polynomials, each in group order.
+        ``(configuration, files, unmodelled)``: the configuration as a
+        mapping, each file beside it by name with its text and the setpoints
+        left out for want of a pyAML magnet model, in group order.
     """
     from pyaml_cs_osprey.names import (
         CHROMATICITY_MONITOR_NAME,
@@ -1212,19 +1289,11 @@ def _configuration(
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
     unmodelled = [address for address, found in models.items() if found is None]
     files: dict[str, str] = {}
-    unkicked: list[str] = []
     if periodic:
-        files[LATTICE_FILE], refused = _design_lattice(inputs, record, magnets)
-        unkicked = [
-            magnet.address
-            for magnet in magnets
-            if magnet.role in ROLE_PLANES
-            and models[magnet.address] is not None
-            and any(element in refused for element, _ in _slice_elements(magnet.entry))
-        ]
+        files[LATTICE_FILE] = _design_lattice(inputs, record, magnets)
     if _TRAJECTORY_KIND in kinds:
         files |= _trajectory_files(inputs, record, groups.get("hcor", ()), groups.get("vcor", ()))
-    left_out = set(unmodelled) | set(unkicked)
+    left_out = set(unmodelled)
     magnets = [magnet for magnet in magnets if magnet.address not in left_out]
     groups = {
         role: [address for address in addresses if address not in left_out]
@@ -1416,13 +1485,13 @@ def _configuration(
                     }
                 )
     configuration["devices"] = devices
-    return configuration, files, unmodelled, unkicked
+    return configuration, files, unmodelled
 
 
 def _design_lattice(
     inputs: ViewInputs, record: Mapping[str, Any], magnets: Sequence[_Magnet]
-) -> tuple[str, frozenset[str]]:
-    """The design simulator's lattice text and the corrector elements it could not convert.
+) -> str:
+    """The design simulator's lattice text.
 
     The model's engine copies the deck with the elements the view's correctors
     drive carrying their kicks as polynomials (``polynomial_kicks``). For a
@@ -1457,7 +1526,7 @@ def _design_lattice(
         else None
     )
     if convert is None and not elements:
-        return deck.read_bytes().decode("utf-8"), frozenset()
+        return deck.read_bytes().decode("utf-8")
     if convert is None:
         raise FacilityBuildError(
             "engine-invalid",
@@ -1470,8 +1539,7 @@ def _design_lattice(
                 "correctors would carry no kick"
             ),
         )
-    copy = convert(deck, elements)
-    return str(copy.text), frozenset(copy.refused)
+    return str(convert(deck, elements))
 
 
 def _shown(addresses: Sequence[str]) -> str:
@@ -1487,14 +1555,11 @@ class PyamlView:
         configuration: The configuration file's text.
         files: Each file beside it, by name, with its text.
         unmodelled: The setpoints left out for want of a pyAML magnet model.
-        unkicked: The corrector setpoints left out for want of an element
-            that carries their kick.
     """
 
     configuration: str
     files: Mapping[str, str]
     unmodelled: Sequence[str]
-    unkicked: Sequence[str]
 
 
 def _view(inputs: ViewInputs, model: str) -> PyamlView:
@@ -1507,8 +1572,8 @@ def _view(inputs: ViewInputs, model: str) -> PyamlView:
     key = (inputs.facility_dir, model)
     if built is not None and key in built:
         return built[key]
-    configuration, files, unmodelled, unkicked = _configuration(inputs, model)
-    view = PyamlView(_yaml_text(configuration), files, unmodelled, unkicked)
+    configuration, files, unmodelled = _configuration(inputs, model)
+    view = PyamlView(_yaml_text(configuration), files, unmodelled)
     if built is not None:
         built[key] = view
     return view
@@ -1532,20 +1597,13 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
     written: list[Path] = []
     for model in written_models:
         view = _view(inputs, model)
-        unmodelled, unkicked = view.unmodelled, view.unkicked
+        unmodelled = view.unmodelled
         if unmodelled:
             report_note(
                 inputs,
                 f"view pyaml: {model} leaves out {len(unmodelled)} "
                 f"setpoint{'' if len(unmodelled) == 1 else 's'} pyAML has no magnet model "
                 f"for: {_shown(unmodelled)}",
-            )
-        if unkicked:
-            report_note(
-                inputs,
-                f"view pyaml: {model} leaves out {len(unkicked)} "
-                f"corrector{'' if len(unkicked) == 1 else 's'} whose element has no length "
-                f"to carry a kick: {_shown(unkicked)}",
             )
         directory = root / model
         directory.mkdir(parents=True, exist_ok=True)

@@ -102,7 +102,7 @@ from osprey.agent_runner.primitives import (
     provider_env_for_project as provider_env_for_project,  # re-exported for e2e tests
 )
 from osprey.agent_runner.project_paths import claude_project_dir
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     DEFAULT_AGENT_DATA_BASE_DIR,
 )
@@ -355,7 +355,7 @@ def init_project(
     build would leave every ``archiver_read`` failing at connect for want of a
     store — and, before that, for want of the password ``osprey up``
     mints. Pinning the mock archiver beside the simulator in process is not a
-    way around the pairing rule in :mod:`osprey.connectors.honesty` but the
+    way around the pairing rule in :mod:`osprey_connectors.honesty` but the
     case it explicitly allows: the simulator in process has no recorder, so a
     synthesized archive is the only one it can have, and nothing lies. Tests
     that want recorded history deploy a store of their own.

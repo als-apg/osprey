@@ -35,12 +35,11 @@ import difflib
 from dataclasses import dataclass, fields
 from typing import Any
 
-from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
-from osprey.connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
-from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.honesty import _invents_history
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, _invents_history, pairing_in_profile
+from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at
@@ -167,7 +166,9 @@ class VAArchiverConfig:
     """How often one of those samples is additionally kept for the full
     retention span. Recorded reality survives at the tail cadence as the dense
     copy ages out, which is what keeps steady-state storage bounded while
-    leaving no hole where the seeded history ended."""
+    leaving no hole where the seeded history ended. Must equal
+    :attr:`tail_cadence_sec`: the seed and the recorder write one history, and
+    two tail cadences would put its seeded and live parts on different grids."""
 
     recorder_poll_sec: int = 30
     """How often the recorder re-reads the deployment's config to decide whether
@@ -389,6 +390,23 @@ def va_archiver_errors(
                 f"{dense} ({fine}), so both tiers land on the same timestamps"
             )
 
+    # The seed and the live recorder write the same history, waveforms
+    # included: the seed lays its tail down at one cadence and the recorder
+    # carries it forward at its own. Two different numbers leave live and
+    # seeded history on two grids that disagree where they meet, and the build
+    # is the earliest place a profile author can see that.
+    if (
+        cfg.tail_cadence_sec >= 1
+        and cfg.recorder_tail_cadence_sec >= 1
+        and cfg.recorder_tail_cadence_sec != cfg.tail_cadence_sec
+    ):
+        errors.append(
+            f"va_archiver.recorder_tail_cadence_sec ({cfg.recorder_tail_cadence_sec}) "
+            f"differs from va_archiver.tail_cadence_sec ({cfg.tail_cadence_sec}) — the "
+            f"live recorder and the seed write the same history and must keep it on "
+            f"one cadence; set them equal"
+        )
+
     if cfg.compression not in COMPRESSORS:
         errors.append(
             f"va_archiver.compression must be one of "
@@ -449,10 +467,10 @@ def va_mock_archiver_errors(config: Any) -> list[str]:
     folded in — so what is checked is the pairing the rendered project will
     actually carry, not the one any single layer happened to author. Both the
     dotted and the nested spelling are read, and a disagreement between them
-    fails closed; see :func:`~osprey.connectors.honesty.pairing_in_profile`.
+    fails closed; see :func:`~osprey_connectors.honesty.pairing_in_profile`.
 
     The rule covers every machine a deployment stands up for itself
-    (:data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`), so the message
+    (:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`), so the message
     names the one this profile selected rather than assuming the virtual
     accelerator: a facility baselining on the live stand-in is told about the
     stand-in, which is the only type its `config:` block actually carries.

@@ -5,7 +5,7 @@
 #   scripts/va/live_ca/run_live_ca.sh [PYTEST_TARGET...]
 #
 # tests/va/test_apply_fault.py boots the virtual accelerator's entrypoint over
-# a stub view and drives its scenario faults with a real pyepics client, and
+# a stub view and drives its scenario faults with a real aioca client, and
 # tests/va/test_lume_pva_seam.py serves composites through the model runner on
 # both transports. pcaspy publishes manylinux x86_64 wheels only, so on a
 # developer's Mac all of that skips. This builds a linux/amd64 container that

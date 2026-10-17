@@ -34,7 +34,7 @@ from osprey.deployment.compose_generator import _inject_project_metadata
 from osprey.interfaces.bluesky_web.app import _lane_roster
 from osprey.mcp_server.sandbox_env import configured_child_env_passthrough
 from osprey.services.bluesky_bridge import plan_loader
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     AUDIT_DIR_RELPATH,
     load_osprey_config,
     reset_config_cache,

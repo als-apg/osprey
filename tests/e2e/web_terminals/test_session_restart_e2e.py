@@ -54,6 +54,7 @@ browser-open side effect.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -493,16 +494,12 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
         # started but not yet recorded — but the recorded PIDs are what makes
         # this reliable, for the reason given where `pids` is declared.
         from_file = _read_pid(repo)
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             _stop(repo)
-        except (OSError, subprocess.SubprocessError):
-            pass
         for pid in dict.fromkeys([*pids, *([from_file] if from_file is not None else [])]):
             if _wait_for_pid_exit(pid, _TEARDOWN_TIMEOUT):
                 continue
-            try:
+            # ProcessLookupError (it exited in the meantime) is the ordinary
+            # case; PermissionError would mean it is not ours to kill.
+            with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGKILL)
-            except OSError:
-                # ProcessLookupError (it exited in the meantime) is the ordinary
-                # case; PermissionError would mean it is not ours to kill.
-                pass

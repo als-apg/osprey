@@ -17,22 +17,23 @@ pip install osprey-connectors
 
 ## Import map
 
-`osprey-framework` still imports every one of these from their historical
-`osprey.*` paths. Those old paths are compatibility shims — the real code
-now lives under `osprey_connectors.*`, and new code should import from there
-directly.
+These modules used to live under `osprey.*`. The old paths have been
+removed; import from `osprey_connectors.*` instead. The table maps each old
+path to its replacement.
 
 | Old path (`osprey.*`) | New path (`osprey_connectors.*`) |
 | --- | --- |
 | `osprey.connectors` | `osprey_connectors` |
 | `osprey.connectors.factory` | `osprey_connectors.factory` |
 | `osprey.connectors.types` | `osprey_connectors.types` |
+| `osprey.connectors.honesty` | `osprey_connectors.honesty` |
 | `osprey.connectors.control_system` | `osprey_connectors.control_system` |
 | `osprey.connectors.control_system.base` | `osprey_connectors.control_system.base` |
 | `osprey.connectors.control_system.epics_connector` | `osprey_connectors.control_system.epics_connector` |
 | `osprey.connectors.control_system.doocs_connector` | `osprey_connectors.control_system.doocs_connector` |
 | `osprey.connectors.control_system.va_in_process_connector` | `osprey_connectors.control_system.va_in_process_connector` |
 | `osprey.connectors.control_system.va_connector` | `osprey_connectors.control_system.va_connector` |
+| `osprey.connectors.control_system.tango_connector` | `osprey_connectors.control_system.tango_connector` |
 | `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system.limits_validator` |
 | `osprey.connectors.archiver` | `osprey_connectors.archiver` |
 | `osprey.connectors.archiver.base` | `osprey_connectors.archiver.base` |
@@ -40,9 +41,15 @@ directly.
 | `osprey.connectors.archiver.doocs_archiver_connector` | `osprey_connectors.archiver.doocs_archiver_connector` |
 | `osprey.connectors.archiver.mongodb_archiver_connector` | `osprey_connectors.archiver.mongodb_archiver_connector` |
 | `osprey.connectors.archiver.mock_archiver_connector` | `osprey_connectors.archiver.mock_archiver_connector` |
+| `osprey.connectors.archiver.mya_archiver_connector` | `osprey_connectors.archiver.mya_archiver_connector` |
+| `osprey.connectors.archiver._timerange` | `osprey_connectors.archiver._timerange` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |
+| `osprey.utils.dotenv` | `osprey_connectors.dotenv` |
+| `osprey.utils.identity` | `osprey_connectors.identity` |
+| `osprey.utils.workspace` | `osprey_connectors.workspace` |
 | `osprey.utils.logger` | `osprey_connectors.logger` |
+| `osprey.utils.log_filter` | `osprey_connectors.log_filter` |
 | `osprey.utils.relative_time` | `osprey_connectors.relative_time` |
 
 ## Optional runtime dependencies
@@ -51,11 +58,9 @@ Only the connectors you actually use need their backing libraries installed;
 none of the following are declared as hard dependencies of this package, so
 importing `osprey_connectors` never requires them:
 
-- **EPICS Channel Access client libraries** — `pyepics` itself is a declared
-  dependency, but it needs a working `libca` at runtime to talk to real IOCs.
-  Install `epicscorelibs` (or otherwise make a per-architecture `libca`
-  available) if you use `EPICSConnector` or `EPICSArchiverConnector` against a
-  live control system; `PYEPICS_LIBCA` can also point at one explicitly.
+- **EPICS Channel Access** — `EPICSConnector` speaks Channel Access through
+  `aioca`, a declared dependency, which loads the per-architecture `libca`
+  that `epicscorelibs` ships. Nothing else is needed to talk to real IOCs.
 - **`pymongo`** — required by `MongoDBArchiverConnector`. Installed with this
   package; the connector imports it inside `connect()` so registration stays
   cheap, not because it is optional.
@@ -94,6 +99,9 @@ codes, are load-bearing for callers that branch on them.
   facility. Only a connector that holds the facility's whole address set raises
   it; `reason` is `CHANNEL_NOT_FOUND`, the refusal reason a write to such an
   address carries.
+- `ChannelNotArchivedError` — an archiver read named a channel of the facility
+  that has no archived history: a turn series, whose record is a shot, read
+  live after the shot.
 
 Removing or renaming any of these classes or reason codes is a major version
 bump. Adding new classes or reason codes is a minor version bump.

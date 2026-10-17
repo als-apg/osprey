@@ -58,17 +58,34 @@ import { facilityZone, viewerSharesFacilityClock } from '/design-system/js/facil
 /** @typedef {import('./bar-catalog.js').BarItemOptions} BarItemOptions */
 
 /**
+ * One thing an item can do from the bar's right-click menu, offered above the
+ * menu's layout rows for that item.
+ * @typedef {object} BarItemAction
+ * @property {string} id - names the row, so a test or a style can find it
+ * @property {string} label - the row's text, e.g. "Reset stopwatch"
+ * @property {() => void} run
+ */
+
+/**
  * What an item factory returns. `node` is the body (null renders an empty
  * shell); `dispose` stops everything the body started and is optional only for
- * an item that started nothing at all.
+ * an item that started nothing at all. `actions` is asked each time the menu
+ * opens over the item, so a row is offered only while it would do something;
+ * it lives and dies with the body, exactly like the disposer.
  * @typedef {object} BarItemInstance
  * @property {Node | null} node
  * @property {() => void} [dispose]
+ * @property {() => BarItemAction[]} [actions]
  */
 
 /** @typedef {(ctx: BarBuildContext) => BarItemInstance} BarItemFactory */
 
-/** Live items, by the shell they are mounted in. @type {Map<HTMLElement, () => void>} */
+/**
+ * Live items, by the shell they are mounted in: what stops each body, and what
+ * it offers the menu. A body that started nothing and offers nothing is not
+ * here at all.
+ * @type {Map<HTMLElement, {dispose?: () => void, actions?: () => BarItemAction[]}>}
+ */
 const instances = new Map();
 
 /** Every registered factory, by type — what {@link previewBarItem} builds from. */
@@ -90,7 +107,9 @@ export function defineBarItem(type, factory) {
   const unregister = registerItemBuilder(type, (ctx) => {
     disposeShell(ctx.shell);
     const instance = factory(ctx);
-    if (instance.dispose) instances.set(ctx.shell, instance.dispose);
+    if (instance.dispose || instance.actions) {
+      instances.set(ctx.shell, { dispose: instance.dispose, actions: instance.actions });
+    }
     return instance.node;
   });
   return () => {
@@ -162,14 +181,24 @@ export function disposeBarItems() {
  * @param {HTMLElement} shell
  */
 function disposeShell(shell) {
-  const dispose = instances.get(shell);
-  if (!dispose) return;
+  const live = instances.get(shell);
+  if (!live) return;
   instances.delete(shell);
   try {
-    dispose();
+    live.dispose?.();
   } catch (err) {
     console.error(`[bar-items] disposer for "${shell.dataset.barItem}" threw`, err);
   }
+}
+
+/**
+ * What the item mounted in `shell` offers the right-click menu right now. A
+ * parked or rebuilt body offers nothing: its entry went with its disposer.
+ * @param {HTMLElement} shell
+ * @returns {BarItemAction[]}
+ */
+export function barItemActions(shell) {
+  return instances.get(shell)?.actions?.() ?? [];
 }
 
 /* ---- shared formatting ---- */
@@ -485,7 +514,11 @@ function formatElapsed(ms) {
 }
 
 /**
- * A click-to-start, click-to-stop, right-click-to-reset stopwatch.
+ * A click-to-start, click-to-stop stopwatch, reset from the bar's right-click
+ * menu. Its reset is an item action rather than a contextmenu listener of its
+ * own: a right-click is the bar's, and one that both reset the reading and
+ * opened the menu would spend the measurement on the way to Remove. The row is
+ * offered only while there is a reading to throw away.
  *
  * The only bar item that is a real control, so it is the only one wearing
  * `.bar-item-btn`, and being a toggle it carries `aria-pressed` rather than a
@@ -536,7 +569,7 @@ function buildStopwatch(ctx) {
     chip.title = running
       ? 'Running — click to stop'
       : state.accumulated > 0
-        ? 'Paused — click to resume, right-click to reset'
+        ? 'Paused — click to resume; right-click for Reset'
         : 'Click to start';
   };
 
@@ -556,15 +589,21 @@ function buildStopwatch(ctx) {
     sync();
   });
 
-  chip.addEventListener('contextmenu', (event) => {
-    event.preventDefault();
+  const reset = () => {
     state.startedAt = null;
     state.accumulated = 0;
     sync();
-  });
+  };
 
   sync();
-  return { node: chip, dispose: stopTicking };
+  return {
+    node: chip,
+    dispose: stopTicking,
+    actions: () =>
+      state.startedAt !== null || stopwatchElapsed(state) > 0
+        ? [{ id: 'reset-stopwatch', label: 'Reset stopwatch', run: reset }]
+        : [],
+  };
 }
 
 defineBarItem('stopwatch', buildStopwatch);

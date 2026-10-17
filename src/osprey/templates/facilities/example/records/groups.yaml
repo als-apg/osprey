@@ -36,6 +36,21 @@
   - BR/DIPOLE06
   - BR/DIPOLE07
   - BR/DIPOLE08
+- id: BR/DIPOLE-RAMP
+  description: 'Booster Bending Magnet Ramp (DIPOLE-RAMP): the gain and offset applied to the bending magnet supply''s energy ramp from 150 MeV to 2.0 GeV.'
+  names:
+  - bending magnet ramp
+  - dipole ramp
+  members:
+  - BR/DIPOLE-RAMP01
+- id: BR/KICKER
+  description: 'Booster Injection Kicker (KICKER): the pulsed magnet that puts the beam arriving from the linac-to-booster line onto the booster orbit.'
+  names:
+  - injection kicker
+  - kicker
+  - booster injection kicker
+  members:
+  - BR/KICKER01
 - id: BR/MAG
   description: 'Booster Magnet System: Ramped magnets that track the beam energy during acceleration. Dipoles define the orbit, quadrupoles maintain focusing.'
   members:
@@ -64,6 +79,13 @@
   - BR/QD02
   - BR/QD03
   - BR/QD04
+- id: BR/QD-RAMP
+  description: 'Booster Defocusing Quadrupole Ramp (QD-RAMP): the gain and offset applied to the defocusing quadrupole supply''s energy ramp, which keeps the focusing in step with the bending field.'
+  names:
+  - defocusing quadrupole ramp
+  - QD ramp
+  members:
+  - BR/QD-RAMP01
 - id: BR/QF
   description: 'Booster Focusing Quadrupoles: Maintain beam focusing during energy ramp.'
   names:
@@ -73,6 +95,33 @@
   - BR/QF02
   - BR/QF03
   - BR/QF04
+- id: BR/QF-RAMP
+  description: 'Booster Focusing Quadrupole Ramp (QF-RAMP): the gain and offset applied to the focusing quadrupole supply''s energy ramp, which keeps the focusing in step with the bending field.'
+  names:
+  - focusing quadrupole ramp
+  - QF ramp
+  members:
+  - BR/QF-RAMP01
+- id: BR/SEPTUM
+  description: 'Booster Extraction Septa (SEPTUM): SEN and SEK, the septum magnets that bend the extracted 2.0 GeV beam out of the booster into the booster-to-storage line.'
+  names:
+  - extraction septum
+  - booster extraction septum
+  members:
+  - BR/SEPTUM01
+  - BR/SEPTUM02
+- id: BR/TV
+  description: 'Booster Screens (TV): insertable paddles that image the beam on a camera at injection, in the booster and at extraction. A screen in the beam stops it, so everything downstream sees no beam.'
+  names:
+  - screen
+  - TV
+  - booster screen
+  members:
+  - BR/TV01
+  - BR/TV02
+  - BR/TV03
+  - BR/TV04
+  - BR/TV05
 - id: BTS/BPM
   description: 'Transfer Line BPMs: Monitor beam trajectory during injection.'
   names:
@@ -93,6 +142,17 @@
   - BTS/BPM04
   - BTS/BPM05
   - BTS/BPM06
+- id: BTS/DIPOLE
+  description: 'Booster-to-Storage Bending Magnets (DIPOLE): dipoles that route the 2.0 GeV extracted beam from the booster to the storage ring injection septa.'
+  names:
+  - bending magnet
+  - dipole
+  - booster-to-storage bend
+  members:
+  - BTS/DIPOLE01
+  - BTS/DIPOLE02
+  - BTS/DIPOLE03
+  - BTS/DIPOLE04
 - id: BTS/HCM
   description: 'Horizontal Correctors: Horizontal steering magnets in the transfer line.'
   names:
@@ -104,6 +164,17 @@
   - BTS/HCM04
   - BTS/HCM05
   - BTS/HCM06
+  - BTS/HCM07
+  - BTS/HCM08
+  - BTS/HCM09
+- id: BTS/ICT
+  description: 'Booster-to-Storage Integrating Current Transformer (ICT): measures the charge per pulse extracted from the booster and carried to the storage ring.'
+  names:
+  - integrating current transformer
+  - charge monitor
+  - booster-to-storage charge monitor
+  members:
+  - BTS/ICT01
 - id: BTS/MAG
   description: 'Transfer Line Magnets: Steering and focusing magnets for beam transport from booster to storage ring.'
   members:
@@ -125,6 +196,51 @@
   - BTS/VCM04
   - BTS/VCM05
   - BTS/VCM06
+- id: BTS/PADDLES
+  description: 'Booster-to-Storage Paddle Summary (PADDLES): counts the injector screens in the beam; 0 means all paddles are out and the beam can reach the storage ring.'
+  names:
+  - all paddles out
+  - paddle summary
+  - paddle count
+  members:
+  - BTS/PADDLES01
+- id: BTS/QD
+  description: 'Booster-to-Storage Defocusing Quadrupoles (QD): quadrupoles that focus the beam vertically and, with the focusing ones, match its optics to the storage ring.'
+  names:
+  - defocusing quadrupole
+  - booster-to-storage defocusing quadrupole
+  members:
+  - BTS/QD01
+  - BTS/QD02
+  - BTS/QD03
+  - BTS/QD04
+  - BTS/QD05
+- id: BTS/QF
+  description: 'Booster-to-Storage Focusing Quadrupoles (QF): quadrupoles that focus the beam horizontally and, with the defocusing ones, match its optics to the storage ring.'
+  names:
+  - focusing quadrupole
+  - booster-to-storage focusing quadrupole
+  members:
+  - BTS/QF01
+  - BTS/QF02
+  - BTS/QF03
+  - BTS/QF04
+  - BTS/QF05
+  - BTS/QF06
+- id: BTS/TV
+  description: 'Booster-to-Storage Screens (TV): insertable paddles that image the beam on a camera along the line, up to the storage ring''s first screen. A screen in the beam stops it, so the storage ring sees no injected beam.'
+  names:
+  - screen
+  - TV
+  - booster-to-storage screen
+  members:
+  - BTS/TV01
+  - BTS/TV02
+  - BTS/TV03
+  - BTS/TV04
+  - BTS/TV05
+  - BTS/TV06
+  - BTS/TV07
 - id: BTS/VCM
   description: 'Vertical Correctors: Vertical steering magnets in the transfer line.'
   names:
@@ -136,27 +252,319 @@
   - BTS/VCM04
   - BTS/VCM05
   - BTS/VCM06
+  - BTS/VCM07
+  - BTS/VCM08
+  - BTS/VCM09
+- id: GTL/BC
+  description: 'Gun-to-Linac Bucking Coils (BC): coils around the gun that cancel the solenoid field on the cathode, so the beam leaves the gun without a net rotation.'
+  names:
+  - bucking coil
+  - gun bucking coil
+  members:
+  - GTL/BC01
+  - GTL/BC02
+- id: GTL/BPM
+  description: 'Gun-to-Linac Beam Position Monitors (BPM): measure the horizontal and vertical position of the gun beam, and the sum signal that tracks its charge.'
+  names:
+  - beam position monitor
+  - gun-to-linac BPM
+  members:
+  - GTL/BPM01
+  - GTL/BPM02
+- id: GTL/EGUN
+  description: 'Electron Gun (EGUN): the thermionic gun at the start of the injector. Its high voltage and cathode heater are switched and set here; with either off, no beam leaves the gun.'
+  names:
+  - electron gun
+  - gun
+  - thermionic gun
+  members:
+  - GTL/EGUN01
+- id: GTL/HCM
+  description: 'Gun-to-Linac Horizontal Correctors (HCM): small dipoles that steer the gun beam horizontally into the linac.'
+  names:
+  - horizontal corrector
+  - gun-to-linac horizontal corrector
+  members:
+  - GTL/HCM01
+  - GTL/HCM02
+  - GTL/HCM03
+  - GTL/HCM04
+- id: GTL/ICT
+  description: 'Gun-to-Linac Integrating Current Transformer (ICT): measures the charge per pulse that the gun delivers into the line.'
+  names:
+  - integrating current transformer
+  - charge monitor
+  - gun charge monitor
+  members:
+  - GTL/ICT01
+- id: GTL/SHB
+  description: 'Gun-to-Linac Sub-Harmonic Bunchers (SHB): RF cavities at a sub-harmonic of the linac frequency that compress the long gun pulse into short bunches the linac can capture.'
+  names:
+  - sub-harmonic buncher
+  - buncher
+  - SHB
+  members:
+  - GTL/SHB01
+  - GTL/SHB02
+- id: GTL/SOL
+  description: 'Gun-to-Linac Solenoids (SOL): focus the low-energy gun beam in both planes on its way to the linac.'
+  names:
+  - solenoid
+  - gun-to-linac solenoid
+  members:
+  - GTL/SOL01
+  - GTL/SOL02
+  - GTL/SOL03
+- id: GTL/TV
+  description: 'Gun-to-Linac Screens (TV): insertable paddles that image the gun beam on a camera. A screen in the beam stops it, so everything downstream sees no beam.'
+  names:
+  - screen
+  - TV
+  - gun-to-linac screen
+  members:
+  - GTL/TV01
+  - GTL/TV02
+- id: GTL/VCM
+  description: 'Gun-to-Linac Vertical Correctors (VCM): small dipoles that steer the gun beam vertically into the linac.'
+  names:
+  - vertical corrector
+  - gun-to-linac vertical corrector
+  members:
+  - GTL/VCM01
+  - GTL/VCM02
+  - GTL/VCM03
+  - GTL/VCM04
 - id: LINE/BPM
-  description: 'Transfer line BPMs: measure the beam trajectory along the line.'
+  description: 'Transfer Line Beam Position Monitors (BPM): one per cell, measure the beam trajectory along the line; the orbit response measurement reads them.'
+  names:
+  - beam position monitor
+  - transfer line BPM
   members:
   - LINE/BPM01
   - LINE/BPM02
   - LINE/BPM03
   - LINE/BPM04
 - id: LINE/HCM
-  description: 'Transfer line horizontal correctors: steer the beam trajectory.'
+  description: 'Transfer Line Horizontal Correctors (HCM): one per cell, steer the beam trajectory horizontally; a large enough kick loses the beam on the quadrupole apertures.'
+  names:
+  - horizontal corrector
+  - transfer line horizontal corrector
   members:
   - LINE/HCM01
   - LINE/HCM02
   - LINE/HCM03
   - LINE/HCM04
+- id: LINE/QD
+  description: 'Transfer Line Defocusing Quadrupoles (QD): one per cell, focus the beam vertically; with the focusing ones they form the line''s FODO lattice.'
+  names:
+  - defocusing quadrupole
+  - transfer line defocusing quadrupole
+  members:
+  - LINE/QD01
+  - LINE/QD02
+  - LINE/QD03
+  - LINE/QD04
+- id: LINE/QF
+  description: 'Transfer Line Focusing Quadrupoles (QF): one per cell, focus the beam horizontally; with the defocusing ones they form the line''s FODO lattice.'
+  names:
+  - focusing quadrupole
+  - transfer line focusing quadrupole
+  members:
+  - LINE/QF01
+  - LINE/QF02
+  - LINE/QF03
+  - LINE/QF04
 - id: LINE/VCM
-  description: 'Transfer line vertical correctors: steer the beam trajectory.'
+  description: 'Transfer Line Vertical Correctors (VCM): one per cell, steer the beam trajectory vertically.'
+  names:
+  - vertical corrector
+  - transfer line vertical corrector
   members:
   - LINE/VCM01
   - LINE/VCM02
   - LINE/VCM03
   - LINE/VCM04
+- id: LN/ACC
+  description: 'Linac Accelerating Sections (ACC): the travelling-wave structures that accelerate the bunched beam to 150 MeV.'
+  names:
+  - accelerating section
+  - accelerating structure
+  - linac section
+  members:
+  - LN/ACC01
+  - LN/ACC02
+- id: LN/BPM
+  description: 'Linac Beam Position Monitors (BPM): measure the horizontal and vertical beam position in the linac, and the sum signal that tracks the beam charge.'
+  names:
+  - beam position monitor
+  - linac BPM
+  members:
+  - LN/BPM01
+  - LN/BPM02
+- id: LN/BUNCHER
+  description: 'Linac Buncher Cavity (BUNCHER): the RF structure at the linac entrance that completes the bunching of the gun beam before acceleration.'
+  names:
+  - buncher cavity
+  - linac buncher
+  members:
+  - LN/BUNCHER01
+- id: LN/HCM
+  description: 'Linac Horizontal Correctors (HCM): small dipoles that steer the beam horizontally through the linac.'
+  names:
+  - horizontal corrector
+  - linac horizontal corrector
+  members:
+  - LN/HCM01
+  - LN/HCM02
+- id: LN/ICT
+  description: 'Linac Integrating Current Transformer (ICT): measures the charge per pulse that the linac transmits.'
+  names:
+  - integrating current transformer
+  - charge monitor
+  - linac charge monitor
+  members:
+  - LN/ICT01
+- id: LN/MASTER
+  description: 'Linac Master RF (MASTER): the master oscillator whose phase is the reference for the bunchers and the accelerating sections.'
+  names:
+  - master RF
+  - master oscillator
+  - linac master oscillator
+  members:
+  - LN/MASTER01
+- id: LN/QD
+  description: 'Linac Defocusing Quadrupoles (QD): quadrupoles that defocus the linac beam horizontally and focus it vertically.'
+  names:
+  - defocusing quadrupole
+  - linac defocusing quadrupole
+  members:
+  - LN/QD01
+- id: LN/QF
+  description: 'Linac Focusing Quadrupoles (QF): quadrupoles that focus the linac beam horizontally and defocus it vertically.'
+  names:
+  - focusing quadrupole
+  - linac focusing quadrupole
+  members:
+  - LN/QF01
+- id: LN/SOL
+  description: 'Linac Solenoids (SOL): focus the beam in both planes while its energy is still low, at the start of the linac.'
+  names:
+  - solenoid
+  - linac solenoid
+  members:
+  - LN/SOL01
+  - LN/SOL02
+  - LN/SOL03
+  - LN/SOL04
+- id: LN/TV
+  description: 'Linac Screens (TV): insertable paddles that image the linac beam on a camera. A screen in the beam stops it, so everything downstream sees no beam.'
+  names:
+  - screen
+  - TV
+  - linac screen
+  members:
+  - LN/TV01
+  - LN/TV02
+- id: LN/VCM
+  description: 'Linac Vertical Correctors (VCM): small dipoles that steer the beam vertically through the linac.'
+  names:
+  - vertical corrector
+  - linac vertical corrector
+  members:
+  - LN/VCM01
+  - LN/VCM02
+- id: LN/WATER
+  description: 'Linac RF Cooling Water (WATER): holds the linac structures at the temperature their RF frequency is tuned for.'
+  names:
+  - RF cooling water
+  - linac cooling water
+  members:
+  - LN/WATER01
+- id: LTB/BPM
+  description: 'Linac-to-Booster Beam Position Monitors (BPM): measure the beam trajectory along the line in millimetres, and the sum signal that tracks the beam charge.'
+  names:
+  - beam position monitor
+  - linac-to-booster BPM
+  members:
+  - LTB/BPM01
+  - LTB/BPM02
+  - LTB/BPM03
+  - LTB/BPM04
+  - LTB/BPM05
+  - LTB/BPM06
+- id: LTB/DIPOLE
+  description: 'Linac-to-Booster Bending Magnets (DIPOLE): dipoles that route the 150 MeV linac beam along the line to the booster injection point.'
+  names:
+  - bending magnet
+  - dipole
+  - linac-to-booster bend
+  members:
+  - LTB/DIPOLE01
+  - LTB/DIPOLE02
+  - LTB/DIPOLE03
+  - LTB/DIPOLE04
+- id: LTB/HCM
+  description: 'Linac-to-Booster Horizontal Correctors (HCM): small dipoles that steer the beam horizontally along the line and into the booster.'
+  names:
+  - horizontal corrector
+  - linac-to-booster horizontal corrector
+  members:
+  - LTB/HCM01
+  - LTB/HCM02
+- id: LTB/ICT
+  description: 'Linac-to-Booster Integrating Current Transformer (ICT): measures the charge per pulse that reaches the booster injection point.'
+  names:
+  - integrating current transformer
+  - charge monitor
+  - linac-to-booster charge monitor
+  members:
+  - LTB/ICT01
+- id: LTB/QD
+  description: 'Linac-to-Booster Defocusing Quadrupoles (QD): quadrupoles that focus the beam vertically and, with the focusing ones, match its optics to the booster.'
+  names:
+  - defocusing quadrupole
+  - linac-to-booster defocusing quadrupole
+  members:
+  - LTB/QD01
+  - LTB/QD02
+  - LTB/QD03
+  - LTB/QD04
+- id: LTB/QF
+  description: 'Linac-to-Booster Focusing Quadrupoles (QF): quadrupoles that focus the beam horizontally and, with the defocusing ones, match its optics to the booster.'
+  names:
+  - focusing quadrupole
+  - linac-to-booster focusing quadrupole
+  members:
+  - LTB/QF01
+  - LTB/QF02
+  - LTB/QF03
+  - LTB/QF04
+  - LTB/QF05
+- id: LTB/TV
+  description: 'Linac-to-Booster Screens (TV): insertable paddles that image the beam on a camera along the line. A screen in the beam stops it, so the booster sees no beam.'
+  names:
+  - screen
+  - TV
+  - linac-to-booster screen
+  members:
+  - LTB/TV01
+  - LTB/TV02
+  - LTB/TV03
+  - LTB/TV04
+  - LTB/TV05
+- id: LTB/VCM
+  description: 'Linac-to-Booster Vertical Correctors (VCM): small dipoles that steer the beam vertically along the line and into the booster.'
+  names:
+  - vertical corrector
+  - linac-to-booster vertical corrector
+  members:
+  - LTB/VCM01
+  - LTB/VCM02
+  - LTB/VCM03
+  - LTB/VCM04
+  - LTB/VCM05
+  - LTB/VCM06
+  - LTB/VCM07
 - id: SR/BPM
   description: 'Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.'
   names:
@@ -910,6 +1318,13 @@
   - SR/SD22
   - SR/SD23
   - SR/SD24
+- id: SR/SEPTUM
+  description: 'Injection Septa: the storage ring''s two injection septum magnets, SEK and SEN, which bend the beam arriving from the booster-to-storage-ring line onto the ring''s injection orbit while shielding the stored beam. SEK is pulsed, and its current pulse is sampled as a waveform.'
+  names:
+  - injection septum
+  members:
+  - SR/SEPTUM01
+  - SR/SEPTUM02
 - id: SR/SF
   description: 'Focusing Sextupoles (SF): Sextupole magnets with positive polarity for chromatic correction. Compensate for energy-dependent focusing from quadrupoles (chromaticity). Essential for maintaining beam stability across energy spread.'
   names:

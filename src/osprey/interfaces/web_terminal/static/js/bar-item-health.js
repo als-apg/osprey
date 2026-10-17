@@ -427,7 +427,9 @@ function buildSystemHealth(ctx) {
     openPanel.addEventListener('click', (event) => {
       event.stopPropagation();
       close();
-      void import('./panel-manager.js').then((manager) => manager.showPanel(HEALTH_PANEL_ID));
+      // Opens the tile and leaves the rail alone: reading the dashboard is not
+      // a request to keep SYSTEM on the rail.
+      void import('./panel-manager.js').then((manager) => manager.openPanelOffRail(HEALTH_PANEL_ID));
     });
     foot.appendChild(openPanel);
     pop.appendChild(foot);

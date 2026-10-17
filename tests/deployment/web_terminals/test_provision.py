@@ -37,7 +37,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
@@ -1623,6 +1623,7 @@ def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch,
     banner = [r.getMessage() for r in caplog.records if "dangerously_allow_bash" in r.getMessage()]
     assert banner, caplog.text
     assert "readwrite" in banner[0]
+    assert "may run a shell (Bash or Monitor)" in banner[0]
 
 
 def test_preflight_stays_quiet_when_dangerously_allow_bash_waives_nothing(

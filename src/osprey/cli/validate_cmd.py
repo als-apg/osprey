@@ -27,7 +27,7 @@ from pathlib import Path
 
 import click
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 from .output import note, report, section
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option

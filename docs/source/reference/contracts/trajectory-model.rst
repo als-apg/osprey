@@ -252,7 +252,10 @@ First-turn response
 For every model carrying the kind, the pyAML view build writes two files to
 ``data/pyaml/<model>/``. A refusal by the engine, an answer in which no
 corrector solves, or an engine with no ``response_matrix()``, stops the build.
-A corrector whose step loses the launched particle has no solve: it keeps its
+So does an answer whose ``x`` and ``y`` rows do not read the same monitors in
+the same order, one whose rows of a plane do not sit at strictly increasing
+indices, and one reading a monitor the model wires no sum series on. A
+corrector whose step loses the launched particle has no solve: it keeps its
 column, as a column of zeros, and the index file names it.
 
 .. list-table:: First-turn response files
@@ -264,15 +267,20 @@ column, as a column of zeros, and the index file names it.
    * - ``trajectory_rm.json``
      - The ``pyaml.tuning_tools.orbit_response_matrix_data`` document:
        ``matrix``, ``observable_names`` (the turn-by-turn ``x`` series
-       addresses, then the ``y`` ones, in lattice order from the injection),
-       ``variable_names`` (the ``hcor`` group's corrector setpoints, then the
-       ``vcor`` group's), ``observable_planes`` and ``variable_planes``
+       addresses, then the ``y`` ones of the same monitors in the same
+       order, in lattice order from the injection), ``variable_names`` (the
+       ``hcor`` group's corrector setpoints, then the ``vcor`` group's, each
+       plane in lattice order from the injection, correctors at one index in
+       their group's order), ``observable_planes`` and ``variable_planes``
        (``H`` or ``V`` each). It carries no ``rf_response``.
    * - ``trajectory_rm.index.json``
-     - The lattice index of every row and column: ``bpm_index`` (one entry per
-       row), ``hcor_index`` then ``vcor_index`` (together one entry per
-       column); and ``unsolved``, each corrector whose step has no solve
-       mapped to the engine's text.
+     - ``bpm_index``, the lattice index of every row; ``sum_names``, the
+       address of the sum series the model wires on every row's monitor (one
+       entry per row, so the ``x`` and the ``y`` row of a monitor name the
+       same series); ``hcorr_index`` then ``vcorr_index``, the lattice index of
+       every column (together one entry per column, in the columns' order);
+       and ``unsolved``, each corrector whose step has no solve mapped to the
+       engine's text.
 
 Each corrector steps by the measurement file's ``corrector_delta`` (radians),
 converted to its hardware unit through its wiring calibration. An entry is a
@@ -283,7 +291,9 @@ marker is index 0; a ``single_pass`` model's indices are its line's own. Values
 are written to nine significant digits and every one is finite.
 
 ``model_response_matrix`` with ``kind`` ``trajectory`` answers the same
-content as JSON for the correctors it is asked for, and writes nothing
+entries as JSON for the correctors it is asked for, each row and column
+carrying its plane and index rather than taking the files' order, and writes
+nothing
 (:ref:`executor-measurement-tools`). There, as for every kind, an unsolved
 corrector has no column and is listed under ``unsolved``, and the call is
 refused only when no corrector solves.
@@ -328,12 +338,15 @@ Archived channels
 =================
 
 The archived channel set of a simulator view is every channel of the view but
-the ones a served model's wiring describes as ``turn_series``: the turn series
-and the armed flags. Those hold the samples of one shot and have no value at an
-instant between shots. Command channels are archived like any other setpoint.
-Archive seeding and the live archiver recorder both take their channels from
-this one set, and the mock archiver answers a request for a channel outside it
-with ``<address> has no archived history``.
+the ones a physics model's wiring describes as ``turn_series``, whether the
+render serves the model or not: the turn series and the armed flags. Those hold
+the samples of one shot and have no value at an instant between shots. Command
+channels are archived like any other setpoint. Archive seeding and the live
+archiver recorder both take their channels from this one set. The mock archiver
+answers a request for a channel of the facility outside it with
+``ChannelNotArchivedError`` (``<address> has no archived history: it is a shot
+record, read it live after a shot``), and an address outside the facility with
+``ChannelNotFoundError``.
 
 Sum levels
 ==========

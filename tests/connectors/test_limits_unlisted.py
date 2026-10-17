@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors.control_system.limits_validator import LimitsValidator
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIMITS_MODES
 from tests.facility._limits_render import render_limits, validator_under
 

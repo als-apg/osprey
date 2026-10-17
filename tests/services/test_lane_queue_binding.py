@@ -251,7 +251,7 @@ def deployment(tmp_path, monkeypatch):
                 "control_system.writes_enabled": section.get("writes_enabled", False),
             }.get(key, default)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
         # The per-server reports and the control-context record have to land in
         # the same scratch deployment: the reports resolve through
         # ``target_state``'s own root helper, the record through the

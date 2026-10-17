@@ -154,6 +154,140 @@
   signal: status
   value_type: bool
   description: 'Booster ring DC current transformer 01 status valid. DCCT status. Valid (read-only): Measurement valid.'
+- id: BR:DIAG:TV:01:LAMP:RB
+  'on':
+    device: BR/TV01
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster ring screen 01 lamp status (read-only): the screen lamp is lit.'
+- id: BR:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: BR/TV01
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster ring screen 01 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BR:DIAG:TV:01:PADDLE:SP
+  role: setpoint
+  pair: BR:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: BR/TV01
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster ring screen 01 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:DIAG:TV:02:LAMP:RB
+  'on':
+    device: BR/TV02
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster ring screen 02 lamp status (read-only): the screen lamp is lit.'
+- id: BR:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: BR/TV02
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster ring screen 02 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BR:DIAG:TV:02:PADDLE:SP
+  role: setpoint
+  pair: BR:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: BR/TV02
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster ring screen 02 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:DIAG:TV:03:LAMP:RB
+  'on':
+    device: BR/TV03
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster ring screen 03 lamp status (read-only): the screen lamp is lit.'
+- id: BR:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: BR/TV03
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster ring screen 03 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BR:DIAG:TV:03:PADDLE:SP
+  role: setpoint
+  pair: BR:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: BR/TV03
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster ring screen 03 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:DIAG:TV:04:LAMP:RB
+  'on':
+    device: BR/TV04
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster ring screen 04 lamp status (read-only): the screen lamp is lit.'
+- id: BR:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: BR/TV04
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster ring screen 04 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BR:DIAG:TV:04:PADDLE:SP
+  role: setpoint
+  pair: BR:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: BR/TV04
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster ring screen 04 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:DIAG:TV:05:LAMP:RB
+  'on':
+    device: BR/TV05
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster ring screen 05 lamp status (read-only): the screen lamp is lit.'
+- id: BR:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: BR/TV05
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster ring screen 05 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BR:DIAG:TV:05:PADDLE:SP
+  role: setpoint
+  pair: BR:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: BR/TV05
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster ring screen 05 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:MAG:DIPOLE-RAMP:01:GAIN:RB
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: ramp_gain_readback
+  description: 'Booster ring bending magnet ramp 01 gain readback (read-only): the applied scale of the energy ramp.'
+- id: BR:MAG:DIPOLE-RAMP:01:GAIN:SP
+  role: setpoint
+  pair: BR:MAG:DIPOLE-RAMP:01:GAIN:RB
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: ramp_gain_setpoint
+  description: 'Booster ring bending magnet ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp.'
+- id: BR:MAG:DIPOLE-RAMP:01:OFFSET:RB
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: ramp_offset_readback
+  unit: A
+  description: 'Booster ring bending magnet ramp 01 offset readback (read-only): the applied current offset of the energy ramp.'
+- id: BR:MAG:DIPOLE-RAMP:01:OFFSET:SP
+  role: setpoint
+  pair: BR:MAG:DIPOLE-RAMP:01:OFFSET:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: ramp_offset_setpoint
+  unit: A
+  description: 'Booster ring bending magnet ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp.'
+- id: BR:MAG:DIPOLE-RAMP:01:STATUS:ON
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring bending magnet ramp 01 on status (read-only): the ramped supply is on.'
 - id: BR:MAG:DIPOLE:01:CURRENT:RB
   'on':
     device: BR/DIPOLE01
@@ -378,6 +512,62 @@
   signal: ready_status
   value_type: bool
   description: 'Booster ring dipole bending magnet 08 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
+- id: BR:MAG:KICKER:01:STATUS:ON
+  'on':
+    device: BR/KICKER01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring injection kicker 01 on status (read-only): the kicker pulser is on.'
+- id: BR:MAG:KICKER:01:VOLTAGE:RB
+  'on':
+    device: BR/KICKER01
+  signal: voltage_readback
+  unit: kV
+  description: 'Booster ring injection kicker 01 voltage readback (read-only): the measured kicker pulse voltage.'
+- id: BR:MAG:KICKER:01:VOLTAGE:SP
+  role: setpoint
+  pair: BR:MAG:KICKER:01:VOLTAGE:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/KICKER01
+  signal: voltage_setpoint
+  unit: kV
+  description: 'Booster ring injection kicker 01 voltage setpoint (read-write): the commanded kicker pulse voltage.'
+- id: BR:MAG:QD-RAMP:01:GAIN:RB
+  'on':
+    device: BR/QD-RAMP01
+  signal: ramp_gain_readback
+  description: 'Booster ring defocusing quadrupole ramp 01 gain readback (read-only): the applied scale of the energy ramp.'
+- id: BR:MAG:QD-RAMP:01:GAIN:SP
+  role: setpoint
+  pair: BR:MAG:QD-RAMP:01:GAIN:RB
+  'on':
+    device: BR/QD-RAMP01
+  signal: ramp_gain_setpoint
+  description: 'Booster ring defocusing quadrupole ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp.'
+- id: BR:MAG:QD-RAMP:01:OFFSET:RB
+  'on':
+    device: BR/QD-RAMP01
+  signal: ramp_offset_readback
+  unit: A
+  description: 'Booster ring defocusing quadrupole ramp 01 offset readback (read-only): the applied current offset of the energy ramp.'
+- id: BR:MAG:QD-RAMP:01:OFFSET:SP
+  role: setpoint
+  pair: BR:MAG:QD-RAMP:01:OFFSET:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/QD-RAMP01
+  signal: ramp_offset_setpoint
+  unit: A
+  description: 'Booster ring defocusing quadrupole ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp.'
+- id: BR:MAG:QD-RAMP:01:STATUS:ON
+  'on':
+    device: BR/QD-RAMP01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring defocusing quadrupole ramp 01 on status (read-only): the ramped supply is on.'
 - id: BR:MAG:QD:01:CURRENT:RB
   'on':
     device: BR/QD01
@@ -490,6 +680,40 @@
   signal: ready_status
   value_type: bool
   description: 'Booster ring defocusing quadrupole 04 status ready. Power supply status. Ready (read-only): Power supply ready.'
+- id: BR:MAG:QF-RAMP:01:GAIN:RB
+  'on':
+    device: BR/QF-RAMP01
+  signal: ramp_gain_readback
+  description: 'Booster ring focusing quadrupole ramp 01 gain readback (read-only): the applied scale of the energy ramp.'
+- id: BR:MAG:QF-RAMP:01:GAIN:SP
+  role: setpoint
+  pair: BR:MAG:QF-RAMP:01:GAIN:RB
+  'on':
+    device: BR/QF-RAMP01
+  signal: ramp_gain_setpoint
+  description: 'Booster ring focusing quadrupole ramp 01 gain setpoint (read-write): the commanded scale of the energy ramp; 1 is the nominal ramp.'
+- id: BR:MAG:QF-RAMP:01:OFFSET:RB
+  'on':
+    device: BR/QF-RAMP01
+  signal: ramp_offset_readback
+  unit: A
+  description: 'Booster ring focusing quadrupole ramp 01 offset readback (read-only): the applied current offset of the energy ramp.'
+- id: BR:MAG:QF-RAMP:01:OFFSET:SP
+  role: setpoint
+  pair: BR:MAG:QF-RAMP:01:OFFSET:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/QF-RAMP01
+  signal: ramp_offset_setpoint
+  unit: A
+  description: 'Booster ring focusing quadrupole ramp 01 offset setpoint (read-write): the commanded current offset added to the energy ramp.'
+- id: BR:MAG:QF-RAMP:01:STATUS:ON
+  'on':
+    device: BR/QF-RAMP01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring focusing quadrupole ramp 01 on status (read-only): the ramped supply is on.'
 - id: BR:MAG:QF:01:CURRENT:RB
   'on':
     device: BR/QF01
@@ -602,6 +826,50 @@
   signal: ready_status
   value_type: bool
   description: 'Booster ring focusing quadrupole 04 status ready. Power supply status. Ready (read-only): Power supply ready.'
+- id: BR:MAG:SEPTUM:01:CURRENT:RB
+  'on':
+    device: BR/SEPTUM01
+  signal: current_readback
+  unit: A
+  description: 'Booster ring extraction septum SEN current readback (read-only): the measured septum current.'
+- id: BR:MAG:SEPTUM:01:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:SEPTUM:01:CURRENT:RB
+  tolerance:
+    absolute: 1.0
+  'on':
+    device: BR/SEPTUM01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring extraction septum SEN current setpoint (read-write): the commanded septum current.'
+- id: BR:MAG:SEPTUM:01:STATUS:ON
+  'on':
+    device: BR/SEPTUM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring extraction septum SEN on status (read-only): the septum supply is on.'
+- id: BR:MAG:SEPTUM:02:CURRENT:RB
+  'on':
+    device: BR/SEPTUM02
+  signal: current_readback
+  unit: A
+  description: 'Booster ring extraction septum SEK current readback (read-only): the measured septum current.'
+- id: BR:MAG:SEPTUM:02:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:SEPTUM:02:CURRENT:RB
+  tolerance:
+    absolute: 1.0
+  'on':
+    device: BR/SEPTUM02
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring extraction septum SEK current setpoint (read-write): the commanded septum current.'
+- id: BR:MAG:SEPTUM:02:STATUS:ON
+  'on':
+    device: BR/SEPTUM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring extraction septum SEK on status (read-only): the septum supply is on.'
 - id: BTS:DIAG:BPM:01:POSITION:X
   'on':
     device: BTS/BPM01
@@ -620,6 +888,11 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 01 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:01:SUM:RB
+  'on':
+    device: BTS/BPM01
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam.'
 - id: BTS:DIAG:BPM:02:POSITION:X
   'on':
     device: BTS/BPM02
@@ -638,6 +911,11 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 02 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:02:SUM:RB
+  'on':
+    device: BTS/BPM02
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam.'
 - id: BTS:DIAG:BPM:03:POSITION:X
   'on':
     device: BTS/BPM03
@@ -656,6 +934,11 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 03 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:03:SUM:RB
+  'on':
+    device: BTS/BPM03
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 03 sum signal (read-only): the summed button signal, relative to full beam.'
 - id: BTS:DIAG:BPM:04:POSITION:X
   'on':
     device: BTS/BPM04
@@ -674,6 +957,11 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 04 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:04:SUM:RB
+  'on':
+    device: BTS/BPM04
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 04 sum signal (read-only): the summed button signal, relative to full beam.'
 - id: BTS:DIAG:BPM:05:POSITION:X
   'on':
     device: BTS/BPM05
@@ -692,6 +980,11 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 05 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:05:SUM:RB
+  'on':
+    device: BTS/BPM05
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 05 sum signal (read-only): the summed button signal, relative to full beam.'
 - id: BTS:DIAG:BPM:06:POSITION:X
   'on':
     device: BTS/BPM06
@@ -710,6 +1003,251 @@
   signal: status
   value_type: bool
   description: 'Booster-to-storage transfer line beam position monitor 06 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BTS:DIAG:BPM:06:SUM:RB
+  'on':
+    device: BTS/BPM06
+  signal: bpm_sum_readback
+  description: 'Booster-to-storage transfer line beam position monitor 06 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: BTS:DIAG:ICT:01:CHARGE:RB
+  'on':
+    device: BTS/ICT01
+  signal: beam_intensity_readback
+  unit: nC
+  description: 'Booster-to-storage transfer line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse.'
+- id: BTS:DIAG:PADDLES:01:COUNT:INSERTED
+  'on':
+    device: BTS/PADDLES01
+  signal: status
+  value_type: int
+  description: 'Booster-to-storage transfer line paddle summary 01 inserted screen count (read-only): how many screens are in the beam; 0 means all paddles are out.'
+- id: BTS:DIAG:TV:01:LAMP:RB
+  'on':
+    device: BTS/TV01
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 01 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: BTS/TV01
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 01 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:01:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: BTS/TV01
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 01 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:02:LAMP:RB
+  'on':
+    device: BTS/TV02
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 02 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: BTS/TV02
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 02 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:02:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: BTS/TV02
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 02 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:03:LAMP:RB
+  'on':
+    device: BTS/TV03
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 03 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: BTS/TV03
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 03 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:03:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: BTS/TV03
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 03 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:04:LAMP:RB
+  'on':
+    device: BTS/TV04
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 04 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: BTS/TV04
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 04 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:04:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: BTS/TV04
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 04 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:05:LAMP:RB
+  'on':
+    device: BTS/TV05
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 05 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: BTS/TV05
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 05 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:05:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: BTS/TV05
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 05 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:06:LAMP:RB
+  'on':
+    device: BTS/TV06
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 06 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:06:PADDLE:RB
+  'on':
+    device: BTS/TV06
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 06 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:06:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:06:PADDLE:RB
+  'on':
+    device: BTS/TV06
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 06 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:DIAG:TV:07:LAMP:RB
+  'on':
+    device: BTS/TV07
+  signal: lamp_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 07 lamp status (read-only): the screen lamp is lit.'
+- id: BTS:DIAG:TV:07:PADDLE:RB
+  'on':
+    device: BTS/TV07
+  signal: screen_in_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 07 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: BTS:DIAG:TV:07:PADDLE:SP
+  role: setpoint
+  pair: BTS:DIAG:TV:07:PADDLE:RB
+  'on':
+    device: BTS/TV07
+  signal: screen_in_command
+  value_type: bool
+  description: 'Booster-to-storage transfer line screen 07 paddle in command (read-write): inserts the screen into the beam.'
+- id: BTS:MAG:DIPOLE:01:CURRENT:RB
+  'on':
+    device: BTS/DIPOLE01
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 01 current readback (read-only): the measured bending magnet current.'
+- id: BTS:MAG:DIPOLE:01:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:DIPOLE:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/DIPOLE01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 01 current setpoint (read-write): the commanded bending magnet current.'
+- id: BTS:MAG:DIPOLE:01:STATUS:ON
+  'on':
+    device: BTS/DIPOLE01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line bending magnet 01 on status (read-only): the bending magnet supply is on.'
+- id: BTS:MAG:DIPOLE:02:CURRENT:RB
+  'on':
+    device: BTS/DIPOLE02
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 02 current readback (read-only): the measured bending magnet current.'
+- id: BTS:MAG:DIPOLE:02:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:DIPOLE:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/DIPOLE02
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 02 current setpoint (read-write): the commanded bending magnet current.'
+- id: BTS:MAG:DIPOLE:02:STATUS:ON
+  'on':
+    device: BTS/DIPOLE02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line bending magnet 02 on status (read-only): the bending magnet supply is on.'
+- id: BTS:MAG:DIPOLE:03:CURRENT:RB
+  'on':
+    device: BTS/DIPOLE03
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 03 current readback (read-only): the measured bending magnet current.'
+- id: BTS:MAG:DIPOLE:03:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:DIPOLE:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/DIPOLE03
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 03 current setpoint (read-write): the commanded bending magnet current.'
+- id: BTS:MAG:DIPOLE:03:STATUS:ON
+  'on':
+    device: BTS/DIPOLE03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line bending magnet 03 on status (read-only): the bending magnet supply is on.'
+- id: BTS:MAG:DIPOLE:04:CURRENT:RB
+  'on':
+    device: BTS/DIPOLE04
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 04 current readback (read-only): the measured bending magnet current.'
+- id: BTS:MAG:DIPOLE:04:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:DIPOLE:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/DIPOLE04
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line bending magnet 04 current setpoint (read-write): the commanded bending magnet current.'
+- id: BTS:MAG:DIPOLE:04:STATUS:ON
+  'on':
+    device: BTS/DIPOLE04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line bending magnet 04 on status (read-only): the bending magnet supply is on.'
 - id: BTS:MAG:HCM:01:CURRENT:RB
   'on':
     device: BTS/HCM01
@@ -726,6 +1264,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 01 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:01:STATUS:ON
+  'on':
+    device: BTS/HCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 01 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:01:STATUS:READY
   'on':
     device: BTS/HCM01
@@ -748,6 +1292,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 02 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:02:STATUS:ON
+  'on':
+    device: BTS/HCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 02 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:02:STATUS:READY
   'on':
     device: BTS/HCM02
@@ -770,6 +1320,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 03 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:03:STATUS:ON
+  'on':
+    device: BTS/HCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 03 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:03:STATUS:READY
   'on':
     device: BTS/HCM03
@@ -792,6 +1348,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 04 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:04:STATUS:ON
+  'on':
+    device: BTS/HCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 04 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:04:STATUS:READY
   'on':
     device: BTS/HCM04
@@ -814,6 +1376,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 05 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:05:STATUS:ON
+  'on':
+    device: BTS/HCM05
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 05 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:05:STATUS:READY
   'on':
     device: BTS/HCM05
@@ -836,12 +1404,194 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line horizontal corrector 06 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:HCM:06:STATUS:ON
+  'on':
+    device: BTS/HCM06
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 06 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:HCM:06:STATUS:READY
   'on':
     device: BTS/HCM06
   signal: ready_status
   value_type: bool
   description: 'Booster-to-storage transfer line horizontal corrector 06 status ready. Power supply status. Ready (read-only): Power supply ready.'
+- id: BTS:MAG:HCM:07:CURRENT:RB
+  'on':
+    device: BTS/HCM07
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 07 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:HCM:07:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:HCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/HCM07
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 07 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:HCM:07:STATUS:ON
+  'on':
+    device: BTS/HCM07
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 07 on status (read-only): the corrector supply is on.'
+- id: BTS:MAG:HCM:08:CURRENT:RB
+  'on':
+    device: BTS/HCM08
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 08 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:HCM:08:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:HCM:08:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/HCM08
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 08 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:HCM:08:STATUS:ON
+  'on':
+    device: BTS/HCM08
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 08 on status (read-only): the corrector supply is on.'
+- id: BTS:MAG:HCM:09:CURRENT:RB
+  'on':
+    device: BTS/HCM09
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 09 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:HCM:09:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:HCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/HCM09
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line horizontal corrector 09 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:HCM:09:STATUS:ON
+  'on':
+    device: BTS/HCM09
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line horizontal corrector 09 on status (read-only): the corrector supply is on.'
+- id: BTS:MAG:QD:01:CURRENT:RB
+  'on':
+    device: BTS/QD01
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 01 current readback (read-only): the measured quadrupole current.'
+- id: BTS:MAG:QD:01:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/QD01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current.'
+- id: BTS:MAG:QD:01:STATUS:ON
+  'on':
+    device: BTS/QD01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line defocusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
+- id: BTS:MAG:QD:02:CURRENT:RB
+  'on':
+    device: BTS/QD02
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 02 current readback (read-only): the measured quadrupole current.'
+- id: BTS:MAG:QD:02:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:QD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/QD02
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current.'
+- id: BTS:MAG:QD:02:STATUS:ON
+  'on':
+    device: BTS/QD02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line defocusing quadrupole 02 on status (read-only): the quadrupole supply is on.'
+- id: BTS:MAG:QD:03:CURRENT:RB
+  'on':
+    device: BTS/QD03
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 03 current readback (read-only): the measured quadrupole current.'
+- id: BTS:MAG:QD:03:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:QD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/QD03
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current.'
+- id: BTS:MAG:QD:03:STATUS:ON
+  'on':
+    device: BTS/QD03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line defocusing quadrupole 03 on status (read-only): the quadrupole supply is on.'
+- id: BTS:MAG:QD:04:CURRENT:RB
+  'on':
+    device: BTS/QD04
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 04 current readback (read-only): the measured quadrupole current.'
+- id: BTS:MAG:QD:04:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:QD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/QD04
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current.'
+- id: BTS:MAG:QD:04:STATUS:ON
+  'on':
+    device: BTS/QD04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line defocusing quadrupole 04 on status (read-only): the quadrupole supply is on.'
+- id: BTS:MAG:QD:05:CURRENT:RB
+  'on':
+    device: BTS/QD05
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 05 current readback (read-only): the measured quadrupole current.'
+- id: BTS:MAG:QD:05:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:QD:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BTS/QD05
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line defocusing quadrupole 05 current setpoint (read-write): the commanded quadrupole current.'
+- id: BTS:MAG:QD:05:STATUS:ON
+  'on':
+    device: BTS/QD05
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line defocusing quadrupole 05 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:01:CURRENT:RB
   'on':
     device: BTS/QF01
@@ -858,6 +1608,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 01 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:01:STATUS:ON
+  'on':
+    device: BTS/QF01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:01:STATUS:READY
   'on':
     device: BTS/QF01
@@ -880,6 +1636,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 02 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:02:STATUS:ON
+  'on':
+    device: BTS/QF02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 02 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:02:STATUS:READY
   'on':
     device: BTS/QF02
@@ -902,6 +1664,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 03 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:03:STATUS:ON
+  'on':
+    device: BTS/QF03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 03 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:03:STATUS:READY
   'on':
     device: BTS/QF03
@@ -924,6 +1692,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 04 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:04:STATUS:ON
+  'on':
+    device: BTS/QF04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 04 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:04:STATUS:READY
   'on':
     device: BTS/QF04
@@ -946,6 +1720,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 05 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:05:STATUS:ON
+  'on':
+    device: BTS/QF05
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 05 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:05:STATUS:READY
   'on':
     device: BTS/QF05
@@ -968,6 +1748,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line focusing quadrupole 06 current setpoint. Quadrupole current (Amperes). Setpoint (read-write): Commanded current.'
+- id: BTS:MAG:QF:06:STATUS:ON
+  'on':
+    device: BTS/QF06
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line focusing quadrupole 06 on status (read-only): the quadrupole supply is on.'
 - id: BTS:MAG:QF:06:STATUS:READY
   'on':
     device: BTS/QF06
@@ -990,6 +1776,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 01 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:01:STATUS:ON
+  'on':
+    device: BTS/VCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 01 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:01:STATUS:READY
   'on':
     device: BTS/VCM01
@@ -1012,6 +1804,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 02 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:02:STATUS:ON
+  'on':
+    device: BTS/VCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 02 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:02:STATUS:READY
   'on':
     device: BTS/VCM02
@@ -1034,6 +1832,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 03 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:03:STATUS:ON
+  'on':
+    device: BTS/VCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 03 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:03:STATUS:READY
   'on':
     device: BTS/VCM03
@@ -1056,6 +1860,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 04 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:04:STATUS:ON
+  'on':
+    device: BTS/VCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 04 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:04:STATUS:READY
   'on':
     device: BTS/VCM04
@@ -1078,6 +1888,12 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 05 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:05:STATUS:ON
+  'on':
+    device: BTS/VCM05
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 05 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:05:STATUS:READY
   'on':
     device: BTS/VCM05
@@ -1100,12 +1916,688 @@
   signal: current_setpoint
   unit: A
   description: 'Booster-to-storage transfer line vertical corrector 06 current setpoint. Corrector current (Amperes). Setpoint (read-write): Commanded corrector current.'
+- id: BTS:MAG:VCM:06:STATUS:ON
+  'on':
+    device: BTS/VCM06
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 06 on status (read-only): the corrector supply is on.'
 - id: BTS:MAG:VCM:06:STATUS:READY
   'on':
     device: BTS/VCM06
   signal: ready_status
   value_type: bool
   description: 'Booster-to-storage transfer line vertical corrector 06 status ready. Power supply status. Ready (read-only): Power supply ready.'
+- id: BTS:MAG:VCM:07:CURRENT:RB
+  'on':
+    device: BTS/VCM07
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 07 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:VCM:07:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:VCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/VCM07
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 07 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:VCM:07:STATUS:ON
+  'on':
+    device: BTS/VCM07
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 07 on status (read-only): the corrector supply is on.'
+- id: BTS:MAG:VCM:08:CURRENT:RB
+  'on':
+    device: BTS/VCM08
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 08 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:VCM:08:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:VCM:08:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/VCM08
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 08 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:VCM:08:STATUS:ON
+  'on':
+    device: BTS/VCM08
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 08 on status (read-only): the corrector supply is on.'
+- id: BTS:MAG:VCM:09:CURRENT:RB
+  'on':
+    device: BTS/VCM09
+  signal: current_readback
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 09 current readback (read-only): the measured corrector current.'
+- id: BTS:MAG:VCM:09:CURRENT:SP
+  role: setpoint
+  pair: BTS:MAG:VCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BTS/VCM09
+  signal: current_setpoint
+  unit: A
+  description: 'Booster-to-storage transfer line vertical corrector 09 current setpoint (read-write): the commanded corrector current.'
+- id: BTS:MAG:VCM:09:STATUS:ON
+  'on':
+    device: BTS/VCM09
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster-to-storage transfer line vertical corrector 09 on status (read-only): the corrector supply is on.'
+- id: GTL:DIAG:BPM:01:POSITION:X
+  'on':
+    device: GTL/BPM01
+  signal: position_x_readback
+  unit: mm
+  description: 'Gun-to-linac line beam position monitor 01 position horizontal (read-only): beam X position.'
+- id: GTL:DIAG:BPM:01:POSITION:Y
+  'on':
+    device: GTL/BPM01
+  signal: position_y_readback
+  unit: mm
+  description: 'Gun-to-linac line beam position monitor 01 position vertical (read-only): beam Y position.'
+- id: GTL:DIAG:BPM:01:STATUS:VALID
+  'on':
+    device: GTL/BPM01
+  signal: status
+  value_type: bool
+  description: 'Gun-to-linac line beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: GTL:DIAG:BPM:01:SUM:RB
+  'on':
+    device: GTL/BPM01
+  signal: bpm_sum_readback
+  description: 'Gun-to-linac line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: GTL:DIAG:BPM:02:POSITION:X
+  'on':
+    device: GTL/BPM02
+  signal: position_x_readback
+  unit: mm
+  description: 'Gun-to-linac line beam position monitor 02 position horizontal (read-only): beam X position.'
+- id: GTL:DIAG:BPM:02:POSITION:Y
+  'on':
+    device: GTL/BPM02
+  signal: position_y_readback
+  unit: mm
+  description: 'Gun-to-linac line beam position monitor 02 position vertical (read-only): beam Y position.'
+- id: GTL:DIAG:BPM:02:STATUS:VALID
+  'on':
+    device: GTL/BPM02
+  signal: status
+  value_type: bool
+  description: 'Gun-to-linac line beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: GTL:DIAG:BPM:02:SUM:RB
+  'on':
+    device: GTL/BPM02
+  signal: bpm_sum_readback
+  description: 'Gun-to-linac line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: GTL:DIAG:ICT:01:CHARGE:RB
+  'on':
+    device: GTL/ICT01
+  signal: beam_intensity_readback
+  unit: nC
+  description: 'Gun-to-linac line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse.'
+- id: GTL:DIAG:TV:01:LAMP:RB
+  'on':
+    device: GTL/TV01
+  signal: lamp_status
+  value_type: bool
+  description: 'Gun-to-linac line screen 01 lamp status (read-only): the screen lamp is lit.'
+- id: GTL:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: GTL/TV01
+  signal: screen_in_status
+  value_type: bool
+  description: 'Gun-to-linac line screen 01 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: GTL:DIAG:TV:01:PADDLE:SP
+  role: setpoint
+  pair: GTL:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: GTL/TV01
+  signal: screen_in_command
+  value_type: bool
+  description: 'Gun-to-linac line screen 01 paddle in command (read-write): inserts the screen into the beam.'
+- id: GTL:DIAG:TV:02:LAMP:RB
+  'on':
+    device: GTL/TV02
+  signal: lamp_status
+  value_type: bool
+  description: 'Gun-to-linac line screen 02 lamp status (read-only): the screen lamp is lit.'
+- id: GTL:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: GTL/TV02
+  signal: screen_in_status
+  value_type: bool
+  description: 'Gun-to-linac line screen 02 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: GTL:DIAG:TV:02:PADDLE:SP
+  role: setpoint
+  pair: GTL:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: GTL/TV02
+  signal: screen_in_command
+  value_type: bool
+  description: 'Gun-to-linac line screen 02 paddle in command (read-write): inserts the screen into the beam.'
+- id: GTL:GUN:EGUN:01:AUX_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 auxiliary supply on status (read-only): the auxiliary supply is on.'
+- id: GTL:GUN:EGUN:01:AUX_ON:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:AUX_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 auxiliary supply on command (read-write): switches the auxiliary supply.'
+- id: GTL:GUN:EGUN:01:BIAS:RB
+  'on':
+    device: GTL/EGUN01
+  signal: voltage_readback
+  unit: V
+  description: 'Gun-to-linac line electron gun 01 grid bias readback (read-only): the measured grid bias voltage.'
+- id: GTL:GUN:EGUN:01:BIAS:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:BIAS:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: GTL/EGUN01
+  signal: voltage_setpoint
+  unit: V
+  description: 'Gun-to-linac line electron gun 01 grid bias setpoint (read-write): the commanded grid bias voltage.'
+- id: GTL:GUN:EGUN:01:HEATER:RB
+  'on':
+    device: GTL/EGUN01
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line electron gun 01 heater current readback (read-only): the measured cathode heater current.'
+- id: GTL:GUN:EGUN:01:HEATER:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:HEATER:RB
+  tolerance:
+    absolute: 0.01
+  'on':
+    device: GTL/EGUN01
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line electron gun 01 heater current setpoint (read-write): the commanded cathode heater current.'
+- id: GTL:GUN:EGUN:01:HEATER_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 heater on status (read-only): the cathode heater is on.'
+- id: GTL:GUN:EGUN:01:HEATER_ON:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:HEATER_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 heater on command (read-write): switches the cathode heater.'
+- id: GTL:GUN:EGUN:01:HV_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 high voltage on status (read-only): the gun high voltage is on.'
+- id: GTL:GUN:EGUN:01:HV_ON:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:HV_ON:RB
+  'on':
+    device: GTL/EGUN01
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line electron gun 01 high voltage on command (read-write): switches the gun high voltage.'
+- id: GTL:GUN:EGUN:01:PHASE:RB
+  'on':
+    device: GTL/EGUN01
+  signal: phase_readback
+  unit: deg
+  description: 'Gun-to-linac line electron gun 01 phase readback (read-only): the measured gun timing phase.'
+- id: GTL:GUN:EGUN:01:PHASE:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:PHASE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: GTL/EGUN01
+  signal: phase_setpoint
+  unit: deg
+  description: 'Gun-to-linac line electron gun 01 phase setpoint (read-write): the commanded gun timing phase.'
+- id: GTL:GUN:EGUN:01:VOLTAGE:RB
+  'on':
+    device: GTL/EGUN01
+  signal: gun_voltage_readback
+  unit: kV
+  description: 'Gun-to-linac line electron gun 01 high voltage readback (read-only): the measured gun high voltage.'
+- id: GTL:GUN:EGUN:01:VOLTAGE:SP
+  role: setpoint
+  pair: GTL:GUN:EGUN:01:VOLTAGE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: GTL/EGUN01
+  signal: gun_voltage_setpoint
+  unit: kV
+  description: 'Gun-to-linac line electron gun 01 high voltage setpoint (read-write): the commanded gun high voltage.'
+- id: GTL:MAG:BC:01:CURRENT:RB
+  'on':
+    device: GTL/BC01
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line bucking coil 01 current readback (read-only): the measured coil current.'
+- id: GTL:MAG:BC:01:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:BC:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/BC01
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line bucking coil 01 current setpoint (read-write): the commanded coil current.'
+- id: GTL:MAG:BC:01:STATUS:ON
+  'on':
+    device: GTL/BC01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line bucking coil 01 on status (read-only): the coil supply is on.'
+- id: GTL:MAG:BC:02:CURRENT:RB
+  'on':
+    device: GTL/BC02
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line bucking coil 02 current readback (read-only): the measured coil current.'
+- id: GTL:MAG:BC:02:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:BC:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/BC02
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line bucking coil 02 current setpoint (read-write): the commanded coil current.'
+- id: GTL:MAG:BC:02:STATUS:ON
+  'on':
+    device: GTL/BC02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line bucking coil 02 on status (read-only): the coil supply is on.'
+- id: GTL:MAG:HCM:01:CURRENT:RB
+  'on':
+    device: GTL/HCM01
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 01 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:HCM:01:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/HCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:HCM:01:STATUS:ON
+  'on':
+    device: GTL/HCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line horizontal corrector 01 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:HCM:02:CURRENT:RB
+  'on':
+    device: GTL/HCM02
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 02 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:HCM:02:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/HCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:HCM:02:STATUS:ON
+  'on':
+    device: GTL/HCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line horizontal corrector 02 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:HCM:03:CURRENT:RB
+  'on':
+    device: GTL/HCM03
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 03 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:HCM:03:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:HCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/HCM03
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 03 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:HCM:03:STATUS:ON
+  'on':
+    device: GTL/HCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line horizontal corrector 03 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:HCM:04:CURRENT:RB
+  'on':
+    device: GTL/HCM04
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 04 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:HCM:04:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:HCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/HCM04
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line horizontal corrector 04 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:HCM:04:STATUS:ON
+  'on':
+    device: GTL/HCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line horizontal corrector 04 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:SOL:01:CURRENT:RB
+  'on':
+    device: GTL/SOL01
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line solenoid 01 current readback (read-only): the measured solenoid current.'
+- id: GTL:MAG:SOL:01:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:SOL:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: GTL/SOL01
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line solenoid 01 current setpoint (read-write): the commanded solenoid current.'
+- id: GTL:MAG:SOL:01:STATUS:ON
+  'on':
+    device: GTL/SOL01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line solenoid 01 on status (read-only): the solenoid supply is on.'
+- id: GTL:MAG:SOL:02:CURRENT:RB
+  'on':
+    device: GTL/SOL02
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line solenoid 02 current readback (read-only): the measured solenoid current.'
+- id: GTL:MAG:SOL:02:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:SOL:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: GTL/SOL02
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line solenoid 02 current setpoint (read-write): the commanded solenoid current.'
+- id: GTL:MAG:SOL:02:STATUS:ON
+  'on':
+    device: GTL/SOL02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line solenoid 02 on status (read-only): the solenoid supply is on.'
+- id: GTL:MAG:SOL:03:CURRENT:RB
+  'on':
+    device: GTL/SOL03
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line solenoid 03 current readback (read-only): the measured solenoid current.'
+- id: GTL:MAG:SOL:03:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:SOL:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: GTL/SOL03
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line solenoid 03 current setpoint (read-write): the commanded solenoid current.'
+- id: GTL:MAG:SOL:03:STATUS:ON
+  'on':
+    device: GTL/SOL03
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line solenoid 03 on status (read-only): the solenoid supply is on.'
+- id: GTL:MAG:VCM:01:CURRENT:RB
+  'on':
+    device: GTL/VCM01
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 01 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:VCM:01:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/VCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:VCM:01:STATUS:ON
+  'on':
+    device: GTL/VCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line vertical corrector 01 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:VCM:02:CURRENT:RB
+  'on':
+    device: GTL/VCM02
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 02 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:VCM:02:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/VCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:VCM:02:STATUS:ON
+  'on':
+    device: GTL/VCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line vertical corrector 02 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:VCM:03:CURRENT:RB
+  'on':
+    device: GTL/VCM03
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 03 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:VCM:03:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/VCM03
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 03 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:VCM:03:STATUS:ON
+  'on':
+    device: GTL/VCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line vertical corrector 03 on status (read-only): the corrector supply is on.'
+- id: GTL:MAG:VCM:04:CURRENT:RB
+  'on':
+    device: GTL/VCM04
+  signal: current_readback
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 04 current readback (read-only): the measured corrector current.'
+- id: GTL:MAG:VCM:04:CURRENT:SP
+  role: setpoint
+  pair: GTL:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: GTL/VCM04
+  signal: current_setpoint
+  unit: A
+  description: 'Gun-to-linac line vertical corrector 04 current setpoint (read-write): the commanded corrector current.'
+- id: GTL:MAG:VCM:04:STATUS:ON
+  'on':
+    device: GTL/VCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line vertical corrector 04 on status (read-only): the corrector supply is on.'
+- id: GTL:RF:SHB:01:HV_ON:RB
+  'on':
+    device: GTL/SHB01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 01 high voltage on status (read-only): the buncher amplifier is on.'
+- id: GTL:RF:SHB:01:HV_ON:SP
+  role: setpoint
+  pair: GTL:RF:SHB:01:HV_ON:RB
+  'on':
+    device: GTL/SHB01
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 01 high voltage on command (read-write): switches the buncher amplifier.'
+- id: GTL:RF:SHB:01:PHASE:RB
+  'on':
+    device: GTL/SHB01
+  signal: phase_readback
+  unit: deg
+  description: 'Gun-to-linac line sub-harmonic buncher 01 phase readback (read-only): the measured buncher phase.'
+- id: GTL:RF:SHB:01:PHASE:SP
+  role: setpoint
+  pair: GTL:RF:SHB:01:PHASE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: GTL/SHB01
+  signal: phase_setpoint
+  unit: deg
+  description: 'Gun-to-linac line sub-harmonic buncher 01 phase setpoint (read-write): the commanded buncher phase.'
+- id: GTL:RF:SHB:01:PHASE_ON:RB
+  'on':
+    device: GTL/SHB01
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 01 phase loop on status (read-only): the buncher phase loop is on.'
+- id: GTL:RF:SHB:01:PHASE_ON:SP
+  role: setpoint
+  pair: GTL:RF:SHB:01:PHASE_ON:RB
+  'on':
+    device: GTL/SHB01
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 01 phase loop on command (read-write): switches the buncher phase loop.'
+- id: GTL:RF:SHB:01:VOLTAGE:RB
+  'on':
+    device: GTL/SHB01
+  signal: rf_hv_readback
+  unit: kV
+  description: 'Gun-to-linac line sub-harmonic buncher 01 RF voltage readback (read-only): the measured buncher gap voltage.'
+- id: GTL:RF:SHB:01:VOLTAGE:SP
+  role: setpoint
+  pair: GTL:RF:SHB:01:VOLTAGE:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: GTL/SHB01
+  signal: rf_hv_setpoint
+  unit: kV
+  description: 'Gun-to-linac line sub-harmonic buncher 01 RF voltage setpoint (read-write): the commanded buncher gap voltage.'
+- id: GTL:RF:SHB:02:HV_ON:RB
+  'on':
+    device: GTL/SHB02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 02 high voltage on status (read-only): the buncher amplifier is on.'
+- id: GTL:RF:SHB:02:HV_ON:SP
+  role: setpoint
+  pair: GTL:RF:SHB:02:HV_ON:RB
+  'on':
+    device: GTL/SHB02
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 02 high voltage on command (read-write): switches the buncher amplifier.'
+- id: GTL:RF:SHB:02:PHASE:RB
+  'on':
+    device: GTL/SHB02
+  signal: phase_readback
+  unit: deg
+  description: 'Gun-to-linac line sub-harmonic buncher 02 phase readback (read-only): the measured buncher phase.'
+- id: GTL:RF:SHB:02:PHASE:SP
+  role: setpoint
+  pair: GTL:RF:SHB:02:PHASE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: GTL/SHB02
+  signal: phase_setpoint
+  unit: deg
+  description: 'Gun-to-linac line sub-harmonic buncher 02 phase setpoint (read-write): the commanded buncher phase.'
+- id: GTL:RF:SHB:02:PHASE_ON:RB
+  'on':
+    device: GTL/SHB02
+  signal: power_on_status
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 02 phase loop on status (read-only): the buncher phase loop is on.'
+- id: GTL:RF:SHB:02:PHASE_ON:SP
+  role: setpoint
+  pair: GTL:RF:SHB:02:PHASE_ON:RB
+  'on':
+    device: GTL/SHB02
+  signal: power_on_command
+  value_type: bool
+  description: 'Gun-to-linac line sub-harmonic buncher 02 phase loop on command (read-write): switches the buncher phase loop.'
+- id: GTL:RF:SHB:02:VOLTAGE:RB
+  'on':
+    device: GTL/SHB02
+  signal: rf_hv_readback
+  unit: kV
+  description: 'Gun-to-linac line sub-harmonic buncher 02 RF voltage readback (read-only): the measured buncher gap voltage.'
+- id: GTL:RF:SHB:02:VOLTAGE:SP
+  role: setpoint
+  pair: GTL:RF:SHB:02:VOLTAGE:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: GTL/SHB02
+  signal: rf_hv_setpoint
+  unit: kV
+  description: 'Gun-to-linac line sub-harmonic buncher 02 RF voltage setpoint (read-write): the commanded buncher gap voltage.'
 - id: LINE:DIAG:BPM:01:POSITION:X
   'on':
     device: LINE/BPM01
@@ -1370,6 +2862,1136 @@
     device: LINE/VCM04
   signal: current_setpoint
   unit: A
+- id: LN:DIAG:BPM:01:POSITION:X
+  'on':
+    device: LN/BPM01
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac beam position monitor 01 position horizontal (read-only): beam X position.'
+- id: LN:DIAG:BPM:01:POSITION:Y
+  'on':
+    device: LN/BPM01
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac beam position monitor 01 position vertical (read-only): beam Y position.'
+- id: LN:DIAG:BPM:01:STATUS:VALID
+  'on':
+    device: LN/BPM01
+  signal: status
+  value_type: bool
+  description: 'Linac beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LN:DIAG:BPM:01:SUM:RB
+  'on':
+    device: LN/BPM01
+  signal: bpm_sum_readback
+  description: 'Linac beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LN:DIAG:BPM:02:POSITION:X
+  'on':
+    device: LN/BPM02
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac beam position monitor 02 position horizontal (read-only): beam X position.'
+- id: LN:DIAG:BPM:02:POSITION:Y
+  'on':
+    device: LN/BPM02
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac beam position monitor 02 position vertical (read-only): beam Y position.'
+- id: LN:DIAG:BPM:02:STATUS:VALID
+  'on':
+    device: LN/BPM02
+  signal: status
+  value_type: bool
+  description: 'Linac beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LN:DIAG:BPM:02:SUM:RB
+  'on':
+    device: LN/BPM02
+  signal: bpm_sum_readback
+  description: 'Linac beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LN:DIAG:ICT:01:CHARGE:RB
+  'on':
+    device: LN/ICT01
+  signal: beam_intensity_readback
+  unit: nC
+  description: 'Linac integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse.'
+- id: LN:DIAG:TV:01:LAMP:RB
+  'on':
+    device: LN/TV01
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac screen 01 lamp status (read-only): the screen lamp is lit.'
+- id: LN:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: LN/TV01
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac screen 01 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LN:DIAG:TV:01:PADDLE:SP
+  role: setpoint
+  pair: LN:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: LN/TV01
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac screen 01 paddle in command (read-write): inserts the screen into the beam.'
+- id: LN:DIAG:TV:02:LAMP:RB
+  'on':
+    device: LN/TV02
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac screen 02 lamp status (read-only): the screen lamp is lit.'
+- id: LN:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: LN/TV02
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac screen 02 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LN:DIAG:TV:02:PADDLE:SP
+  role: setpoint
+  pair: LN:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: LN/TV02
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac screen 02 paddle in command (read-write): inserts the screen into the beam.'
+- id: LN:MAG:HCM:01:CURRENT:RB
+  'on':
+    device: LN/HCM01
+  signal: current_readback
+  unit: A
+  description: 'Linac horizontal corrector 01 current readback (read-only): the measured corrector current.'
+- id: LN:MAG:HCM:01:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LN/HCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac horizontal corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: LN:MAG:HCM:01:STATUS:ON
+  'on':
+    device: LN/HCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac horizontal corrector 01 on status (read-only): the corrector supply is on.'
+- id: LN:MAG:HCM:02:CURRENT:RB
+  'on':
+    device: LN/HCM02
+  signal: current_readback
+  unit: A
+  description: 'Linac horizontal corrector 02 current readback (read-only): the measured corrector current.'
+- id: LN:MAG:HCM:02:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LN/HCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac horizontal corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: LN:MAG:HCM:02:STATUS:ON
+  'on':
+    device: LN/HCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac horizontal corrector 02 on status (read-only): the corrector supply is on.'
+- id: LN:MAG:QD:01:CURRENT:RB
+  'on':
+    device: LN/QD01
+  signal: current_readback
+  unit: A
+  description: 'Linac defocusing quadrupole 01 current readback (read-only): the measured quadrupole current.'
+- id: LN:MAG:QD:01:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/QD01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current.'
+- id: LN:MAG:QD:01:STATUS:ON
+  'on':
+    device: LN/QD01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac defocusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
+- id: LN:MAG:QF:01:CURRENT:RB
+  'on':
+    device: LN/QF01
+  signal: current_readback
+  unit: A
+  description: 'Linac focusing quadrupole 01 current readback (read-only): the measured quadrupole current.'
+- id: LN:MAG:QF:01:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/QF01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac focusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current.'
+- id: LN:MAG:QF:01:STATUS:ON
+  'on':
+    device: LN/QF01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac focusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
+- id: LN:MAG:SOL:01:CURRENT:RB
+  'on':
+    device: LN/SOL01
+  signal: current_readback
+  unit: A
+  description: 'Linac solenoid 01 current readback (read-only): the measured solenoid current.'
+- id: LN:MAG:SOL:01:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:SOL:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/SOL01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac solenoid 01 current setpoint (read-write): the commanded solenoid current.'
+- id: LN:MAG:SOL:01:STATUS:ON
+  'on':
+    device: LN/SOL01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac solenoid 01 on status (read-only): the solenoid supply is on.'
+- id: LN:MAG:SOL:02:CURRENT:RB
+  'on':
+    device: LN/SOL02
+  signal: current_readback
+  unit: A
+  description: 'Linac solenoid 02 current readback (read-only): the measured solenoid current.'
+- id: LN:MAG:SOL:02:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:SOL:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/SOL02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac solenoid 02 current setpoint (read-write): the commanded solenoid current.'
+- id: LN:MAG:SOL:02:STATUS:ON
+  'on':
+    device: LN/SOL02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac solenoid 02 on status (read-only): the solenoid supply is on.'
+- id: LN:MAG:SOL:03:CURRENT:RB
+  'on':
+    device: LN/SOL03
+  signal: current_readback
+  unit: A
+  description: 'Linac solenoid 03 current readback (read-only): the measured solenoid current.'
+- id: LN:MAG:SOL:03:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:SOL:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/SOL03
+  signal: current_setpoint
+  unit: A
+  description: 'Linac solenoid 03 current setpoint (read-write): the commanded solenoid current.'
+- id: LN:MAG:SOL:03:STATUS:ON
+  'on':
+    device: LN/SOL03
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac solenoid 03 on status (read-only): the solenoid supply is on.'
+- id: LN:MAG:SOL:04:CURRENT:RB
+  'on':
+    device: LN/SOL04
+  signal: current_readback
+  unit: A
+  description: 'Linac solenoid 04 current readback (read-only): the measured solenoid current.'
+- id: LN:MAG:SOL:04:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:SOL:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LN/SOL04
+  signal: current_setpoint
+  unit: A
+  description: 'Linac solenoid 04 current setpoint (read-write): the commanded solenoid current.'
+- id: LN:MAG:SOL:04:STATUS:ON
+  'on':
+    device: LN/SOL04
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac solenoid 04 on status (read-only): the solenoid supply is on.'
+- id: LN:MAG:VCM:01:CURRENT:RB
+  'on':
+    device: LN/VCM01
+  signal: current_readback
+  unit: A
+  description: 'Linac vertical corrector 01 current readback (read-only): the measured corrector current.'
+- id: LN:MAG:VCM:01:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LN/VCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac vertical corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: LN:MAG:VCM:01:STATUS:ON
+  'on':
+    device: LN/VCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac vertical corrector 01 on status (read-only): the corrector supply is on.'
+- id: LN:MAG:VCM:02:CURRENT:RB
+  'on':
+    device: LN/VCM02
+  signal: current_readback
+  unit: A
+  description: 'Linac vertical corrector 02 current readback (read-only): the measured corrector current.'
+- id: LN:MAG:VCM:02:CURRENT:SP
+  role: setpoint
+  pair: LN:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LN/VCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac vertical corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: LN:MAG:VCM:02:STATUS:ON
+  'on':
+    device: LN/VCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac vertical corrector 02 on status (read-only): the corrector supply is on.'
+- id: LN:RF:ACC:01:TEMPERATURE:RB
+  'on':
+    device: LN/ACC01
+  signal: temperature_readback
+  unit: degC
+  description: 'Linac accelerating section 01 temperature readback (read-only): the section body temperature.'
+- id: LN:RF:ACC:02:PHASE:RB
+  'on':
+    device: LN/ACC02
+  signal: phase_readback
+  unit: deg
+  description: 'Linac accelerating section 02 phase readback (read-only): the measured section RF phase.'
+- id: LN:RF:ACC:02:PHASE:SP
+  role: setpoint
+  pair: LN:RF:ACC:02:PHASE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: LN/ACC02
+  signal: phase_setpoint
+  unit: deg
+  description: 'Linac accelerating section 02 phase setpoint (read-write): the commanded section RF phase.'
+- id: LN:RF:ACC:02:STATUS:ON
+  'on':
+    device: LN/ACC02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac accelerating section 02 on status (read-only): the section RF drive is on.'
+- id: LN:RF:ACC:02:TEMPERATURE:RB
+  'on':
+    device: LN/ACC02
+  signal: temperature_readback
+  unit: degC
+  description: 'Linac accelerating section 02 temperature readback (read-only): the section body temperature.'
+- id: LN:RF:BUNCHER:01:TEMPERATURE:RB
+  'on':
+    device: LN/BUNCHER01
+  signal: temperature_readback
+  unit: degC
+  description: 'Linac buncher cavity 01 temperature readback (read-only): the buncher body temperature.'
+- id: LN:RF:MASTER:01:PHASE:RB
+  'on':
+    device: LN/MASTER01
+  signal: phase_readback
+  unit: deg
+  description: 'Linac master RF 01 phase readback (read-only): the measured master RF phase.'
+- id: LN:RF:MASTER:01:PHASE:SP
+  role: setpoint
+  pair: LN:RF:MASTER:01:PHASE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: LN/MASTER01
+  signal: phase_setpoint
+  unit: deg
+  description: 'Linac master RF 01 phase setpoint (read-write): the commanded master RF phase.'
+- id: LN:RF:MASTER:01:STATUS:ON
+  'on':
+    device: LN/MASTER01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac master RF 01 on status (read-only): the master RF drive is on.'
+- id: LN:RF:WATER:01:STATUS:INTERLOCK
+  'on':
+    device: LN/WATER01
+  signal: interlock_status
+  value_type: bool
+  description: 'Linac RF cooling water 01 interlock status (read-only): the water interlock has tripped.'
+- id: LN:RF:WATER:01:STATUS:ON
+  'on':
+    device: LN/WATER01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac RF cooling water 01 heater on status (read-only): the water heater is on.'
+- id: LN:RF:WATER:01:TEMPERATURE:RB
+  'on':
+    device: LN/WATER01
+  signal: temperature_readback
+  unit: degC
+  description: 'Linac RF cooling water 01 temperature readback (read-only): the measured water temperature.'
+- id: LN:RF:WATER:01:TEMPERATURE:SP
+  role: setpoint
+  pair: LN:RF:WATER:01:TEMPERATURE:RB
+  tolerance:
+    absolute: 0.1
+  'on':
+    device: LN/WATER01
+  signal: temperature_setpoint
+  unit: degC
+  description: 'Linac RF cooling water 01 temperature setpoint (read-write): the commanded water temperature.'
+- id: LTB:DIAG:BPM:01:POSITION:X
+  'on':
+    device: LTB/BPM01
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 01 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:01:POSITION:Y
+  'on':
+    device: LTB/BPM01
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 01 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:01:STATUS:VALID
+  'on':
+    device: LTB/BPM01
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 01 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:01:SUM:RB
+  'on':
+    device: LTB/BPM01
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 01 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:BPM:02:POSITION:X
+  'on':
+    device: LTB/BPM02
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 02 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:02:POSITION:Y
+  'on':
+    device: LTB/BPM02
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 02 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:02:STATUS:VALID
+  'on':
+    device: LTB/BPM02
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 02 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:02:SUM:RB
+  'on':
+    device: LTB/BPM02
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 02 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:BPM:03:POSITION:X
+  'on':
+    device: LTB/BPM03
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 03 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:03:POSITION:Y
+  'on':
+    device: LTB/BPM03
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 03 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:03:STATUS:VALID
+  'on':
+    device: LTB/BPM03
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 03 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:03:SUM:RB
+  'on':
+    device: LTB/BPM03
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 03 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:BPM:04:POSITION:X
+  'on':
+    device: LTB/BPM04
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 04 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:04:POSITION:Y
+  'on':
+    device: LTB/BPM04
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 04 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:04:STATUS:VALID
+  'on':
+    device: LTB/BPM04
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 04 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:04:SUM:RB
+  'on':
+    device: LTB/BPM04
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 04 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:BPM:05:POSITION:X
+  'on':
+    device: LTB/BPM05
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 05 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:05:POSITION:Y
+  'on':
+    device: LTB/BPM05
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 05 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:05:STATUS:VALID
+  'on':
+    device: LTB/BPM05
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 05 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:05:SUM:RB
+  'on':
+    device: LTB/BPM05
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 05 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:BPM:06:POSITION:X
+  'on':
+    device: LTB/BPM06
+  signal: position_x_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 06 position horizontal (read-only): beam X position.'
+- id: LTB:DIAG:BPM:06:POSITION:Y
+  'on':
+    device: LTB/BPM06
+  signal: position_y_readback
+  unit: mm
+  description: 'Linac-to-booster line beam position monitor 06 position vertical (read-only): beam Y position.'
+- id: LTB:DIAG:BPM:06:STATUS:VALID
+  'on':
+    device: LTB/BPM06
+  signal: status
+  value_type: bool
+  description: 'Linac-to-booster line beam position monitor 06 valid status (read-only): the monitor sees beam and its reading is valid.'
+- id: LTB:DIAG:BPM:06:SUM:RB
+  'on':
+    device: LTB/BPM06
+  signal: bpm_sum_readback
+  description: 'Linac-to-booster line beam position monitor 06 sum signal (read-only): the summed button signal, relative to full beam.'
+- id: LTB:DIAG:ICT:01:CHARGE:RB
+  'on':
+    device: LTB/ICT01
+  signal: beam_intensity_readback
+  unit: nC
+  description: 'Linac-to-booster line integrating current transformer 01 charge readback (read-only): the transmitted charge per pulse.'
+- id: LTB:DIAG:TV:01:LAMP:RB
+  'on':
+    device: LTB/TV01
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 01 lamp status (read-only): the screen lamp is lit.'
+- id: LTB:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: LTB/TV01
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 01 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LTB:DIAG:TV:01:PADDLE:SP
+  role: setpoint
+  pair: LTB:DIAG:TV:01:PADDLE:RB
+  'on':
+    device: LTB/TV01
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac-to-booster line screen 01 paddle in command (read-write): inserts the screen into the beam.'
+- id: LTB:DIAG:TV:02:LAMP:RB
+  'on':
+    device: LTB/TV02
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 02 lamp status (read-only): the screen lamp is lit.'
+- id: LTB:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: LTB/TV02
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 02 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LTB:DIAG:TV:02:PADDLE:SP
+  role: setpoint
+  pair: LTB:DIAG:TV:02:PADDLE:RB
+  'on':
+    device: LTB/TV02
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac-to-booster line screen 02 paddle in command (read-write): inserts the screen into the beam.'
+- id: LTB:DIAG:TV:03:LAMP:RB
+  'on':
+    device: LTB/TV03
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 03 lamp status (read-only): the screen lamp is lit.'
+- id: LTB:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: LTB/TV03
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 03 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LTB:DIAG:TV:03:PADDLE:SP
+  role: setpoint
+  pair: LTB:DIAG:TV:03:PADDLE:RB
+  'on':
+    device: LTB/TV03
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac-to-booster line screen 03 paddle in command (read-write): inserts the screen into the beam.'
+- id: LTB:DIAG:TV:04:LAMP:RB
+  'on':
+    device: LTB/TV04
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 04 lamp status (read-only): the screen lamp is lit.'
+- id: LTB:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: LTB/TV04
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 04 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LTB:DIAG:TV:04:PADDLE:SP
+  role: setpoint
+  pair: LTB:DIAG:TV:04:PADDLE:RB
+  'on':
+    device: LTB/TV04
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac-to-booster line screen 04 paddle in command (read-write): inserts the screen into the beam.'
+- id: LTB:DIAG:TV:05:LAMP:RB
+  'on':
+    device: LTB/TV05
+  signal: lamp_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 05 lamp status (read-only): the screen lamp is lit.'
+- id: LTB:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: LTB/TV05
+  signal: screen_in_status
+  value_type: bool
+  description: 'Linac-to-booster line screen 05 paddle in status (read-only): the screen is in the beam and blocks it.'
+- id: LTB:DIAG:TV:05:PADDLE:SP
+  role: setpoint
+  pair: LTB:DIAG:TV:05:PADDLE:RB
+  'on':
+    device: LTB/TV05
+  signal: screen_in_command
+  value_type: bool
+  description: 'Linac-to-booster line screen 05 paddle in command (read-write): inserts the screen into the beam.'
+- id: LTB:MAG:DIPOLE:01:CURRENT:RB
+  'on':
+    device: LTB/DIPOLE01
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line bending magnet 01 current readback (read-only): the measured bending magnet current.'
+- id: LTB:MAG:DIPOLE:01:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:DIPOLE:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/DIPOLE01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line bending magnet 01 current setpoint (read-write): the commanded bending magnet current.'
+- id: LTB:MAG:DIPOLE:01:STATUS:ON
+  'on':
+    device: LTB/DIPOLE01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line bending magnet 01 on status (read-only): the bending magnet supply is on.'
+- id: LTB:MAG:DIPOLE:02:CURRENT:RB
+  'on':
+    device: LTB/DIPOLE02
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line bending magnet 02 current readback (read-only): the measured bending magnet current.'
+- id: LTB:MAG:DIPOLE:02:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:DIPOLE:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/DIPOLE02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line bending magnet 02 current setpoint (read-write): the commanded bending magnet current.'
+- id: LTB:MAG:DIPOLE:02:STATUS:ON
+  'on':
+    device: LTB/DIPOLE02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line bending magnet 02 on status (read-only): the bending magnet supply is on.'
+- id: LTB:MAG:DIPOLE:03:CURRENT:RB
+  'on':
+    device: LTB/DIPOLE03
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line bending magnet 03 current readback (read-only): the measured bending magnet current.'
+- id: LTB:MAG:DIPOLE:03:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:DIPOLE:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/DIPOLE03
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line bending magnet 03 current setpoint (read-write): the commanded bending magnet current.'
+- id: LTB:MAG:DIPOLE:03:STATUS:ON
+  'on':
+    device: LTB/DIPOLE03
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line bending magnet 03 on status (read-only): the bending magnet supply is on.'
+- id: LTB:MAG:DIPOLE:04:CURRENT:RB
+  'on':
+    device: LTB/DIPOLE04
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line bending magnet 04 current readback (read-only): the measured bending magnet current.'
+- id: LTB:MAG:DIPOLE:04:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:DIPOLE:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/DIPOLE04
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line bending magnet 04 current setpoint (read-write): the commanded bending magnet current.'
+- id: LTB:MAG:DIPOLE:04:STATUS:ON
+  'on':
+    device: LTB/DIPOLE04
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line bending magnet 04 on status (read-only): the bending magnet supply is on.'
+- id: LTB:MAG:HCM:01:CURRENT:RB
+  'on':
+    device: LTB/HCM01
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line horizontal corrector 01 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:HCM:01:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/HCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line horizontal corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:HCM:01:STATUS:ON
+  'on':
+    device: LTB/HCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line horizontal corrector 01 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:HCM:02:CURRENT:RB
+  'on':
+    device: LTB/HCM02
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line horizontal corrector 02 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:HCM:02:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/HCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line horizontal corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:HCM:02:STATUS:ON
+  'on':
+    device: LTB/HCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line horizontal corrector 02 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:QD:01:CURRENT:RB
+  'on':
+    device: LTB/QD01
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 01 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QD:01:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QD01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QD:01:STATUS:ON
+  'on':
+    device: LTB/QD01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line defocusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QD:02:CURRENT:RB
+  'on':
+    device: LTB/QD02
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 02 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QD:02:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QD02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QD:02:STATUS:ON
+  'on':
+    device: LTB/QD02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line defocusing quadrupole 02 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QD:03:CURRENT:RB
+  'on':
+    device: LTB/QD03
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 03 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QD:03:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QD03
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QD:03:STATUS:ON
+  'on':
+    device: LTB/QD03
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line defocusing quadrupole 03 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QD:04:CURRENT:RB
+  'on':
+    device: LTB/QD04
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 04 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QD:04:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QD04
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line defocusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QD:04:STATUS:ON
+  'on':
+    device: LTB/QD04
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line defocusing quadrupole 04 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QF:01:CURRENT:RB
+  'on':
+    device: LTB/QF01
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 01 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QF:01:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QF01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 01 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QF:01:STATUS:ON
+  'on':
+    device: LTB/QF01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line focusing quadrupole 01 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QF:02:CURRENT:RB
+  'on':
+    device: LTB/QF02
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 02 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QF:02:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QF02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 02 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QF:02:STATUS:ON
+  'on':
+    device: LTB/QF02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line focusing quadrupole 02 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QF:03:CURRENT:RB
+  'on':
+    device: LTB/QF03
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 03 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QF:03:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QF03
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 03 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QF:03:STATUS:ON
+  'on':
+    device: LTB/QF03
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line focusing quadrupole 03 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QF:04:CURRENT:RB
+  'on':
+    device: LTB/QF04
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 04 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QF:04:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QF04
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 04 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QF:04:STATUS:ON
+  'on':
+    device: LTB/QF04
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line focusing quadrupole 04 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:QF:05:CURRENT:RB
+  'on':
+    device: LTB/QF05
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 05 current readback (read-only): the measured quadrupole current.'
+- id: LTB:MAG:QF:05:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:QF:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LTB/QF05
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line focusing quadrupole 05 current setpoint (read-write): the commanded quadrupole current.'
+- id: LTB:MAG:QF:05:STATUS:ON
+  'on':
+    device: LTB/QF05
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line focusing quadrupole 05 on status (read-only): the quadrupole supply is on.'
+- id: LTB:MAG:VCM:01:CURRENT:RB
+  'on':
+    device: LTB/VCM01
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 01 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:01:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:01:STATUS:ON
+  'on':
+    device: LTB/VCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 01 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:02:CURRENT:RB
+  'on':
+    device: LTB/VCM02
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 02 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:02:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:02:STATUS:ON
+  'on':
+    device: LTB/VCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 02 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:03:CURRENT:RB
+  'on':
+    device: LTB/VCM03
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 03 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:03:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM03
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 03 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:03:STATUS:ON
+  'on':
+    device: LTB/VCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 03 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:04:CURRENT:RB
+  'on':
+    device: LTB/VCM04
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 04 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:04:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM04
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 04 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:04:STATUS:ON
+  'on':
+    device: LTB/VCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 04 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:05:CURRENT:RB
+  'on':
+    device: LTB/VCM05
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 05 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:05:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM05
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 05 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:05:STATUS:ON
+  'on':
+    device: LTB/VCM05
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 05 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:06:CURRENT:RB
+  'on':
+    device: LTB/VCM06
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 06 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:06:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM06
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 06 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:06:STATUS:ON
+  'on':
+    device: LTB/VCM06
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 06 on status (read-only): the corrector supply is on.'
+- id: LTB:MAG:VCM:07:CURRENT:RB
+  'on':
+    device: LTB/VCM07
+  signal: current_readback
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 07 current readback (read-only): the measured corrector current.'
+- id: LTB:MAG:VCM:07:CURRENT:SP
+  role: setpoint
+  pair: LTB:MAG:VCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LTB/VCM07
+  signal: current_setpoint
+  unit: A
+  description: 'Linac-to-booster line vertical corrector 07 current setpoint (read-write): the commanded corrector current.'
+- id: LTB:MAG:VCM:07:STATUS:ON
+  'on':
+    device: LTB/VCM07
+  signal: power_on_status
+  value_type: bool
+  description: 'Linac-to-booster line vertical corrector 07 on status (read-only): the corrector supply is on.'
 - id: SR:DIAG:BPM:01:GOLDEN:X
   'on':
     device: SR/BPM01
@@ -16461,6 +19083,59 @@
   signal: ready_status
   value_type: bool
   description: 'Storage ring sextupole (defocusing) 24 status ready. Operational status for defocusing sextupole. Ready (read-only): Power supply ready.'
+- id: SR:MAG:SEPTUM:01:CURRENT:RB
+  'on':
+    device: SR/SEPTUM01
+  signal: current_readback
+  unit: A
+  description: 'Storage ring injection septum SEK current readback (read-only): the measured peak current of the septum pulse.'
+- id: SR:MAG:SEPTUM:01:CURRENT:SP
+  role: setpoint
+  pair: SR:MAG:SEPTUM:01:CURRENT:RB
+  tolerance:
+    absolute: 1.0
+  'on':
+    device: SR/SEPTUM01
+  signal: current_setpoint
+  unit: A
+  description: 'Storage ring injection septum SEK current setpoint (read-write): the commanded peak current of the septum pulse. Scales the sampled current pulse.'
+- id: SR:MAG:SEPTUM:01:CURRENT:WAVEFORM
+  'on':
+    device: SR/SEPTUM01
+  signal: pulse_waveform
+  value_type: waveform
+  shape:
+  - 500
+  unit: A
+  description: 'Storage ring injection septum SEK current pulse waveform (read-only): the sampled time trace of one current pulse, 500 samples in A, refreshed about once a second. Its peak follows the current setpoint; it is flat zero while the septum is off.'
+- id: SR:MAG:SEPTUM:01:STATUS:ON
+  'on':
+    device: SR/SEPTUM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Storage ring injection septum SEK on status (read-only): the septum supply is energized and pulsing. When false the sampled current pulse is a flat zero trace.'
+- id: SR:MAG:SEPTUM:02:CURRENT:RB
+  'on':
+    device: SR/SEPTUM02
+  signal: current_readback
+  unit: A
+  description: 'Storage ring injection septum SEN current readback (read-only): the measured peak current of the septum pulse.'
+- id: SR:MAG:SEPTUM:02:CURRENT:SP
+  role: setpoint
+  pair: SR:MAG:SEPTUM:02:CURRENT:RB
+  tolerance:
+    absolute: 1.0
+  'on':
+    device: SR/SEPTUM02
+  signal: current_setpoint
+  unit: A
+  description: 'Storage ring injection septum SEN current setpoint (read-write): the commanded peak current of the septum pulse.'
+- id: SR:MAG:SEPTUM:02:STATUS:ON
+  'on':
+    device: SR/SEPTUM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Storage ring injection septum SEN on status (read-only): the septum supply is energized and pulsing.'
 - id: SR:MAG:SF:01:CURRENT:GOLDEN
   'on':
     device: SR/SF01

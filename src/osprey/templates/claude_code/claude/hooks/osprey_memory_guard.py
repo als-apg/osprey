@@ -77,6 +77,7 @@ All other targets are denied — the agent never sees a user prompt for a write
 this guard does not recognise.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -271,7 +272,8 @@ def _record_deny(hook_input, subject, reason, detail=None):
     vocabulary. The wrap is the hook's fail-open rule: an unwritable audit zone
     downgrades the trail, it does not let the write through.
     """
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "memory-guard",
             hook_input,
@@ -280,8 +282,6 @@ def _record_deny(hook_input, subject, reason, detail=None):
             reason=reason,
             detail=detail,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
 
 
 def _denied_header(tool_name: str) -> str:

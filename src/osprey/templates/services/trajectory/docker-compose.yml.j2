@@ -39,6 +39,14 @@ services:
     # mounted below, and the address it binds from TRAJECTORY_BIND.
     command: ["python", "-m", "osprey.services.trajectory"]
     restart: unless-stopped
+{#- How long `docker compose stop` waits before it kills the service: the
+    service's own shutdown ends the action in flight, drains its connections
+    and disconnects from the machine, and this covers all three at the longest
+    pause any sequence module may declare. Computed by the render from the
+    service's constants and the connector's call timeout, never typed here. #}
+{%- if osprey_trajectory_stop_grace_period is defined %}
+    stop_grace_period: {{ osprey_trajectory_stop_grace_period }}
+{%- endif %}
 {#- Published ports, suppressed under `host`: the service then binds the host's
     own namespace directly and there is no port map left to publish. -#}
 {{- net.ports(svc, entries=[
@@ -109,6 +117,11 @@ services:
       OSPREY_GUARDED_RUN_DIR: {{ osprey_guarded_run_mount.target }}
       # WHERE the service keeps its own state, mounted read-write below.
       OSPREY_TRAJECTORY_STATE_DIR: {{ osprey_trajectory_state_mount.target }}
+{%- if svc.sequence_dir %}
+      # WHERE the service loads its sequence module, mounted read-only below
+      # at a fixed target whatever the host path.
+      OSPREY_TRAJECTORY_SEQUENCE_DIR: /app/project/sequence
+{%- endif %}
       # The STAGED config bind-mounted below, not the copy baked into the
       # image, named for both of its readers: the framework's config loader
       # reads OSPREY_CONFIG, the connector's limits resolution CONFIG_FILE.
@@ -136,6 +149,11 @@ services:
       # The control-identity module, staged into this build context byte for
       # byte from the packaged source. Read-only: the entrypoint runs it as root.
       - ./build/services/trajectory/control_identity.py:{{ control_identity_container_path }}:ro
+{#- The facility's sequence module directory, READ-ONLY: the service runs its
+    code and nothing here may change what it runs. #}
+{%- if svc.sequence_dir %}
+      - {{ svc.sequence_dir }}:/app/project/sequence:ro
+{%- endif %}
 {#- The channel-limits database, only when the target arms writes and the
     deployment has one to mount: a read-only service never opens it, and a
     deployment with no database is handed no mount to spell. The target is

@@ -29,7 +29,7 @@ from osprey.deployment.compose_generator import (
     service_audit_identities,
 )
 from osprey.port_layout import default_port
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
 READER_ORIGIN = "http://dls-deploy.dls.example.org:10002"
 

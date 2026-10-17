@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     env_lock_path,
     parse_dotenv_file,
 )

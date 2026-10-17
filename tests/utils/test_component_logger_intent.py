@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-from osprey.utils.logger import ComponentLogger
+from osprey_connectors.logger import ComponentLogger
 
 #: Every public intent method, with the record level it must keep emitting.
 #: Both halves are pinned here: a level remap would be as much a regression as a

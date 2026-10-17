@@ -27,8 +27,8 @@ from click.testing import CliRunner
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
-from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -39,6 +39,8 @@ SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
 LINE_DECK = "data/simulator/decks/LINE.json"
+#: The single-pass transfer lines' decks beside LINE's.
+TRANSFER_DECKS = ("data/simulator/decks/BTS.json", "data/simulator/decks/LTB.json")
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
 SCENARIOS = "data/simulator/scenarios.json"
@@ -52,7 +54,9 @@ FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
 GRAPH = "data/graph/facility.ttl"
 PYAML = (
+    "data/pyaml/BTS/configuration.yaml",
     "data/pyaml/LINE/configuration.yaml",
+    "data/pyaml/LTB/configuration.yaml",
     "data/pyaml/SR/configuration.yaml",
     "data/pyaml/SR/crm.json",
     "data/pyaml/SR/lattice.json",
@@ -82,6 +86,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 ADDRESSES,
                 DECK,
                 LINE_DECK,
+                *TRANSFER_DECKS,
                 SCENARIOS,
                 *SCENARIO_FILES,
                 SEEDS,
@@ -105,15 +110,17 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
 
     assert addresses["schema"] == "osprey.facility.addresses/1"
     assert addresses["channels"] == sorted(channel["id"] for channel in facility["channels"])
-    assert addresses["status"] == ["ca:SIM:LINE:STATUS", "ca:SIM:SR:STATUS"]
+    assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")]
 
 
-def test_the_demo_serves_line_and_sr_then_texture(built_control_assistant: BuiltProject) -> None:
+def test_the_demo_serves_its_deck_models_then_texture(
+    built_control_assistant: BuiltProject,
+) -> None:
     served = json.loads((built_control_assistant.build_dir / SERVED).read_bytes())
 
     assert served == {
         "schema": "osprey.facility.served_models/1",
-        "models": ["LINE", "SR", TEXTURE],
+        "models": ["BTS", "LINE", "LTB", "SR", TEXTURE],
     }
 
 
@@ -296,6 +303,37 @@ def test_variables_carries_its_schema_and_key_sets(built_control_assistant: Buil
         assert isinstance(channel["writable"], bool), channel["address"]
 
 
+#: The demo's served waveform channel: the SEK injection septum's current pulse.
+SEK_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
+
+
+def test_the_septum_waveform_is_a_texture_waveform_of_500_samples(
+    built_control_assistant: BuiltProject,
+) -> None:
+    variables = _view(built_control_assistant.build_dir, VARIABLES)
+    sek = _channel(variables, SEK_WAVEFORM)
+
+    assert sek["value_type"] == "waveform"
+    assert sek["shape"] == [500]
+    assert sek["unit"] == "A"
+    assert sek["role"] == "readback"
+    assert sek["writable"] is False
+    assert sek["owner"] == TEXTURE
+    assert "500 samples" in sek["description"]
+
+
+def test_the_septum_waveform_seed_is_its_pulse(built_control_assistant: BuiltProject) -> None:
+    seeds = _view(built_control_assistant.build_dir, SEEDS)["seeds"]
+
+    assert seeds[SEK_WAVEFORM] == {
+        "pulse": {
+            "driver": "SR:MAG:SEPTUM:01:CURRENT:SP",
+            "enable": "SR:MAG:SEPTUM:01:STATUS:ON",
+        }
+    }
+    assert seeds["SR:MAG:SEPTUM:01:CURRENT:SP"]["nominal"] == 3000.0
+
+
 def test_the_demo_wiring_is_simulator_wiring_serialised(
     built_control_assistant: BuiltProject,
 ) -> None:
@@ -379,11 +417,11 @@ def test_a_description_contradicting_the_facility_stops_the_build(
 
     stop = _render_stop(tmp_path, built_control_assistant)
 
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "LINE", "model")
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "BTS", "model")
     first_write = next(
         record["address"]
         for model in built_control_assistant.facility["models"]
-        if model["name"] == "LINE"
+        if model["name"] == "BTS"
         for record in model["wiring"]
         if record["direction"] == "write"
     )
@@ -400,7 +438,7 @@ def test_an_engine_without_describe_stops_the_build(
 
     stop = _render_stop(tmp_path, built_control_assistant)
 
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "LINE", "model")
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "BTS", "model")
     assert stop.remedy == "add describe() to the engine plug-in"
 
 
@@ -441,7 +479,12 @@ def test_a_deck_keeps_its_suffix(tmp_path: Path, built_control_assistant: BuiltP
     render_facility_outputs(render_dir, facility, {}, facility_dir)
 
     served = render_dir / "data" / "simulator" / "decks"
-    assert sorted(path.name for path in served.iterdir()) == ["LINE.json", "SR.mat"]
+    assert sorted(path.name for path in served.iterdir()) == [
+        "BTS.json",
+        "LINE.json",
+        "LTB.json",
+        "SR.mat",
+    ]
     assert (served / "SR.mat").read_bytes() == source.read_bytes()
     models = {m["name"]: m for m in _view(render_dir, VARIABLES)["models"]}
     assert models["SR"]["deck"] == "decks/SR.mat"
@@ -459,7 +502,13 @@ def test_channel_owner_is_the_wiring_model_else_texture(
 
     for channel in variables["channels"]:
         assert channel["owner"] == wired.get(channel["address"], TEXTURE), channel["address"]
-    assert {channel["owner"] for channel in variables["channels"]} == {"LINE", "SR", TEXTURE}
+    assert {channel["owner"] for channel in variables["channels"]} == {
+        "BTS",
+        "LINE",
+        "LTB",
+        "SR",
+        TEXTURE,
+    }
 
 
 def test_channel_on_is_the_facility_records_on(built_control_assistant: BuiltProject) -> None:

@@ -893,6 +893,8 @@ export function restoreShell(shell, host) {
 /**
  * Mirror `header_visible` and `status_visible` onto the root element, which is
  * where the server stamps them and where the shell-body height math reads them.
+ * The rail's Docs and Feedback flags ride the same path, as `data-rail-docs`
+ * and `data-rail-feedback`, which terminal.css reads to withdraw the control.
  * @param {BarLayout} layout
  * @param {BarRoot} root
  */
@@ -904,6 +906,12 @@ function applyBarVisibility(layout, root) {
   }
   if (typeof layout.status_visible === 'boolean') {
     html.dataset.statusBar = layout.status_visible ? 'visible' : 'hidden';
+  }
+  if (typeof layout.rail_docs_visible === 'boolean') {
+    html.dataset.railDocs = layout.rail_docs_visible ? 'visible' : 'hidden';
+  }
+  if (typeof layout.rail_feedback_visible === 'boolean') {
+    html.dataset.railFeedback = layout.rail_feedback_visible ? 'visible' : 'hidden';
   }
 }
 

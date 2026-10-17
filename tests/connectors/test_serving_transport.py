@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.types import (
+from osprey_connectors import types
+from osprey_connectors.types import (
     DOOCS,
     EPICS,
     IN_PROCESS,

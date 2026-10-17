@@ -10,9 +10,9 @@ Six proofs then exercise the whole stack end to end:
 
   P1 co-deploy:     containers up, healthy, loopback-only, depends_on ordering held.
   P2 liveness:      the full manifest namespace is reachable over CA.
-  P3 read-equiv:    a pyepics (host) read and an ophyd-async (bridge) read of
-                     the same PV agree, each within the readback's declared
-                     motion.
+  P3 read-equiv:    a host read (the connector, over aioca) and an ophyd-async
+                     (bridge) read of the same PV agree, each within the
+                     readback's declared motion.
   P4 concurrent:    an EPICS-substrate ``grid_scan`` plan runs to completion
                      while a concurrent host read observes the same PV
                      consistently — the loop-affinity falsifier.
@@ -310,8 +310,12 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     Which of the two a channel is, is read off the facility file's own
     models: an address a physics model wires is coupled to the model, and a
     writable address no physics model wires is the software echo this probe
-    wants. The facility file and its view are built in memory from the repo's
-    tree, because the pairs are chosen before the build.
+    wants. Only a float setpoint seeded inside ``SP_ECHO_BAND`` is a
+    candidate: the probe authors that band as the setpoint's limits record,
+    which a bool or enum channel does not carry and which the build refuses
+    when it excludes the channel's operating point. The facility file and its
+    view are built in memory from the repo's tree, because the pairs are
+    chosen before the build.
     """
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
@@ -326,11 +330,20 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         if model.get("engine") != TEXTURE
         for entry in simulator_wiring(facility, str(model["name"]))
     }
+    low, high = SP_ECHO_BAND
+    in_band = {
+        str(channel["id"])
+        for channel in facility.get("channels") or []
+        if channel.get("value_type", "float") == "float"
+        and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
+        and low <= nominal <= high
+    }
     document = bluesky_document(facility)
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
         if "readback" in entry
+        and entry["setpoint"] in in_band
         and entry["setpoint"] not in coupled
         and entry["readback"] not in coupled
     )
@@ -647,7 +660,7 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
 
 
 def _minted_token(repo: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
@@ -918,10 +931,9 @@ def test_p1_co_deploy_health_binding_and_ordering() -> None:
 def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # Runs scripts/va/sweep_check.py as its OWN subprocess/CA client, exactly
     # as it's meant to be invoked against a host-published container (see its
-    # module docstring) — never in-process here: this process also acts as an
-    # async EPICS CA client via EPICSConnector (P3-P5), and mixing a
-    # main-thread pyepics operation into a process that also drives CA off an
-    # asyncio.to_thread() executor is a documented deadlock risk (see
+    # module docstring) — never in-process here: Channel Access reads its
+    # EPICS_CA_* environment once, when a process's context is created, so a
+    # client pointed at this stack's port belongs in a process of its own (see
     # tests/va/e2e/conftest.py's `_readiness_pv_served`).
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
     # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
@@ -951,7 +963,7 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# P3: read-equivalence — pyepics (host) vs ophyd-async (bridge)
+# P3: read-equivalence — the host connector vs ophyd-async (bridge)
 # ---------------------------------------------------------------------------
 
 
@@ -963,7 +975,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     # The readback serves the written value plus the motion its seed declares.
     band = _facility_select.repo_view(deployed_stack.repo).motion_envelope(rb)
 
-    # Host side (pyepics), isolated in its own process: arrange a known,
+    # Host side (the connector), isolated in its own process: arrange a known,
     # non-default state (rather than comparing two never-written 0.0 defaults,
     # a degenerate proof), then read the sibling readback back. settle_read: the
     # SP->RB echo is asynchronous, so the host op polls the readback until it
@@ -1022,7 +1034,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     # An sp-echo readback serves the written value plus its declared motion, so
     # each reader, at its own instant, lands within that motion's band of it.
     assert abs(host_read - value) <= band, (
-        f"host (pyepics) read of {rb} ({host_read}) is not within {band:g} (its seed's "
+        f"host (connector) read of {rb} ({host_read}) is not within {band:g} (its seed's "
         f"noise and drift) of the written setpoint {value}"
     )
     assert abs(bridge_value - value) <= band, (
@@ -1110,10 +1122,8 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     finally:
         if read_proc.returncode is None:
             read_proc.kill()
-            try:
+            with contextlib.suppress(TimeoutError, ProcessLookupError):
                 await asyncio.wait_for(read_proc.wait(), timeout=5.0)
-            except (TimeoutError, ProcessLookupError):
-                pass
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
@@ -1212,7 +1222,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         # held.
         value = max((lo + 0.75 * (hi - lo), lo + 0.25 * (hi - lo)), key=lambda v: abs(v - held0))
 
-        # Host side (pyepics), isolated in its own process: write the stuck SP,
+        # Host side (the connector), isolated in its own process: write the stuck SP,
         # then read its paired RB back — one connect/write/read in one subprocess.
         host = _run_host_ca_op(
             _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
@@ -1233,7 +1243,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
             f"{P5_STUCK_SCENARIO!r}, but it read {host_rb} — fault did not take effect"
         )
         assert abs(host_rb - held0) <= band, (
-            f"host (pyepics) read of stuck {rb} = {host_rb} left its held level {held0} by "
+            f"host (connector) read of stuck {rb} = {host_rb} left its held level {held0} by "
             f"more than {band:g} (its seed's noise and drift)"
         )
 
@@ -1268,7 +1278,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         bridge_rb = data["rows"][0][col]
         assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
 
-        # Both independent CA clients (host pyepics, bridge ophyd-async) read the
+        # Both independent CA clients (host connector, bridge ophyd-async) read the
         # readback where it was held -- honest divergence, not a per-client one.
         assert abs(bridge_rb - held0) <= band, (
             f"bridge (ophyd-async) read of stuck {rb} = {bridge_rb} left its held level "

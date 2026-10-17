@@ -214,6 +214,20 @@
       "parent": "AcceleratorDevice"
     },
     {
+      "abstract": false,
+      "aliases": [
+        "kicker",
+        "kicker magnet",
+        "injection kicker",
+        "extraction kicker",
+        "pulsed kicker"
+      ],
+      "description": "Fast pulsed dipole magnet that deflects the beam for a single passage or a few turns, to put an injected bunch onto the stored orbit or take a bunch out.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Kicker",
+      "name": "Kicker",
+      "parent": "Magnet"
+    },
+    {
       "abstract": true,
       "aliases": [
         "magnet",
@@ -303,6 +317,19 @@
       "iri": "https://narad.example.org/schema/shared_semantics/ScreenDiagnostic",
       "name": "ScreenDiagnostic",
       "parent": "Actuated"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "septum",
+        "septum magnet",
+        "injection septum",
+        "extraction septum"
+      ],
+      "description": "Pulsed or DC septum magnet that deflects the injected or extracted beam into or out of the machine while shielding the circulating beam.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Septum",
+      "name": "Septum",
+      "parent": "Magnet"
     },
     {
       "abstract": false,
@@ -1159,6 +1186,17 @@
       "name": "pulse_permit_status"
     },
     {
+      "aliases": [
+        "pulse waveform",
+        "pulse trace",
+        "pulse shape",
+        "current pulse waveform",
+        "waveform"
+      ],
+      "description": "Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.",
+      "name": "pulse_waveform"
+    },
+    {
       "aliases": [],
       "description": "Modulator pulse-width setpoint.",
       "name": "pulse_width_setpoint"
@@ -1177,6 +1215,41 @@
       "aliases": [],
       "description": "Pulsing-ready handshake readback.",
       "name": "pulsing_ready_status"
+    },
+    {
+      "aliases": [
+        "ramp gain readback",
+        "measured ramp gain"
+      ],
+      "description": "Readback of the gain applied to a ramped power supply's ramp table.",
+      "name": "ramp_gain_readback"
+    },
+    {
+      "aliases": [
+        "ramp gain setpoint",
+        "ramp gain",
+        "ramp table gain",
+        "ramp scale"
+      ],
+      "description": "Commanded gain that scales the whole energy-ramp table of a ramped power supply.",
+      "name": "ramp_gain_setpoint"
+    },
+    {
+      "aliases": [
+        "ramp offset readback",
+        "measured ramp offset"
+      ],
+      "description": "Readback of the offset applied to a ramped power supply's ramp table.",
+      "name": "ramp_offset_readback"
+    },
+    {
+      "aliases": [
+        "ramp offset setpoint",
+        "ramp offset",
+        "ramp table offset"
+      ],
+      "description": "Commanded offset added to the whole energy-ramp table of a ramped power supply.",
+      "name": "ramp_offset_setpoint"
     },
     {
       "aliases": [],
@@ -1295,6 +1368,16 @@
       ],
       "description": "Measured temperature.",
       "name": "temperature_readback"
+    },
+    {
+      "aliases": [
+        "temperature setpoint",
+        "set temperature",
+        "commanded temperature",
+        "temperature demand"
+      ],
+      "description": "Commanded temperature of a regulated loop (e.g. a cooling-water heater).",
+      "name": "temperature_setpoint"
     },
     {
       "aliases": [],

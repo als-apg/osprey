@@ -16,6 +16,8 @@ and result contract, the structured ``error_code`` surface, and the one-shot
 wiring, which is configuration-driven rather than hardcoded.
 """
 
+import contextlib
+
 import httpx
 import pytest
 
@@ -71,10 +73,8 @@ def _seq_monotonic(values):
     last = [0.0]
 
     def _m():
-        try:
+        with contextlib.suppress(StopIteration):
             last[0] = next(it)
-        except StopIteration:
-            pass
         return last[0]
 
     return _m

@@ -105,7 +105,7 @@ roster.
 | Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |
 | Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `mcp_servers/`, `web-terminal-context/` only; the config a preset ships is in the preset file, not here |
 | The framework config template | `src/osprey/templates/project/config.yml.j2` — derived keys only (project layout, ports, `providers.yml`, profile fields) |
-| Control-system connectors | `src/osprey/connectors/` |
+| Control-system connectors | `packages/osprey-connectors/src/osprey_connectors/` |
 
 Open the preset file rather than describing it from memory: safety posture, enabled
 servers, and artifact selection all live in the file and all change.

@@ -478,16 +478,20 @@ export function openTerminalPanel() {
  * Close the terminal tile (the rail entry's Delete-key path). The dock tab's
  * own "×" goes through dockview directly; both end at the same removePanel.
  * The rail's SESSION entry is unaffected — it is the permanent reopen
- * affordance.
+ * affordance. Resolves whether a tile was closed, so a caller offering an Undo
+ * offers one only for a close that happened.
+ * @returns {boolean}
  */
 export function closeTerminalPanel() {
-  if (!dockApi) return;
+  if (!dockApi) return false;
   const panel = dockApi.getPanel(PANEL_TERMINAL);
-  if (!panel) return;
+  if (!panel) return false;
   try {
     dockApi.removePanel(panel);
+    return true;
   } catch (err) {
     console.error('dock: terminal close failed', err);
+    return false;
   }
 }
 

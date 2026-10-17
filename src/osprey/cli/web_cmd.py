@@ -37,7 +37,7 @@ import click
 
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.utils.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
+from osprey_connectors.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
 
 from . import output
 from .repo_resolver import find_repo_root, repo_option
@@ -346,7 +346,7 @@ def resolve_session_lifetime(config: Mapping[str, Any], env: Mapping[str, str] =
 
 def get_config_value(key: str, default=None):
     """Read a top-level config value from config.yml."""
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config().get(key, default)
 
@@ -402,7 +402,10 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     deployment to serve. The repo ``.env`` is loaded off that same publication
     (:func:`osprey.mcp_env.load_dotenv_from_project` walks up from the render
     to the repo root), so the ``get_config_value`` reads that follow can expand
-    ``${VAR}`` placeholders against it.
+    ``${VAR}`` placeholders against it. The load includes the credentials —
+    the terminal secret and the ``*_LAUNCH_TOKEN`` values — because the
+    terminal is the one process that holds them by design; a containerised
+    terminal receives the same names from its compose ``env_file``.
 
     Returns:
         ``(repo_root, build_dir, config_path)``, all absolute.
@@ -411,7 +414,7 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
         RepoNotFoundError: When no ``profile.yml`` encloses the search start.
         click.ClickException: When the repo has no render to serve.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME, rendered_config_path
+    from osprey_connectors.workspace import BUILD_DIR_NAME, rendered_config_path
 
     repo_root = find_repo_root(repo)
     build_dir = repo_root / BUILD_DIR_NAME
@@ -429,7 +432,7 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
 
     from osprey.mcp_env import load_dotenv_from_project
 
-    load_dotenv_from_project()
+    load_dotenv_from_project(include_sensitive=True)
     # Who the sessions this terminal starts are, to the ledger and to the
     # telemetry gateway alike: the one name the build recorded, with that
     # name's login. A terminal in a container already carries both.
@@ -547,7 +550,7 @@ def _probe_companion_ports() -> list[str]:
         framework_web_port_default,
         resolve_web_server_address,
     )
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     try:
         enabled_panels, _custom_panels, _default_panel = _load_panel_config()
@@ -721,7 +724,7 @@ def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
     """Probe 3: config.yml and .claude/settings.json must at least parse.
 
     ``load_osprey_config()`` swallows every exception and returns ``{}`` on
-    malformed YAML (see ``osprey.utils.workspace.load_osprey_config``), which
+    malformed YAML (see ``osprey_connectors.workspace.load_osprey_config``), which
     would otherwise let the launch silently proceed on defaults instead of the
     project's actual configuration. This probe does its own dedicated parse of
     each file so a syntax error surfaces as a pre-flight failure instead of an

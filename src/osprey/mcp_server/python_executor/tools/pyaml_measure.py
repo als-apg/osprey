@@ -313,7 +313,7 @@ async def pyaml_measure(
     """
     from osprey.mcp_server.python_executor.tools._response_builder import _note_writes
     from osprey.utils.config_paths import resolve_config_dir
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     enforce_posture_clamp(_EXECUTION_MODE, tool=TOOL_NAME)
 

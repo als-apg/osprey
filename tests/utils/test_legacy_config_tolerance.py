@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_config_all_deleted_keys.yml"
 

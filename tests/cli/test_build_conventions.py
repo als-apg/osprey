@@ -20,7 +20,7 @@ from osprey.cli.build_persistence import (
     _resolve_context_roster,
 )
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
 
 

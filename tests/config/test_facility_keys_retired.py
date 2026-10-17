@@ -20,8 +20,8 @@ from ruamel.yaml import YAML
 from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_schema import DispatchConfig
-from osprey.errors import BuildProfileError
 from osprey.facility.validate import FACILITY_HEADER
+from osprey_connectors.errors import BuildProfileError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"

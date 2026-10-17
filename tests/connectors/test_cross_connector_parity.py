@@ -15,9 +15,9 @@ deliberately the ones the connector authors left:
 
 - **Mock** — ``_confirming_read`` (noise-free, and *not* ``read_channel``) and
   ``_put``. Patching ``read_channel`` no longer steers a write at all.
-- **EPICS** — an injected fake ``_epics.PV``. The confirming read runs for
-  real down to ``pv.get()``; patching the read would hide the very thing the
-  confirming read does differently.
+- **EPICS** — an injected fake ``aioca`` over one channel. The confirming read
+  runs for real down to the fake ``caget``; patching the read would hide the
+  very thing the confirming read does differently.
 - **DOOCS** — a fake ``doocs4py`` module whose ``set``/``get`` are the put and
   the confirming read.
 - **TANGO** — a fake ``tango`` module whose ``DeviceProxy`` carries the put
@@ -45,7 +45,7 @@ worker thread — DOOCS and TANGO — a read whose transport stalls raises
 ``TimeoutError`` naming the channel, and a send whose transport stalls is
 ``unconfirmed``, because the thread cannot be stopped and the value may still
 arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row: it
-hands its bound to pyepics' own connection and get timeouts, and a channel
+hands its bound to aioca's own connection and get timeouts, and a channel
 that never connects is the ``ConnectionError`` the unreachable-channel class
 already pins. Mock has no transport to stall.
 """
@@ -57,13 +57,14 @@ from dataclasses import dataclass
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
+import aioca
 import pytest
 
-from osprey.connectors.control_system.base import ChannelValue, WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system.base import ChannelValue, WriteOutcome
+from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import frames
-from tests.connectors._epics_fakes import ca_connector, connected_pv
+from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
 
 # The one value every scenario writes, and the value a channel that did not
@@ -75,8 +76,8 @@ READ_ERROR = "confirming read exploded"
 PUT_ERROR = "control system refused the put"
 UNREACHABLE = "the channel is not reachable"
 
-_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
+_LIMITS_PATCH = "osprey_connectors.control_system.doocs_connector.LimitsValidator.from_config"
+_TZ_PATCH = "osprey_connectors.control_system.doocs_connector.get_facility_timezone"
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     differs" is a ``_put`` that keeps a different number (a clamped setpoint),
     and "put fails" is a value the channel cannot hold. Both mirror the mock's own unit tests.
     """
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -209,39 +210,44 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
 
 
 # ---------------------------------------------------------------------------
-# EPICS — seam: an injected fake _epics.PV
+# EPICS — seam: an injected fake aioca
 # ---------------------------------------------------------------------------
 
 
-def _epics_connector(monkeypatch, *, pv, caput=True):
-    """A connected EPICS connector with no limits database and writes allowed.
+def _epics_connector(monkeypatch, *, channel):
+    """A connected EPICS connector over one fake channel "SR:CH", writes allowed.
 
     connect() is skipped by injecting the runtime state it would have built;
     the base class's writes gate is opened at the property so ``write_channel``
     reaches the confirm flow this file is about.
     """
     monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
-    epics = MagicMock()
-    epics.caput.return_value = caput
-    epics.PV.return_value = pv
-    return ca_connector(epics=epics)
+    return ca_connector(aioca=FakeAioca({"SR:CH": channel}))
+
+
+def _time_reads(connector) -> int:
+    return sum(
+        1
+        for call in connector._aioca.calls
+        if call[0] == "caget" and call[2]["format"] == aioca.FORMAT_TIME
+    )
 
 
 async def _run_epics(scenario: Scenario, monkeypatch, _tmp_path) -> WriteRun:
     """Drive EPICSConnector through ``scenario``.
 
-    ``caput`` returning False is the put the control system did not take; the
-    channel's own reading is what separates confirmed from mismatched.
+    A channel that never connects is the put the control system did not take:
+    nothing is sent. The channel's own reading is what separates confirmed
+    from mismatched.
     """
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
-    pv = connected_pv(observed, pv_type="time_double")
-    if scenario is READ_RAISES:
-        pv.get.side_effect = TimeoutError(READ_ERROR)
+    reading = TimeoutError(READ_ERROR) if scenario is READ_RAISES else ca_reading(observed)
+    channel = FakeChannel(reading, connected=scenario is not PUT_FAILS)
 
-    connector = _epics_connector(monkeypatch, pv=pv, caput=scenario is not PUT_FAILS)
+    connector = _epics_connector(monkeypatch, channel=channel)
     result = await connector.write_channel("SR:CH", VALUE_SENT, confirm=_confirm_argument(scenario))
 
-    return WriteRun(result=result, confirming_reads=pv.get.call_count)
+    return WriteRun(result=result, confirming_reads=_time_reads(connector))
 
 
 # ---------------------------------------------------------------------------
@@ -283,9 +289,9 @@ async def _run_doocs(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
         patch.dict(sys.modules, {"doocs4py": mock_d4py}),
         patch(_LIMITS_PATCH, return_value=None),
         patch(_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -301,8 +307,8 @@ async def _run_doocs(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
 # TANGO — seam: a fake tango module serving one DeviceProxy
 # ---------------------------------------------------------------------------
 
-_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
+_TANGO_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
 
 
 def _device_attribute(value):
@@ -346,9 +352,9 @@ async def _run_tango(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
         patch.dict(sys.modules, {"tango": mock_tango}),
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system.tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -463,10 +469,7 @@ async def _capture_read_failure(connector, channel: str, message: str | None) ->
 
 async def _unreachable_epics(monkeypatch) -> ReadFailure:
     """A PV that never connects — the CA path's own unreachable channel."""
-    pv = connected_pv(VALUE_SENT, pv_type="time_double")
-    pv.wait_for_connection.return_value = False
-    pv.connected = False
-    connector = _epics_connector(monkeypatch, pv=pv)
+    connector = _epics_connector(monkeypatch, channel=FakeChannel(connected=False))
 
     return await _capture_read_failure(connector, "SR:CH", None)
 
@@ -481,7 +484,7 @@ async def _unreachable_doocs(_monkeypatch) -> ReadFailure:
         patch(_LIMITS_PATCH, return_value=None),
         patch(_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -501,7 +504,7 @@ async def _unreachable_tango(_monkeypatch) -> ReadFailure:
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system.tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -569,7 +572,7 @@ class TestTranslatedReadFailures:
 
 
 async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, readings=["TEST:CHANNEL:RB"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -579,7 +582,7 @@ async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
 
 
 async def _reading_epics(monkeypatch, _tmp_path) -> ChannelValue:
-    connector = _epics_connector(monkeypatch, pv=connected_pv(VALUE_SENT, pv_type="time_double"))
+    connector = _epics_connector(monkeypatch, channel=FakeChannel(ca_reading(VALUE_SENT)))
     return await connector.read_channel("SR:CH")
 
 
@@ -590,9 +593,9 @@ async def _reading_doocs(_monkeypatch, _tmp_path) -> ChannelValue:
         patch.dict(sys.modules, {"doocs4py": mock_d4py}),
         patch(_LIMITS_PATCH, return_value=None),
         patch(_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -609,9 +612,9 @@ async def _reading_tango(_monkeypatch, _tmp_path) -> ChannelValue:
         patch.dict(sys.modules, {"tango": mock_tango}),
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system.tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -673,9 +676,9 @@ async def _stall_doocs(action: str) -> StalledRun:
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             await conn.connect({"timeout_s": 0.2})
@@ -699,9 +702,9 @@ async def _stall_tango(action: str) -> StalledRun:
             patch.dict(sys.modules, {"tango": mock_tango}),
             patch(_TANGO_LIMITS_PATCH, return_value=None),
             patch(_TANGO_TZ_PATCH, return_value=UTC),
-            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
         ):
-            from osprey.connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system.tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({"timeout_s": 0.2})

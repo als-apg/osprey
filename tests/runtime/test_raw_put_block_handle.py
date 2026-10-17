@@ -1,10 +1,11 @@
-"""The put symbols on the ``libca`` handle a permitted pyepics load returns.
+"""The put symbols on a ``libca`` handle a readonly run leaves loaded.
 
-A readonly run lets pyepics load ``libca`` through ``ctypes`` and closes the
-put entry points on the handle it gets back. Every spelling of a Channel
-Access put that the handle exposes must be closed, the synchronous-group put
-included: ``ca_sg_array_put`` writes the channel as ``ca_array_put`` does, only
-deferred until the group is flushed.
+A readonly run refuses every shared-library load once it is installed, and
+closes the put entry points on every handle loaded before it — the one
+``epicscorelibs.ca.cadef`` loads, which aioca reads through, among them. Every
+spelling of a Channel Access put that a handle exposes must be closed, the
+synchronous-group put included: ``ca_sg_array_put`` writes the channel as
+``ca_array_put`` does, only deferred until the group is flushed.
 
 ``install`` is called directly with the ``ctypes`` rows alone, so the only
 process-wide object it patches is the ``ctypes`` loader class — restored after
@@ -71,23 +72,37 @@ def test_handle_put_symbols_name_the_synchronous_group_put():
 
 
 @pytest.mark.parametrize("symbol", ["ca_array_put", "ca_array_put_callback", "ca_sg_array_put"])
-def test_readonly_refuses_each_put_symbol_on_the_pyepics_handle(monkeypatch, symbol):
-    ca = _install_fake_pyepics_loader(monkeypatch)
+def test_readonly_refuses_each_put_symbol_on_a_handle_loaded_before_it(symbol):
+    handle = ctypes.CDLL(None)
     _install_readonly()
 
-    handle = ca.initialize_libca()
-
-    assert handle is not None
     with pytest.raises(RuntimeError, match=_REFUSAL):
         getattr(handle, symbol)(0, 1, object(), object())
 
 
-def test_readonly_refuses_a_load_outside_pyepics(monkeypatch):
-    _install_fake_pyepics_loader(monkeypatch)
+@pytest.mark.parametrize(
+    "load",
+    [
+        pytest.param(lambda: ctypes.CDLL(None), id="class"),
+        pytest.param(lambda: ctypes.cdll.LoadLibrary(None), id="loader"),
+        pytest.param(lambda: ctypes.PyDLL(None), id="subclass"),
+    ],
+)
+def test_readonly_refuses_every_load(load):
     _install_readonly()
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
-        ctypes.cdll.LoadLibrary(None)
+        load()
+
+
+def test_readonly_refuses_the_load_a_user_installed_pyepics_makes(monkeypatch):
+    """No library is exempt: aioca's handle is loaded before the gate, so
+    nothing a readonly run reads through needs a load after it."""
+    ca = _install_fake_pyepics_loader(monkeypatch)
+    _install_readonly()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        ca.initialize_libca()
 
 
 @pytest.mark.parametrize("symbol", ["ca_array_put", "ca_array_put_callback", "ca_sg_array_put"])

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Any
 
 import pytest
@@ -50,10 +50,8 @@ class _Snapshot:
         for namespace, saved in reversed(self._saved):
             current = vars(namespace)
             for name in [n for n in current if n not in saved]:
-                try:
+                with suppress(AttributeError, TypeError):
                     delattr(namespace, name)
-                except (AttributeError, TypeError):
-                    pass
             for name, value in saved.items():
                 if current.get(name, _MISSING) is not value:
                     setattr(namespace, name, value)

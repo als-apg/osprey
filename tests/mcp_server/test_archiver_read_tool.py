@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, patch
 import pandas as pd
 import pytest
 
-from osprey.connectors.archiver._timerange import long_frame
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.archiver._timerange import long_frame
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.facility.served_tree import served_tree
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -87,13 +87,13 @@ def archiver_read_tool(archiver_project):  # noqa: ARG001 - the tool resolves it
     ``coverage_unknown``, the verdict that asserts nothing about a store this
     mock never had. Tests that exercise a specific verdict override them.
     """
-    from osprey.connectors.archiver.base import ArchiverMetadata
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
     connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -731,7 +731,7 @@ async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool)
 
 async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     """``archiver.auto_bin_points`` sets how many points the default bin aims for."""
-    from osprey.connectors.archiver.base import ArchiverMetadata
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
@@ -744,7 +744,7 @@ async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -1096,8 +1096,8 @@ class TestArchiverReadRealInProcessConnector:
 
 def _probe(available=True, start=None, end=None, is_archived=True, note=None):
     """A _CoverageProbe with an ArchiverMetadata built from bare bounds."""
-    from osprey.connectors.archiver.base import ArchiverMetadata
     from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     md = ArchiverMetadata(
         channel="X", is_archived=is_archived, archival_start=start, archival_end=end
@@ -1217,7 +1217,7 @@ class TestCoverageInToolResponse:
     """The block reaches the agent — and costs nothing when nothing is empty."""
 
     async def test_empty_channel_gets_a_coverage_block(self, archiver_read_tool):
-        from osprey.connectors.archiver.base import ArchiverMetadata
+        from osprey_connectors.archiver.base import ArchiverMetadata
 
         fn, connector = archiver_read_tool
         connector.get_data.return_value = _make_archiver_df({})  # nothing at all
@@ -1258,7 +1258,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.assert_not_awaited()
 
     async def test_partial_result_explains_only_the_empty_channel(self, archiver_read_tool):
-        from osprey.connectors.archiver.base import ArchiverMetadata
+        from osprey_connectors.archiver.base import ArchiverMetadata
 
         fn, connector = archiver_read_tool
         connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
@@ -1293,3 +1293,294 @@ class TestCoverageInToolResponse:
         cov = data["summary"]["coverage"]
         assert cov["verdict"] == "coverage_unknown"
         assert "store went away" in cov["channels"]["SR:OLD:RB"]["note"]
+
+
+# --- Waveform channels -------------------------------------------------------
+
+_SEK = "SR:SEK:WAVEFORM"
+_WAVE_T0 = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
+
+
+def _sek_traces(count: int, spacing: timedelta = timedelta(minutes=1)):
+    """``count`` realistic 500-point SEK traces, one per ``spacing``."""
+    from osprey_connectors.simulation.pulse import TRACE_POINTS, trace
+
+    stamps = [_WAVE_T0 + i * spacing for i in range(count)]
+    values = [[float(x) for x in trace(_SEK, ts.timestamp(), 1.0, True)] for ts in stamps]
+    assert all(len(v) == TRACE_POINTS for v in values)
+    return pd.DatetimeIndex(stamps), values
+
+
+def _waveform_df(count: int, scalars: dict | None = None):
+    """A long frame holding ``count`` SEK traces, plus optional scalar channels."""
+    index, values = _sek_traces(count)
+    series = {_SEK: pd.Series(values, index=index, dtype=object)}
+    for ch, vals in (scalars or {}).items():
+        series[ch] = pd.Series(vals, index=_CANDIDATE_STAMPS[: len(vals)])
+    return long_frame(series), values
+
+
+class TestWaveformReads:
+    """Array samples: an element budget, per-trace stats, raw traces only."""
+
+    async def test_inclusive_one_hour_window_fits_the_budget(self, tmp_path, archiver_read_tool):
+        """61 traces x 500 points = 30 500 elements is under the 32 000 budget."""
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, values = _waveform_df(61)
+
+        result = await fn(
+            channels=[_SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T11:00:00+00:00",
+            bin_size=0,
+        )
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"
+        entry = data["summary"]["per_channel"][_SEK]
+        assert entry["points"] == 61
+        assert entry["elements"] == 30_500
+        saved = json.loads((tmp_path / data["data_file"]).read_text())
+        # Whole traces, exactly as stored: no decimation, no binning.
+        assert saved["series"][_SEK]["values"] == values
+        assert len(saved["series"][_SEK]["timestamps"]) == 61
+
+    async def test_budget_constant_is_64_traces_of_500(self):
+        from osprey.mcp_server.control_system.tools.archiver_read import (
+            WAVEFORM_ELEMENT_BUDGET,
+        )
+
+        assert WAVEFORM_ELEMENT_BUDGET == 32_000 == 64 * 500
+
+    async def test_over_budget_read_is_refused_naming_the_budget(
+        self, tmp_path, archiver_read_tool
+    ):
+        """65 traces (32 500 elements) are refused, and nothing is saved."""
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, _ = _waveform_df(65)
+
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(
+                channels=[_SEK],
+                start_time="2024-01-15T10:00:00+00:00",
+                end_time="2024-01-15T11:04:00+00:00",
+                bin_size=0,
+            )
+
+        envelope = ctx["envelope"]
+        assert "32000" in envelope["error_message"].replace(",", "").replace(" ", "")
+        assert "32500" in envelope["error_message"].replace(",", "").replace(" ", "")
+        hints = " ".join(envelope["suggestions"]).lower()
+        assert "shorter" in hints and "range" in hints
+        data_dir = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR
+        assert not data_dir.exists() or not any(
+            p.is_file() and p.suffix == ".json" for p in data_dir.rglob("*")
+        )
+
+    async def test_budget_sums_elements_across_waveform_channels(self, archiver_read_tool):
+        """Two waveform channels share one budget: 2 x 33 traces x 500 is over it."""
+        fn, connector = archiver_read_tool
+        index, values = _sek_traces(33)
+        connector.get_data.return_value = long_frame(
+            {
+                _SEK: pd.Series(values, index=index, dtype=object),
+                "SR:SEK2:WAVEFORM": pd.Series(values, index=index, dtype=object),
+            }
+        )
+
+        with assert_raises_error(error_type="validation_error"):
+            await fn(
+                channels=[_SEK, "SR:SEK2:WAVEFORM"],
+                start_time="2024-01-15T10:00:00+00:00",
+                end_time="2024-01-15T11:00:00+00:00",
+                bin_size=0,
+            )
+
+    async def test_scalar_samples_do_not_count_against_the_element_budget(self, archiver_read_tool):
+        """A large scalar read is not a waveform read: no budget applies."""
+        fn, connector = archiver_read_tool
+        stamps = pd.date_range("2024-01-15T10:00:00", periods=40_000, freq="100ms", tz="UTC")
+        connector.get_data.return_value = long_frame(
+            {"SR:CURRENT:RB": pd.Series([500.0] * len(stamps), index=stamps)}
+        )
+
+        result = await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T11:00:00+00:00",
+            bin_size=0,
+        )
+
+        assert extract_response_dict(result)["summary"]["total_points"] == 40_000
+
+    async def test_each_trace_carries_its_own_stats(self, tmp_path, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, values = _waveform_df(3)
+
+        result = await fn(
+            channels=[_SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T10:05:00+00:00",
+            bin_size=0,
+        )
+
+        data = extract_response_dict(result)
+        traces = data["summary"]["per_channel"][_SEK]["traces"]
+        assert len(traces) == 3
+        for stat, trace_values in zip(traces, values, strict=True):
+            assert stat["points"] == 500
+            assert stat["min"] == min(trace_values)
+            assert stat["max"] == max(trace_values)
+            assert stat["mean"] == pytest.approx(sum(trace_values) / 500, abs=1e-6)
+        assert traces[0]["timestamp"] == _WAVE_T0.isoformat()
+        # The saved series carries the same per-trace stats beside the traces.
+        saved = json.loads((tmp_path / data["data_file"]).read_text())["series"][_SEK]
+        assert saved["stats"] == [{k: v for k, v in t.items() if k != "timestamp"} for t in traces]
+
+    async def test_trace_with_nan_elements_gets_json_safe_stats(self, tmp_path, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        index = pd.DatetimeIndex([_WAVE_T0, _WAVE_T0 + timedelta(minutes=1)])
+        connector.get_data.return_value = long_frame(
+            {
+                _SEK: pd.Series(
+                    [[1.0, float("nan"), 3.0], [float("nan"), float("nan")]],
+                    index=index,
+                    dtype=object,
+                )
+            }
+        )
+
+        result = await fn(
+            channels=[_SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T10:05:00+00:00",
+            bin_size=0,
+        )
+
+        data = extract_response_dict(result)
+        first, second = data["summary"]["per_channel"][_SEK]["traces"]
+        assert (first["points"], first["min"], first["max"], first["mean"]) == (3, 1.0, 3.0, 2.0)
+        assert second["points"] == 2
+        assert "min" not in second and "mean" not in second
+        raw = (tmp_path / data["data_file"]).read_text()
+        assert "NaN" not in raw
+        assert json.loads(raw)["series"][_SEK]["values"][0] == [1.0, None, 3.0]
+
+    async def test_default_bin_on_a_waveform_returns_raw_traces_and_says_so(
+        self, tmp_path, archiver_read_tool
+    ):
+        """bin_size=None on SEK: whole 500-point traces at the stored cadence."""
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, values = _waveform_df(61)
+
+        result = await fn(
+            channels=[_SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T11:00:00+00:00",
+        )
+
+        data = extract_response_dict(result)
+        summary = data["summary"]
+        entry = summary["per_channel"][_SEK]
+        assert entry["points"] == 61
+        assert entry["bin_size"] == 0
+        assert entry["cadence_s"] == 60
+        note = summary["waveforms"]["note"].lower()
+        assert "raw" in note and "cadence" in note
+        assert summary["waveforms"]["channels"] == [_SEK]
+        saved = json.loads((tmp_path / data["data_file"]).read_text())
+        assert saved["series"][_SEK]["values"] == values
+        assert all(len(v) == 500 for v in saved["series"][_SEK]["values"])
+        assert saved["query"]["waveforms"] == summary["waveforms"]
+
+    async def test_waveform_beside_scalar_leaves_the_scalar_entry_unchanged(
+        self, archiver_read_tool
+    ):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, _ = _waveform_df(2, {"SR:CURRENT:RB": [500.0, 502.0]})
+
+        result = await fn(
+            channels=["SR:CURRENT:RB", _SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T11:00:00+00:00",
+        )
+
+        summary = extract_response_dict(result)["summary"]
+        assert summary["per_channel"]["SR:CURRENT:RB"] == {
+            "points": 2,
+            "min": 500.0,
+            "max": 502.0,
+            "mean": 501.0,
+        }
+        assert summary["bin_size_source"] == "auto"
+        assert summary["waveforms"]["channels"] == [_SEK]
+
+    async def test_scalar_read_has_no_waveform_keys(self, tmp_path, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+
+        result = await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            end_time="2024-01-15T11:00:00",
+        )
+
+        data = extract_response_dict(result)
+        assert set(data["summary"]) == {
+            "channels_queried",
+            "total_points",
+            "time_range",
+            "bin_size",
+            "bin_size_source",
+            "per_channel",
+        }
+        saved = json.loads((tmp_path / data["data_file"]).read_text())
+        assert set(saved["series"]["SR:CURRENT:RB"]) == {"timestamps", "values"}
+        assert "waveforms" not in saved["query"]
+
+    async def test_schema_describes_waveform_values(self, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value, _ = _waveform_df(1)
+
+        result = await fn(channels=[_SEK], start_time="2024-01-15T10:00:00+00:00", bin_size=0)
+
+        values_text = extract_response_dict(result)["access_details"]["schema"]["values"].lower()
+        assert "waveform" in values_text and "trace" in values_text
+
+
+class TestWaveformThroughRealMongoConnector:
+    """archiver_read over the real MongoDB connector's waveform union, no Docker."""
+
+    @pytest.fixture
+    def mongo_tool(self, archiver_project):  # noqa: ARG002 - wires the project CWD
+        from osprey_connectors.simulation.archive import waveform_document
+        from tests.connectors.test_mongodb_archiver_connector import _waveform_connector
+
+        index, values = _sek_traces(61)
+        expire = _WAVE_T0 + timedelta(days=30)
+        docs = [
+            waveform_document(_SEK, ts.to_pydatetime(), v, expire_at=expire)
+            for ts, v in zip(index, values, strict=True)
+        ]
+        connector = _waveform_connector(waveforms=docs)
+        with patch(
+            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
+            new_callable=AsyncMock,
+            return_value=connector,
+        ):
+            yield _get_archiver_read(), values
+
+    async def test_default_bin_returns_whole_traces(self, tmp_path, mongo_tool):
+        fn, values = mongo_tool
+
+        result = await fn(
+            channels=[_SEK],
+            start_time="2024-01-15T10:00:00+00:00",
+            end_time="2024-01-15T11:00:00+00:00",
+        )
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"
+        assert data["summary"]["per_channel"][_SEK]["elements"] == 30_500
+        saved = json.loads((tmp_path / data["data_file"]).read_text())
+        assert saved["series"][_SEK]["values"] == values

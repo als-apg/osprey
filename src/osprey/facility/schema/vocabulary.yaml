@@ -293,6 +293,30 @@ enums:
       injection_busy_status:
         description: Readback that is set while a requested injection shot is in progress.
         aliases: [injection busy, injection in progress, shot in progress]
+      pulse_waveform:
+        description: >-
+          Sampled time trace of one output pulse of a pulsed device (e.g. a septum or
+          kicker current pulse), read as an array of samples rather than a scalar.
+        aliases: [pulse waveform, pulse trace, pulse shape, current pulse waveform, waveform]
+      ramp_gain_setpoint:
+        description: >-
+          Commanded gain that scales the whole energy-ramp table of a ramped power
+          supply.
+        aliases: [ramp gain setpoint, ramp gain, ramp table gain, ramp scale]
+      ramp_gain_readback:
+        description: Readback of the gain applied to a ramped power supply's ramp table.
+        aliases: [ramp gain readback, measured ramp gain]
+      ramp_offset_setpoint:
+        description: >-
+          Commanded offset added to the whole energy-ramp table of a ramped power
+          supply.
+        aliases: [ramp offset setpoint, ramp offset, ramp table offset]
+      ramp_offset_readback:
+        description: Readback of the offset applied to a ramped power supply's ramp table.
+        aliases: [ramp offset readback, measured ramp offset]
+      temperature_setpoint:
+        description: Commanded temperature of a regulated loop (e.g. a cooling-water heater).
+        aliases: [temperature setpoint, set temperature, commanded temperature, temperature demand]
 
   property_name_enum:
     description: >-
@@ -434,6 +458,20 @@ classes:
     is_a: Magnet
     description: Crossed-field Wien filter used for velocity and spin manipulation with minimal orbit distortion.
     aliases: [wien filter, wien]
+
+  Septum:
+    is_a: Magnet
+    description: >-
+      Pulsed or DC septum magnet that deflects the injected or extracted beam into or out
+      of the machine while shielding the circulating beam.
+    aliases: [septum, septum magnet, injection septum, extraction septum]
+
+  Kicker:
+    is_a: Magnet
+    description: >-
+      Fast pulsed dipole magnet that deflects the beam for a single passage or a few
+      turns, to put an injected bunch onto the stored orbit or take a bunch out.
+    aliases: [kicker, kicker magnet, injection kicker, extraction kicker, pulsed kicker]
 
   Vacuum:
     is_a: AcceleratorDevice

@@ -54,12 +54,13 @@
 import { openContextMenu } from './panel-context-menu.js';
 import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { setPanelVisibility } from './panel-commands.js';
-import { openPanelBeside } from './panel-placement.js';
+import { openPanelBeside, hasDockedTile } from './panel-placement.js';
 import { openTerminalPanel, closeTerminalPanel, resetDockLayout } from './dock-workspace.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 import { startNewSession } from './sessions.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
-import { getEntry } from './panel-rail.js';
+import { getEntry, entryIds } from './panel-rail.js';
+import { showUndoNotice } from './undo-notice.js';
 import { BAR_HOSTS } from './bar-catalog.js';
 import { barVisible, setBarVisible } from './bar-customize.js';
 
@@ -134,8 +135,8 @@ export function railOptions() {
       } else ctx().showPanel(id);
     },
     onClose: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
-      setPanelVisibility(id, false);
+      if (id === TERMINAL_RAIL_ID) { closeTerminalTile(); return; }
+      void removeFromRail(id);
     },
     // Right-click — or the menu key / Shift+F10, which the rail forwards
     // through this same closure — opens the entry's verbs in words
@@ -151,6 +152,54 @@ export function railOptions() {
       id === TERMINAL_RAIL_ID || isFailed(id) ? false : railDragStart(id, dt),
     onDragEnd: () => railDragEnd(),
   };
+}
+
+/**
+ * Take a panel off the rail for the operator — the "Remove from rail" row, the
+ * entry's "×" and its Delete key — and offer the way back. The Undo re-adds the
+ * panel at the position it held among the rail's panel entries (SESSION not
+ * counted), which the server carries on its echo so every client restores it
+ * there. The removal also closed the panel's tile, so a panel that had one is
+ * shown again too — at the default placement, since the tile's old spot in the
+ * grid is not something the rail can put back.
+ *
+ * The notice belongs to the gesture, not to the membership change: an agent's
+ * remove_panel_from_rail and a removal made in another tab arrive here only as
+ * SSE echoes, which never pass through this function, so they raise nothing.
+ * A refused POST raises a plain notice with no Undo — there is nothing to take
+ * back.
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export async function removeFromRail(id) {
+  const label = ctx().labelOf(id);
+  const index = entryIds(ctx().getRailEl()).filter((e) => e !== TERMINAL_RAIL_ID).indexOf(id);
+  // Fallback mode has no tiles, only the one surface the active panel fills.
+  const hadTile = hasDockedTile(id) || ctx().getActiveTabId() === id;
+  if (!(await setPanelVisibility(id, false))) {
+    showUndoNotice({ message: `Could not remove ${label} from the rail` });
+    return;
+  }
+  showUndoNotice({
+    message: `${label} removed from the rail`,
+    undo: async () => {
+      const restored = await setPanelVisibility(id, true, index < 0 ? undefined : index);
+      if (!restored) showUndoNotice({ message: `Could not put ${label} back on the rail` });
+      else if (hadTile) ctx().activateTab(id, { userInitiated: true });
+    },
+  });
+}
+
+/**
+ * Close the terminal tile for the operator — the "Close terminal tile" row,
+ * the SESSION entry's "×" and its Delete key — and offer the way back. The
+ * close is local layout, so the notice is this tab's alone; the Undo reopens
+ * the tile through the same path as a click on the SESSION entry. Nothing is
+ * shown when there was no tile to close.
+ */
+export function closeTerminalTile() {
+  if (!closeTerminalPanel()) return;
+  showUndoNotice({ message: 'Terminal tile closed', undo: () => openTerminalPanel() });
 }
 
 /**
@@ -260,22 +309,31 @@ function openSurfaceMenu(id, x, y, anchorEl) {
  * Policy carried over from the retired corner glyphs: "Open in a new window"
  * stays inert until the panel's standalone URL resolves. The rows are the same
  * in both ui views.
+ *
+ * Only a tile header can belong to a panel that is NOT a rail member — a tile
+ * opened off the rail (panel-manager's openPanelOffRail). Its rows keep it
+ * there: Focus and the move to a new tile act on the tile alone, and the
+ * membership row is "Pin to rail", which appends it where any new member goes.
  * @param {string} id
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildServiceMenuItems(id) {
   const label = ctx().labelOf(id);
+  const member = ctx().isMember(id);
   return [
     // Focus is the ACTIVATION half of the entry click only. A click on the
     // entry whose tile is already surfaced retires that tile; a row that says
     // "Focus" and made the panel disappear would say the opposite of what it
     // does, so on the already-active panel this row is deliberately a no-op.
-    { label: `Focus ${label}`, run: () => { if (ctx().isMember(id)) ctx().activateTab(id, { userInitiated: true }); else ctx().showPanel(id); } },
+    // Off the rail it is focused without the report a member's focus sends.
+    { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
     { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) },
     { label: 'Open in a new window', glyph: '↗', disabled: ctx().getPanelStandaloneUrl(id) === null, run: () => ctx().popoutPanel(id) },
     { divider: true },
-    // The one server-side membership change in the menu — same POST as the "×".
-    { label: 'Remove from rail', glyph: '×', danger: true, run: () => setPanelVisibility(id, false) },
+    // The one server-side membership change in the menu — same verb as the "×".
+    member
+      ? { label: 'Remove from rail', glyph: '×', danger: true, run: () => { void removeFromRail(id); } }
+      : { label: 'Pin to rail', run: () => { void setPanelVisibility(id, true); } },
   ];
 }
 
@@ -310,7 +368,7 @@ export function buildBarRestoreItems() {
 export function buildTerminalMenuItems() {
   const layout = [
     { label: 'Reset layout', run: () => resetDockLayout() },
-    { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalPanel() },
+    { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalTile() },
   ];
   if (isSimpleMode()) return layout;
   return [

@@ -1,0 +1,103 @@
+{
+  "channels": [
+    {
+      "id": "BTS:DIAG:BPM:05:POSITION:X"
+    },
+    {
+      "id": "BTS:DIAG:BPM:05:POSITION:Y"
+    },
+    {
+      "id": "BTS:DIAG:PADDLES:01:COUNT:INSERTED"
+    },
+    {
+      "id": "BTS:DIAG:TV:01:LAMP:RB"
+    },
+    {
+      "id": "BTS:DIAG:TV:01:PADDLE:RB"
+    },
+    {
+      "id": "BTS:DIAG:TV:01:PADDLE:SP"
+    },
+    {
+      "id": "BTS:MAG:QUAD:01:CURRENT:RB"
+    },
+    {
+      "id": "BTS:MAG:QUAD:01:CURRENT:SP"
+    },
+    {
+      "id": "BTS:MAG:QUAD:01:STATUS:ON"
+    },
+    {
+      "id": "BTS:MAG:QUAD:06:CURRENT:RB"
+    },
+    {
+      "id": "BTS:MAG:QUAD:06:CURRENT:SP"
+    },
+    {
+      "id": "BTS:MAG:QUAD:06:STATUS:ON"
+    },
+    {
+      "id": "GTL:GUN:EGUN:01:HV_ON:RB"
+    },
+    {
+      "id": "GTL:GUN:EGUN:01:HV_ON:SP"
+    },
+    {
+      "id": "LTB:DIAG:BPM:01:POSITION:X"
+    },
+    {
+      "id": "LTB:DIAG:BPM:01:POSITION:Y"
+    },
+    {
+      "id": "LTB:DIAG:BPM:01:SUM:RB"
+    },
+    {
+      "id": "LTB:DIAG:TV:01:LAMP:RB"
+    },
+    {
+      "id": "LTB:DIAG:TV:01:PADDLE:RB"
+    },
+    {
+      "id": "LTB:DIAG:TV:01:PADDLE:SP"
+    },
+    {
+      "id": "LTB:MAG:QUAD:01:CURRENT:RB"
+    },
+    {
+      "id": "LTB:MAG:QUAD:01:CURRENT:SP"
+    },
+    {
+      "id": "LTB:MAG:QUAD:01:STATUS:ON"
+    },
+    {
+      "id": "LTB:MAG:QUAD:02:CURRENT:RB"
+    },
+    {
+      "id": "LTB:MAG:QUAD:02:CURRENT:SP"
+    },
+    {
+      "id": "LTB:MAG:QUAD:02:STATUS:ON"
+    },
+    {
+      "id": "LTB:MAG:QUAD:04:CURRENT:RB"
+    },
+    {
+      "id": "LTB:MAG:QUAD:04:CURRENT:SP"
+    },
+    {
+      "id": "LTB:MAG:QUAD:04:STATUS:ON"
+    },
+    {
+      "id": "LTB:MAG:QUAD:05:CURRENT:RB"
+    },
+    {
+      "id": "LTB:MAG:QUAD:05:CURRENT:SP"
+    },
+    {
+      "id": "LTB:MAG:QUAD:05:STATUS:ON"
+    },
+    {
+      "id": "SR:MAG:QUAD:01:CURRENT:SP"
+    }
+  ]
+}

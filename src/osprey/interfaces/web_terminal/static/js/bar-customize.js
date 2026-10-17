@@ -49,6 +49,7 @@ import {
   sheetNotice,
 } from './bar-customize-sheet.js';
 import { armDrag, disarmDrag } from './bar-customize-drag.js';
+import { showUndoNotice } from './undo-notice.js';
 import { barSurfaceOpen, closeBarSurfaces } from './bar-customize-menus.js';
 import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
 
@@ -78,6 +79,7 @@ import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
  * @property {(from: BarHost, fromIndex: number, to: BarHost, toIndex: number)
  *            => Promise<boolean>} moveItem
  * @property {(host: BarHost, index: number) => Promise<boolean>} removeAt
+ * @property {(host: BarHost, index: number, item: BarLayoutItem) => Promise<boolean>} restoreItem
  * @property {(host: BarHost, index: number, key: string, value: string | number | boolean)
  *            => Promise<boolean>} setOption
  * @property {(host: BarHost, index: number) => BarLayoutItem | null} itemAt
@@ -286,6 +288,24 @@ function reasonText(drop) {
   return 'Not available in this build';
 }
 
+/**
+ * Say why an edit was refused — or that it went through, with an empty text —
+ * where the operator can see it. The one place that decides that: while
+ * editing it is the sheet's notice line, as it always is there; outside edit
+ * mode the sheet is closed, and an edit made from a bar's own menu is answered
+ * by a notice at the foot of the page instead. An empty text clears the sheet's
+ * line and raises nothing, because there is nothing to tell.
+ * @param {string} text
+ * @param {BarRoot} [root]
+ */
+function announce(text, root = activeRoot) {
+  if (editing) {
+    sheetNotice(text, root);
+    return;
+  }
+  if (text) showUndoNotice({ message: text, doc: docOf(root) });
+}
+
 /* ---- the one write path ---- */
 
 /**
@@ -302,6 +322,8 @@ function draftOf(layout) {
     status: layout.status.map((item) => ({ type: item.type, options: { ...item.options } })),
     header_visible: layout.header_visible,
     status_visible: layout.status_visible,
+    rail_docs_visible: layout.rail_docs_visible,
+    rail_feedback_visible: layout.rail_feedback_visible,
   };
 }
 
@@ -311,39 +333,39 @@ function draftOf(layout) {
  *
  * Nothing here retries and nothing here chooses a revision — a refusal that the
  * sync layer already announced ("Layout not saved") is left to its notice,
- * which this module routes into the sheet.
+ * which this module routes through {@link announce}.
  * @param {(draft: any) => any} mutate
  * @param {BarRoot} [root]
  * @returns {Promise<boolean>}
  */
 export async function applyEdit(mutate, root = activeRoot) {
   if (isLayoutReadonly()) {
-    sheetNotice('Layout not editable', root);
+    announce('Layout not editable', root);
     return false;
   }
   const base = currentLayout();
   if (!base) {
-    sheetNotice('Layout not loaded', root);
+    announce('Layout not loaded', root);
     return false;
   }
   const result = normalize(mutate(draftOf(base)), BAR_CATALOG, editContext(root));
   if (result.dropped.length > 0) {
-    sheetNotice(reasonText(result.dropped[0]), root);
+    announce(reasonText(result.dropped[0]), root);
     return false;
   }
   if (result.readonly) {
-    sheetNotice('Change refused', root);
+    announce('Change refused', root);
     return false;
   }
   try {
     await saveLayout(result.layout, { edit: true, root });
   } catch (error) {
     if (error instanceof BarSyncError && error.reason === 'readonly') {
-      sheetNotice('Layout not editable', root);
+      announce('Layout not editable', root);
     }
     return false;
   }
-  sheetNotice('', root);
+  announce('', root);
   renderSheet(root);
   return true;
 }
@@ -359,7 +381,7 @@ export async function applyEdit(mutate, root = activeRoot) {
 export async function addItem(type, host, index, root = activeRoot) {
   const refusal = refusalFor(type, host, root);
   if (refusal) {
-    sheetNotice(refusal, root);
+    announce(refusal, root);
     return false;
   }
   const options = defaultOptions(type);
@@ -385,7 +407,7 @@ export async function moveItem(from, fromIndex, to, toIndex, root = activeRoot) 
   if (!item) return false;
   const refusal = dropRefusal(item.type, to, from, root);
   if (refusal) {
-    sheetNotice(refusal, root);
+    announce(refusal, root);
     return false;
   }
   return applyEdit((draft) => {
@@ -414,6 +436,31 @@ export async function removeAt(host, index, root = activeRoot) {
   if (!item) return false;
   return applyEdit((draft) => {
     draft[host].splice(index, 1);
+    return draft;
+  }, root);
+}
+
+/**
+ * Put a removed item back: the same type with the same options, at the place
+ * it was taken from (or the end of the bar, when the bar has since shrunk). The
+ * way back from an Undo, and NOT `addItem`, which would hand the item its
+ * type's defaults and lose what the operator had set. It is still an addition,
+ * so it is judged like one — the latch, the cap and a single-node type placed
+ * again in the meantime refuse it, and the refusal is named.
+ * @param {BarHost} host
+ * @param {number} index
+ * @param {BarLayoutItem} item
+ * @param {BarRoot} [root]
+ * @returns {Promise<boolean>}
+ */
+export async function restoreItem(host, index, item, root = activeRoot) {
+  const refusal = refusalFor(item.type, host, root);
+  if (refusal) {
+    announce(refusal, root);
+    return false;
+  }
+  return applyEdit((draft) => {
+    draft[host].splice(index, 0, { type: item.type, options: { ...item.options } });
     return draft;
   }, root);
 }
@@ -488,10 +535,10 @@ export async function resetToDefault(root = activeRoot) {
     await discardStoredLayout({ edit: true, root });
   } catch {
     // The sync layer already said so, through the notice this module routes
-    // into the sheet.
+    // through announce().
     return false;
   }
-  sheetNotice('', root);
+  announce('', root);
   // The tiles are re-read here rather than left alone: a reset that lifted the
   // read-only latch has just turned every disabled tile back into a live one.
   renderSheet(root);
@@ -518,6 +565,33 @@ export function setBarVisible(host, visible, root = activeRoot) {
 /** Whether the held document shows `host`. @param {BarHost} host @returns {boolean} */
 export function barVisible(host) {
   return currentLayout()?.[`${host}_visible`] !== false;
+}
+
+/**
+ * The rail utility controls an operator may hide. ⋯ More is deliberately not
+ * one: it is where a hidden control comes back from.
+ * @typedef {'docs' | 'feedback'} RailUtility
+ */
+
+/**
+ * Show or withdraw one of the rail's hideable utility controls. Stored with the
+ * bar layout, so the choice follows the operator to another browser and
+ * Reset to default brings the control back.
+ * @param {RailUtility} name
+ * @param {boolean} visible
+ * @param {BarRoot} [root]
+ * @returns {Promise<boolean>}
+ */
+export function setRailUtilityVisible(name, visible, root = activeRoot) {
+  return applyEdit((draft) => {
+    draft[`rail_${name}_visible`] = visible;
+    return draft;
+  }, root);
+}
+
+/** Whether the held document shows rail utility `name`. @param {RailUtility} name */
+export function railUtilityVisible(name) {
+  return currentLayout()?.[`rail_${name}_visible`] !== false;
 }
 
 /* ---- edit mode ---- */
@@ -552,6 +626,11 @@ const CONTROLLER = Object.freeze({
   ) => moveItem(from, fromIndex, to, toIndex, activeRoot),
   removeAt: (/** @type {BarHost} */ host, /** @type {number} */ index) =>
     removeAt(host, index, activeRoot),
+  restoreItem: (
+    /** @type {BarHost} */ host,
+    /** @type {number} */ index,
+    /** @type {BarLayoutItem} */ item
+  ) => restoreItem(host, index, item, activeRoot),
   setOption: (
     /** @type {BarHost} */ host,
     /** @type {number} */ index,
@@ -566,7 +645,7 @@ const CONTROLLER = Object.freeze({
   setBarVisible: (/** @type {BarHost} */ host, /** @type {boolean} */ visible) =>
     setBarVisible(host, visible, activeRoot),
   barVisible,
-  notice: (/** @type {string} */ text) => sheetNotice(text, activeRoot),
+  notice: (/** @type {string} */ text) => announce(text, activeRoot),
   enterEditMode: () => {
     enterEditMode(activeRoot);
   },
@@ -654,16 +733,17 @@ export function exitEditMode(root = activeRoot) {
 /* ---- boot ---- */
 
 /**
- * Route the sync layer's notices into the sheet. Registering a listener is
- * what retires bar-sync.js's own inline pill: every PUT this build issues comes
- * from edit mode, so the sheet is open whenever one of these arrives.
+ * Route the sync layer's notices to the operator, through the same
+ * {@link announce} every refusal takes: the sheet while editing, the page-foot
+ * notice for an edit made from a bar's menu outside it. Registering a listener
+ * is what retires bar-sync.js's own inline pill.
  * @param {BarRoot} [root]
  * @returns {() => void} stop
  */
 export function initBarCustomize(root = activeRoot) {
   activeRoot = root;
   unsubscribeNotice?.();
-  unsubscribeNotice = onSyncNotice((/** @type {string} */ text) => sheetNotice(text, activeRoot));
+  unsubscribeNotice = onSyncNotice((/** @type {string} */ text) => announce(text, activeRoot));
   initEntryPoints(CONTROLLER, root);
   return stopBarCustomize;
 }

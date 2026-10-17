@@ -31,8 +31,9 @@ raises :class:`OspreyWriteRefused` before the lock is taken.
 
 :func:`command_write` is how a run that holds the lock with a context fires
 commands on its own connector: a batch the run's owner, its target, the
-connector's limits and the caller's command set all admit, refused whole
-before anything is written when any of them does not.
+caller's command set and the connector's limits validator, in its own mode,
+all admit, refused whole before anything is written when any of them does
+not.
 
 The lock belongs to the process, not to the thread that took it. A process
 holds one run lock at a time, kept in :mod:`osprey.runtime._run_state`; a
@@ -742,15 +743,21 @@ async def command_write(
       context's owner, and the context names one;
     * the connector's control target, its ``baseline`` resolved as
       :func:`guarded_run_target` resolves it, is the context's target;
-    * the connector carries an enforcing limits validator: one it was built
-      with, not the fail-safe one that stands in for a database that could
-      not be loaded;
-    * every address is in *commands*, resolves ``confirm: false`` and passes
-      the connector's validator, read with the connector's own reader.
+    * the connector's limits validator is not the fail-safe one that stands
+      in for a database that could not be loaded, and the connector carries
+      a validator at all unless the context says limits checking is off
+      (:attr:`ActionContext.limits_off`);
+    * every address is in *commands* and passes the connector's validator in
+      the validator's own mode, read with the connector's own reader: under
+      ``optional`` a command with no limits record is written with no
+      limits, under ``exclusive`` it is refused, and a record's bounds
+      always apply.
 
-    Then the batch goes out as one ``write_multiple_channels`` call with
-    ``confirm`` omitted, so each channel resolves its own policy, and every
-    result goes through
+    Command-ness is the caller's: *commands* is the set the facility
+    definition marks as commands, and no limits record need say so. A
+    command holds no setting, so there is nothing to re-read: the batch goes
+    out as one ``write_multiple_channels`` call with ``confirm=False``, and
+    every result goes through
     :func:`~osprey_connectors.control_system.base.raise_for_write_result`.
     The connector is the caller's own; nothing here reaches the sandbox's
     connector, target pin or validator.
@@ -808,20 +815,26 @@ async def command_write(
             f"the connector drives {target}; the run was admitted on {context.target}"
         )
     validator = getattr(connector, "_limits_validator", None)
-    if validator is None or getattr(validator, "failsafe_reason", None) is not None:
-        raise OspreyWriteRefused("the connector carries no enforcing limits validator")
+    if validator is None and not context.limits_off:
+        raise OspreyWriteRefused(
+            "the connector carries no enforcing limits validator and the run's "
+            "limits checking is not off"
+        )
+    if validator is not None and getattr(validator, "failsafe_reason", None) is not None:
+        raise OspreyWriteRefused(
+            f"the connector carries no enforcing limits validator: {validator.failsafe_reason}"
+        )
     for address in batch:
         if address not in commands:
             raise OspreyWriteRefused("not a command of this run", address)
-        if connector._resolve_confirm(address) is not False:
-            raise OspreyWriteRefused(
-                "a command resolves confirm: false; this one does not", address
-            )
-    read_current = connector._current_value_reader()
-    for address in batch:
-        validator.validate(address, value, read_current=read_current)
+    if validator is not None:
+        read_current = connector._current_value_reader()
+        for address in batch:
+            validator.validate(address, value, read_current=read_current)
 
-    results = await connector.write_multiple_channels([(address, value) for address in batch])
+    results = await connector.write_multiple_channels(
+        [(address, value) for address in batch], confirm=False
+    )
     fired = [r.channel_address for r in results if r.outcome is not WriteOutcome.REFUSED]
     for result in results:
         try:

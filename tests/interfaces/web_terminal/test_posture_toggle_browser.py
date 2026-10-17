@@ -85,7 +85,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -103,10 +103,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-try:
+# without playwright, the chromium_browser fixture skips the suite
+with suppress(ImportError):
     from playwright.sync_api import Browser, Page, expect
-except ImportError:  # pragma: no cover — the chromium_browser fixture skips the suite
-    pass
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 

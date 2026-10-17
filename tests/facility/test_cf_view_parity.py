@@ -12,8 +12,8 @@ The copies are read to prove nothing was lost, never to fix the index's shape.
 The parity tests hold the hierarchical and middle-layer views, called as pure
 functions on the shared control-assistant build's facility file, to those
 copies: the same address set plus the declared fingerprint additions each
-view files (the middle-layer view files the transfer line's, which its
-devices hold, and leaves out those bound only to a place), the
+view files (the middle-layer view files those a device holds, and leaves
+out those bound only to a place), the
 machine, system and family descriptions kept, every field and subfield
 sentence on the channels it described, every benchmark target indexed, and no
 fewer benchmark queries answerable by whole index cells than the copies answer. The in_context view,
@@ -57,6 +57,55 @@ IN_CONTEXT_QUERIES = QUERY_DIR / "in_context_queries.json"
 
 #: The channel-finder pipelines with an index file, keyed by their index name.
 PRE_LINE_INDEXES = ("hierarchical", "in_context", "middle_layer")
+
+#: The tree queries whose targets all sit in one injector section or the
+#: transfer line, by section: about one query per 49 channels a section
+#: adds, and the booster-to-storage line keeps its three earlier queries.
+INJECTOR_QUERIES = {"GTL": 2, "LN": 2, "LTB": 3, "BTS": 5, "LINE": 1}
+
+#: The machines whose description grows with the channels the injector adds
+#: to them; each keeps the name its pre-LINE description opens with.
+REDESCRIBED_MACHINES = frozenset({"BTS"})
+
+#: The pre-LINE families, by (machine, family), whose description narrows once
+#: the injector adds a sibling family; each names its family code in parentheses.
+REDESCRIBED_FAMILIES = frozenset({("BTS", "QF")})
+
+#: The element table, whose ``legacy_pv`` column names the channels the demo's
+#: injector channels stand in for; no benchmark query names one.
+ELEMENT_TABLE = REPO_ROOT / "scripts/facility_demo/injector_elements.tsv"
+
+#: The tree queries that ask for a whole family, by ``user_query``: each names
+#: the families it reads as (address prefix, field and subfield). Its targets
+#: hold every channel of each family the build has, and may name more.
+FAMILY_AGGREGATES: dict[str, tuple[tuple[str, str], ...]] = {
+    "Show me the golden orbit values for all BPMs in the horizontal plane": (
+        ("SR:DIAG:BPM", "GOLDEN:X"),
+    ),
+    "What are all the dipole current readbacks in the storage ring?": (
+        ("SR:MAG:DIPOLE", "CURRENT:RB"),
+    ),
+    "List all booster ring bend setpoints": (("BR:MAG:DIPOLE", "CURRENT:SP"),),
+    "Show all BPM horizontal positions in the booster-to-storage transfer line": (
+        ("BTS:DIAG:BPM", "POSITION:X"),
+    ),
+    "Show me the booster-to-storage transfer line corrector setpoints for both planes": (
+        ("BTS:MAG:HCM", "CURRENT:SP"),
+        ("BTS:MAG:VCM", "CURRENT:SP"),
+    ),
+    "Show me the BTS quadrupole current readbacks and the booster beam current": (
+        ("BTS:MAG:QF", "CURRENT:RB"),
+        ("BTS:MAG:QD", "CURRENT:RB"),
+    ),
+    "Give me the gun-to-linac line solenoid current readbacks.": (("GTL:MAG:SOL", "CURRENT:RB"),),
+    "What are the linac solenoid current setpoints?": (("LN:MAG:SOL", "CURRENT:SP"),),
+    "What are the linac-to-booster transfer line bend setpoints?": (
+        ("LTB:MAG:DIPOLE", "CURRENT:SP"),
+    ),
+    "What are the horizontal corrector setpoints in the four-cell LINE transfer line?": (
+        ("LINE:MAG:HCM", "CURRENT:SP"),
+    ),
+}
 
 FINGERPRINT_SHA256 = "644f41850784e0251ac4be0081c6891b7f933b119efc037a7455ebe89c54e9c0"
 FINGERPRINT_ROW_KEYS = ["address", "role", "value_type", "names", "description"]
@@ -103,6 +152,42 @@ def in_context_queries() -> list[dict[str, Any]]:
 def addition_addresses() -> set[str]:
     """The addresses the demo declares beyond the frozen fingerprint."""
     return {row["address"] for row in load_golden("demo_fingerprint_additions.json")["rows"]}
+
+
+def legacy_channel_names() -> set[str]:
+    """Every non-blank ``legacy_pv`` of the element table."""
+    names: set[str] = set()
+    lines = ELEMENT_TABLE.read_text(encoding="utf-8").splitlines()
+    for line in lines[1:]:
+        if line and not line.startswith("#"):
+            legacy = line.split("\t", 1)[0].strip()
+            if legacy:
+                names.add(legacy)
+    return names
+
+
+def _in_family(address: str, family: tuple[str, str]) -> bool:
+    """Whether ``address`` is a channel of ``family``, given as (address prefix, field:subfield)."""
+    parts = address.split(":")
+    prefix, signal = family
+    return ":".join(parts[:3]) == prefix and ":".join(parts[4:]) == signal
+
+
+def family_aggregate_gaps(
+    targets: Iterable[str], families: Iterable[tuple[str, str]], channels: set[str]
+) -> dict[str, list[str]]:
+    """How an aggregate query's ``targets`` differ from its families' channels in ``channels``.
+
+    ``missing`` lists the family channels the targets leave out, ``extra`` the
+    family-shaped targets the build has no channel for; empty when they agree.
+    """
+    families = tuple(families)
+    wanted = {
+        address for address in channels if any(_in_family(address, family) for family in families)
+    }
+    named = {address for address in targets if any(_in_family(address, f) for f in families)}
+    gaps = {"missing": sorted(wanted - named), "extra": sorted(named - wanted)}
+    return {key: value for key, value in gaps.items() if value}
 
 
 def _children(node: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -290,6 +375,18 @@ def golden_machine_descriptions() -> dict[str, str]:
     return {machine: node["_description"] for machine, node in _children(tree)}
 
 
+def keeps_machine_description(machine: str, golden: str, description: str | None) -> bool:
+    """Whether a view's ``description`` of ``machine`` keeps its pre-LINE ``golden`` one.
+
+    A machine in ``REDESCRIBED_MACHINES`` keeps the name its golden description
+    opens with, up to the first colon; every other machine keeps it whole.
+    """
+    if machine in REDESCRIBED_MACHINES:
+        name = golden.split(":", 1)[0] + ":"
+        return description is not None and description.startswith(name)
+    return description == golden
+
+
 def _rows_sha256(rows: list[dict[str, Any]]) -> str:
     compact = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(compact.encode("utf-8")).hexdigest()
@@ -372,13 +469,70 @@ def test_pre_line_in_context_index_holds_the_fingerprint_addresses() -> None:
     assert {row["address"] for row in rows} == fingerprint_addresses()
 
 
-def test_pre_line_queries_target_fingerprint_addresses() -> None:
+def test_pre_line_queries_target_fingerprint_or_addition_addresses() -> None:
     queries = pre_line_queries()
-    assert len(queries) == 60
-    addresses = fingerprint_addresses()
+    assert len(queries) == 71
+    addresses = fingerprint_addresses() | addition_addresses()
     for query in queries:
         assert query["targeted_pv"], query["user_query"]
         assert set(query["targeted_pv"]) <= addresses, query["user_query"]
+
+
+def test_the_tree_queries_hold_the_proportional_injector_split() -> None:
+    within: dict[str, int] = defaultdict(int)
+    for query in pre_line_queries():
+        sections = {address.split(":", 1)[0] for address in query["targeted_pv"]}
+        if len(sections) == 1:
+            within[sections.pop()] += 1
+    assert {section: within[section] for section in INJECTOR_QUERIES} == INJECTOR_QUERIES
+
+
+def test_no_tree_query_names_a_legacy_channel() -> None:
+    legacy = legacy_channel_names()
+    assert legacy
+    for query in pre_line_queries():
+        text = " ".join([query["user_query"], *query["targeted_pv"]])
+        assert not [name for name in legacy if name in text], query["user_query"]
+
+
+def test_every_family_aggregate_names_a_tree_query() -> None:
+    queries = {query["user_query"] for query in pre_line_queries()}
+    assert set(FAMILY_AGGREGATES) <= queries
+
+
+@pytest.mark.slow
+def test_every_family_aggregate_targets_its_whole_family_in_the_build(
+    built_control_assistant: BuiltProject,
+) -> None:
+    channels = {channel["id"] for channel in built_control_assistant.facility["channels"]}
+    for query in pre_line_queries():
+        families = FAMILY_AGGREGATES.get(query["user_query"])
+        if families is None:
+            continue
+        assert family_aggregate_gaps(query["targeted_pv"], families, channels) == {}, query[
+            "user_query"
+        ]
+
+
+@pytest.mark.slow
+def test_the_family_aggregate_guard_names_a_dropped_family_member(
+    built_control_assistant: BuiltProject,
+) -> None:
+    channels = {channel["id"] for channel in built_control_assistant.facility["channels"]}
+    for query in pre_line_queries():
+        families = FAMILY_AGGREGATES.get(query["user_query"])
+        if families is None:
+            continue
+        dropped = query["targeted_pv"][-1]
+        if not any(_in_family(dropped, family) for family in families):
+            dropped = next(
+                address
+                for address in query["targeted_pv"]
+                if any(_in_family(address, family) for family in families)
+            )
+        kept = [address for address in query["targeted_pv"] if address != dropped]
+        gaps = family_aggregate_gaps(kept, families, channels)
+        assert gaps == {"missing": [dropped]}, query["user_query"]
 
 
 def test_in_context_queries_target_in_context_golden_addresses() -> None:
@@ -480,17 +634,17 @@ def test_the_hierarchical_view_holds_the_pre_line_addresses(
 
 @pytest.mark.slow
 def test_the_middle_layer_view_holds_the_pre_line_addresses(
+    built_control_assistant: BuiltProject,
     middle_layer_view: dict[str, Any],
 ) -> None:
     golden = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
     view = set().union(*middle_layer_cells(middle_layer_view))
-    additions = addition_addresses()
-    line = {address for address in additions if address.startswith("LINE:")}
-    # The ring BPMs' turn-by-turn channels sit on devices and join their family;
-    # the injection request and busy flag sit on the place, in no family.
-    turn_by_turn = {address for address in additions if address.startswith("SR:DIAG:BPM:")}
-    assert len(turn_by_turn) == 360
-    assert view == golden | line | turn_by_turn
+    held = {
+        channel["id"]
+        for channel in built_control_assistant.facility["channels"]
+        if "device" in channel.get("on", {})
+    }
+    assert view == golden | (addition_addresses() & held)
 
 
 @pytest.mark.slow
@@ -505,7 +659,7 @@ def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
 ) -> None:
     machines = {key: node.get("_description") for key, node in _children(hierarchical_view["tree"])}
     for machine, description in golden_machine_descriptions().items():
-        assert machines[machine] == description, machine
+        assert keeps_machine_description(machine, description, machines[machine]), machine
 
 
 @pytest.mark.slow
@@ -514,11 +668,16 @@ def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
 ) -> None:
     kept = {group["id"] for group in built_control_assistant.facility["groups"]}
     for machine, description in golden_machine_descriptions().items():
-        assert middle_layer_view[machine]["_description"] == description, machine
+        kept_description = middle_layer_view[machine]["_description"]
+        assert keeps_machine_description(machine, description, kept_description), machine
     for (system, family), description in golden_family_descriptions().items():
         if f"{system}/{family}" not in kept:
             continue
-        assert middle_layer_view[system][family]["_description"] == description, (system, family)
+        kept_family = middle_layer_view[system][family]["_description"]
+        if (system, family) in REDESCRIBED_FAMILIES:
+            assert f"({family})" in kept_family, (system, family)
+        else:
+            assert kept_family == description, (system, family)
 
 
 @pytest.mark.slow
@@ -691,3 +850,41 @@ def test_every_line_device_sits_in_each_family_derived_from_its_records(
         assert setup["CommonNames"] == [d.get("label") or d["id"] for d in members], name
         assert setup["DeviceList"] == _derived_rows(members, index), name
         assert setup["PlaceList"] == _derived_places(members), name
+
+
+#: The demo's served waveform channel: the SEK injection septum's current pulse.
+SEK_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
+
+
+@pytest.mark.slow
+def test_the_in_context_view_rows_the_septum_waveform_once_it_is_tagged(
+    built_control_assistant: BuiltProject, in_context_view: dict[str, Any]
+) -> None:
+    from osprey.facility.views.channel_finder import IN_CONTEXT_TAG, in_context_document
+
+    assert SEK_WAVEFORM not in {row["address"] for row in in_context_view["channels"]}
+    (sek,) = [c for c in built_control_assistant.facility["channels"] if c["id"] == SEK_WAVEFORM]
+    tagged = {"channels": [sek | {"tags": [IN_CONTEXT_TAG]}]}
+
+    assert in_context_document(tagged)["channels"] == [
+        {"channel": SEK_WAVEFORM, "address": SEK_WAVEFORM, "description": sek["description"]}
+    ]
+    assert "500 samples" in sek["description"]
+
+
+@pytest.mark.slow
+def test_the_hierarchical_view_files_the_septum_waveform_under_the_septum_class(
+    hierarchical_view: dict[str, Any],
+) -> None:
+    levels = [level["name"] for level in hierarchical_view["hierarchy"]["levels"]]
+    (path,) = [
+        path for path, address in hierarchical_leaves(hierarchical_view) if address == SEK_WAVEFORM
+    ]
+    assert dict(zip(levels, path, strict=True))["class"] == "Septum"
+
+
+@pytest.mark.slow
+def test_the_middle_layer_view_holds_the_septum_waveform(
+    middle_layer_view: dict[str, Any],
+) -> None:
+    assert any(SEK_WAVEFORM in cell for cell in middle_layer_cells(middle_layer_view))

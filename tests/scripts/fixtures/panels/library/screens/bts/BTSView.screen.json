@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "bts/BTSView",
+  "metadata": {
+    "title": "BTSView",
+    "size": {
+      "width": 2000,
+      "height": 910
+    }
+  },
+  "macros": [
+    {
+      "name": "P",
+      "default": "XX:"
+    },
+    {
+      "name": "R",
+      "default": "XX-KNOB:"
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 2000,
+      "height": 910
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 2000,
+      "height": 910
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q3:Set",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q3:On",
+            "DESC": "XX Q3",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q3:Mon"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_tv.screen.json",
+          "macros": {
+            "TV": "TV2",
+            "light": "XX:TV2:Light",
+            "light_on": "irm:000:B21Out",
+            "loctv": "loc://tv2<VDouble>(0)",
+            "paddle": "XX:TV2:Paddle",
+            "paddle_in": "irm:000:B20Out"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-157",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_bpm.screen.json",
+          "macros": {
+            "BPM": "BTS BPM1",
+            "BPM_X": "XX:BPM5:X",
+            "BPM_Y": "XX:BPM5:Y"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-184",
+        "type": "embedded-display",
+        "props": {
+          "file": "embedded/_KnobDevice.screen.json",
+          "macros": {
+            "CNTL_PV": "XX:Q6:Both",
+            "COLOR_CODE": "3",
+            "COLOR_PV": "XX:Q6:On",
+            "DESC": "XX Q6.1",
+            "GAIN": "1e-4",
+            "MAX": "10",
+            "MIN": "0",
+            "MON_PV": "XX:Q6:Both"
+          }
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-194",
+        "type": "regular-button",
+        "props": {
+          "label": "Open Image Viewer (Matlab)",
+          "actions": [
+            {
+              "type": "execute",
+              "command": "/opt/xx/runImageViewer.sh",
+              "description": "Run Image Viewer"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 750,
+          "y": 830,
+          "width": 140,
+          "height": 55
+        }
+      },
+      {
+        "id": "w-195",
+        "type": "regular-button",
+        "props": {
+          "label": "Open KnobPanel",
+          "actions": [
+            {
+              "type": "open_display",
+              "file": "../common/KnobPanel.screen.json",
+              "target": "window"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 910,
+          "y": 830,
+          "width": 120,
+          "height": 55
+        }
+      }
+    ]
+  }
+}

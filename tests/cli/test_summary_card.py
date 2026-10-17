@@ -1010,7 +1010,7 @@ def test_the_card_flags_dangerously_allow_bash(repo: Path):
 
     lines = format_summary_card(repo, "running")
     flagged = [line for line in lines if "dangerously_allow_bash" in line]
-    assert flagged and "Bash" in flagged[0] and "launch token" in flagged[0]
+    assert flagged and "shell (Bash or Monitor)" in flagged[0] and "launch token" in flagged[0]
 
 
 class TestStaleSeededLogins:

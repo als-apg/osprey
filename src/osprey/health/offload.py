@@ -26,6 +26,7 @@ refresh scheduler's circuit breaker uses to detect a persistently wedged suite.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -148,10 +149,8 @@ async def run_sync(
         # raised on this thread, where nothing can catch it: it surfaces as an
         # unhandled thread exception attached to no failing caller. Silence is
         # the honest outcome; the abandonment was already counted.
-        try:
+        with contextlib.suppress(RuntimeError):
             loop.call_soon_threadsafe(setter, value)
-        except RuntimeError:
-            pass
 
     def _worker() -> None:
         try:

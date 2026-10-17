@@ -24,7 +24,7 @@ from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_emit import emit_persona_delta_yaml, emit_standalone_profile_yaml
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.build_profile_presets import _load_preset_raw
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 # A bundled persona preset and the host preset it extends.
 PERSONA_PRESET = "control-assistant-readonly"

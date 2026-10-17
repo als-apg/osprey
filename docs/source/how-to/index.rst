@@ -98,6 +98,13 @@ Facility services
       control target, every write under the control target's run lock, and read the
       model's orbit response.
 
+   .. grid-item-card:: Thread the First Turn
+      :link: thread-the-first-turn
+      :link-type: doc
+
+      Take a trajectory shot, read the correction step and apply it, put
+      settings back, run shots continuously, and stop an action part-way.
+
    .. grid-item-card:: Use the Channel Finder
       :link: use-channel-finder
       :link-type: doc
@@ -141,6 +148,7 @@ Facility services
    control-systems/index
    describe-your-facility
    measure-with-pyaml
+   thread-the-first-turn
    use-channel-finder
    import-mml-export
    run-scenarios

@@ -127,7 +127,7 @@ def client(agent_data_root, workspace_dir, config_path):
             return_value={"watch_dir": str(workspace_dir)},
         ),
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
     ):
@@ -233,11 +233,15 @@ class TestGet:
             "status",
             "header_visible",
             "status_visible",
+            "rail_docs_visible",
+            "rail_feedback_visible",
         }
         assert body["version"] == BAR_LAYOUT_VERSION
         assert body["rev"] == 0
         assert body["header_visible"] is True
         assert body["status_visible"] is True
+        assert body["rail_docs_visible"] is True
+        assert body["rail_feedback_visible"] is True
         assert body["header"] and body["status"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), "a read must never create the store"
 
@@ -635,7 +639,7 @@ def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Pat
             return_value={"watch_dir": str(workspace_dir)},
         ),
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
     ):

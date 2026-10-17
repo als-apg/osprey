@@ -49,6 +49,7 @@ against a wheel staged from this working tree — the same mechanism ``osprey up
 measure released code, not this branch). Skips cleanly without either.
 """
 
+import contextlib
 import json
 import os
 import platform
@@ -62,7 +63,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     container_image_context,
@@ -533,10 +534,8 @@ def built_image(built_render):
             # Staged dev artifacts must not outlive the build that needed them:
             # a leftover wheel would silently reinstall osprey in any later
             # image built from this context.
-            try:
+            with contextlib.suppress(OSError):
                 artifact.unlink()
-            except OSError:
-                pass
 
 
 def _docker_run_argv(tag: str) -> list[str]:

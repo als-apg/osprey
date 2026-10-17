@@ -3,15 +3,19 @@
 The gate runs two suites. `tests/va/test_apply_fault.py` boots the virtual
 accelerator's entrypoint over a stub view in a spawned process and asserts its
 scenario faults from the far side of a real Channel Access wire, with a real
-`pyepics` client in the pytest process. `tests/va/test_lume_pva_seam.py`
+`aioca` client in the pytest process. `tests/va/test_lume_pva_seam.py`
 serves composites through the model runner on Channel Access and PVAccess and
-asserts what a `pyepics` and a `p4p` client read.
+asserts what an `aioca` and a `p4p` client read. In both, the servers run in
+spawned processes that never load aioca, and the pytest process only looks
+`pcaspy` up, never imports it: pcaspy's extension statically bundles its own
+EPICS base, and in a process where aioca has already loaded epicscorelibs'
+libca it binds to that copy and drops the client on every write.
 
 That needs `pcaspy`, and `pcaspy` publishes manylinux **x86_64** wheels only —
 no aarch64 wheel at any interpreter, and the macOS arm64 wheels it does publish
 are unloadable as shipped. So on a developer's Mac the live classes skip.
 
-They skip honestly, via `pytest.importorskip` with a reason. But a skipped live
+They skip honestly, via `pytest.skip` with a reason. But a skipped live
 suite proves nothing, and `pytest` exits 0 either way. This directory is the
 venue where they are not allowed to skip.
 
@@ -83,7 +87,10 @@ module alone in a fresh process went 20 for 20. One module per process is what
 makes that `setdefault` mean what it looks like it means. Counts still come
 from pytest's own reporter: each child is `gate.py` re-entered with
 `--run-module`, printing one machine-readable line the parent sums, and a child
-that prints nothing is counted as an error rather than as zeroes.
+that prints nothing is counted as an error rather than as zeroes. (Each server
+now lives in a child process that exits at its module's teardown, and combined
+runs in either order have passed; the gate keeps one module per process
+regardless.)
 
 With `pcaspy` made unimportable inside the container, pytest skips the live
 classes and exits **0**, and the gate turns that into exit **1**. That vacuous
@@ -101,12 +108,12 @@ docker run --rm --platform linux/amd64 -v "$PWD:/work:ro" <image> \
 ```
 
 with `pcaspy` made unimportable. `pcaspy` is the only module
-`tests/va/test_apply_fault.py` guards with `importorskip`, so it is also the
+`tests/va/test_apply_fault.py` guards with a skip, so it is also the
 only one whose absence produces a skip there rather than an error.
 
 **The seam suite is required whole.** `tests/va/test_lume_pva_seam.py`
-importorskips `pcaspy`, `p4p` and `lume_pva_apg` at module level, so a host
-lacking any of them skips the module whole. The gate runs in `--pva` mode,
+skips at module level when `pcaspy`, `p4p` or `lume_pva_apg` is missing, so a
+host lacking any of them skips the module whole. The gate runs in `--pva` mode,
 which requires all three to import *before* pytest starts, so an image that
 lacked one exits 1 naming it.
 
@@ -117,8 +124,9 @@ stale image built under the same name.
 
 ## It claims no host port
 
-The servers and their clients share the container's own network namespace. Nothing is published — there is no `-p` on the `docker run`,
-by design, not by omission. This is why the venue never collides with a virtual
+The servers and their clients share the container's own network namespace.
+Nothing is published — there is no `-p` on the `docker run`, by design, not by
+omission. This is why the venue never collides with a virtual
 accelerator already serving on 5064. The suites also pick their own ephemeral
 loopback port at import time, so two runs at once do not interfere either.
 

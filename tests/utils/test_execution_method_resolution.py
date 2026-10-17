@@ -10,8 +10,8 @@ import logging
 
 import pytest
 
-from osprey.utils import config as config_module
-from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
+from osprey_connectors import config as config_module
+from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, resolve_execution_method
 
 
 @pytest.fixture(autouse=True)
@@ -183,7 +183,7 @@ class TestLegacyConfigFileShim:
         return [r for r in caplog.records if "is deprecated" in r.getMessage()]
 
     def test_container_config_file_loads_and_resolves_to_subprocess(self, tmp_path, caplog):
-        from osprey.utils.config import get_full_configuration
+        from osprey_connectors.config import get_full_configuration
 
         config_file = self._write_config(tmp_path, "container")
 
@@ -209,7 +209,7 @@ class TestLegacyConfigFileShim:
         """Warn-once is per process, not per read — the executor resolves per tool
         call, so a per-read warning would bury the operator in duplicates.
         """
-        from osprey.utils.config import get_full_configuration
+        from osprey_connectors.config import get_full_configuration
 
         first = self._write_config(tmp_path, "container", name="first.yml")
         second = self._write_config(tmp_path, "CONTAINER", name="second.yml")
@@ -230,7 +230,7 @@ class TestLegacyConfigFileShim:
         assert str(first) in deprecations[0].getMessage()
 
     def test_subprocess_config_file_loads_without_warning(self, tmp_path, caplog):
-        from osprey.utils.config import get_full_configuration
+        from osprey_connectors.config import get_full_configuration
 
         config_file = self._write_config(tmp_path, "subprocess")
 
@@ -246,7 +246,7 @@ class TestExecutionDefaults:
     """The built-in execution defaults advertise the honest backend."""
 
     def test_default_execution_config_uses_subprocess(self, tmp_path):
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("project_root: .\n")
@@ -257,7 +257,7 @@ class TestExecutionDefaults:
         assert execution["execution_method"] == "subprocess"
 
     def test_defaults_round_trip_through_the_resolver(self, tmp_path):
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("project_root: .\n")

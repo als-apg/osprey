@@ -67,6 +67,11 @@ Coverage (one test each):
       the focus on its first control, Move left re-opens it on the moved item
       with the same button focused so a second Enter moves the item further,
       and Escape gives the focus back to the item.
+  (s) outside edit mode, Remove from an item's right-click menu takes it out
+      and the Undo notice puts back the same item -- options included -- at
+      the same place, in the bar and in the store.
+  (t) a right-click on a running stopwatch opens the bar's menu without
+      resetting it, and the menu's Reset stopwatch row is what zeroes it.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -207,7 +212,7 @@ def _launch_web_terminal(
         # The store seam. Patched at the resolver, never through
         # OSPREY_AGENT_DATA_ROOT -- see test_bar_items_routes.py's fixture.
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data,
         ),
     ]
@@ -1233,5 +1238,82 @@ def test_the_options_popover_follows_its_item_from_the_keyboard(tmp_path, engine
         expect(page.locator(".bar-options")).to_have_count(0)
         expect(_shell(page, "status", "feedback").locator(".bar-item-btn")).to_be_focused()
         expect(page.locator(SHEET)).to_have_class(re.compile(r"\bis-open\b"))
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (s) Remove from the right-click menu, and Undo
+# ---------------------------------------------------------------------------
+
+UNDO_NOTICE = "#undo-notice"
+
+
+def test_a_widget_removed_from_its_menu_comes_back_with_undo(tmp_path, engine_browser):
+    """Right-click, Remove, Undo -- outside edit mode -- and the item is back as it was.
+
+    The clock carries non-default options, so a restore that went through
+    ``addItem`` (the type's defaults) would put back a different clock. The
+    stored document is read after each step: the Undo is an edit like any
+    other, and it has to reach the store.
+    """
+    utc = {"type": "clock", "options": {"zone": "utc", "seconds": True}}
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["stopwatch", utc, "feedback"],
+        )
+        page = _open(engine_browser, base_url)
+        _settled(page, "status", ["stopwatch", "clock", "feedback"])
+
+        _shell(page, "status", "clock").click(button="right")
+        page.locator(f'{CONTEXT_MENU} [data-bar-action="remove"]').click()
+
+        _wait_for_order(page, "status", ["stopwatch", "feedback"])
+        notice = page.locator(UNDO_NOTICE)
+        expect(notice).to_contain_text("Clock removed")
+        expect(page.locator(SHEET)).to_have_count(0)
+        stored = requests.get(f"{base_url}/api/bar-items", timeout=10).json()
+        assert [item["type"] for item in stored["status"]] == ["stopwatch", "feedback"]
+
+        notice.get_by_role("button", name="Undo").click()
+
+        _wait_for_order(page, "status", ["stopwatch", "clock", "feedback"])
+        expect(notice).to_have_count(0)
+        expect(page.locator(f"{STATUS_HOST} .bar-clock-zone")).to_have_text("UTC")
+        stored = requests.get(f"{base_url}/api/bar-items", timeout=10).json()
+        assert [item["type"] for item in stored["status"]] == ["stopwatch", "clock", "feedback"]
+        assert stored["status"][1]["options"]["zone"] == "utc"
+        assert stored["status"][1]["options"]["seconds"] is True
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (t) the stopwatch's right-click is the bar's menu
+# ---------------------------------------------------------------------------
+
+
+def test_a_stopwatch_right_click_opens_the_menu_and_reset_is_a_row(tmp_path, engine_browser):
+    """A right-click on a running stopwatch leaves it running; the menu's Reset zeroes it."""
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(base_url, header=["logo", "space", "display"], status=["stopwatch"])
+        page = _open(engine_browser, base_url)
+        _settled(page, "status", ["stopwatch"])
+        chip = _shell(page, "status", "stopwatch").locator(".bar-stopwatch")
+
+        chip.click()
+        expect(chip).to_have_attribute("aria-pressed", "true")
+        chip.click(button="right")
+
+        expect(chip).to_have_attribute("aria-pressed", "true")
+        reset = page.locator(f'{CONTEXT_MENU} [data-bar-item-action="reset-stopwatch"]')
+        expect(reset).to_have_text("Reset stopwatch")
+        reset.click()
+
+        expect(chip).to_have_attribute("aria-pressed", "false")
+        expect(chip.locator(".bar-stopwatch-time")).to_have_text("00:00")
+        expect(page.locator(CONTEXT_MENU)).to_have_count(0)
 
         page.close()

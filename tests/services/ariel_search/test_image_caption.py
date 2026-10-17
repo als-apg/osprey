@@ -10,6 +10,7 @@ HTTP server on 127.0.0.1.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -1168,10 +1169,8 @@ def stubs():
 
     yield _start
     for stub in started:
-        try:
+        with contextlib.suppress(Exception):
             stub.stop()
-        except Exception:
-            pass
 
 
 @pytest.fixture

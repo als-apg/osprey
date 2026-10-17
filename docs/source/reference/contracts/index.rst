@@ -115,8 +115,17 @@ guides are the better starting point.
       :shadow: md
 
       The routes of the trajectory service's panel and agent doors, the
-      session they open, take over and release, the state and health
-      replies, and every refusal code.
+      session they open, take over and release, the shot, step, apply and
+      Stop they run, the state and health replies, and every refusal code.
+
+   .. grid-item-card:: Trajectory Sequence Module Contract
+      :link: trajectory-sequence
+      :link-type: doc
+      :shadow: md
+
+      The facility file that fires an injection: its entry points, the slots
+      it declares, the handle it writes through, and the limits its commands
+      meet.
 
 .. toctree::
    :hidden:
@@ -133,3 +142,4 @@ guides are the better starting point.
    bridge-dispatch
    trajectory-model
    trajectory-service
+   trajectory-sequence

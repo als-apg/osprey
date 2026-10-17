@@ -62,9 +62,10 @@ The window has three working areas plus a header:
   lattice dashboard, and so on), opened from the icon rail and arranged as
   dockable tiles. See :doc:`panels`.
 - **Utility controls** — pinned to the far end of the same rail, a
-  **Documentation** link and a **Feedback** button that lets whoever is at the
-  terminal report a problem without leaving it. See
-  :doc:`send-feedback`.
+  **Documentation** link, a **Feedback** button that lets whoever is at the
+  terminal report a problem without leaving it (see :doc:`send-feedback`), and
+  **⋯ More** with SYSTEM, the tour and the activity log. Right-click Docs or
+  Feedback to hide it; More brings it back.
 - **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
   (which machine this deployment writes to, and whether it may), the display menu
   (a small dot holding the light/dark, Expert/Simple, and theme controls — see
@@ -431,8 +432,10 @@ re-running it alone would meet the chip next.
    Where a deployment also serves a panel at an address of its own, that
    address is a **service door, not a terminal**. Log in there directly and the
    deployment has no name to put on what you do, so nobody's chip applies to
-   it: a plan queued from that page runs at its lane's ceiling --- what the
-   deployment armed for that lane --- rather than under yours. Reaching the
+   it. What the service then does without a name is its own rule: a plan
+   queued from the Bluesky page runs at its lane's ceiling --- what the
+   deployment armed for that lane --- rather than under yours, while the
+   trajectory service refuses any action that names no owner. Reaching the
    same panel from its tab in the terminal is the named path, and the one the
    chip governs.
 
@@ -449,6 +452,9 @@ button and the display menu. The status bar starts nearly bare: a space, the
 **System health** dot where the SYSTEM panel is enabled, and a clock at the
 right. The **Docs** link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
 to change.
+
+**Right-click any item** for its options and **Remove**, no customizing
+needed. A removal can be undone for a few seconds.
 
 Rearranging the bars
 ~~~~~~~~~~~~~~~~~~~~

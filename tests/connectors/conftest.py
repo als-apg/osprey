@@ -110,7 +110,7 @@ def mongodb_config(mongodb_container, monkeypatch):
     The in-network address overrides are cleared: they beat the config, so a
     shell that sets them would send these tests to another store.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import (
+    from osprey_connectors.archiver.mongodb_archiver_connector import (
         HOST_OVERRIDE_ENV,
         PORT_OVERRIDE_ENV,
     )

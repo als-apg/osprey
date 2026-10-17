@@ -31,6 +31,7 @@ selects rather than whatever auto-detection finds first.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any, cast
 
 from osprey.deployment.runtime_helper import get_runtime_command
@@ -139,10 +140,8 @@ async def _check_runtime_available(runtime: str) -> CheckResult:
     try:
         stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=_VERSION_TIMEOUT_S)
     except TimeoutError:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        except ProcessLookupError:
-            pass
         await proc.wait()
         return CheckResult(
             f"{runtime}_available",

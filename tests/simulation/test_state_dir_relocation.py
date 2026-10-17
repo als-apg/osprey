@@ -15,8 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.simulation.apply import apply_scenarios
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from osprey_connectors.workspace import resolve_simulation_state_dir
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_simulation_state_dir
 from tests._simulator_view import write_scenarios_view
 from tests.simulation.conftest import stage_sim_project
 
@@ -72,7 +71,7 @@ class TestResolveStateDir:
 
     def test_the_config_key_is_the_one_the_drift_check_warns_about(self):
         """One spelling, or a project passes the check while still writing into data/."""
-        from osprey.utils.config import RUNTIME_WRITE_PATH_KEYS
+        from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
         from osprey_connectors.workspace import SIMULATION_STATE_DIR_CONFIG_KEY
 
         assert SIMULATION_STATE_DIR_CONFIG_KEY in RUNTIME_WRITE_PATH_KEYS

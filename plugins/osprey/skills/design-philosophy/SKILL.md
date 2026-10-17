@@ -34,7 +34,7 @@ The cautious behavior is what happens unless configuration explicitly enables th
   the safe path, not the convenient one.
 - Wire safety in structurally, not per-call, so it cannot be forgotten. New connectors inherit the
   writes-enabled guard automatically via `ControlSystemConnector.__init_subclass__`
-  (`src/osprey/connectors/control_system/base.py`).
+  (`packages/osprey-connectors/src/osprey_connectors/control_system/base.py`).
 - A guard that currently never triggers is not dead code. It documents an invariant and protects
   against the day the assumption changes. Do not remove it.
 

@@ -28,7 +28,7 @@ from osprey.cli.build_profile_load import (
     manifest_rows,
     reject_unknown_closed_config_keys,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 

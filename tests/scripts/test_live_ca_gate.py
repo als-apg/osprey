@@ -8,6 +8,7 @@ while holding its output open cannot keep the gate waiting.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import signal
@@ -63,10 +64,8 @@ def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
 
 
 def _kill(pid: int) -> None:
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
 
 
 def _spawning_child(pid_file: Path, *, new_session: bool, then: str) -> list[str]:

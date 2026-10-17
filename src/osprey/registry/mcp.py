@@ -18,16 +18,16 @@ from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
-from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
-from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
+from osprey_connectors.identity import IDENTITY_ENV_LADDER
 from osprey_connectors.posture_store import (
     CONTROL_CONTEXT_DIR_ENV_VAR,
     CONTROL_CONTEXT_TREE_ENV_VAR,
     CONTROL_OWNER_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +132,11 @@ def _approval_entry(timeout: int) -> HookEntry:
 
 
 _APPROVAL = _approval_entry(5)
-#: Approval for the Bluesky arming pair, whose prompt renders the queue over
-#: the bridge before an operator can answer: the preview IS the approval, so
-#: these two buy the budget it needs. Every other prompt answers from data the
-#: hook already holds and keeps the default.
+#: Approval for the prompts that render what the call would move, fetched over
+#: HTTP before an operator can answer — the Bluesky arming pair's queue over the
+#: bridge, the trajectory apply's pending step from the service: the preview IS
+#: the approval, so these buy the budget it needs. Every other prompt answers
+#: from data the hook already holds, or one short read, and keeps the default.
 _APPROVAL_PREFLIGHT = _approval_entry(30)
 _WRITES_CHECK = HookEntry(
     command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
@@ -351,7 +352,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
+            # osprey_connectors.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
             # so the server resolves config even when launched with a CWD other
             # than the project dir (e.g. the dispatch worker's /app WORKDIR).
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
@@ -448,7 +449,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
@@ -629,7 +630,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         default_enabled=False,
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=["health_check"],
@@ -641,7 +642,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         condition="channel_finder_pipeline",
@@ -660,7 +661,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.graph",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         # Conditional on a declared graph store: ``graphdb_configured`` is a
@@ -715,6 +716,40 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
                 hooks=[_APPROVAL],
             ),
         ],
+    ),
+    "trajectory": ServerDefinition(
+        name="trajectory",
+        module="osprey.mcp_server.trajectory",
+        # The server reaches the trajectory service only through the terminal's
+        # proxy, with the panel token every agent child carries; the proxy
+        # injects the service's launch token. A deployment without the
+        # trajectory panel serves no such route, so the server is rendered only
+        # where the panel is declared (``config_declares_trajectory_panel``,
+        # read into this ctx key in cli/templates/claude_code.py).
+        condition="trajectory_panel_declared",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Reading the pending step moves nothing. A shot fires the injection
+        # chain and an apply writes correctors, so a human sees both.
+        permissions_allow=["trajectory_step"],
+        permissions_ask=["trajectory_shot", "trajectory_apply"],
+        # The approval hook binds each call to the service's target, and an
+        # apply to the step or put-back the prompt showed; the server refuses
+        # a call without that stamp. An apply's prompt renders the pending
+        # step fetched from the service, so it buys the pre-flight budget.
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__trajectory__trajectory_shot",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__trajectory__trajectory_apply",
+                hooks=[_APPROVAL_PREFLIGHT],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__trajectory__.*")],
     ),
 }
 
@@ -1087,7 +1122,7 @@ TOOL_PREFIX_ENV = "OSPREY_MCP_TOOL_PREFIX"
 # assignment.
 #
 # The set is spelled off its AUTHORITATIVE SOURCES, not off hand-picked
-# markers: the whole identity ladder (``osprey.utils.identity``, every rung —
+# markers: the whole identity ladder (``osprey_connectors.identity``, every rung —
 # stripping only the lower rung left the winning ``OSPREY_TERMINAL_USER``
 # pinnable, which misrouted a server's entire ledger into an unmounted
 # subdirectory) and the posture value itself (``osprey.audit.posture``). Both

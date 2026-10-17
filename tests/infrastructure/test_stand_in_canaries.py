@@ -29,10 +29,6 @@ CANARIES: dict[str, str] = {
     "lume-base states SolveError, the base of every LUME engine's no-solve exception.": (
         "tests/simulation/test_lume_pin.py::test_no_lume_base_class_is_behind_the_orbit_solve_error"
     ),
-    "pyAML reads a zero-length magnet's polynomials as its integrated strength; "
-    "the length borrow and its refusals go with it.": (
-        "tests/pyaml_cs_osprey/test_pyaml_pin.py::test_pyaml_still_reads_a_zero_length_magnet_as_zero"
-    ),
     "pyAML reads a dipole kick held in KickAngle; "
     "polynomial_kicks and its EnginePlugin row go with it.": (
         "tests/pyaml_cs_osprey/test_pyaml_pin.py::test_pyaml_still_reads_no_kick_angle"

@@ -81,12 +81,46 @@
   - booster ring
 - id: BTS
   level: machine
-  description: 'Booster-to-Storage Transfer Line (BTS): Beam transport line that guides accelerated beam from booster ring to storage ring. ~35m beamline with steering magnets, quadrupoles, and diagnostics.'
+  description: 'Booster-to-Storage Transfer Line (BTS): the transfer line, about 35 m long, that carries the 2.0 GeV beam extracted from the booster to injection into the storage ring. Bending magnets route it, focusing and defocusing quadrupoles match its optics, and horizontal and vertical correctors steer it onto the injection septa. Beam position monitors with sum signals, an integrating current transformer, and screens up to the storage ring''s first screen follow the beam; a paddle summary counts the screens in the beam.'
   names:
   - booster-to-storage transfer line
+  - booster to storage
+  - BTS
+  - storage ring injection line
+  span:
+    model: BTS
+    from_marker: START
 - id: LINE
   level: machine
   description: 'Transfer line (LINE): single-pass line of 4 focusing-defocusing cells, each with one BPM, one horizontal and one vertical corrector and two quadrupoles.'
   span:
     model: LINE
+    from_marker: START
+- id: GTL
+  level: machine
+  description: 'Gun-to-Linac Line (GTL): the start of the injector. A thermionic electron gun produces the beam; bucking coils cancel the solenoid field on its cathode, two sub-harmonic bunchers compress the long gun pulse into bunches the linac can capture, and solenoids hold the low-energy beam together on its way to the linac. Correctors steer it, beam position monitors and screens show where it is, and an integrating current transformer measures the charge the gun delivers.'
+  names:
+  - gun-to-linac line
+  - gun to linac
+  - GTL
+  - electron gun line
+  - injector front end
+- id: LN
+  level: machine
+  description: 'Linac (LN): the linear accelerator that takes the bunched beam from the gun-to-linac line to 150 MeV. A buncher cavity and two travelling-wave accelerating sections, phased from the master RF and held at temperature by their cooling water, provide the energy gain; solenoids and quadrupoles focus the beam, correctors steer it, and beam position monitors, screens and an integrating current transformer measure it.'
+  names:
+  - linac
+  - linear accelerator
+  - LN
+  - injector linac
+- id: LTB
+  level: machine
+  description: 'Linac-to-Booster Line (LTB): the transfer line that carries the 150 MeV linac beam to injection into the booster. Bending magnets route it, focusing and defocusing quadrupoles match its optics to the booster, correctors steer it, and beam position monitors, screens and an integrating current transformer follow the beam and its transmitted charge along the way.'
+  names:
+  - linac-to-booster line
+  - linac to booster
+  - LTB
+  - booster injection line
+  span:
+    model: LTB
     from_marker: START

@@ -38,6 +38,7 @@ Access 5064 and pvAccess port, and a collision on either says so rather than
 sending an operator to a knob that cannot move it.
 """
 
+import contextlib
 import json
 import socket
 import subprocess
@@ -91,7 +92,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.host_ports")
 
@@ -1004,10 +1005,8 @@ def _record_from_ps_obj(obj):
             if isinstance(item, dict):
                 published = item.get("host_port") or item.get("hostPort")
                 if published:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         host_ports.add(int(published))
-                    except (TypeError, ValueError):
-                        pass
             elif isinstance(item, str):
                 host_ports |= _host_ports_from_ports_string(item)
 

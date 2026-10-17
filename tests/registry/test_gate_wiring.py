@@ -597,6 +597,8 @@ _APPROVAL_RULE_TABLE: frozenset[tuple[str, str, str, int]] = frozenset(
         ("bluesky", "pre", "mcp__bluesky__write_plan", 5),
         ("bluesky", "pre", "mcp__bluesky__validate_plan", 5),
         ("event_dispatcher", "pre", "mcp__event_dispatcher__manual_fire", 5),
+        ("trajectory", "pre", "mcp__trajectory__trajectory_shot", 5),
+        ("trajectory", "pre", "mcp__trajectory__trajectory_apply", 30),
     }
 )
 
@@ -640,21 +642,48 @@ def test_approval_budget_flag_equals_its_timeout() -> None:
         )
 
 
-def test_only_the_bluesky_arming_pair_carries_the_preflight_budget() -> None:
-    """``queue_add`` and ``queue_start`` get 30 s; every other prompt keeps 5 s.
+#: The trajectory apply, whose prompt renders the pending step fetched from the
+#: trajectory service: the deltas it shows are what the approval is for.
+_TRAJECTORY_APPLY_MATCHER = "mcp__trajectory__trajectory_apply"
 
-    Those two are the prompts that render a queue preview over the bridge
-    before an operator can answer — the arming pair, so the preview is what the
-    approval is FOR. Every other approval prompt answers from data the hook
-    already holds and needs no budget beyond the default.
+
+def test_only_the_preflight_prompts_carry_the_preflight_budget() -> None:
+    """The Bluesky arming pair and the trajectory apply get 30 s; every other prompt keeps 5 s.
+
+    Those are the prompts that render what the call would move, fetched over
+    HTTP before an operator can answer — a queue preview over the bridge, the
+    pending correction step from the trajectory service — so the preview is
+    what the approval is FOR. Every other approval prompt answers from data the
+    hook already holds, or from one short read, and needs no budget beyond the
+    default.
     """
     wide = {matcher for _s, _e, matcher, timeout, _c in _approval_hooks() if timeout != 5}
-    assert wide == {bsky.matcher(tool) for tool in bsky.ARMING_TOOLS}
+    assert wide == {bsky.matcher(tool) for tool in bsky.ARMING_TOOLS} | {_TRAJECTORY_APPLY_MATCHER}
 
     for _s, _e, matcher, timeout, command in _approval_hooks():
         if matcher in wide:
             assert timeout == 30, f"{matcher} pre-flight budget must be 30s"
             assert "--budget 30" in command, f"{matcher} must hand the hook a 30s budget"
+
+
+def test_trajectory_shot_and_apply_ask_and_step_reads_unprompted() -> None:
+    """A shot and an apply meet the approval hook; reading the step does not.
+
+    A shot fires the injection chain and an apply writes correctors, so the
+    server refuses either without the hook's ask stamp: an unwired matcher is a
+    call that always fails. Reading the pending step moves nothing, so it is
+    allowed outright and never reaches the hook.
+    """
+    definition = FRAMEWORK_SERVERS["trajectory"]
+    wired = {
+        rule.matcher
+        for rule in definition.hooks_pre
+        for hook in rule.hooks
+        if "osprey_approval.py" in hook.command
+    }
+    assert wired == {"mcp__trajectory__trajectory_shot", _TRAJECTORY_APPLY_MATCHER}
+    assert "trajectory_step" in definition.permissions_allow
+    assert {"trajectory_shot", "trajectory_apply"} <= set(definition.permissions_ask)
 
 
 # ---------------------------------------------------------------------------

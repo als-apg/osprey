@@ -409,7 +409,7 @@ async def test_a_clock_tick_on_a_full_queue_is_dropped_and_the_next_slot_still_f
 
 @pytest.mark.asyncio
 async def test_the_facility_zone_comes_from_system_timezone(monkeypatch, tmp_path, caplog):
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     (tmp_path / "config.yml").write_text("system:\n  timezone: Europe/Berlin\n")
     monkeypatch.chdir(tmp_path)

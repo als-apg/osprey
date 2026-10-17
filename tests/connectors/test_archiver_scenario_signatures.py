@@ -34,9 +34,9 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.va_in_process_connector import simulation_state_dir
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_system.va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from tests.facility.served_tree import in_process_config
 

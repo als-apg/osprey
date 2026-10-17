@@ -28,6 +28,7 @@ behind would also reach the next test in the process.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -246,10 +247,8 @@ def write_payload(path: Path, payload: Any) -> Path:
             json.dump(payload, handle, indent=2)
         os.replace(tmp, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
     control_context.invalidate_cache()
     return path

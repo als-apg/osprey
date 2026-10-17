@@ -95,7 +95,7 @@ def test_a_placeholder_default_applies_when_the_variable_is_unset(tmp_path, monk
     monkeypatch.delenv("CF_DB", raising=False)
     assert _ml_database(load_cf_config(_logger())) == {"path": "data/demo.json"}
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     _cfg._config_cache.clear()
     monkeypatch.setenv("CF_DB", "")
@@ -135,7 +135,7 @@ def test_a_non_mapping_config_warns_and_returns_empty(tmp_path, monkeypatch, cap
 
 
 def test_the_primed_builder_is_reused(tmp_path, monkeypatch):
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
     from osprey.mcp_server.startup import prime_config_builder
 
     _write_osprey_config(tmp_path, monkeypatch, "facility:\n  name: ERF\n")

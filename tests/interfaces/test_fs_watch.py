@@ -223,19 +223,23 @@ class TestTheConfiguredInterval:
         assert reconcile_interval_seconds() == DEFAULT_RECONCILE_SECONDS
 
     def test_a_configured_positive_number_is_honoured(self, monkeypatch):
-        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda key, default=None: 7.5)
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", lambda key, default=None: 7.5
+        )
 
         assert reconcile_interval_seconds() == 7.5
 
     def test_a_configured_integer_is_honoured_as_seconds(self, monkeypatch):
-        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda key, default=None: 5)
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", lambda key, default=None: 5
+        )
 
         assert reconcile_interval_seconds() == 5.0
 
     @pytest.mark.parametrize("configured", [0, -1, True, "2.0"])
     def test_anything_else_is_logged_and_the_default_kept(self, monkeypatch, caplog, configured):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value", lambda key, default=None: configured
+            "osprey_connectors.config.get_config_value", lambda key, default=None: configured
         )
 
         with caplog.at_level("WARNING", logger="osprey.interfaces.fs_watch"):

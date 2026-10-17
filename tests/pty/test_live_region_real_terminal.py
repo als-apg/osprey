@@ -52,6 +52,7 @@ POSIX only. ``pty`` is a POSIX module and the whole module skips elsewhere.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import select
@@ -702,7 +703,7 @@ def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
     from osprey.deployment.host_ports import parse_host_port_bindings
     from osprey.deployment.telemetry_config import store_deployed, store_port
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config = load_project_config(str(as_built_config_path(startable_repo)), wrap_errors=True)
     compose_files = [
@@ -968,10 +969,8 @@ def _kill_recorded_grandchild(pid_file: Path) -> None:
         pid = int(pid_file.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
 
 
 def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(

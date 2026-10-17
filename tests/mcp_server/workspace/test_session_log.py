@@ -718,7 +718,7 @@ async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypat
     stubs the class wholesale, which cannot see where it was aimed.
 
     The anchor must also be independent of the agent-data root: with
-    OSPREY_SESSION_ID set, ``resolve_workspace_root`` moves to
+    OSPREY_SESSION_ID set, ``resolve_agent_data_root`` moves to
     ``<root>/sessions/<id>``, so anything derived by walking up from it changes
     per session. Setting the variable here holds that property, not just the
     directory.

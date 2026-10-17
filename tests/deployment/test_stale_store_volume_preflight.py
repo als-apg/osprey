@@ -92,7 +92,7 @@ def deploy(monkeypatch, tmp_path):
 
 
 def _env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     path = tmp_path / ".env"
     return parse_dotenv_file(path) if path.is_file() else {}
@@ -342,7 +342,7 @@ class TestRestartChecksBeforeItStops:
 
         _, stopped, repo = restart(fake, reuse_stores=True)
 
-        from osprey.utils.dotenv import parse_dotenv_file
+        from osprey_connectors.dotenv import parse_dotenv_file
 
         assert parse_dotenv_file(repo / ".env")["MONGO_ROOT_PASSWORD"] == "theoriginal"
         assert stopped == [True, False]  # stopped, then started

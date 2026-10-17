@@ -80,11 +80,14 @@ gallery refusal and a config refusal never share a file.
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
    * - ``trajectory_service.jsonl`` (under ``var/audit/trajectory/``)
-     - Each trajectory session open, take-over and release, allowed or
-       refused, through either door. ``actor`` is the session's owner, not
-       the service; ``detail`` names the owner, the door (``kind=``) and the
-       target, and a release's only the owner, the target and the
-       ``client_id``. See :ref:`reference-trajectory-service`
+     - Each writing action of the trajectory service --- session open,
+       take-over and release, Stop, shot, apply, put-back, setup, continuous
+       start, reference save and select --- allowed or refused, through
+       either door. ``actor`` is the session's owner, not the service;
+       ``detail`` names the owner, the door (``kind=``) and the target, and
+       what the action did (an apply's ``step_digest`` and what ``moved``, a
+       shot's ``commands_fired``); a release's names only the owner, the
+       target and the ``client_id``. See :ref:`reference-trajectory-service`
 
 ``decision`` reads ``allowed`` or ``refused`` on almost all of them.
 ``hook_approval.jsonl`` has three words of its own, all on the same

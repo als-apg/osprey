@@ -19,15 +19,15 @@ import pytest
 from pyaml.accelerator import Accelerator
 
 import osprey.runtime
-from osprey.errors import (
-    ChannelLimitsViolationError,
-    ChannelWriteBlockedError,
-)
 from osprey.runtime.guarded_run import GuardedRunDirError, lock
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
+)
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
 )
 from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey import _run

@@ -89,7 +89,8 @@ partition to the table.
 #: the producer of :data:`CLIENT_PACKAGES`: a readonly run refuses to
 #: import any top-level package named here.
 _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # --- EPICS Channel Access (pyepics) ---
+    # --- EPICS Channel Access (pyepics). Not a dependency; guarded in case a
+    # user installs it.
     ("epics", ("caput", "caput_many")),
     ("epics.PV", ("put",)),
     ("epics.ca", ("put", "sg_put")),
@@ -107,10 +108,10 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # plain import of it is refused in a readonly run; ``importlib`` gets past
     # that check, which is why both names are refused at runtime too, and the
     # ``libca`` handle under them in :data:`_ESCAPE_ROUTES`. An armed run
-    # refuses both names as well — they sit in :data:`_ARMED_BLOCKED`. pyepics
-    # loads a handle of its own through ``ctypes`` rather than this binding,
-    # and the ``ctypes`` rows of :data:`_ESCAPE_ROUTES` refuse the put symbols
-    # on that handle.
+    # refuses both names as well — they sit in :data:`_ARMED_BLOCKED`. A
+    # user-installed pyepics loads a handle of its own through ``ctypes``
+    # rather than this binding; a readonly run refuses that load at the
+    # ``ctypes`` rows of :data:`_ESCAPE_ROUTES`.
     ("epicscorelibs.ca.cadef", ("ca_array_put", "ca_array_put_callback")),
     # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
     # server-side SharedPV, which puts values on the wire when it is opened or
@@ -289,13 +290,13 @@ _ESCAPE_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     # --- Loading a shared library sidesteps every Python-level guard above:
     # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
-    # single client package. The class is gated, not its module attribute, so
-    # ``cdll.LoadLibrary``, ``cdll.libca``, ``cdll._dlltype``, ``PyDLL`` and
-    # ``type(handle)`` all load through the same ``__init__``. It is gated
-    # rather than refused outright: pyepics, which a readonly run reads through
-    # via ``osprey.runtime``, loads ``libca`` this way, so its own load is
-    # permitted. Every other load refuses. ``__getitem__`` refuses the put
-    # symbols on every handle, the ones loaded before the gate included.
+    # single client package. The class is refused, not its module attribute,
+    # so ``cdll.LoadLibrary``, ``cdll.libca``, ``cdll._dlltype``, ``PyDLL``
+    # and ``type(handle)`` all refuse through the same ``__init__``. Every
+    # load refuses: the one handle a readonly run reads through
+    # ``osprey.runtime`` with is the ``cadef`` handle above, loaded at
+    # install. ``__getitem__`` refuses the put symbols on every handle, the
+    # ones loaded before the gate included.
     ("ctypes.CDLL", ("__init__", "__getitem__")),
 )
 

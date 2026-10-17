@@ -19,6 +19,7 @@ Partial-data friendly: missing (model,seed) runs render as "pending". Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import glob
 import html
@@ -184,10 +185,8 @@ def load(results_dir: str) -> dict:
         for line in open(f):
             line = line.strip()
             if line:
-                try:
+                with contextlib.suppress(Exception):
                     raw.append(json.loads(line))
-                except Exception:
-                    pass
         if not raw:
             continue
         tests = collapse_reruns(raw)
@@ -273,10 +272,8 @@ def load_query_timing(results_dir: str) -> dict[str, list[dict]]:
         for line in open(f):
             line = line.strip()
             if line:
-                try:
+                with contextlib.suppress(Exception):
                     out[model].append(json.loads(line))
-                except Exception:
-                    pass
     return out
 
 

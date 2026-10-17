@@ -28,7 +28,7 @@ import os
 import time
 import uuid
 from collections.abc import Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -787,10 +787,8 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 run_id,
                 existing.get("error"),
             )
-            try:
+            with suppress(Exception):
                 await queue.put({"type": "error", "message": existing.get("error", "cancelled")})
-            except Exception:
-                pass
             raise
         # Genuine user cancel of a still-pending run: a run-level terminal state.
         logger.warning("Dispatch %s cancelled by user", run_id)
@@ -801,12 +799,10 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             extra={"cancelled": True},
         )
         _record_terminal(run_id, accepted, err_result, request.owner)
-        try:
+        # Best-effort SSE notify during cancellation: the run is already
+        # recorded as cancelled above, so a closed/full queue here is non-fatal.
+        with suppress(Exception):
             await queue.put({"type": "error", "message": "cancelled by user"})
-        except Exception:
-            # Best-effort SSE notify during cancellation: the run is already
-            # recorded as cancelled above, so a closed/full queue here is non-fatal.
-            pass
         raise
     except Exception as exc:
         logger.error("Dispatch %s failed: %s", run_id, exc, exc_info=True)

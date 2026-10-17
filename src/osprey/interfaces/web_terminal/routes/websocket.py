@@ -447,10 +447,8 @@ async def _run_output_loop(
                 frame = _transcript_missing_frame(resume_id, code)
             else:
                 frame = json.dumps({"type": "exit", "code": code})
-            try:
+            with suppress(Exception):
                 await websocket.send_text(frame)
-            except Exception:
-                pass
 
 
 def _build_extra_env(
@@ -652,10 +650,8 @@ class _TerminalChannel:
 
     async def send_text(self, text: str) -> None:
         """Send a control frame, tolerating a socket that is already gone."""
-        try:
+        with suppress(Exception):
             await self.websocket.send_text(text)
-        except Exception:
-            pass
 
     async def send_json(self, frame: dict[str, Any]) -> None:
         await self.send_text(json.dumps(frame))
@@ -3306,10 +3302,9 @@ async def logout_terminal(request: Request, response: Response):
     logger.info("PTY session(s) terminated for logout")
 
     # Terminate all operator sessions if active
-    try:
+    # May not have active operator sessions
+    with suppress(Exception):
         await operator_registry.cleanup_all()
-    except Exception:
-        pass  # May not have active operator sessions
 
     return {
         "status": "ok",
@@ -3352,7 +3347,7 @@ async def operator_ws(websocket: WebSocket):
         session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)
-        try:
+        with suppress(Exception):
             await websocket.send_json(
                 {
                     "type": "error",
@@ -3360,8 +3355,6 @@ async def operator_ws(websocket: WebSocket):
                     "error_type": type(exc).__name__,
                 }
             )
-        except Exception:
-            pass
         await websocket.close()
         return
 
@@ -3404,9 +3397,7 @@ async def operator_ws(websocket: WebSocket):
     finally:
         if forward_task is not None:
             forward_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await forward_task
-            except asyncio.CancelledError:
-                pass
         if session is not None:
             await registry.terminate_session_if_owner(operator_key, session)

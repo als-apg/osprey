@@ -25,7 +25,6 @@ from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
-from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.served import SIMULATION_MODELS_KEY
 from osprey.port_layout import (
@@ -35,6 +34,7 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.types import (

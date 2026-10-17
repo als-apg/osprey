@@ -79,8 +79,8 @@ from osprey.profiles.web_panels import (
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
-from osprey.utils.config import get_facility_timezone
 from osprey.utils.seconds import positive_seconds
+from osprey_connectors.config import get_facility_timezone
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -291,10 +291,9 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
 
     def on_exit() -> None:
         # Runs on the sidecar's watcher thread; ``app.state`` belongs to the loop.
-        try:
+        # the loop is closed: shutdown has already torn the state down
+        with suppress(RuntimeError):
             loop.call_soon_threadsafe(retract)
-        except RuntimeError:
-            pass  # the loop is closed: shutdown has already torn the state down
 
     # Registered last: a setter that fires when the exit already happened
     # closes the gap between readiness and this line.
@@ -497,7 +496,7 @@ DEFAULT_RAIL_POSITION = "left"
 #: this again", or completing the tour). ``always``: the invite shows on
 #: every load and offers no permanent dismissal — the shared read-only
 #: screen case. ``never``: no automatic invite; the tour stays reachable
-#: from the rail's Tour control and the command palette.
+#: from the rail's More menu and the command palette.
 TOUR_POLICIES = ("once", "always", "never")
 DEFAULT_TOUR_POLICY = "once"
 
@@ -616,6 +615,8 @@ DEFAULT_BAR_LAYOUT: dict = {
     ],
     "header_visible": True,
     "status_visible": True,
+    "rail_docs_visible": True,
+    "rail_feedback_visible": True,
 }
 
 #: The ADOPTED item types: the ones whose body is a literal block in
@@ -998,6 +999,8 @@ class BarRenderPlan(NamedTuple):
             place — their nodes go into ``#bar-item-pool``.
         header_visible: False ⇒ ``<html data-header-bar="hidden">``.
         status_visible: False ⇒ ``<html data-status-bar="hidden">``.
+        rail_docs_visible: False ⇒ ``<html data-rail-docs="hidden">``.
+        rail_feedback_visible: False ⇒ ``<html data-rail-feedback="hidden">``.
     """
 
     header: list[dict]
@@ -1005,6 +1008,8 @@ class BarRenderPlan(NamedTuple):
     pooled: list[str]
     header_visible: bool
     status_visible: bool
+    rail_docs_visible: bool = True
+    rail_feedback_visible: bool = True
 
 
 def effective_bar_layout(app: FastAPI) -> dict:
@@ -1193,6 +1198,8 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
         pooled=pooled,
         header_visible=bool(layout.get("header_visible", True)),
         status_visible=bool(layout.get("status_visible", True)),
+        rail_docs_visible=bool(layout.get("rail_docs_visible", True)),
+        rail_feedback_visible=bool(layout.get("rail_feedback_visible", True)),
     )
 
 
@@ -1244,7 +1251,7 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
     """
     if config_path is None:
         return PrivilegeGates(True, True)
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         panel_raw = get_config_value("web.config_panel.enabled", True, str(config_path))
@@ -1423,7 +1430,7 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             operator who wrote the id is the only one who can change it.
     """
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config = load_osprey_config()
     except Exception:
@@ -1530,7 +1537,7 @@ def _load_panel_runtime_config(
     allow_runtime_panels = False
     runtime_panel_allowlist: list[str] | None = None
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         web_cfg = load_osprey_config().get("web", {})
         allow_runtime_panels = bool(web_cfg.get("allow_runtime_panels", False))
@@ -1583,7 +1590,7 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         raw_presets = load_osprey_config().get("web", {}).get("presets", {})
     except Exception:
@@ -2082,7 +2089,7 @@ def _create_lifespan(
         # The route handlers re-read the two timeouts off app.state via getattr
         # with these same defaults, so the attribute names are load-bearing.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
             chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
@@ -2159,7 +2166,7 @@ def _create_lifespan(
                 logger.debug("Auto-set OSPREY_CONFIG=%s", candidate)
 
         # Clear any stale config cache (e.g. from web_cmd.py pre-lifespan call)
-        from osprey.utils.workspace import reset_config_cache
+        from osprey_connectors.workspace import reset_config_cache
 
         reset_config_cache()
 
@@ -2242,7 +2249,7 @@ def _create_lifespan(
         # top-level `web` section the panel loaders in this file use). Fails open
         # to the default mode on any config-read error.
         try:
-            from osprey.utils.workspace import load_osprey_config
+            from osprey_connectors.workspace import load_osprey_config
 
             configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
             app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
@@ -2261,7 +2268,7 @@ def _create_lifespan(
         # at startup; GET /api/panels echoes it to the browser. Fails open to
         # the default policy on any config-read error.
         try:
-            from osprey.utils.workspace import load_osprey_config
+            from osprey_connectors.workspace import load_osprey_config
 
             configured_tour = os.environ.get(
                 "OSPREY_WEB_TOUR", ""
@@ -2283,7 +2290,7 @@ def _create_lifespan(
         # depend on that API field — this attribute is the authoritative rung.
         # Fails open to the default position on any config-read error.
         try:
-            from osprey.utils.workspace import load_osprey_config
+            from osprey_connectors.workspace import load_osprey_config
 
             configured_rail = load_osprey_config().get("web", {}).get("rail_position")
             app.state.web_rail_position = resolve_rail_position(
@@ -2393,7 +2400,7 @@ def _create_lifespan(
 
         _spec = None
         if app.state.config_path:
-            from osprey.utils.workspace import repo_root_for_config
+            from osprey_connectors.workspace import repo_root_for_config
 
             _project_dir = Path(app.state.config_path).parent
             # load_provider_spec expands ${VAR} in provider config before
@@ -2460,7 +2467,7 @@ def _create_lifespan(
         if config.get("watch_dir"):
             workspace_dir = Path(config["watch_dir"]).resolve()
         else:
-            from osprey.utils.workspace import (
+            from osprey_connectors.workspace import (
                 agent_data_base_dir,
                 anchored_path,
                 load_osprey_config,
@@ -2494,7 +2501,7 @@ def _create_lifespan(
         # whether the leaf outranks the owner block. Every other key reads with
         # its default, as before.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             raw_docs_url = get_config_value("web.docs_url", DEFAULT_DOCS_URL)
             raw_github_repo = get_config_value("web.feedback.github_repo", None)
@@ -2540,7 +2547,7 @@ def _create_lifespan(
         # Nothing here varies per report, so it is resolved once at startup:
         # no per-submission composition, and no fitting to a URL length cap.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             raw_preset = get_config_value("provenance.preset", None)
             raw_preset_hash = get_config_value("provenance.preset_hash", None)
@@ -2569,7 +2576,7 @@ def _create_lifespan(
         # every store spans sessions. They are siblings under one root: feedback
         # records, the per-user bar arrangement, and the sidecars' start records.
         try:
-            from osprey.utils.workspace import resolve_shared_data_root
+            from osprey_connectors.workspace import resolve_shared_data_root
 
             shared_data_root = resolve_shared_data_root()
         except Exception:  # never let config load block startup
@@ -2738,7 +2745,7 @@ def _create_lifespan(
         # The sidecar startup wait, resolved once here after the config cache
         # reset; every sidecar launch, startup or retry, reads it from app.state.
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             app.state.sidecar_ready_timeout_s = resolve_sidecar_ready_timeout(
                 get_config_value(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
@@ -3009,6 +3016,8 @@ def create_app(
                 "bar_pooled": plan.pooled,
                 "bar_header_visible": plan.header_visible,
                 "bar_status_visible": plan.status_visible,
+                "rail_docs_visible": plan.rail_docs_visible,
+                "rail_feedback_visible": plan.rail_feedback_visible,
                 "bar_context": bar_context,
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels

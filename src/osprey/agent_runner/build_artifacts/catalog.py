@@ -433,7 +433,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="services/trajectory",
             template_path="trajectory",
             output_path="services/trajectory",
-            description="Trajectory service compose template",
+            description="Trajectory service compose template + VA sequence module",
             template_root="services",
             is_directory=True,
         ),

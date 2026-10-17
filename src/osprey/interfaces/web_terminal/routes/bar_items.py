@@ -1,7 +1,9 @@
 """The per-user bar layout, over HTTP.
 
 Three verbs on one document — ``{version, rev, header, status,
-header_visible, status_visible}`` — the arrangement of one operator's header and status bar:
+header_visible, status_visible, rail_docs_visible, rail_feedback_visible}`` —
+the arrangement of one operator's header and status bar, and which of the rail's
+hideable utility controls they keep:
 
 * ``GET /api/bar-items`` answers what this deployment would render right now.
 * ``PUT /api/bar-items`` saves an arrangement, conditional on the revision the
@@ -302,9 +304,10 @@ async def read_bar_items(request: Request) -> dict:
     which hands back a copy of its own.
 
     Returns:
-        ``{version, rev, header, status, header_visible, status_visible}``. ``rev`` is ``0``
-        when the operator has saved nothing, which is what a first conditional
-        save should send back.
+        ``{version, rev, header, status, header_visible, status_visible,
+        rail_docs_visible, rail_feedback_visible}``. ``rev`` is ``0`` when
+        the operator has saved nothing, which is what a first conditional save
+        should send back.
     """
     return _effective(request)
 

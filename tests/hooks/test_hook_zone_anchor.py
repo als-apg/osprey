@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils import workspace
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
+from osprey_connectors import workspace
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
 
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
@@ -446,7 +446,7 @@ class TestLegacyFlatLayout:
     def test_build_named_config_parent_without_marker(self, tmp_path, hook_module):
         """A render whose repo lost its ``profile.yml`` still resolves one level up.
 
-        Mirrors ``osprey.utils.workspace.repo_root_for_config``: the build zone's
+        Mirrors ``osprey_connectors.workspace.repo_root_for_config``: the build zone's
         name is the fallback signal when the marker is missing.
         """
         repo = tmp_path / "deployment"
@@ -655,8 +655,8 @@ def test_hook_constants_match_the_framework(hook_module):
     would let them drift silently, so the drift is asserted here instead.
     """
     from osprey.cli.repo_resolver import PROFILE_FILENAME
-    from osprey.utils.workspace import BUILD_DIR_NAME
-    from osprey.utils.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
 
     hook_log = hook_module("osprey_hook_log")
 
@@ -732,7 +732,7 @@ def test_feedback_capture_lands_where_the_review_app_reads_under_a_relocated_roo
 
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     loaded = yaml.safe_load(config_file.read_text())
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: loaded)
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: loaded)
     app = create_app(project_cwd=str(build))
     with TestClient(app):
         pending_path = app.state.pending_review_store._path

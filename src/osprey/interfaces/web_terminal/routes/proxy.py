@@ -65,11 +65,11 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
-from osprey.utils.config import get_facility_timezone
 from osprey.utils.http_proxy import HOP_BY_HOP
-from osprey.utils.identity import acting_identity
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,31 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
         path: The path segment below the panel id, without a leading slash.
     """
     return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
+
+
+#: The panel id the trajectory service is declared under. The same spelling as
+#: ``web_terminal.app.TRAJECTORY_PANEL_ID``, which this module cannot import.
+_TRAJECTORY_PANEL_ID = "trajectory"
+
+#: The bounds of the hop to the trajectory service's agent door: a connect
+#: bound and no read bound. A shot or an apply answers only when its action
+#: ends, which can be minutes; the agent's MCP client bounds the call by the
+#: service's own budgets, and the shared client's 30 s read bound would cut a
+#: running action's answer off while the service still works on it.
+_TRAJECTORY_AGENT_HOP_TIMEOUT = httpx.Timeout(None, connect=5.0)
+
+
+def _is_trajectory_agent_hop(panel_id: str, path: str) -> bool:
+    """Whether this request is the hop to the trajectory service's agent door.
+
+    The agent door is the service's ``/api/*`` tree; the panel door
+    (``panel/api/*``) and the panel's page are ordinary panel traffic.
+
+    Args:
+        panel_id: The panel id from the proxied URL.
+        path: The path segment below the panel id, without a leading slash.
+    """
+    return panel_id == _TRAJECTORY_PANEL_ID and path.startswith("api/")
 
 
 #: Request headers that are never forwarded to a panel backend.
@@ -547,7 +572,7 @@ def _panel_auth_header(
 def _owner_header(scope: Request | WebSocket, panel_id: str, backend_url: str) -> dict[str, str]:
     """Who this process says is driving, or ``{}`` for a backend not told.
 
-    Minted from :func:`~osprey.utils.identity.acting_identity` — the account
+    Minted from :func:`~osprey_connectors.identity.acting_identity` — the account
     this container runs as — and never from anything that arrived. The value
     decides whose chip gates the writes a queued plan makes, so an inbound
     header is a claim rather than evidence: the strip above and this mint are
@@ -598,6 +623,7 @@ async def _request_no_redirect(
     url: str,
     headers: dict[str, str],
     content: bytes | None,
+    timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
     """Send one panel request without letting httpx chase redirects.
 
@@ -619,13 +645,25 @@ async def _request_no_redirect(
     The redirect is relayed to the browser instead (:func:`_relay_redirect`),
     whose re-request is re-gated by the terminal's own auth and, if it comes
     back through a panel path, earns a freshly evaluated injection.
+
+    *timeout* replaces the shared client's bounds for this one request;
+    ``None`` keeps them.
     """
+    if timeout is None:
+        return await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=content,
+            follow_redirects=False,
+        )
     return await client.request(
         method=method,
         url=url,
         headers=headers,
         content=content,
         follow_redirects=False,
+        timeout=timeout,
     )
 
 
@@ -1539,6 +1577,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             url=target,
             headers=fwd_headers,
             content=body if body else None,
+            timeout=_TRAJECTORY_AGENT_HOP_TIMEOUT
+            if _is_trajectory_agent_hop(panel_id, path)
+            else None,
         )
         if _is_redirect(resp):
             return _relay_redirect(

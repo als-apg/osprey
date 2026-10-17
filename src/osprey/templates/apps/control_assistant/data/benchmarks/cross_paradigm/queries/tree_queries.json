@@ -145,7 +145,7 @@
     "category": "ambiguous"
   },
   {
-    "user_query": "Show me the second focusing quad setpoint in the transfer line",
+    "user_query": "Show me the second focusing quad setpoint in the booster-to-storage transfer line",
     "targeted_pv": [
       "BTS:MAG:QF:02:CURRENT:SP"
     ],
@@ -209,12 +209,18 @@
       "BTS:MAG:HCM:04:CURRENT:SP",
       "BTS:MAG:HCM:05:CURRENT:SP",
       "BTS:MAG:HCM:06:CURRENT:SP",
+      "BTS:MAG:HCM:07:CURRENT:SP",
+      "BTS:MAG:HCM:08:CURRENT:SP",
+      "BTS:MAG:HCM:09:CURRENT:SP",
       "BTS:MAG:VCM:01:CURRENT:SP",
       "BTS:MAG:VCM:02:CURRENT:SP",
       "BTS:MAG:VCM:03:CURRENT:SP",
       "BTS:MAG:VCM:04:CURRENT:SP",
       "BTS:MAG:VCM:05:CURRENT:SP",
-      "BTS:MAG:VCM:06:CURRENT:SP"
+      "BTS:MAG:VCM:06:CURRENT:SP",
+      "BTS:MAG:VCM:07:CURRENT:SP",
+      "BTS:MAG:VCM:08:CURRENT:SP",
+      "BTS:MAG:VCM:09:CURRENT:SP"
     ],
     "category": "cross-ring"
   },
@@ -302,6 +308,11 @@
       "BTS:MAG:QF:04:CURRENT:RB",
       "BTS:MAG:QF:05:CURRENT:RB",
       "BTS:MAG:QF:06:CURRENT:RB",
+      "BTS:MAG:QD:01:CURRENT:RB",
+      "BTS:MAG:QD:02:CURRENT:RB",
+      "BTS:MAG:QD:03:CURRENT:RB",
+      "BTS:MAG:QD:04:CURRENT:RB",
+      "BTS:MAG:QD:05:CURRENT:RB",
       "BR:DIAG:DCCT:01:CURRENT:RB"
     ],
     "category": "multi-target"
@@ -639,5 +650,95 @@
       "SR:MAG:SD:10:CURRENT:RB"
     ],
     "category": "near-miss"
+  },
+  {
+    "user_query": "What is the storage ring SEK injection septum current readback?",
+    "targeted_pv": [
+      "SR:MAG:SEPTUM:01:CURRENT:RB"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the phase setpoint of the electron gun?",
+    "targeted_pv": [
+      "GTL:GUN:EGUN:01:PHASE:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "Give me the gun-to-linac line solenoid current readbacks.",
+    "targeted_pv": [
+      "GTL:MAG:SOL:01:CURRENT:RB",
+      "GTL:MAG:SOL:02:CURRENT:RB",
+      "GTL:MAG:SOL:03:CURRENT:RB"
+    ],
+    "category": "aggregate"
+  },
+  {
+    "user_query": "What is the linac master RF phase setpoint?",
+    "targeted_pv": [
+      "LN:RF:MASTER:01:PHASE:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What are the linac solenoid current setpoints?",
+    "targeted_pv": [
+      "LN:MAG:SOL:01:CURRENT:SP",
+      "LN:MAG:SOL:02:CURRENT:SP",
+      "LN:MAG:SOL:03:CURRENT:SP",
+      "LN:MAG:SOL:04:CURRENT:SP"
+    ],
+    "category": "aggregate"
+  },
+  {
+    "user_query": "What is the current setpoint of the first defocusing quadrupole in the linac-to-booster transfer line?",
+    "targeted_pv": [
+      "LTB:MAG:QD:01:CURRENT:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What are the last three vertical corrector setpoints in the linac-to-booster transfer line?",
+    "targeted_pv": [
+      "LTB:MAG:VCM:05:CURRENT:SP",
+      "LTB:MAG:VCM:06:CURRENT:SP",
+      "LTB:MAG:VCM:07:CURRENT:SP"
+    ],
+    "category": "range"
+  },
+  {
+    "user_query": "What are the linac-to-booster transfer line bend setpoints?",
+    "targeted_pv": [
+      "LTB:MAG:DIPOLE:01:CURRENT:SP",
+      "LTB:MAG:DIPOLE:02:CURRENT:SP",
+      "LTB:MAG:DIPOLE:03:CURRENT:SP",
+      "LTB:MAG:DIPOLE:04:CURRENT:SP"
+    ],
+    "category": "aggregate"
+  },
+  {
+    "user_query": "Which channel moves the third booster-to-storage transfer line screen into the beam?",
+    "targeted_pv": [
+      "BTS:DIAG:TV:03:PADDLE:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the current readback of the third bend in the booster-to-storage transfer line?",
+    "targeted_pv": [
+      "BTS:MAG:DIPOLE:03:CURRENT:RB"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What are the horizontal corrector setpoints in the four-cell LINE transfer line?",
+    "targeted_pv": [
+      "LINE:MAG:HCM:01:CURRENT:SP",
+      "LINE:MAG:HCM:02:CURRENT:SP",
+      "LINE:MAG:HCM:03:CURRENT:SP",
+      "LINE:MAG:HCM:04:CURRENT:SP"
+    ],
+    "category": "aggregate"
   }
 ]

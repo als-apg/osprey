@@ -82,19 +82,19 @@ from osprey.runtime.guarded_run import (
     LOCK_FILE_NAME,
     guarded_run_dir,
 )
-from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.base import values_match
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
-    from osprey.connectors.control_system.base import ControlSystemConnector
-    from osprey.connectors.control_system.limits_validator import (
+    from osprey_connectors.control_context import ControlContext
+    from osprey_connectors.control_system.base import ControlSystemConnector
+    from osprey_connectors.control_system.limits_validator import (
         ChannelLimitsConfig,
         LimitsValidator,
     )
-    from osprey_connectors.control_context import ControlContext
 
 logger = get_logger("runtime")
 
@@ -490,7 +490,7 @@ async def _get_connector():
             _connector_launch_pin = launch_pin
 
         if _runtime_connector is None:
-            from osprey.connectors.factory import ConnectorFactory
+            from osprey_connectors.factory import ConnectorFactory
 
             config = _target_connector_config()
             if config is None:
@@ -680,7 +680,7 @@ def _phase_for_outcome(outcome: Any) -> str | None:
     ``unconfirmed``, ``failed`` and ``unrequested`` all put the value on the
     wire without verifying it held (``sent``); ``refused`` sent nothing.
     """
-    from osprey.connectors.control_system import WriteOutcome
+    from osprey_connectors.control_system import WriteOutcome
 
     if outcome is None or outcome == WriteOutcome.REFUSED:
         return None
@@ -732,7 +732,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    from osprey.errors import ChannelWriteFailedError
+    from osprey_connectors.errors import ChannelWriteFailedError
 
     _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
     try:
@@ -765,7 +765,7 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
 
 async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None) -> list[Any]:
     """Internal async implementation for reading several channels in one call."""
-    from osprey.errors import ChannelReadFailedError
+    from osprey_connectors.errors import ChannelReadFailedError
 
     # Each distinct address is asked for once; a repeated one is answered from
     # the same reading.
@@ -820,7 +820,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # through _write_channel_async.
         _assert_target_pin()
 
-        from osprey.connectors.control_system import raise_for_write_result
+        from osprey_connectors.control_system import raise_for_write_result
 
         connector = await _get_connector()
 
@@ -1156,10 +1156,9 @@ async def _close_pool() -> None:
 def _cleanup_on_exit() -> None:
     """Synchronous cleanup for atexit handler."""
     if _runtime_connector is not None or _connector_pool is not None:
-        try:
+        # Best effort cleanup
+        with contextlib.suppress(Exception):
             asyncio.run(cleanup_runtime())
-        except Exception:
-            pass  # Best effort cleanup
 
 
 atexit.register(_cleanup_on_exit)

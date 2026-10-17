@@ -39,7 +39,7 @@ from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS
 # helpers
 # ---------------------------------------------------------------------------
 
-CONFIG_TARGET = "osprey.utils.config.get_config_value"
+CONFIG_TARGET = "osprey_connectors.config.get_config_value"
 
 INLINE_KEY = "control_system.read_inline_max_elements"
 RETENTION_KEY = "control_system.channel_read_artifact_retention"

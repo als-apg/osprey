@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "gtb/embedded/_KnobDevice",
+  "metadata": {
+    "title": "_KnobDevice",
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [
+    {
+      "name": "CNTL_PV",
+      "default": ""
+    },
+    {
+      "name": "COLOR_CODE",
+      "default": ""
+    },
+    {
+      "name": "COLOR_PV",
+      "default": ""
+    },
+    {
+      "name": "DESC",
+      "default": ""
+    },
+    {
+      "name": "GAIN",
+      "default": ""
+    },
+    {
+      "name": "MAX",
+      "default": ""
+    },
+    {
+      "name": "MIN",
+      "default": ""
+    },
+    {
+      "name": "MON_PV",
+      "default": ""
+    },
+    {
+      "name": "P",
+      "default": ""
+    },
+    {
+      "name": "R",
+      "default": ""
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 100,
+      "height": 100
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 100
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "children": [
+          {
+            "id": "w-003",
+            "type": "pv-label",
+            "props": {
+              "pv": "${CNTL_PV}"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-004",
+            "type": "pv-label",
+            "props": {
+              "pv": "${MON_PV}"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            },
+            "rules": [
+              {
+                "id": "r-001",
+                "name": "Line Color",
+                "targetProperty": "lineColor",
+                "pvs": [
+                  {
+                    "name": "${COLOR_PV}",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 1",
+                    "value": "#00ff00"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "w-005",
+            "type": "text-label",
+            "props": {
+              "text": "${DESC}"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-006",
+            "type": "regular-button",
+            "props": {
+              "label": "",
+              "actions": [
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}RightPV",
+                  "value": "${CNTL_PV}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}RightGain",
+                  "value": "${GAIN}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}RightMin",
+                  "value": "${MIN}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}RightMax",
+                  "value": "${MAX}"
+                }
+              ]
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-007",
+            "type": "regular-button",
+            "props": {
+              "label": "",
+              "actions": [
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}LeftPV",
+                  "value": "${CNTL_PV}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}LeftGain",
+                  "value": "${GAIN}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}LeftMin",
+                  "value": "${MIN}"
+                },
+                {
+                  "type": "write_pv",
+                  "pvName": "${P}${R}LeftMax",
+                  "value": "${MAX}"
+                }
+              ]
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

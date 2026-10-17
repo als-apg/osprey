@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.errors import ChannelLimitsViolationError
 from osprey.facility.views.limits import limits_document
+from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.facility._limits_render import render_limits, validator_under
 from tests.facility.test_cf_view_parity import load_golden
 

@@ -67,10 +67,10 @@ from osprey.registry.mcp import (
     TOOL_PREFIX_ENV,
     resolve_servers,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
-from osprey.utils.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from osprey_connectors import posture_store
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
+from osprey_connectors.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 def _base_ctx(**overrides):

@@ -47,12 +47,11 @@ write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 {% if transport == 'ca' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead
-import epics
-epics.caget("SR:DIAG:BPM:01:POSITION:X")   # Bypasses audit logging
+import aioca
+await aioca.caget("SR:DIAG:BPM:01:POSITION:X")   # Bypasses audit logging
+await aioca.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Refused at runtime: RAW_CLIENT_WRITE
+import epics                                       # pyepics, if installed: the same
 epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Refused at runtime: RAW_CLIENT_WRITE
-from epics import PV
-pv = PV("SR:MAG:QF:01:CURRENT:SP")
-pv.put(150)  # Refused at runtime: RAW_CLIENT_WRITE
 ```
 
 {{ raw_put_refusal }}
@@ -84,7 +83,7 @@ you actually need.
 The `pvaccess` library (pvaPy) speaks both protocols, and the split follows
 the channel, not the library. A `Channel` opened on pvAccess — the default —
 takes the PVA exception above; one opened with `pvaccess.CA` is a Channel
-Access channel, and its puts are refused like `epics.caput`. A `MultiChannel`
+Access channel, and its puts are refused like `aioca.caput`. A `MultiChannel`
 write is refused whichever protocol it speaks, and `RpcClient(...).invoke(...)`
 is an rpc, refused like `ctxt.rpc(...)`. Reads go through `read_channel`:
 

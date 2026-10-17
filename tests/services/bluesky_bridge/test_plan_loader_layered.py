@@ -96,7 +96,7 @@ def _write(directory: Path, filename: str, source: str) -> Path:
 
 
 def _synthetic_module_name(path: Path) -> str:
-    digest = hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:16]
+    digest = hashlib.sha1(str(path.resolve()).encode(), usedforsecurity=False).hexdigest()[:16]
     return f"_osprey_bridge_plan_{digest}"
 
 

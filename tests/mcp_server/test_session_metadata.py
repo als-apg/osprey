@@ -14,7 +14,7 @@ def fake_project(tmp_path, monkeypatch):
     # The metadata gatherer resolves the repo root directly, rather than
     # inferring it from the agent-data root's position, so that is the seam.
     monkeypatch.setattr(
-        "osprey.utils.workspace.resolve_project_root",
+        "osprey_connectors.workspace.resolve_project_root",
         lambda config=None: tmp_path,
     )
 
@@ -197,7 +197,7 @@ class TestGatherSessionMetadata:
     def test_operator_floors_at_unknown(self, monkeypatch):
         """An unresolvable identity is spelled, not left empty."""
         from osprey.mcp_server import session
-        from osprey.utils.identity import UNKNOWN_IDENTITY
+        from osprey_connectors.identity import UNKNOWN_IDENTITY
 
         monkeypatch.setattr(session, "acting_identity", lambda: UNKNOWN_IDENTITY)
 

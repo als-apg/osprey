@@ -373,6 +373,53 @@ classes:
         inlined: true
         list_elements_ordered: true
         description: "The value as a weighted sum of other channels, `{<address>: <coefficient>}`."
+      pulse:
+        range: Pulse
+        inlined: true
+        description: The trace of a waveform channel, shaped in code and scaled by a driving channel.
+      gate:
+        range: Gate
+        inlined: true
+        description: "What the channel does while any of `inputs` reads its blocking label, beside `nominal`."
+
+  Pulse:
+    description: >-
+      The channels a waveform channel's trace follows; the trace's shape is
+      fixed in code, not in the seed.
+    attributes:
+      driver:
+        required: true
+        description: The address whose reading scales the trace.
+      enable:
+        required: true
+        description: The address of the bool channel that switches the trace on; off gives a flat zero trace.
+
+  Gate:
+    description: >-
+      Applies `gated` to a channel while any listed input reads its blocking
+      label; otherwise the channel behaves as its other seed keys say.
+    attributes:
+      inputs:
+        range: GateInput
+        multivalued: true
+        inlined: true
+        list_elements_ordered: true
+        required: true
+        description: "`{<address>: <blocking_label>}`."
+      gated:
+        range: Any
+        required: true
+        description: >-
+          The value while gated, typed by the gated channel: a factor > 0 on a
+          float channel, a label on a bool or enum channel, an integer on an
+          int channel.
+
+  GateInput:
+    attributes:
+      address:
+        key: true
+      blocking_label:
+        required: true
 
   Noise:
     description: >-

@@ -38,7 +38,7 @@ from osprey.services.auth_sidecar.passwords import (
     verify_password,
 )
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
     ENV_LOCAL_FILENAME,

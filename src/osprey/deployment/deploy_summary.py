@@ -38,6 +38,7 @@ deploy that otherwise succeeded.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -79,7 +80,7 @@ from osprey.port_layout import (
     index_bounds,
     resolve_port_base,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.deployment.web_terminals.auth_credentials import SeededLoginsReport
@@ -797,10 +798,8 @@ def endpoint_entries(
         bindings = parse_host_port_bindings(compose_files)
     except Exception:
         bindings = []
-    try:
+    with contextlib.suppress(Exception):
         bindings = bindings + derive_host_network_bindings(config)
-    except Exception:
-        pass
 
     declared_http = _declared_http_services(config)
 
@@ -1060,7 +1059,7 @@ def _as_built_config(root: Path) -> dict | None:
     answers out of two different renders.
     """
     from osprey.deployment.container_lifecycle import as_built_config_path
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config_path = as_built_config_path(root)
     if not config_path.is_file():

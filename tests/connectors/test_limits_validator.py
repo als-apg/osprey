@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors.control_system.limits_validator import (
+from osprey_connectors.control_system.limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
     LimitsValidator,
     mapping_config_lookup,
 )
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import EPICS, VIRTUAL_ACCELERATOR, LimitsPosture
 
 
@@ -254,8 +254,8 @@ def _patch_config(
             return section
         return values.get(key, default)
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: config_path)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: config_path)
 
 
 class TestFromConfig:
@@ -905,7 +905,27 @@ class TestFromPosture:
         )
 
     def test_missing_database_path_yields_blocking_failsafe(self, monkeypatch):
-        """Enabled with nowhere to read limits from -> block, don't wave writes through."""
+        """Enabled with nowhere to read limits from -> block, don't wave writes through.
+
+        Exclusive mode needs the database to know what is writable at all; the
+        optional/no-path case below legitimately needs none (q-0001/1, q-0002).
+        """
+        _patch_config(
+            monkeypatch,
+            {"control_system.limits_checking.database_path": None},
+        )
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
+
+        validator = LimitsValidator._from_posture(posture)
+
+        assert isinstance(validator, LimitsValidator)
+        assert "database_path" in validator.failsafe_reason
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("ANY:CHANNEL", 1.0)
+        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+
+    def test_optional_with_no_database_path_enforces_over_an_empty_database(self, monkeypatch):
+        """Optional + no path is legal: unlisted channels are written with no limits (q-0002)."""
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": None},
@@ -915,10 +935,10 @@ class TestFromPosture:
         validator = LimitsValidator._from_posture(posture)
 
         assert isinstance(validator, LimitsValidator)
-        assert "database_path" in validator.failsafe_reason
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("ANY:CHANNEL", 1.0)
-        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+        assert validator.failsafe_reason is None
+        assert validator.limits == {}
+        assert validator.policy["mode"] == "optional"
+        validator.validate("ANY:CHANNEL", 1.0)
 
     def test_unreadable_database_yields_blocking_failsafe(self, monkeypatch, tmp_path):
         """An unparseable database blocks even a permissive posture."""
@@ -1225,7 +1245,7 @@ class TestMaxStepCheck:
         assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
 
     def test_no_reader_blocks_write(self):
-        """No reader, no measurement, no write -- and no reaching for pyepics.
+        """No reader, no measurement, no write -- and no reaching for a CA client.
 
         This is the branch that used to `import epics` and caget the address
         whatever control system the write was bound for.
@@ -1356,9 +1376,9 @@ class TestValidate:
 class TestNonNumericValues:
     """A channel with any numeric limit checks the number the write delivers.
 
-    A string written to a numeric channel is converted by the EPICS client, not
-    by the validator: pyepics reads one for an integer field with
-    ``int(value, 0)``, and EPICS's C conversion uses base-0 ``strtol`` for an
+    A string written to a numeric channel is converted by the connector, not by
+    the validator: the EPICS connector reads one bound for a numeric field by
+    EPICS's own C rules before aioca sends it -- base-0 ``strtol`` for an
     integer field and ``strtod`` for a floating-point one -- so ``"0x10"``
     writes 16. The validator used to treat a string ``float()`` rejects as
     "nothing numeric to check", so a value far outside [min, max] could be

@@ -3,6 +3,8 @@
 Tests runtime utilities with actual Mock connector (and EPICS if available).
 """
 
+import contextlib
+
 import pytest
 
 from osprey.runtime import (
@@ -78,10 +80,8 @@ async def clear_runtime_state():
     import osprey.runtime as runtime
 
     if runtime._runtime_connector is not None:
-        try:
+        with contextlib.suppress(Exception):
             await cleanup_runtime()
-        except Exception:
-            pass
     runtime._runtime_connector = None
 
     yield

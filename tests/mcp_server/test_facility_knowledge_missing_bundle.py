@@ -67,7 +67,7 @@ def test_create_server_starts_and_says_why_there_is_no_bundle(
     config_path = tmp_path / "config.yml"
     config_path.write_text("# rendered config\n", encoding="utf-8")
     monkeypatch.setattr(fk_server, "_bundle", None, raising=False)
-    # ``create_server`` imports both names from ``osprey.utils.workspace``,
+    # ``create_server`` imports both names from ``osprey_connectors.workspace``,
     # which is a ``sys.modules`` alias of the connectors module — so the
     # connectors module is the one place to patch them.
     monkeypatch.setattr("osprey_connectors.workspace.resolve_config_path", lambda: config_path)

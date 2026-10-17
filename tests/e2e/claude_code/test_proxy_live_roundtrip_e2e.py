@@ -23,6 +23,7 @@ Upstreams differ only in base_url, key and the models they pin.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import struct
@@ -150,10 +151,8 @@ def _parse_sse(text: str) -> list[dict]:
     events = []
     for line in text.splitlines():
         if line.startswith("data: "):
-            try:
+            with contextlib.suppress(json.JSONDecodeError):
                 events.append(json.loads(line[6:]))
-            except json.JSONDecodeError:
-                pass
     return events
 
 

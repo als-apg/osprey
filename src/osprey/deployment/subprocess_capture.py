@@ -38,7 +38,7 @@ from pathlib import Path
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
 from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.capture")
 

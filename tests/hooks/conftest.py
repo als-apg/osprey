@@ -331,7 +331,7 @@ def _curated_env(config_path=None, hook_config_path=None, cwd=None, stamped_root
     env = {name: os.environ[name] for name in _SYSTEM_VARS + _HOOK_VARS if name in os.environ}
     if config_path:
         env["OSPREY_CONFIG"] = str(config_path)
-        # Also set CONFIG_FILE so osprey.utils.config picks it up.
+        # Also set CONFIG_FILE so osprey_connectors.config picks it up.
         env["CONFIG_FILE"] = str(config_path)
     if hook_config_path is not None:
         env["OSPREY_HOOK_CONFIG"] = str(hook_config_path)

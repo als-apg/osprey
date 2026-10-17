@@ -6,18 +6,21 @@ no ``linear`` key gets its ``noise`` and ``drift`` from the one row of
 ``rules.yaml`` that matches its device's class and its signal, converted into the
 channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no
 row matches stays still, unless its committed seed moves, which is an error.
-Every other seed key (``nominal``, ``clamp``, ``linear``) is carried through as
-data.
+Every other seed key (``nominal``, ``pulse``, ``gate``, ``clamp``, ``linear``) is
+carried through as data.
 
 Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
 matches it, converted into its unit and written ``{absolute: <x>}`` directly
 after its ``pair:`` line in ``records/channels.yaml``; every other byte of that
-file stays as it is. A write-only command, a setpoint with no ``pair``, has no
-readback to settle and takes no tolerance. A setpoint no row matches, or whose tolerance is below the
-motion envelope of the readback it pairs with, is an error.
+file stays as it is. A setpoint no row matches, or whose tolerance is below the
+motion envelope of the readback it pairs with, is an error. A write-only
+command, a setpoint with no ``pair``, has no readback to settle and takes no
+tolerance. Nor does a bool setpoint: it settles on its label, and its seed
+keeps its ``nominal``. Nor does a setpoint that states no unit, since a
+tolerance is in the channel's unit.
 
 The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
-keys in the order nominal, noise, drift, clamp, linear, written with one
+keys in the order nominal, pulse, gate, noise, drift, clamp, linear, written with one
 canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
 its tolerance lines stamped.
 
@@ -44,8 +47,9 @@ TREE = REPO_ROOT / "src/osprey/templates/facilities/example"
 RULES = Path(__file__).resolve().parent / "rules.yaml"
 
 #: Each unit a rule or a channel may carry: its dimension and its power of ten
-#: against the dimension's base unit.
+#: against the dimension's base unit. The empty unit is a dimensionless channel's.
 UNITS: dict[str, tuple[str, int]] = {
+    "": ("dimensionless", 0),
     "m": ("length", 0),
     "cm": ("length", -2),
     "mm": ("length", -3),
@@ -54,16 +58,20 @@ UNITS: dict[str, tuple[str, int]] = {
     "mA": ("current", -3),
     "MHz": ("frequency", 6),
     "Hz": ("frequency", 0),
+    "kV": ("voltage", 3),
     "V": ("voltage", 0),
     "W": ("power", 0),
     "Pa": ("pressure", 0),
     "C": ("temperature", 0),
+    "degC": ("temperature", 0),
+    "deg": ("angle", 0),
+    "nC": ("charge", -9),
     "mrem/hr": ("dose rate", 0),
     "s": ("time", 0),
 }
 
 #: The seed keys, in the order an entry is written.
-KEY_ORDER = ("nominal", "noise", "drift", "clamp", "linear")
+KEY_ORDER = ("nominal", "pulse", "gate", "noise", "drift", "clamp", "linear")
 
 #: The seed keys this generator owns.
 MOTION_KEYS = ("noise", "drift")
@@ -242,9 +250,12 @@ def render(tree: Path = TREE, rules_path: Path = RULES) -> str:
 def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> dict[str, float]:
     """Each setpoint's tolerance in its unit, by address.
 
+    A bool setpoint has none: it settles on a label, so no row is looked up.
+    Nor does a setpoint with no unit: a tolerance is in the channel's unit.
+
     Raises:
-        ReseedError: A setpoint no row matches, or one whose tolerance is below
-            the motion envelope of the readback it pairs with.
+        ReseedError: A non-bool setpoint with a unit no row matches, or one whose tolerance
+            is below the motion envelope of the readback it pairs with.
     """
     from osprey_connectors.simulation.envelope import motion_envelope
 
@@ -254,6 +265,8 @@ def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> 
     stamped: dict[str, float] = {}
     for channel in load(tree / CHANNELS):
         if channel.get("role") != "setpoint" or "pair" not in channel:
+            continue
+        if channel.get("value_type") == "bool" or not channel.get("unit"):
             continue
         address, device = channel["id"], channel.get("on", {}).get("device")
         row = None

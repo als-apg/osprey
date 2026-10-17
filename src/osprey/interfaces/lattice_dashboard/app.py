@@ -79,8 +79,8 @@ from osprey.interfaces.lattice_dashboard.workers.resonance import (
     build_figure as build_resonance,
 )
 from osprey.interfaces.vendor import vendor_url
-from osprey.utils.config import default_config_path
-from osprey.utils.workspace import resolve_shared_data_root
+from osprey_connectors.config import default_config_path
+from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.lattice_dashboard")
 

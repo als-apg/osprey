@@ -59,7 +59,7 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     render_web_terminals,
 )
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 

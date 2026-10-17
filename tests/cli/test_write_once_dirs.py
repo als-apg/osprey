@@ -33,7 +33,7 @@ from osprey.cli.init_cmd import _missing_server_packages, init
 from osprey.cli.profile_cmd import _materialize_profile_directory
 from osprey.cli.profile_conventions import BUILD_OUTPUT_DIR
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The preset materialized by most tests here, and the bundle it names.
 PRESET = "hello-world"

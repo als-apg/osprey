@@ -28,8 +28,8 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
-from osprey.errors import ChannelNotFoundError
 from osprey.facility import TEXTURE
+from osprey_connectors.errors import ChannelNotFoundError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -400,7 +400,7 @@ async def test_als_shaped_namespace_round_trip(
     from osprey_connectors.control_system.base import WriteOutcome
 
     collapsed = "SR04U_GDS1PS_AC00"
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
     connector = await _served(project)
     try:
         for address in addresses:

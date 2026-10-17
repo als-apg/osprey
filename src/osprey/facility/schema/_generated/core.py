@@ -537,6 +537,30 @@ class SignalRoleEnum(str, Enum):
     """
     Readback that is set while a requested injection shot is in progress.
     """
+    pulse_waveform = "pulse_waveform"
+    """
+    Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.
+    """
+    ramp_gain_setpoint = "ramp_gain_setpoint"
+    """
+    Commanded gain that scales the whole energy-ramp table of a ramped power supply.
+    """
+    ramp_gain_readback = "ramp_gain_readback"
+    """
+    Readback of the gain applied to a ramped power supply's ramp table.
+    """
+    ramp_offset_setpoint = "ramp_offset_setpoint"
+    """
+    Commanded offset added to the whole energy-ramp table of a ramped power supply.
+    """
+    ramp_offset_readback = "ramp_offset_readback"
+    """
+    Readback of the offset applied to a ramped power supply's ramp table.
+    """
+    temperature_setpoint = "temperature_setpoint"
+    """
+    Commanded temperature of a regulated loop (e.g. a cooling-water heater).
+    """
 
 
 class PropertyNameEnum(str, Enum):
@@ -811,6 +835,33 @@ class WienFilter(Magnet):
     Crossed-field Wien filter used for velocity and spin manipulation with minimal orbit distortion.
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'aliases': ['wien filter', 'wien'],
+         'from_schema': 'https://narad.example.org/schema/osprey.facility.vocabulary'})
+
+    pass
+
+
+class Septum(Magnet):
+    """
+    Pulsed or DC septum magnet that deflects the injected or extracted beam into or out of the machine while shielding the circulating beam.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'aliases': ['septum',
+                     'septum magnet',
+                     'injection septum',
+                     'extraction septum'],
+         'from_schema': 'https://narad.example.org/schema/osprey.facility.vocabulary'})
+
+    pass
+
+
+class Kicker(Magnet):
+    """
+    Fast pulsed dipole magnet that deflects the beam for a single passage or a few turns, to put an injected bunch onto the stored orbit or take a bunch out.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'aliases': ['kicker',
+                     'kicker magnet',
+                     'injection kicker',
+                     'extraction kicker',
+                     'pulsed kicker'],
          'from_schema': 'https://narad.example.org/schema/osprey.facility.vocabulary'})
 
     pass
@@ -1334,6 +1385,35 @@ class Seed(ConfiguredBaseModel):
     drift: Optional[Drift] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     clamp: Optional[list[Any]] = Field(default=None, description="""[low, high]; either side may be null.""", min_length=2, max_length=2, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed'], 'list_elements_ordered': True} })
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
+    pulse: Optional[Pulse] = Field(default=None, description="""The trace of a waveform channel, shaped in code and scaled by a driving channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+
+
+class Pulse(ConfiguredBaseModel):
+    """
+    The channels a waveform channel's trace follows; the trace's shape is fixed in code, not in the seed.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    driver: str = Field(default=..., description="""The address whose reading scales the trace.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Pulse']} })
+    enable: str = Field(default=..., description="""The address of the bool channel that switches the trace on; off gives a flat zero trace.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Pulse']} })
+
+
+class Gate(ConfiguredBaseModel):
+    """
+    Applies `gated` to a channel while any listed input reads its blocking label; otherwise the channel behaves as its other seed keys say.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    inputs: dict[str, Union[str, GateInput]] = Field(default=..., description="""`{<address>: <blocking_label>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate'], 'list_elements_ordered': True} })
+    gated: Any = Field(default=..., description="""The value while gated, typed by the gated channel: a factor > 0 on a float channel, a label on a bool or enum channel, an integer on an int channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate']} })
+
+
+class GateInput(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    blocking_label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput']} })
 
 
 class Noise(ConfiguredBaseModel):
@@ -1366,7 +1446,7 @@ class Drift(ConfiguredBaseModel):
 class LinearTerm(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
     coefficient: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm']} })
 
 
@@ -1425,7 +1505,7 @@ class Wiring(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     id: str = Field(default=..., description="""`<model>/<address>`, split at the first `/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
     element: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'Slice']} })
     slices: Optional[list[Slice]] = Field(default=None, description="""The first slice is the element read from.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
     engine: Optional[Any] = Field(default=None, description="""The engine's own words for the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
@@ -1541,7 +1621,7 @@ class LimitRecord(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
     min_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
@@ -1588,6 +1668,8 @@ Solenoid.model_rebuild()
 Sextupole.model_rebuild()
 Octupole.model_rebuild()
 WienFilter.model_rebuild()
+Septum.model_rebuild()
+Kicker.model_rebuild()
 Vacuum.model_rebuild()
 Pump.model_rebuild()
 Valve.model_rebuild()
@@ -1628,6 +1710,9 @@ Device.model_rebuild()
 OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
+Pulse.model_rebuild()
+Gate.model_rebuild()
+GateInput.model_rebuild()
 Noise.model_rebuild()
 Tolerance.model_rebuild()
 Drift.model_rebuild()

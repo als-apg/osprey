@@ -4,8 +4,8 @@ pyAML reads a corrector's strength from ``PolynomB[0]`` (horizontal) and
 ``PolynomA[0]`` (vertical) over the element's length, so the view's
 ``lattice.json`` is the engine's polynomial-kick copy of the deck: stepping a
 corrector in pyAML's design mode moves the orbit the served deck's kick moves.
-A zero-length corrector with no drift beside it takes its length from the
-nearest magnet, so it stays in the view.
+A zero-length corrector stays a zero-length thin multipole whose dipole terms
+are its integrated kick, so every element keeps the deck's length and place.
 """
 
 from __future__ import annotations
@@ -113,16 +113,18 @@ def test_the_lattice_is_the_deck_with_its_driven_kicks_as_polynomials(
         _element_of(built_control_assistant.facility, address)
         for address in groups["hcor"] + groups["vcor"]
     ]
-    copy = polynomial_kicks(built_control_assistant.facility_dir / "decks" / "SR.json", elements)
-    assert copy.refused == ()
-    assert (view / LATTICE_FILE).read_text(encoding="utf-8") == copy.text
+    deck = built_control_assistant.facility_dir / "decks" / "SR.json"
+    assert (view / LATTICE_FILE).read_text(encoding="utf-8") == polynomial_kicks(deck, elements)
+    lattice = at.load_lattice(str(view / LATTICE_FILE))
+    held = at.load_lattice(str(deck))
+    assert [element.Length for element in lattice] == [element.Length for element in held]
 
 
 @pytest.mark.parametrize(("address", "plane"), [("SCOR:H:SP", 0), ("SCOR:V:SP", 1)])
-def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_does(
+def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], address: str, plane: int
 ) -> None:
-    """SR's thin SCOR sits between a BPM after a sextupole and a dipole: no drift beside it."""
+    """SR's SCOR is zero-length and sits between a BPM and a dipole."""
     from pyaml.accelerator import Accelerator
 
     tree = with_correctors(with_rf(measured_tree()))
@@ -132,6 +134,9 @@ def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_doe
     view = directory / "SR"
     configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
     assert {"SCOR:H:SP", "SCOR:V:SP"} <= {device["name"] for device in configuration["devices"]}
+    (scor,) = [e for e in at.load_lattice(str(view / LATTICE_FILE)) if e.FamName == "SCOR"]
+    assert scor.PassMethod == "ThinMPolePass"
+    assert scor.Length == 0.0
 
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
@@ -148,27 +153,29 @@ def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_doe
     assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
 
 
-def _sr_deck_with_a_thin_multipole() -> Deck:
-    """SR's deck with TCOR, a zero-length element whose pass applies polynomials, after SCOR."""
+def _sr_deck_with_a_thin_multipole(kick: tuple[float, float]) -> Deck:
+    """SR's deck with TCOR, a zero-length multipole kicking by ``kick``, after SCOR."""
 
     def elements(at: Any) -> list[Any]:
         found = _sr_deck().elements(at)
         (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
-        thin = at.ThinMultipole("TCOR", [0.0, 0.0], [0.0, 0.0], KickAngle=[0.0, 0.0])
+        thin = at.ThinMultipole("TCOR", [0.0, 0.0], [0.0, 0.0], KickAngle=list(kick))
         return [*found[:after], thin, *found[after:]]
 
     return Deck(elements)
 
 
-def test_a_thin_polynomial_pass_corrector_is_left_out_with_a_note(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(("address", "plane"), [("TCOR:H:SP", 0), ("TCOR:V:SP", 1)])
+def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_step_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], address: str, plane: int
 ) -> None:
-    """A zero-length element whose pass applies polynomials has no length to carry a kick."""
+    """The deck's kick is the design strength pyAML reads before any write."""
     from pyaml.accelerator import Accelerator
 
+    kick = (2.0e-5, -3.0e-5)
     tree = with_correctors(with_rf(measured_tree()))
     tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
-    tree["decks/sr.json"] = _sr_deck_with_a_thin_multipole()
+    tree["decks/sr.json"] = _sr_deck_with_a_thin_multipole(kick)
     tree["records/devices.yaml"].append({"id": "SR/COR2", "class": "HCorrector"})
     tree["records/channels.yaml"] += [
         {"id": "TCOR:H:SP", "role": "setpoint", "unit": "A", "on": {"device": "SR/COR2"}},
@@ -184,19 +191,31 @@ def test_a_thin_polynomial_pass_corrector_is_left_out_with_a_note(
 
     directory, _ = write_view(tmp_path, tree)
 
-    assert (
-        "view pyaml: SR leaves out 2 correctors whose element has no length to carry a kick: "
-        "TCOR:H:SP, TCOR:V:SP"
-    ) in capsys.readouterr().err
+    assert "leaves out" not in capsys.readouterr().err
     view = directory / "SR"
-    configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
-    devices = {device["name"] for device in configuration["devices"]}
-    assert {"SCOR:H:SP", "SCOR:V:SP"} <= devices
-    assert not {"TCOR:H:SP", "TCOR:V:SP"} & devices
-    arrays = {array["name"]: array["elements"] for array in configuration["arrays"]}
-    assert arrays["SR_HCM"] == ["SCOR:H:SP"]
-    assert arrays["SR_VCM"] == ["SCOR:V:SP"]
-    Accelerator.load(str(view / CONFIGURATION_FILE))
+    (tcor,) = [e for e in at.load_lattice(str(view / LATTICE_FILE)) if e.FamName == "TCOR"]
+    assert tcor.PassMethod == "ThinMPolePass"
+    assert tcor.Length == 0.0
+    assert list(tcor.KickAngle) == [0.0, 0.0]
+    assert tcor.PolynomB[0] == pytest.approx(-np.sin(kick[0]), rel=1e-12)
+    assert tcor.PolynomA[0] == pytest.approx(np.sin(kick[1]), rel=1e-12)
+
+    bpms = _bpm_elements(view)
+    design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
+    magnet = design.magnet.get(address)
+    held = magnet.strength.get()
+    assert held == pytest.approx(np.sin(kick[plane]), rel=1e-9)
+    readers = [design.bpm.get(name) for name in bpms]
+    before = np.array([reader.positions.get() for reader in readers])
+    magnet.strength.set(held + KICK)
+    after = np.array([reader.positions.get() for reader in readers])
+
+    # SCOR holds no kick and sits where TCOR does, so a step on it alone is the reference.
+    served = _served_response(
+        tmp_path / "data" / "facility" / "decks" / "sr.json", "SCOR", plane, list(bpms.values())
+    )
+    assert np.max(np.abs(served)) > 1.0e-7
+    assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
 
 
 class _Engines:

@@ -91,8 +91,8 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
@@ -322,22 +322,18 @@ def _served(port: int) -> bool:
     cannot be a client of both (the reason the directory conftest's own
     readiness probe is a subprocess).
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
-    nothing: a probe that will not die is read here as a container that is
-    not serving, and the word is written and flushed before the exit.
+    It leaves through ``os._exit`` for that file's other reason: aioca's exit
+    hook destroys the CA context, and that blocks for as long as a name-server
+    circuit is still retrying a port nothing serves yet -- the very case a
+    readiness probe polls through. The word is written and flushed before the
+    exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=1.0, "
-        "connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     env = {
         **os.environ,

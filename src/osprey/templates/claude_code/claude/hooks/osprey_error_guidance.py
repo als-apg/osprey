@@ -85,6 +85,7 @@ ERROR_CLASS_MAP = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    "trajectory_unreachable": "Connection",
     # Bluesky bridge refusals relayed verbatim: the queue manager or worker
     # environment did not come up, or did not answer a pause in time.
     "manager_unreachable": "Connection",
@@ -138,9 +139,14 @@ ERROR_CLASS_MAP = {
     "figure_not_current": "Validation",
     # A lattice figure the selected model cannot draw: pick another figure.
     "figure_unavailable": "Validation",
+    # A call whose arguments contradict each other: the message names the
+    # combination the tool accepts.
+    "bad_request": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
+    # A channel of the facility with no archived history: a shot record.
+    "not_archived": "Data",
     "no_results": "Data",
     "file_not_found": "Data",
     "no_draft": "Data",
@@ -193,6 +199,9 @@ ERROR_CLASS_MAP = {
     # approved list no longer matches what would run. Never retry quoting
     # the same uid — re-read the queue and get a fresh approval.
     "queue_changed_since_approval": "Safety",
+    # The approval prompt left no record matching this call — its target, its
+    # step or its put-back. Nothing ran; calling again lets the prompt ask.
+    "approval_missing": "Safety",
     # A run outside this conversation's shortened answers: the read is scoped
     # to them, and no other route to the record is the fix.
     "not_permitted": "Safety",
@@ -219,6 +228,11 @@ ERROR_CLASS_MAP = {
     # Bluesky bridge refusals that need an operator.
     "config_unreadable": "Internal",
     "manager_not_configured": "Internal",
+    # The profile's approval switch is not true or false: only the operator
+    # can fix it, in the profile.
+    "approval_config_invalid": "Internal",
+    # The trajectory service answered with an error carrying no code of its own.
+    "trajectory_refused": "Internal",
 }
 
 

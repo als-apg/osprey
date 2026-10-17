@@ -43,9 +43,9 @@ from osprey.deployment.compose_generator import resolve_project_name, resolve_us
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.lifecycle import _require_running_runtime
 from osprey.deployment.web_terminals.personas import as_dict, resolve_personas
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import agent_data_base_dir, anchored_path
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = get_logger("feedback")
 

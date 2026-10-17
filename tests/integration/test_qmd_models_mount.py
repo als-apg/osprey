@@ -31,6 +31,7 @@ avoid.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from pathlib import Path
 
@@ -107,10 +108,9 @@ def state_volume():
     try:
         yield volume.name
     finally:
-        try:
+        # teardown best effort
+        with contextlib.suppress(Exception):
             volume.remove(force=True)
-        except Exception:  # pragma: no cover - teardown best effort
-            pass
 
 
 def test_an_empty_mount_refuses_and_says_what_to_stage(mounted_image: str, tmp_path: Path):

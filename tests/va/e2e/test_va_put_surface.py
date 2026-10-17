@@ -161,13 +161,17 @@ def _ca_environment(port: int) -> dict[str, str]:
 def _ca_child(port: int, body: str) -> dict[str, Any]:
     """Run *body* as a Channel Access client of the container on *port*; its JSON report.
 
-    *body* binds ``out``, a JSON-serialisable dict, which the child writes and
-    flushes before leaving through ``os._exit``.
+    *body* is the body of a coroutine that binds ``out``, a JSON-serialisable
+    dict, which the child writes and flushes before leaving through
+    ``os._exit``. aioca is asyncio-only, so the child runs that coroutine once.
     """
+    indented = "".join(f"    {line}\n" for line in body.splitlines())
     code = (
-        "import json, os, sys, epics\n"
+        "import asyncio, json, os, sys, aioca\n"
         "out = {}\n"
-        f"{body}\n"
+        "async def main():\n"
+        f"{indented}"
+        "asyncio.run(main())\n"
         f"sys.stdout.write('\\n' + {REPORT_MARK!r} + json.dumps(out) + '\\n')\n"
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
@@ -190,7 +194,8 @@ def _served(port: int) -> bool:
     try:
         report = _ca_child(
             port,
-            f"out['value'] = epics.caget({PROBE_CHANNEL!r}, timeout=1.0, connection_timeout=1.0)",
+            f"v = await aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False)\n"
+            "out['value'] = True if v.ok else None",
         )
     except (subprocess.TimeoutExpired, AssertionError):
         return False
@@ -270,22 +275,28 @@ def served() -> Iterator[Served]:
 def _ca_put(port: int, address: str, value: Any) -> dict[str, Any]:
     """One Channel Access put to *address*, with the value read before and after.
 
-    The report holds ``connected``, ``before``, ``put`` (what ``PV.put``
-    returned) or ``error`` (what it raised), and ``after``, read uncached once
-    the put completed. A text *value* reads the channel as text.
+    The report holds ``connected``, ``before``, ``put`` (whether the server
+    completed the put) and, when it did not, ``error`` (what it answered), and
+    ``after``, read off the wire once the put completed. A text *value* reads
+    the channel as text.
     """
-    read = f"pv.get(timeout=5.0, use_monitor=False, as_string={isinstance(value, str)})"
+    datatype = "aioca.DBR_STRING" if isinstance(value, str) else "None"
+    read = f"await aioca.caget({address!r}, datatype={datatype}, timeout=5.0, throw=False)"
     return _ca_child(
         port,
-        f"pv = epics.PV({address!r}, connection_timeout={SEARCH_TIMEOUT_S})\n"
-        f"out['connected'] = pv.wait_for_connection(timeout={SEARCH_TIMEOUT_S})\n"
+        "def plain(v):\n"
+        "    if not v.ok: return None\n"
+        "    return v.tolist() if hasattr(v, 'tolist') else v\n"
+        f"done = await aioca.connect({address!r}, timeout={SEARCH_TIMEOUT_S}, throw=False)\n"
+        "out['connected'] = done.ok\n"
         "if out['connected']:\n"
-        f"    out['before'] = {read}\n"
-        "    try:\n"
-        f"        out['put'] = pv.put({value!r}, wait=True, timeout=10.0)\n"
-        "    except Exception as exc:\n"
-        "        out['error'] = f'{type(exc).__name__}: {exc}'\n"
-        f"    out['after'] = {read}\n",
+        f"    out['before'] = plain({read})\n"
+        f"    put = await aioca.caput({address!r}, {value!r}, wait=True, timeout=10.0, "
+        "throw=False)\n"
+        "    out['put'] = put.ok\n"
+        "    if not put.ok:\n"
+        "        out['error'] = str(put)\n"
+        f"    out['after'] = plain({read})\n",
     )
 
 
@@ -293,8 +304,8 @@ def _ca_found(port: int, address: str) -> bool:
     """Whether a Channel Access search for *address* finds a PV within the bound."""
     report = _ca_child(
         port,
-        f"pv = epics.PV({address!r}, connection_timeout={SEARCH_TIMEOUT_S})\n"
-        f"out['connected'] = pv.wait_for_connection(timeout={SEARCH_TIMEOUT_S})\n",
+        f"done = await aioca.connect({address!r}, timeout={SEARCH_TIMEOUT_S}, throw=False)\n"
+        "out['connected'] = done.ok\n",
     )
     return bool(report["connected"])
 
@@ -401,7 +412,7 @@ def test_an_out_of_band_ca_put_reads_back_clamped_to_the_band(served: Served) ->
     report = _ca_put(served.ca, BANDED_SETPOINT, OUT_OF_BAND_VALUE)
 
     assert report["connected"], f"{BANDED_SETPOINT} is not served"
-    assert report.get("put") == 1, report
+    assert report.get("put") is True, report
     assert report["after"] == pytest.approx(BAND_HIGH), report
 
 

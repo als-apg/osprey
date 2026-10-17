@@ -30,7 +30,7 @@ import pytest
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 # The top-level ``agents:``/``skills:`` lists select BUILT-IN library artifacts
 # and nothing else — ``validate_artifacts`` rejects any other name — so the

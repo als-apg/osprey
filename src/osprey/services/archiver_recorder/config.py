@@ -21,7 +21,7 @@ names this container's own loopback. The compose template hands the container
 the store's network alias and container port instead, and those win.
 
 That override is NOT defined here. It is read through
-``MongoDBArchiverConnector``'s :func:`~osprey.connectors.archiver.mongodb_archiver_connector.address_overrides`,
+``MongoDBArchiverConnector``'s :func:`~osprey_connectors.archiver.mongodb_archiver_connector.address_overrides`,
 where the contract is stated, so this service and the agent's connector cannot
 drift apart on the variable names, on what an empty value means, or on how the
 port is typed. Two readers of one convention have to agree on its edges.
@@ -36,14 +36,15 @@ disagreement is the bypass.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import yaml
 
-from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
 from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live_standin
+from osprey_connectors.archiver.mongodb_archiver_connector import address_overrides
 
 # The recorded endpoint is derived, never re-read: `derive_endpoints` is the same
 # resolver the roster's label and the target switch use, so this service and the
@@ -59,6 +60,7 @@ from osprey_connectors.ipc.verification import derive_endpoints
 # restating it, so the two authors of the store cannot come to cover different
 # channels.
 from osprey_connectors.simulation.archive import archived_channels
+from osprey_connectors.simulation.values import is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     VARIABLES_FILE,
@@ -256,18 +258,74 @@ def read_control_system_type(config_path: Path) -> str:
     return _control_system_type(_load_mapping(config_path), config_path)
 
 
-def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
+class ChannelSet(Sequence[str]):
+    """The addresses to record, in view order, partitioned by value type.
+
+    As a sequence it is every recorded address, exactly the view's ``channels``
+    list, so it compares equal to that list. The partition is what decides
+    where a reading goes: a scalar channel is one number per instant and goes
+    into the per-timestamp snapshot documents, a waveform channel is a trace
+    and goes into the waveform collection beside them, one document per
+    channel per instant. Neither is ever written into the other's documents.
+    """
+
+    def __init__(self, addresses: Sequence[str], waveforms: Sequence[str] = ()) -> None:
+        self._addresses = tuple(addresses)
+        traced = set(waveforms)
+        unknown = traced.difference(self._addresses)
+        if unknown:
+            raise ValueError(f"waveform channels not in the channel set: {sorted(unknown)}")
+        self._waveforms = tuple(a for a in self._addresses if a in traced)
+        self._scalars = tuple(a for a in self._addresses if a not in traced)
+
+    @property
+    def scalars(self) -> tuple[str, ...]:
+        """The channels recorded as one number per instant, in view order."""
+        return self._scalars
+
+    @property
+    def waveforms(self) -> tuple[str, ...]:
+        """The channels recorded as traces, in view order."""
+        return self._waveforms
+
+    @overload
+    def __getitem__(self, index: int) -> str: ...
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[str]: ...
+    def __getitem__(self, index: int | slice) -> str | Sequence[str]:
+        return self._addresses[index]
+
+    def __len__(self) -> int:
+        return len(self._addresses)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._addresses)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ChannelSet):
+            return self._addresses == other._addresses and self._waveforms == other._waveforms
+        if isinstance(other, list | tuple):
+            return list(self._addresses) == list(other)
+        return NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"ChannelSet({list(self._addresses)!r}, waveforms={list(self._waveforms)!r})"
+
+
+def resolve_channel_addresses(data_dir: Path | None = None) -> ChannelSet:
     """The addresses to record, in the order the simulator view lists them.
 
     The source is the archived channel set of the build's simulator view
     (:func:`~osprey_connectors.simulation.archive.archived_channels`): every
     address of the ``channels`` list in ``addresses.json``, the file the
     virtual accelerator serves its namespace from, but the turn series of the
-    served models, which ``variables.json`` describes. A turn series holds the
-    samples of one shot and has no value at a sampling instant, so it has no
-    history to record. The deploy-time seed builds its documents from the same
-    set under the same served-models setting, so the seeded past and the
-    recorded present of the one store cover the same channels.
+    physics models, served or not, which ``variables.json`` describes. A turn
+    series holds the samples of one shot and has no value at a sampling
+    instant, so it has no history to record. The deploy-time seed builds its
+    documents from the same set, so the seeded past and the recorded present
+    of the one store cover the same channels.
 
     The view's ``status`` list names the simulator's own model status channels
     and is not recorded. There is no fallback: a view that is missing or
@@ -277,6 +335,11 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     from a real record of the facility. A view whose model records cannot be
     read is refused on the same terms: recording every channel instead would
     not be the archive the seed wrote.
+
+    The set is partitioned by each channel's value type in the view's
+    ``variables.json``: a ``waveform`` channel is recorded as a trace, every
+    other channel as one number. A channel ``variables.json`` does not list
+    carries the default value type, which is a number.
 
     Args:
         data_dir: The simulator view's directory; :data:`DEFAULT_DATA_DIR`
@@ -300,12 +363,23 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
                 f"holds no `channels` list of addresses. Rebuild the project with `osprey build`."
             )
         reading = VARIABLES_FILE
-        return list(archived_channels(view))
+        addresses = list(archived_channels(view))
+        waveforms = [address for address in addresses if _is_waveform_channel(view, address)]
     except (NoSimulatorView, KeyError, OSError, TypeError, ValueError) as exc:
         raise RecorderConfigError(
             f"cannot record: the simulator view's {reading} ({root / reading}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
+    return ChannelSet(addresses, waveforms)
+
+
+def _is_waveform_channel(view: SimulatorView, address: str) -> bool:
+    """Whether ``variables.json`` describes the channel at ``address`` as a waveform."""
+    try:
+        channel = view.channel(address)
+    except KeyError:
+        return False
+    return is_waveform(channel.value_type)
 
 
 # ---------------------------------------------------------------------------

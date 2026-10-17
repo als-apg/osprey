@@ -15,6 +15,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
+    limits_database_required,
     most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
@@ -110,6 +111,16 @@ def _c_float(text: str) -> float | None:
     return None
 
 
+def c_numeral(text: str, *, integer_field: bool) -> int | float | None:
+    """``text`` as the IOC's C conversion reads it into one field type, or ``None``.
+
+    An integer field reads ``strtol`` numerals only; a floating-point field
+    reads ``strtod``'s. Surrounding C whitespace is skipped, as C skips it.
+    """
+    text = text.strip(_C_WHITESPACE)
+    return _c_integer(text) if integer_field else _c_float(text)
+
+
 def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     """The number a string write delivers, read the way the EPICS client reads it.
 
@@ -123,9 +134,12 @@ def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     The validator does not know the channel's type, so a string is accepted
     only when every reading that succeeds gives the same number; ``"010"`` is
     refused as ambiguous. That makes it exactly as permissive as the C rules
-    or stricter, never looser. pyepics (``int(text, 0)`` for an integer field,
-    ``float()`` otherwise) either delivers the same number for every string
-    accepted here or refuses the write.
+    or stricter, never looser. The EPICS connector does not leave the
+    conversion to the IOC, which would stop at the first character it cannot
+    read and store ``"1e3"`` in an integer field as 1: it reads the text by the
+    rule for the channel's own field type (:func:`c_numeral`) and refuses text
+    that rule cannot read, so every string accepted here and written lands as
+    the number it was checked as.
 
     ``nan``, ``inf`` and ``infinity`` (which ``strtod`` takes) are not numerals
     here and are refused, like their float counterparts.
@@ -579,14 +593,22 @@ class LimitsValidator:
         is a deployment trying to switch limits checking *on*; reading it as an
         unset ``enabled`` would take the disabled branch and check nothing.
 
+        Whether the database must exist is
+        :func:`~osprey_connectors.types.limits_database_required`, asked of the
+        live config's path. ``optional`` with no path configured needs none:
+        the validator enforces over an empty database, so every channel is
+        unlisted and written with no limits. A configured path that fails to
+        load stays fail-safe whatever the mode.
+
         Args:
             posture: The resolved posture, from the ``types`` resolver family.
 
         Returns:
-            An enforcing validator; a fail-safe validator that blocks every
-            write when the block is incomplete or the database is unavailable;
-            or ``None`` when limits checking is off for this posture or the
-            config could not be read at all.
+            An enforcing validator (over an empty database for ``optional``
+            with no path configured); a fail-safe validator that blocks every
+            write when the block is incomplete or a required database is
+            unavailable; or ``None`` when limits checking is off for this
+            posture or the config could not be read at all.
         """
         try:
             if posture.incomplete:
@@ -600,6 +622,19 @@ class LimitsValidator:
             if posture.enabled is not True:
                 return None
 
+            # Both entries are JSON-serialisable: the python executor embeds
+            # this dict verbatim into the sandbox (wrapper.py), so the
+            # tri-state rides as null rather than as anything richer.
+            policy = {
+                "mode": posture.mode,
+                "mode_key": posture.key("mode"),
+            }
+
+            if not limits_database_required(
+                posture, path_configured=cls.configured_database_path() is not None
+            ):
+                return cls({}, policy, {})
+
             loaded, load_reason = cls.load_configured_database()
             if loaded is None:
                 # Same failsafe as the incomplete-block case above: a missing
@@ -612,15 +647,6 @@ class LimitsValidator:
                     {}, {}, {}, failsafe_reason=f"limits checking is enabled but {load_reason}"
                 )
             limits_db, raw_db = loaded
-
-            # Both entries are JSON-serialisable: the python executor embeds
-            # this dict verbatim into the sandbox (wrapper.py), so the
-            # tri-state rides as null rather than as anything richer.
-            policy = {
-                "mode": posture.mode,
-                "mode_key": posture.key("mode"),
-            }
-
             return cls(limits_db, policy, raw_db)
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled

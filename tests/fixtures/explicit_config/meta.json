@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
-  "baseline_sha": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
+  "baseline_commit": "2d416f8560494f3b7cf443f20ae986784e3e71e5",
+  "baseline_sha": "2d416f8560494f3b7cf443f20ae986784e3e71e5",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",

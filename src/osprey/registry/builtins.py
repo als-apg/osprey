@@ -6,7 +6,7 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey.connectors.types import (
+from osprey_connectors.types import (
     DOOCS,
     DOOCS_ARCHIVER,
     EPICS,
@@ -63,28 +63,28 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ConnectorRegistration(
                     name=EPICS,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.epics_connector",
+                    module_path="osprey_connectors.control_system.epics_connector",
                     class_name="EPICSConnector",
                     description="EPICS Channel Access control system connector",
                 ),
                 ConnectorRegistration(
                     name=VIRTUAL_ACCELERATOR,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.va_connector",
+                    module_path="osprey_connectors.control_system.va_connector",
                     class_name="VirtualAcceleratorConnector",
                     description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
                 ),
                 ConnectorRegistration(
                     name=DOOCS,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.doocs_connector",
+                    module_path="osprey_connectors.control_system.doocs_connector",
                     class_name="DOOCSConnector",
                     description="DOOCS control system connector (requires doocs4py)",
                 ),
                 ConnectorRegistration(
                     name=TANGO,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.tango_connector",
+                    module_path="osprey_connectors.control_system.tango_connector",
                     class_name="TangoConnector",
                     description="TANGO Controls control system connector (requires PyTango)",
                 ),
@@ -108,7 +108,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ConnectorRegistration(
                     name=LIVE_STANDIN,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.epics_connector",
+                    module_path="osprey_connectors.control_system.epics_connector",
                     class_name="EPICSConnector",
                     description=(
                         "Live stand-in connector: the facility-shaped soft IOC a "
@@ -119,35 +119,35 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 ConnectorRegistration(
                     name=MOCK_ARCHIVER,
                     connector_type="archiver",
-                    module_path="osprey.connectors.archiver.mock_archiver_connector",
+                    module_path="osprey_connectors.archiver.mock_archiver_connector",
                     class_name="MockArchiverConnector",
                     description="Mock archiver connector for development and testing",
                 ),
                 ConnectorRegistration(
                     name=EPICS_ARCHIVER,
                     connector_type="archiver",
-                    module_path="osprey.connectors.archiver.epics_archiver_connector",
+                    module_path="osprey_connectors.archiver.epics_archiver_connector",
                     class_name="EPICSArchiverConnector",
                     description="EPICS Archiver Appliance connector",
                 ),
                 ConnectorRegistration(
                     name=MONGODB_ARCHIVER,
                     connector_type="archiver",
-                    module_path="osprey.connectors.archiver.mongodb_archiver_connector",
+                    module_path="osprey_connectors.archiver.mongodb_archiver_connector",
                     class_name="MongoDBArchiverConnector",
                     description="MongoDB archiver connector for time-series PV data",
                 ),
                 ConnectorRegistration(
                     name=DOOCS_ARCHIVER,
                     connector_type="archiver",
-                    module_path="osprey.connectors.archiver.doocs_archiver_connector",
+                    module_path="osprey_connectors.archiver.doocs_archiver_connector",
                     class_name="DOOCSArchiverConnector",
                     description="DOOCS local history connector (requires doocs4py)",
                 ),
                 ConnectorRegistration(
                     name=MYA_ARCHIVER,
                     connector_type="archiver",
-                    module_path="osprey.connectors.archiver.mya_archiver_connector",
+                    module_path="osprey_connectors.archiver.mya_archiver_connector",
                     class_name="MYAArchiverConnector",
                     description=(
                         "MYA archiver connector, read over the myquery HTTP "

@@ -32,7 +32,7 @@ from typing import Any
 from osprey.cli.phase_reporter import current_reporter, format_elapsed, report_note
 from osprey.deployment.errors import CapturedProcessTimeout
 from osprey.deployment.runtime_helper import container_log_tail
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 

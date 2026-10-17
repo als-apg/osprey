@@ -75,7 +75,7 @@ def _stock_devices_env(tmp_path: Path) -> dict[str, str]:
 
 
 class FakeChannelValue:
-    """Stand-in for ``osprey.connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
 
     def __init__(self, value: Any) -> None:
         self.value = value
@@ -438,7 +438,7 @@ def test_a_readables_only_device_file_builds_that_half_alone(tmp_path: Path) -> 
 def test_control_system_type_falls_back_to_the_simulator_when_config_is_unreadable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
 
     def _raise(*_: Any, **__: Any) -> Any:
         raise FileNotFoundError("no project config context")
@@ -526,12 +526,12 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     }
 
     monkeypatch.setattr(
-        "osprey.utils.config.get_config_value",
+        "osprey_connectors.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
     render = served_tree(tmp_path / "served", ["SR:MAG:HCM:01:CUR:SP"]).parent.parent
     monkeypatch.setattr(
-        "osprey.utils.config.default_config_path", lambda: str(render / "config.yml")
+        "osprey_connectors.config.default_config_path", lambda: str(render / "config.yml")
     )
     # The write posture is refused outright in a readonly run, which would make
     # both lanes agree for a reason that has nothing to do with the stamp.

@@ -34,8 +34,8 @@ from osprey.services.python_executor.write_surface import (
     _READONLY_WRITE_TARGETS,
     CLIENT_PACKAGES,
 )
-from osprey.utils.logger import get_logger
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ClientLibraryRefusedError
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("execution_wrapper")
 
@@ -523,7 +523,7 @@ if not _execution_dir.exists():
             # Runtime Channel Limits Checking (Embedded Config)
             try:
                 import json
-                from osprey.connectors.control_system.limits_validator import (
+                from osprey_connectors.control_system.limits_validator import (
                     LimitsValidator, ChannelLimitsConfig
                 )
 
@@ -1391,10 +1391,11 @@ if not _execution_dir.exists():
         The process then leaves with :func:`os._exit`, the way
         ``osprey_connectors.ipc.host`` does, rather than through interpreter
         shutdown. A control-system client holds native state whose shutdown
-        hooks can block or crash the process — pyepics' ``finalize_libca``
-        wedges once Channel Access was used from a worker thread, which the
-        EPICS connector always does — and a child that will not exit is
-        reported by the executor as a timeout long after its script finished.
+        hooks can block or crash the process — under aioca those are aioca's
+        ``atexit`` teardown, which calls ``ca_context_destroy``, and the
+        shutdown of the connector's Channel Access event-loop thread — and a
+        child that will not exit is reported by the executor as a timeout long
+        after its script finished.
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.

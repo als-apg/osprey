@@ -83,7 +83,7 @@ from osprey.deployment.telemetry_gateway import (
     trusted_on_behalf_of,
 )
 from osprey.health.core.telemetry_gateway import fed_identities
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [

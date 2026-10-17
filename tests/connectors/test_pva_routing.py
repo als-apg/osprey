@@ -1,6 +1,6 @@
 """PVA routing and connection plumbing on the EPICS connector.
 
-The connector speaks two transports: Channel Access (pyepics) for every
+The connector speaks two transports: Channel Access (aioca) for every
 address, and PVAccess (p4p) for addresses matching one of the
 ``control_system.connector.epics.pva_channels`` globs. This file covers the
 routing decision and the ``connect()`` plumbing behind it: the glob match, the
@@ -9,7 +9,7 @@ protects every existing deployment — that an absent or empty glob list leaves
 the connector exactly as pure-CA as it was before.
 
 Convention (matching ``test_epics_connector.py``): inject fake driver modules
-(pyepics and p4p) instead of importing the real ones, start from an environment
+(aioca and p4p) instead of importing the real ones, start from an environment
 with no EPICS_* variable set (the suite-wide ``restore_environ`` fixture undoes
 the connector's direct ``os.environ`` writes), and assert on the
 concrete payload — the env value, the context constructor argument, the
@@ -23,20 +23,20 @@ import sys
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
     EPICS_PVA_VARS,
     clean_epics_env,  # noqa: F401 - fixture, used by name
-    fake_pyepics,  # noqa: F401 - fixture, used by name
+    fake_aioca,  # noqa: F401 - fixture, used by name
     install_fake_p4p,
     patch_writes_enabled,
 )
 
 PVA_VARS = EPICS_PVA_VARS
 
-# connect() runs against a stand-in pyepics: the real one would load libca and
-# keep the shutdown-hook change for every later test in the worker.
-pytestmark = pytest.mark.usefixtures("fake_pyepics")
+# connect() runs against a stand-in aioca and an inline CA loop: the real loop
+# would claim this process's Channel Access environment for every later test.
+pytestmark = pytest.mark.usefixtures("fake_aioca")
 
 
 def _routing_connector(*globs: str) -> EPICSConnector:

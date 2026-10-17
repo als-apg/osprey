@@ -40,11 +40,15 @@ class ActionContext:
         owner: The account the run acts for, ``None`` when it acts for nobody.
         approved_target: The target the run was admitted on; a run is never
             admitted on one target and driven on another.
+        limits_off: Limits checking is explicitly off for the run's target,
+            so a connector that carries no limits validator may still fire
+            its commands. A fail-safe validator refuses whatever this says.
     """
 
     target: str
     owner: str | None
     approved_target: str
+    limits_off: bool = False
 
 
 @dataclass(frozen=True)

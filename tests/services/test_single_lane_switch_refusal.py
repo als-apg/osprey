@@ -97,7 +97,7 @@ def deployment(tmp_path, monkeypatch):
                 "control_system.writes_enabled": True,
             }.get(key, default)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
         # The control-context record lives under the agent-data root; stamping
         # that at tmp_path is what keeps one test's deployment out of another's,

@@ -292,7 +292,7 @@ def _audit_records(root):
     import json
 
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not path.is_file():

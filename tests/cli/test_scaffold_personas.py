@@ -26,7 +26,7 @@ from osprey.cli.scaffold_personas import (
     emit_persona_files,
     repoint_persona_catalog,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The preset whose catalog the personas come from. Deliberately NOT the preset
 #: the repo under test was created with — that mismatch is the whole point.

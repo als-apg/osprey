@@ -25,7 +25,6 @@ import types
 
 import pytest
 
-from osprey.errors import RegistryError
 from osprey.registry.base import (
     ArielSearchModuleRegistration,
     ConnectorRegistration,
@@ -43,6 +42,7 @@ from osprey.registry.loader import (
     merge_application_with_override,
     merge_named_registrations,
 )
+from osprey_connectors.errors import RegistryError
 
 
 @pytest.fixture

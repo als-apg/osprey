@@ -1,7 +1,7 @@
 """Browser test: the lattice dashboard over a render's simulator view.
 
 Each page is served by the real dashboard app over a render root: the built
-control-assistant render, whose view serves the LINE and SR decks; a render of
+control-assistant render, whose view serves the BTS, LINE, LTB and SR decks; a render of
 the same demo with ``simulation.models: [texture]``, whose view serves the
 texture model alone; and a render with no simulator view. A real Chromium page
 is the oracle for what the operator sees: the optics plot and tune readout of a
@@ -42,7 +42,7 @@ except ImportError:  # pragma: no cover
 SR_ELEMENTS = 802
 
 #: The demo's deck-bearing models, in the order its view serves them.
-DEMO_MODELS = ["LINE", "SR"]
+DEMO_MODELS = ["BTS", "LINE", "LTB", "SR"]
 
 #: The figure panels a single-pass model cannot draw; it has no tune.
 SINGLE_PASS_HIDDEN = ("resonance", "chromaticity", "footprint", "da", "lma")
@@ -115,7 +115,7 @@ def test_selected_sr_draws_its_optics_and_tunes(
 
 
 @pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
-def test_the_demo_lists_line_and_sr_with_line_selected(
+def test_the_demo_lists_its_served_models_with_the_first_selected(
     tmp_path: Path, built_control_assistant: BuiltProject, chromium_browser: Browser
 ) -> None:
     """The selector lists the served models in the view's order, the first selected."""
@@ -127,7 +127,7 @@ def test_the_demo_lists_line_and_sr_with_line_selected(
         expect(options).to_have_count(len(DEMO_MODELS), timeout=10_000)
         assert options.evaluate_all("els => els.map(e => e.value)") == DEMO_MODELS
         assert options.all_text_contents() == DEMO_MODELS
-        expect(page.locator("#model-select")).to_have_value("LINE")
+        expect(page.locator("#model-select")).to_have_value(DEMO_MODELS[0])
         expect(page.locator("#model-notice")).to_be_hidden()
 
         page.close()
@@ -141,6 +141,11 @@ def test_line_draws_its_optics_and_names_the_figures_it_cannot_draw(
     with _serve(built_control_assistant.build_dir, tmp_path / "ws") as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="load")
+        expect(page.locator("#model-select option")).not_to_have_count(0, timeout=10_000)
+
+        selected = page.evaluate(_SELECT, "LINE")
+        assert selected["status"] == 200, selected
+        assert selected["body"]["model"] == "LINE"
         expect(page.locator("#model-select")).to_have_value("LINE", timeout=10_000)
 
         page.wait_for_function(f"({_OPTICS_POINTS})() > 0", timeout=FIGURE_TIMEOUT_MS)
@@ -162,7 +167,7 @@ def test_line_draws_its_optics_and_names_the_figures_it_cannot_draw(
 def test_texture_only_lists_every_deck_model_unserved(
     tmp_path: Path, built_control_assistant: BuiltProject, chromium_browser: Browser
 ) -> None:
-    """The demo serving texture alone lists LINE and SR, each marked unserved.
+    """The demo serving texture alone lists every deck model, each marked unserved.
 
     Whether the build serves a model is a mark only: a selected unserved deck
     draws every figure its solve allows.

@@ -16,7 +16,7 @@ import pytest
 from osprey.cli.build_profile_load import _parse_profile, manifest_rows
 from osprey.cli.build_profile_model import SERVICE_AXES
 from osprey.deployment.telemetry_config import DEFAULT_LIMITS, GATEWAY_KEYS, STORE_KEYS
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _parse(config: dict[str, Any]) -> None:

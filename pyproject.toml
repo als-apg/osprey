@@ -137,9 +137,6 @@ dependencies = [
     "python-multipart>=0.0.18",
     # Utilities
     "unique-namer>=1.6.2",
-    # EPICS Channel Access client (used by control_system connector,
-    # limits_validator, and python_executor wrapper).
-    "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.3.4,<4.0.0",
     "psycopg-pool>=3.3.1,<4.0.0",
@@ -238,9 +235,13 @@ dependencies = [
     # pyAML control-system backend over the connector; versions with this repo's
     # calendar stream exactly as osprey-connectors does, hence the same specifier.
     "pyaml-cs-osprey>=2026.6.2",
-    # pyAML itself: string-equal to the pin in packages/pyaml-cs-osprey/pyproject.toml
-    # (a test holds them together).
-    "accelerator-middle-layer==0.3.1",
+    # pyAML itself, installed from accelerator-middle-layer-apg: the ALS-APG
+    # staging distribution of pyAML, which carries upstream commits only and
+    # imports as `pyaml` exactly as accelerator-middle-layer does. The two ship
+    # the same `pyaml/` package directory, so this one is never installed beside
+    # accelerator-middle-layer. String-equal to the pin in
+    # packages/pyaml-cs-osprey/pyproject.toml (a test holds them together).
+    "accelerator-middle-layer-apg==0.3.1.post2",
     # pySC, the measurement engine pyAML's tuning tools drive.
     "accelerator-commissioning==1.5.3",
 ]
@@ -387,8 +388,9 @@ screen-capture-linux = [
 # adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
-# and tests/va/test_apply_fault.py stands one up to assert the scenario faults
-# from the far side of the wire; without pcaspy installed that suite skips, and
+# and tests/va/test_apply_fault.py stands one up in a child process to assert
+# the scenario faults from the far side of the wire; without pcaspy installed
+# that suite skips, and
 # a skipped live suite proves nothing. It arrives through lume-pva-apg's `ca`
 # extra, which carries the `>=0.8.1` floor itself, so this extra names it
 # nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
@@ -404,9 +406,8 @@ screen-capture-linux = [
 # pcaspy source build that needs EPICS Base plus the separate PCAS module, and
 # fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
 # macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
-# and platform is the sdist. Marked, those hosts get the honest `importorskip`
-# skip and run the live suites in the container venue under scripts/va/live_ca/
-# instead.
+# and platform is the sdist. Marked, those hosts get the honest skip and run
+# the live suites in the container venue under scripts/va/live_ca/ instead.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
 # too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
@@ -463,9 +464,9 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 [project.entry-points."osprey.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
 
-# Resolver exemptions for two packages published more recently than the
+# Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
-# "nothing newer than N days" policy). Both are exact pins this project needs
+# "nothing newer than N days" policy). Each is an exact pin this project needs
 # by name, so a window that hides them makes the lock unresolvable rather than
 # merely conservative. Each timestamp must sit after the upload time of the
 # version pinned above it: uv filters candidates by upload time BEFORE the
@@ -482,10 +483,10 @@ pyat = "osprey.simulation.engines.pyat"
 # and every CI runner picks it up automatically.
 #
 # Each entry may be dropped once the ambient window has moved past that
-# package's upload date; neither is load-bearing beyond making the resolve
+# package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z", accelerator-middle-layer-apg = "2026-10-17T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
@@ -563,7 +564,6 @@ module = [
     "pandas.*",
     "numpy.*",
     "matplotlib.*",
-    "pyepics.*",
     "p4p.*",
     "podman.*",
     "pymongo.*",
@@ -703,6 +703,7 @@ select = [
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
+    "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
 ]
 ignore = [
     "E501",  # line too long, handled by formatter

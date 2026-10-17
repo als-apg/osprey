@@ -435,9 +435,8 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """A site's ``root`` may be a list; resurrection under ANY root goes red.
 
     The applications site grew a second root when the config loader moved to
-    the osprey-connectors workspace member (src/osprey/utils/config.py is now a
-    shim its regex can never match) — a site scanning only the shim tree would
-    be a green light wired to nothing.
+    the osprey-connectors workspace member, out of src/osprey/utils — a site
+    scanning only the old tree would be a green light wired to nothing.
     """
 
     def resurrect_under_the_second_root(manifest):
@@ -956,6 +955,34 @@ def test_resurrected_absent_path_goes_red():
     guard = make_guard(point_at_a_path_that_still_exists)
     guard.check_absent_paths()
     assert "absent-path" in modes(guard)
+
+
+def test_missing_orphan_site_root_goes_red():
+    def name_a_root_that_is_gone(manifest):
+        manifest["orphan_sites"]["synthetic"] = [
+            {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
+        ]
+
+    guard = make_guard(name_a_root_that_is_gone)
+    guard.check_orphan_sites()
+    assert "orphan-site" in modes(guard)
+    assert "synthetic" in details(guard)
+
+
+def test_orphan_site_root_owned_by_an_absent_path_stays_green():
+    """A root kept for the back-test after its tree was deleted is the absent-path check's."""
+
+    def name_a_deleted_root_asserted_absent(manifest):
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/never_existed/sub", "regex": "x", "why": "kept root"}
+            ]
+        }
+        manifest["absent_paths"] = [{"path": "src/osprey/never_existed", "assert": "absent"}]
+
+    guard = make_guard(name_a_deleted_root_asserted_absent)
+    guard.check_orphan_sites()
+    assert "orphan-site" not in modes(guard)
 
 
 def test_uncovered_conditional_branch_goes_red():

@@ -2820,6 +2820,91 @@ def test_rail_context_menu_remove_from_rail_drops_membership(tmp_path, chromium_
         page.close()
 
 
+def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, chromium_browser):
+    """ "Remove from rail" offers Undo, and Undo puts the entry back where it was.
+
+    The removed entry sits in the MIDDLE of the rail, so a restore that merely
+    re-added it would land it at the foot instead — the position is what this
+    proves, over the real POST → broadcast → handler round trip both ways.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    ops = {**_CUSTOM_DATA_VIZ, "id": "ops", "label": "OPS", "url": "http://ops.internal:8080"}
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ, ops],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        rail_ids = (
+            "() => [...document.querySelectorAll('.panel-rail-button')].map(e => e.dataset.panelId)"
+        )
+        expect(_rail_entry(page, "ops")).to_be_visible(timeout=10_000)
+        before = page.evaluate(rail_ids)
+        assert before.index("data-viz") < before.index("ops"), before
+
+        _open_rail_menu(page, "data-viz")
+        _menu_row(page, "Remove from rail").click()
+
+        notice = page.locator("#undo-notice")
+        expect(notice).to_contain_text("DATA VIZ removed from the rail", timeout=5_000)
+        expect(_rail_entry(page, "data-viz")).to_have_count(0, timeout=10_000)
+
+        notice.get_by_role("button", name="Undo").click()
+
+        expect(_rail_entry(page, "data-viz")).to_have_count(1, timeout=10_000)
+        expect(notice).to_have_count(0)
+        assert page.evaluate(rail_ids) == before
+
+        page.close()
+
+
+def test_open_system_from_the_health_card_leaves_the_rail_unchanged(tmp_path, chromium_browser):
+    """The health card's "Open SYSTEM" shows the tile without pinning SYSTEM.
+
+    The opened tile's header then offers "Pin to rail" in place of "Remove from
+    rail", and picking it is what gives SYSTEM its entry — over the real
+    POST → broadcast → handler round trip.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with (
+        _stub_backend() as system_url,
+        _live_server(workspace, enabled_panels={"artifacts", "system-health"}) as (
+            base_url,
+            app,
+        ),
+    ):
+        app.state.system_health_server_url = system_url
+        app.state.visible_panels = ["artifacts"]
+        page = _open_page(chromium_browser, base_url)
+        expect(_rail_entry(page, "artifacts")).to_be_visible(timeout=10_000)
+        expect(_rail_entry(page, "system-health")).to_have_count(0)
+
+        page.locator('[data-bar-item="system-health"] .bar-health').first.click()
+        page.get_by_role("button", name="Open SYSTEM").first.click()
+
+        tab = _service_tab(page, "SYSTEM")
+        expect(tab).to_have_count(1, timeout=10_000)
+        # Give a stray membership echo the time it would need to land.
+        page.wait_for_timeout(500)
+        expect(_rail_entry(page, "system-health")).to_have_count(0)
+        assert app.state.visible_panels == ["artifacts"]
+
+        tab.locator(".tile-tab-title").click(button="right")
+        expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+        assert _menu_labels(page)[-1] == "Pin to rail"
+        _menu_row(page, "Pin to rail").click()
+
+        expect(_rail_entry(page, "system-health")).to_have_count(1, timeout=10_000)
+        assert app.state.visible_panels == ["artifacts", "system-health"]
+        expect(tab).to_have_count(1)
+
+        page.close()
+
+
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
     """The new-window row renders inert while the panel has no standalone URL.
 

@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -1226,10 +1226,10 @@ def test_package_line_lists_pyaml_right_after_at():
     """The pyAML import name is prioritised directly behind the AT lattice toolbox."""
     from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
 
-    line = render_package_line(["zstandard", "pyaml", "epics", "click", "at", "numpy"])
+    line = render_package_line(["zstandard", "pyaml", "click", "at", "numpy"])
 
     listed = line.split(": ", 1)[1].rstrip(".").split(", ")
-    assert listed[:4] == ["numpy", "at", "pyaml", "epics"]
+    assert listed[:3] == ["numpy", "at", "pyaml"]
 
 
 def test_package_line_caps_names_and_reports_remainder():

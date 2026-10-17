@@ -787,13 +787,13 @@ def test_guard_is_silent_when_optional_libraries_are_absent(capsys, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# pyepics loading libca for osprey.runtime
+# A user-installed pyepics loading libca
 #
 # A readonly run reads through ``osprey.runtime``, whose EPICS connector is
-# pyepics — and pyepics reaches Channel Access by loading ``libca`` through
-# ``ctypes``. The load pyepics makes for itself is the one shared-library load
-# a readonly run permits; the handle it gets back has its put entry points
-# refused, so the raw route through it is closed as every other spelling is.
+# aioca, and aioca reads through the ``libca`` handle ``epicscorelibs`` loads
+# at install, before the loader is gated. No load after it is needed, so none
+# is permitted: the load a user-installed pyepics makes for itself refuses
+# like any other.
 # ---------------------------------------------------------------------------
 
 
@@ -814,37 +814,12 @@ def _install_fake_pyepics_loader(monkeypatch):
     return ca
 
 
-def test_readonly_lets_pyepics_load_libca(monkeypatch):
+def test_readonly_refuses_the_load_pyepics_makes(monkeypatch):
     ca = _install_fake_pyepics_loader(monkeypatch)
     _run_guard("readonly")
-
-    handle = ca.initialize_libca()
-
-    assert handle is not None
-
-
-def test_readonly_refuses_the_put_symbols_on_the_handle_pyepics_loaded(monkeypatch):
-    ca = _install_fake_pyepics_loader(monkeypatch)
-    _run_guard("readonly")
-    handle = ca.initialize_libca()
-
-    for symbol in ("ca_array_put", "ca_array_put_callback"):
-        with pytest.raises(RuntimeError, match=_REFUSAL):
-            getattr(handle, symbol)(0, 1, object(), object())
-
-
-def test_readonly_refuses_an_impostor_initialize_libca(monkeypatch):
-    """The permit is for pyepics' own function, not for a function of that name."""
-    _install_fake_pyepics_loader(monkeypatch)
-    _run_guard("readonly")
-
-    def initialize_libca():
-        import ctypes
-
-        return ctypes.cdll.LoadLibrary(None)
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
-        initialize_libca()
+        ca.initialize_libca()
 
 
 def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
@@ -940,25 +915,14 @@ def test_readonly_gates_the_loader_class_itself():
     assert type(lib) is ctypes.CDLL
 
 
-def test_the_original_loader_left_in_the_gate_resolves_no_put():
-    """The gate's closure still holds the original ``__init__``; what it loads is closed."""
+def test_the_refusing_loader_keeps_no_original_loader():
+    """No load is permitted, so the refusal holds no original ``__init__`` to reach."""
     import ctypes
 
-    lib = _guarded_libca()
-    originals = [
-        cell.cell_contents
-        for cell in ctypes.CDLL.__init__.__closure__
-        if getattr(cell.cell_contents, "__name__", None) == "__init__"
-    ]
-    assert len(originals) == 1
-    handle = object.__new__(ctypes.CDLL)
-    originals[0](handle, lib._name)
+    _guarded_libca()
+    cells = ctypes.CDLL.__init__.__closure__ or ()
 
-    for symbol in ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put"):
-        with pytest.raises(RuntimeError, match=_REFUSAL):
-            _call_unless_raw(getattr(handle, symbol))
-        with pytest.raises(RuntimeError, match=_REFUSAL):
-            _call_unless_raw(handle[symbol])
+    assert not [cell for cell in cells if callable(cell.cell_contents)]
 
 
 def test_readonly_leaves_the_read_symbols_on_the_cadef_libca_handle():
@@ -1430,7 +1394,7 @@ import sys
 assert "bluesky" not in sys.modules and "ophyd_async" not in sys.modules, (
     "the guard must not load an acquisition framework the script never imports"
 )
-assert {"epics", "aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
+assert {"aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
     "the client rows must be resolved before the script runs"
 )
 run_engine = importlib.import_module("bluesky.run_engine")
@@ -1649,10 +1613,10 @@ def test_two_guards_in_one_process_delegate_without_recursing(tmp_path, monkeypa
 
 def test_the_client_rows_are_resolved_before_the_script_runs():
     """The counterpart to the framework tests: the client half does not wait."""
-    for library in ("epics", "aioca", "p4p"):
+    for library in ("aioca", "p4p"):
         pytest.importorskip(library, reason=f"{library} is not installed in this environment")
 
     _run_guard("readonly")
 
     assert subprocess.run.__name__ == "_osprey_readonly_refuse"
-    assert {"epics", "aioca", "p4p.client.thread"} <= set(sys.modules)
+    assert {"aioca", "p4p.client.thread"} <= set(sys.modules)

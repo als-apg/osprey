@@ -104,6 +104,8 @@ never touches a control system and never raises ``SystemExit``.
 
 from __future__ import annotations
 
+import math
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -535,6 +537,9 @@ class _Shot:
         seen: Each request's last written value.
         buffers: Every series' samples, or ``None`` to keep the ones held.
         track: Whether the batch tracks a shot, which then fills ``buffers``.
+        time: When the shot that filled ``buffers`` was taken, in epoch
+            seconds; ``None`` for buffers no shot filled. Read only with
+            ``buffers``.
     """
 
     armed: bool
@@ -542,6 +547,7 @@ class _Shot:
     seen: dict[str, float]
     buffers: dict[str, np.ndarray] | None = None
     track: bool = False
+    time: float | None = None
 
 
 def _check_series(channels: Iterable[Variable], injection: Any) -> int:
@@ -837,6 +843,7 @@ class PyATLatticeModel(LUMEPyATModel):
         self._shot_count: int = rest.count
         self._seen: dict[str, float] = rest.seen
         self._buffers: dict[str, np.ndarray] = rest.buffers or {}
+        self._shot_time: float | None = rest.time
 
     @property
     def armed(self) -> bool:
@@ -847,6 +854,19 @@ class PyATLatticeModel(LUMEPyATModel):
     def shot_count(self) -> int:
         """The shots taken since the model was last at rest, tracked or not."""
         return self._shot_count
+
+    @property
+    def shot_times(self) -> dict[str, float]:
+        """When each turn series was filled, in epoch seconds, by address.
+
+        Every series is filled by the same shot, so each carries that shot's
+        time. A model whose series no shot has filled since it was last at
+        rest -- built, reset or rebuilt -- names none. Each tracked shot is
+        later than the one before it, even on a clock that has not moved.
+        """
+        if self._shot_time is None:
+            return {}
+        return dict.fromkeys(self._series, self._shot_time)
 
     @property
     def no_closed_orbit(self) -> bool:
@@ -870,10 +890,17 @@ class PyATLatticeModel(LUMEPyATModel):
 
         A batch that raises a request is one shot, taken after the batch's
         solve from the lattice the batch left. What the batch makes of the
-        armed flag, the shot count, the last request seen and the series is
-        worked out beside the write and adopted only once the write has
+        armed flag, the shot count, the last request seen, the series and the
+        time of the shot that filled them is worked out beside the write and adopted only once the write has
         committed, so a refused batch changes none of them.
+
+        A batch of commands alone writes no setting, so the lattice and its
+        solve stand as they are and are not solved again: only the shot is
+        worked out, from the lattice as the last solve left it.
         """
+        if values and values.keys() <= self._commands.keys() and not self._restoring:
+            self._set_commands(values)
+            return
         faults = {name: value for name, value in values.items() if name in self._fault_names}
         rest = {name: value for name, value in values.items() if name not in self._fault_names}
         self._pending_shot = self._shot_after(values)
@@ -882,9 +909,27 @@ class PyATLatticeModel(LUMEPyATModel):
             shot = self._pending_shot
         finally:
             self._pending_shot = None
+        self._adopt(shot)
+
+    def _set_commands(self, values: dict[str, Any]) -> None:
+        """Apply a batch of commands alone: work out its shot, and track it when armed.
+
+        Raises:
+            Whatever pyAT raises for a lattice it cannot track; nothing of
+            the batch is adopted then.
+        """
+        shot = self._shot_after(values)
+        if shot.track:
+            shot.buffers = self._track_shot(shot.count)
+            shot.time = self._next_shot_time()
+        self._inputs.update(values)
+        self._adopt(shot)
+
+    def _adopt(self, shot: _Shot) -> None:
+        """Make ``shot`` the model's shot state, once its batch has committed."""
         self._armed, self._shot_count, self._seen = shot.armed, shot.count, shot.seen
         if shot.buffers is not None:
-            self._buffers = shot.buffers
+            self._buffers, self._shot_time = shot.buffers, shot.time
 
     def reset(self) -> None:
         """Write every writable's default back, and return the shot to rest.
@@ -1029,7 +1074,14 @@ class PyATLatticeModel(LUMEPyATModel):
         shot = self._pending_shot
         if shot is not None and shot.track:
             shot.buffers = self._track_shot(shot.count)
+            shot.time = self._next_shot_time()
         return outputs
+
+    def _next_shot_time(self) -> float:
+        """The time a shot taken now is stamped with: now, or just after the last shot."""
+        now = time.time()
+        last = self._shot_time
+        return now if last is None or now > last else math.nextafter(last, math.inf)
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         """Return one value per name, in the order asked.

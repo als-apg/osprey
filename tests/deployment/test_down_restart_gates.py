@@ -699,7 +699,7 @@ def test_restart_mints_into_the_repo_env_from_any_directory(lifecycle_repo, runt
 
     container_lifecycle.restart_deployment(lifecycle_repo, detached=True)
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     assert parse_dotenv_file(lifecycle_repo / ".env")["EVENT_DISPATCHER_TOKEN"]
     assert not (elsewhere / ".env").exists()

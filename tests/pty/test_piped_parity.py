@@ -75,6 +75,7 @@ POSIX only, like the rest of this directory.
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import os
 import re
@@ -241,10 +242,8 @@ def run_piped(argv: list[str], *, cwd: Path, env: dict[str, str]) -> PipedRun:
     try:
         stdout, stderr = process.communicate(timeout=RUN_TIMEOUT)
     except subprocess.TimeoutExpired:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         try:
             stdout, stderr = process.communicate(timeout=_DRAIN_TIMEOUT)
         except subprocess.TimeoutExpired as still_open:

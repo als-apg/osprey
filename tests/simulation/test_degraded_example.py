@@ -31,14 +31,14 @@ import pytest
 
 pytest.importorskip("at")
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.va_in_process_connector import (
-    VAInProcessConnector,
-    simulation_state_dir,
-)
 from osprey.services.archiver_recorder.config import resolve_channel_addresses
 from osprey.simulation.engines.pyat import NO_CLOSED_ORBIT, TURN_SERIES
 from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.va_in_process_connector import (
+    VAInProcessConnector,
+    simulation_state_dir,
+)
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.archive import (
@@ -100,7 +100,7 @@ def _writes_enabled(key: str, default: Any = None) -> Any:
 @pytest.fixture(autouse=True)
 def _no_model_log_file(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
 
 
 @pytest.fixture
@@ -315,12 +315,14 @@ def test_the_seeded_store_and_the_recorder_hold_no_turn_series(example_view: Pat
     series = _turn_series(example_view)
     archived = archived_channels(SimulatorView.open(example_view))
     collection = StubCollection()
+    traces = StubCollection()
 
     report = seed_base(
         collection,
         build(example_view, [SCENARIO], anchor_s=SEED_T0.timestamp()),
         SMALL,
         t0=SEED_T0,
+        waveforms=traces,
     )
     recorded = resolve_channel_addresses(example_view)
 
@@ -332,6 +334,8 @@ def test_the_seeded_store_and_the_recorder_hold_no_turn_series(example_view: Pat
     assert report.documents == len(seed_grid(SMALL, SEED_T0)[0])
     stored = {field_name(address) for address in series}
     assert [key for document in collection.documents for key in document if key in stored] == []
+    assert traces.documents
+    assert [key for document in traces.documents for key in document if key in stored] == []
 
 
 def test_the_turn_series_change_no_document_count_and_no_other_channels_content(

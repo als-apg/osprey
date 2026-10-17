@@ -302,6 +302,23 @@ class TestTheBuiltGraph:
             assert list(graph.objects(node, predicate)) == [SEM[channel["signal"]]]
         assert sum(edges.values()) == len(signalled)
 
+    def test_the_septum_waveform_is_a_binding_of_a_septum(
+        self, built_control_assistant: BuiltProject, graph: Graph
+    ) -> None:
+        from rdflib import OWL
+
+        code = built_control_assistant.facility["identity"]["code"]
+        wave = URIRef(iri(code, "channel", "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"))
+        sek = URIRef(iri(code, "device", "SR/SEPTUM01"))
+
+        assert set(graph.objects(wave, RDF.type)) == {SEM.ChannelBinding}
+        assert list(graph.objects(wave, P.fullPv)) == [Literal("SR:MAG:SEPTUM:01:CURRENT:WAVEFORM")]
+        assert list(graph.objects(wave, P.readsSignal)) == [SEM.pulse_waveform]
+        assert "500 samples" in str(next(graph.objects(wave, P.description)))
+        assert (sek, P.hasBinding, wave) in graph
+        assert (sek, RDF.type, SEM.Septum) in graph
+        assert (SEM.Septum, RDF.type, OWL.Class) in graph
+
     def test_every_device_carries_the_facility_code(
         self, built_control_assistant: BuiltProject, graph: Graph
     ) -> None:

@@ -95,10 +95,10 @@ def test_apply_seeds_exactly_the_active_entries(tmp_path, database_url):
     result = apply_scenarios(project, ["rf-thermal"], now=T0)
     assert result.active == ("nominal", "rf-thermal")
     assert result.purged is True
-    assert result.logbook_seeded == 28  # 25 ambient + 3 incident
+    assert result.logbook_seeded == 32  # 29 ambient + 3 incident
 
     entries = asyncio.run(_fetch(database_url))
-    assert len(entries) == 28
+    assert len(entries) == 32
     assert {"DEMO-001", "DEMO-025", "DEMO-026", "DEMO-027", "DEMO-028"} <= set(entries)
 
 
@@ -123,9 +123,9 @@ def test_purge_replaces_prior_narrative(tmp_path, database_url):
 
     # Re-apply with a telemetry-only scenario: the incident arc must be purged.
     result = apply_scenarios(project, ["vacuum-burst"], now=T0)
-    assert result.logbook_seeded == 25
+    assert result.logbook_seeded == 29
     entries = asyncio.run(_fetch(database_url))
-    assert len(entries) == 25
+    assert len(entries) == 29
     assert "DEMO-026" not in entries
 
 
@@ -134,10 +134,10 @@ def test_reapply_is_idempotent(tmp_path, database_url):
 
     first = apply_scenarios(project, ["rf-thermal"], now=T0)
     second = apply_scenarios(project, ["rf-thermal"], now=T0)
-    assert first.logbook_seeded == second.logbook_seeded == 28
+    assert first.logbook_seeded == second.logbook_seeded == 32
 
     entries = asyncio.run(_fetch(database_url))
-    assert len(entries) == 28  # no duplication across re-applies
+    assert len(entries) == 32  # no duplication across re-applies
 
 
 async def _embedding_tables(database_url: str) -> set[str]:
@@ -230,7 +230,7 @@ def _drawn(entry_id: str) -> bytes:
     """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
     from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.plots import render_plot_spec
-    from osprey.utils.relative_time import resolve_relative_timestamp
+    from osprey_connectors.relative_time import resolve_relative_timestamp
     from osprey_connectors.simulation.logbook import PlotSpec
 
     scenarios = TEMPLATE_FACILITY / "scenarios"
@@ -289,8 +289,8 @@ def test_a_demo_narrative_seeds_every_scenario_with_its_pictures(tmp_path, datab
 
     seeded = seed_active_logbook(config, tmp_path, ariel)
 
-    assert seeded == 29
-    assert len(asyncio.run(_fetch(database_url))) == 29
+    assert seeded == 33
+    assert len(asyncio.run(_fetch(database_url))) == 33
     for entry_id in ("DEMO-011", "DEMO-027", "DEMO-031"):
         items, rows, renditions = asyncio.run(_pictures(database_url, entry_id))
         assert len(items) == len(rows) == 1, entry_id

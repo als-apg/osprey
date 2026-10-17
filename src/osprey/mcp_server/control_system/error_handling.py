@@ -13,16 +13,17 @@ from contextlib import asynccontextmanager
 
 from fastmcp.exceptions import ToolError
 
-from osprey.errors import (
-    ChannelLimitsViolationError,
-    ChannelNotFoundError,
-    ChannelWriteBlockedError,
-)
 from osprey.mcp_server.errors import (
     MISSING_KEY,
     NothingAnsweredError,
     make_error,
     refuse_nothing_answered,
+)
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelNotArchivedError,
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
 )
 from osprey_connectors.ipc.pool import DEFAULT_PING_TIMEOUT_S
 from osprey_connectors.ipc.proxy import ChildUnresponsiveError
@@ -120,6 +121,7 @@ TYPED_CAUSES: tuple[type[BaseException], ...] = (
     ChildUnresponsiveError,
     TimeoutError,
     ChannelNotFoundError,
+    ChannelNotArchivedError,
 )
 
 
@@ -309,6 +311,16 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
         )
     if isinstance(exc, ChannelNotFoundError):
         return _not_a_channel(tool_name, exc.channel_address, connector_name)
+    if isinstance(exc, ChannelNotArchivedError):
+        return (
+            "not_archived",
+            f"No archived history during {tool_name}: {exc}",
+            [
+                "Nothing was read from the archive for this channel.",
+                "Read it live after a shot instead of from the archiver.",
+            ],
+            {"channel": exc.channel_address},
+        )
     if isinstance(exc, ChannelLimitsViolationError):
         violation = {
             "channel": exc.channel_address,

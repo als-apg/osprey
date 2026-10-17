@@ -728,7 +728,7 @@ def export_built_host_identity(
     """
     import yaml
 
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     try:
         config = yaml.safe_load(rendered_config_path(Path(repo_root)).read_text(encoding="utf-8"))

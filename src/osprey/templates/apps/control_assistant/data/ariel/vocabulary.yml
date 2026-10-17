@@ -13,7 +13,7 @@
 #   operator and to the agent as `expanded_terms`, so a surprising hit always
 #   comes with the reason it appeared.
 #
-#   THIS FILE IS AN EXAMPLE, not a facility vocabulary. The twenty concepts
+#   THIS FILE IS AN EXAMPLE, not a facility vocabulary. The twenty-two concepts
 #   below are the ones most storage-ring facilities share, so the file is
 #   useful on day one and is meant to be edited: delete what you do not use,
 #   and add the shorthand your own control room actually says. The orbit and
@@ -133,6 +133,16 @@ concepts:
   - canonical: beam based alignment
     kind: acronym
     forms: [bba]
+
+  - canonical: linear accelerator
+    kind: acronym
+    forms: [linac]
+
+  # A screen is the same device whatever the control room calls it: the TV
+  # camera that views it or the paddle that drives it into the beam.
+  - canonical: screen
+    kind: synonym
+    forms: [tv, paddle]
 
   # ── Orbit and optics ────────────────────────────────────────
   - canonical: orbit response matrix

@@ -346,12 +346,14 @@ deployment should know them:
   token nor the port is there. The job still runs as the real person, under their narrowing.
 - **A direct login at the Bluesky panel's own address.** Unnamed, as above, and at the lane's
   ceiling.
-- **A shell reaching the trajectory service's agent door.** The same panel token lets that
-  shell open, take over or release a trajectory session through the terminal's proxy without
-  the approval prompt. A sandboxed run cannot, for the same reason as above. The session is
-  still the terminal owner's, and every action in it still passes the service's admission
-  check --- the owner's control context, narrowing and the writes posture --- and the target's
-  guarded-run lock.
+- **A shell reaching the trajectory service's agent door.** The same panel token would let
+  that shell take a shot or apply a step through the terminal's proxy without the approval
+  prompt. A deploy therefore refuses, with no waiver, any persona that shows the trajectory
+  tab while its settings leave a shell (``Bash`` or ``Monitor``) open, and a sandboxed run
+  cannot reach the door, for the same reason as above. A call that does reach the door is
+  still the terminal owner's, and every action passes the service's admission check --- the
+  owner's control context, narrowing and the writes posture --- and the target's guarded-run
+  lock.
 - **A single-user terminal under another account.** The trajectory service names the build
   account for the deployment secret, whoever runs the terminal. A terminal started under
   another account acts under the build account's name and narrowing; the service's state reply
@@ -372,9 +374,9 @@ The raw-put block that sends Python runs and notebook cells through the connecto
 the same kind. It refuses a client library's own put, and it tells a connector's put apart by
 the connector's write door, which records who is making the put rather than guarding it. Code
 that goes around the client library altogether is not stopped: a ``libca`` handle loaded
-through ``ctypes``, a raw socket, a pyepics callback under ``PREEMPTIVE_CALLBACK=False`` run
-inside a connector's waiting put, a connector subclass written in the run itself, or a shell
-escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
+through ``ctypes``, a raw socket, a user-installed pyepics' callback under
+``PREEMPTIVE_CALLBACK=False`` run inside a connector's waiting put, a connector subclass
+written in the run itself, or a shell escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
 These are **cooperative bypasses**: the block keeps honest code on the checked path, and it is
 not a sandbox. See :ref:`python-executor-armed-block` and :ref:`connector-write-door`.
 

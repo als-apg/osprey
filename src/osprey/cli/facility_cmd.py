@@ -125,12 +125,12 @@ def _build_in_memory(
     """
     import tempfile
 
-    from osprey.errors import BuildProfileError
     from osprey.facility.build import LATER_STAGES
     from osprey.facility.layers.mml.response_check import check_responses
     from osprey.facility.layers.mml.response_check import report as report_responses
     from osprey.facility.render import facility_digest
     from osprey.facility.validate import report, report_warnings, run_stages
+    from osprey_connectors.errors import BuildProfileError
 
     from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
     from .profile_conventions import (
@@ -587,11 +587,11 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     """
     import shlex
 
-    from osprey.errors import BuildProfileError
     from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
     from osprey.facility.validate import stale_scenarios
+    from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:
@@ -671,8 +671,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     positions for one device, when the header names an unknown column, or
     while the profile does not resolve.
     """
-    from osprey.errors import BuildProfileError
     from osprey.facility.layers.list import import_list as run_import
+    from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:

@@ -98,7 +98,7 @@ class BuiltProject:
     @property
     def build_dir(self) -> Path:
         """The deployment's own render root."""
-        from osprey.utils.workspace import BUILD_DIR_NAME
+        from osprey_connectors.workspace import BUILD_DIR_NAME
 
         return self.repo / BUILD_DIR_NAME
 

@@ -23,8 +23,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.va_in_process_connector import (
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
@@ -42,7 +42,7 @@ def _writes_enabled(key, default=None):
 
 @pytest.fixture(autouse=True)
 def writes_enabled(monkeypatch):
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
 
 
 def _journal(view: Path) -> Path:

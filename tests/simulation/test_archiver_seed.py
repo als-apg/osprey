@@ -38,6 +38,7 @@ from lume.variables import ScalarVariable
 
 from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.simulation import composite as composite_module
+from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -54,11 +55,13 @@ from osprey_connectors.simulation.archive import (
     seed_fingerprint,
     seed_grid,
     synthesize_documents,
+    waveform_collection,
+    waveform_document,
     write_manifest,
 )
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.series import epoch_seconds_array
-from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_texture_view
@@ -166,6 +169,71 @@ def series_engine(monkeypatch):
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
 
 
+# A pulsed supply: its trace, its setpoint (the driver) and its on-state (the enable).
+WAVE = "SR:SEK:WAVEFORM"
+DRIVER = "SR:SEK:CURRENT:SP"
+ENABLE = "SR:SEK:STATUS:ON"
+HELD_DRIVE = 2.0
+
+#: A supply lowered half an hour before the anchor, then switched off ten minutes before it.
+LOWER_AT_S = -1800.0
+OFF_AT_S = -600.0
+PULSE_SCENARIOS = {
+    "lower": {
+        "archiver": [
+            {"channel": DRIVER, "events": [{"shape": "step", "at_offset": LOWER_AT_S, "to": 1.0}]}
+        ]
+    },
+    "off": {
+        "archiver": [
+            {"channel": ENABLE, "events": [{"shape": "step", "at_offset": OFF_AT_S, "to": "FALSE"}]}
+        ]
+    },
+}
+
+
+def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
+    """A texture view holding a pulsed supply's trace beside its driver and enable.
+
+    ``write_texture_view`` writes neither a ``shape`` nor a ``pulse`` seed, so
+    both are patched into the written documents.
+    """
+    view = write_texture_view(
+        render,
+        {
+            PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
+            WAVE: {"value_type": "waveform"},
+            DRIVER: {"role": "setpoint", "nominal": HELD_DRIVE},
+            ENABLE: {"value_type": "bool", "nominal": "TRUE"},
+        },
+        scenarios,
+    )
+    variables = json.loads((view / VARIABLES_FILE).read_text())
+    for record in variables["channels"]:
+        if record["address"] == WAVE:
+            record["shape"] = [pulse.TRACE_POINTS]
+    (view / VARIABLES_FILE).write_text(json.dumps(variables))
+    if pulse_seed:
+        seeds = json.loads((view / SEEDS_FILE).read_text())
+        seeds["seeds"][WAVE] = {"pulse": {"driver": driver, "enable": ENABLE}}
+        (view / SEEDS_FILE).write_text(json.dumps(seeds))
+    return view
+
+
+@pytest.fixture(scope="module")
+def pulse_archive(tmp_path_factory):
+    """The archive composite of a view holding a pulsed supply, nominal active."""
+    view = write_pulse_view(tmp_path_factory.mktemp("pulse"))
+    return build(view, [], anchor_s=T0.timestamp())
+
+
+@pytest.fixture(scope="module")
+def stepped_pulse_archive(tmp_path_factory):
+    """The pulsed supply lowered, then switched off, before the anchor."""
+    view = write_pulse_view(tmp_path_factory.mktemp("stepped"), scenarios=PULSE_SCENARIOS)
+    return build(view, ["lower", "off"], anchor_s=T0.timestamp())
+
+
 # ---------------------------------------------------------------------------
 # Container fixtures
 # ---------------------------------------------------------------------------
@@ -227,7 +295,7 @@ def read_back(mongo_store, monkeypatch):
     monkeypatch.setenv(password_env, mongo_store["password"])
 
     async def query(channels, start, end):
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -574,6 +642,20 @@ class TestFingerprint:
         of the store on disk — which is the budget the knob exists to hold."""
         assert self._fingerprint(compression="snappy") != self._fingerprint()
 
+    def test_the_pulse_shape_is_part_of_it(self):
+        """The stored traces are the shape's output, so a store seeded under
+        other shape constants holds a different history."""
+        assert self._fingerprint()["shape_version"] == pulse.SHAPE_VERSION
+
+    def test_a_shape_change_changes_the_fingerprint(self, monkeypatch):
+        before = self._fingerprint()
+        monkeypatch.setattr(pulse, "SHAPE_VERSION", "0" * 16)
+
+        assert self._fingerprint() != before
+
+    def test_an_unchanged_shape_leaves_the_fingerprint_unchanged(self):
+        assert self._fingerprint() == self._fingerprint()
+
 
 class TestFingerprintComparison:
     """Match, mismatch, absent — and the trap in between.
@@ -812,6 +894,237 @@ class TestConnectorRoundtrip:
         frame = await read_back(["SR:NOT:SEEDED"], T0 - timedelta(minutes=10), T0)
 
         assert len(frame) == 0
+
+
+# ---------------------------------------------------------------------------
+# Waveforms
+# ---------------------------------------------------------------------------
+
+
+def _tail_instants(knobs: SeedKnobs, t0: datetime) -> np.ndarray:
+    """The coarse-cadence timestamps of the whole retention window."""
+    times, _ = seed_grid(knobs, t0)
+    return times[np.mod(times, knobs.tail_cadence_sec) == 0]
+
+
+class _Log:
+    """The order the seed's writes reach the two collections."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+
+class _LoggedCollection(StubCollection):
+    """A stub collection that names itself in a shared write log."""
+
+    def __init__(self, name: str, log: _Log, *, fail_inserts: bool = False) -> None:
+        super().__init__()
+        self.name = name
+        self._log = log
+        self._fail_inserts = fail_inserts
+
+    def insert_many(self, documents, **kwargs):
+        if self._fail_inserts:
+            raise RuntimeError(f"{self.name}: the store went away")
+        self._log.events.append(("insert", self.name))
+        super().insert_many(documents, **kwargs)
+
+    def replace_one(self, filter_, document, upsert=False, **kwargs):
+        self._log.events.append(("replace", self.name))
+        super().replace_one(filter_, document, upsert=upsert, **kwargs)
+
+
+class _Database(dict):
+    """A database handle: collections by name."""
+
+
+class TestWaveformChannels:
+    """A trace is the pulse at its instant, under the stepped drive."""
+
+    def test_the_waveform_channels_are_partitioned_from_the_scalar_ones(self, pulse_archive):
+        assert pulse_archive.waveform_addresses == [WAVE]
+        assert WAVE not in pulse_archive.scalar_addresses
+        assert sorted([*pulse_archive.scalar_addresses, WAVE]) == pulse_archive.addresses
+
+    def test_a_trace_of_an_address_outside_the_facility_is_a_typed_error(self, pulse_archive):
+        from osprey_connectors.errors import ChannelNotFoundError
+
+        with pytest.raises(ChannelNotFoundError) as caught:
+            pulse_archive.traces("NO:SUCH:WAVEFORM", [T0.timestamp()])
+        assert caught.value.channel_address == "NO:SUCH:WAVEFORM"
+
+    def test_a_trace_is_the_pulse_at_its_instant(self, pulse_archive):
+        instants = _tail_instants(SMALL, T0)[:3]
+
+        traces = pulse_archive.traces(WAVE, instants)
+
+        assert len(traces) == 3
+        for trace, instant in zip(traces, instants, strict=True):
+            expected = pulse.trace(WAVE, float(instant), HELD_DRIVE, True)
+            assert np.array_equal(trace, expected)
+
+    def test_the_trace_follows_the_stepped_driver(self, stepped_pulse_archive):
+        anchor = T0.timestamp()
+        before, after = anchor + LOWER_AT_S - 60.0, anchor + LOWER_AT_S + 60.0
+
+        early, late = stepped_pulse_archive.traces(WAVE, [before, after])
+
+        assert np.array_equal(early, pulse.trace(WAVE, before, HELD_DRIVE, True))
+        assert np.array_equal(late, pulse.trace(WAVE, after, 1.0, True))
+
+    def test_a_disabled_supply_archives_a_flat_zero_trace(self, stepped_pulse_archive):
+        after = T0.timestamp() + OFF_AT_S + 60.0
+
+        (trace,) = stepped_pulse_archive.traces(WAVE, [after])
+
+        assert trace.shape == (pulse.TRACE_POINTS,)
+        assert not trace.any()
+
+    def test_a_waveform_series_is_its_traces_as_plain_floats(self, pulse_archive):
+        instants = _tail_instants(SMALL, T0)[:2]
+
+        series = pulse_archive.series(WAVE, instants)
+
+        assert [list(map(float, trace)) for trace in pulse_archive.traces(WAVE, instants)] == series
+        assert all(type(value) is float for value in series[0])
+
+    def test_a_waveform_without_a_pulse_archives_its_held_trace(self, tmp_path):
+        archive = build(write_pulse_view(tmp_path, pulse_seed=False), [], anchor_s=T0.timestamp())
+
+        (trace,) = archive.traces(WAVE, [T0.timestamp()])
+
+        assert trace.tolist() == list(archive.held(WAVE))
+
+    def test_a_pulse_naming_a_channel_outside_the_view_is_refused(self, tmp_path):
+        view = write_pulse_view(tmp_path, driver="SR:SEK:NOT:A:CHANNEL")
+
+        with pytest.raises(ValueError, match="SR:SEK:NOT:A:CHANNEL"):
+            build(view, [], anchor_s=T0.timestamp())
+
+    def test_scalar_documents_hold_no_waveform_values(self, pulse_archive):
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(pulse_archive, times[:8])
+
+        assert documents
+        for document in documents:
+            assert field_name(WAVE) not in document
+            assert {field_name(DRIVER), field_name(ENABLE), field_name(PRESSURE)} <= set(document)
+
+
+class TestSeedBaseWaveforms:
+    """The seed's waveform documents, against stub stores."""
+
+    @staticmethod
+    def _seed(archive, *, fail_waveforms=False):
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        waveforms = _LoggedCollection(
+            waveform_collection("pv_history"), log, fail_inserts=fail_waveforms
+        )
+        report = seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+        return report, scalars, waveforms, log
+
+    def test_one_trace_per_channel_per_coarse_instant_over_the_whole_window(self, pulse_archive):
+        _, _, waveforms, _ = self._seed(pulse_archive)
+
+        instants = _tail_instants(SMALL, T0)
+        # Sorted: the chunks are inserted concurrently, so arrival order is not a contract.
+        stored = sorted(document[DATE_FIELD] for document in waveforms.documents)
+        assert stored == [datetime.fromtimestamp(float(t), UTC) for t in instants]
+        assert all(
+            len(document[field_name(WAVE)]) == pulse.TRACE_POINTS
+            for document in waveforms.documents
+        )
+
+    def test_every_waveform_document_is_the_helper_s(self, pulse_archive):
+        _, _, waveforms, _ = self._seed(pulse_archive)
+
+        for document in waveforms.documents:
+            date = document[DATE_FIELD]
+            (trace,) = pulse_archive.traces(WAVE, [date.timestamp()])
+            expected = waveform_document(
+                WAVE, date, trace, expire_at=date + timedelta(seconds=SMALL.retention_s)
+            )
+            assert document == expected
+
+    def test_the_scalar_store_holds_no_trace(self, pulse_archive):
+        report, scalars, _, _ = self._seed(pulse_archive)
+
+        assert report.documents == len(seed_grid(SMALL, T0)[0])
+        assert all(field_name(WAVE) not in document for document in scalars.documents)
+
+    def test_the_traces_are_written_before_the_manifest(self, pulse_archive):
+        _, scalars, waveforms, log = self._seed(pulse_archive)
+
+        manifest_at = log.events.index(("replace", scalars.name))
+        trace_writes = [
+            index for index, event in enumerate(log.events) if event == ("insert", waveforms.name)
+        ]
+        assert trace_writes
+        assert max(trace_writes) < manifest_at
+        assert manifest_at == len(log.events) - 1
+
+    def test_an_interrupted_trace_write_leaves_no_manifest(self, pulse_archive):
+        """The next deploy must read the half-written store as ABSENT."""
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        waveforms = _LoggedCollection(waveform_collection("pv_history"), log, fail_inserts=True)
+
+        with pytest.raises(RuntimeError, match="went away"):
+            seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+
+        assert scalars.manifest is None
+
+    def test_the_sibling_is_found_beside_the_sample_collection(self, pulse_archive):
+        """The deploy path hands the seed only the sample collection."""
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        sibling = _LoggedCollection(waveform_collection("pv_history"), log)
+        scalars.database = _Database({sibling.name: sibling})
+
+        seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        assert len(sibling.documents) == len(_tail_instants(SMALL, T0))
+        assert scalars.manifest is not None
+
+    def test_a_view_without_waveforms_never_touches_a_sibling(self, archive):
+        """A stub with no database stands in for a store that has only samples."""
+        scalars = StubCollection()
+
+        seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64)
+
+        assert scalars.manifest is not None
+
+
+class TestSeedBaseWaveformStore:
+    """The traces in a real store: indexed, typed, and beside the samples."""
+
+    @pytest.fixture
+    def waveforms(self, collection):
+        sibling = collection.database[waveform_collection(collection.name)]
+        sibling.drop()
+        try:
+            yield sibling
+        finally:
+            sibling.drop()
+
+    def test_the_traces_land_indexed_in_the_sibling(self, collection, waveforms, pulse_archive):
+        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        assert waveforms.count_documents({}) == len(_tail_instants(SMALL, T0))
+        assert collection.count_documents({field_name(WAVE): {"$exists": True}}) == 0
+        keyed = {tuple(spec["key"][0]) for spec in waveforms.index_information().values()}
+        assert (DATE_FIELD, 1) in keyed
+        assert (EXPIRE_FIELD, 1) in keyed
+
+    def test_a_stored_trace_reads_back_as_plain_doubles(self, collection, waveforms, pulse_archive):
+        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        document = waveforms.find_one({}, sort=[(DATE_FIELD, 1)])
+        date = document[DATE_FIELD].replace(tzinfo=UTC)
+        (trace,) = pulse_archive.traces(WAVE, [date.timestamp()])
+        assert document[field_name(WAVE)] == trace.tolist()
 
 
 def _epoch(moment: datetime) -> float:

@@ -91,7 +91,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    from osprey.utils.dotenv import chain_files
+    from osprey_connectors.dotenv import chain_files
 
     for env_file in chain_files(repo_root):
         load_dotenv(env_file, override=True)
@@ -202,7 +202,7 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     from osprey.interfaces.web_auth import close_env_carriers, mint_and_announce
     from osprey.port_layout import resolve_port_base
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-    from osprey.utils.workspace import load_osprey_config, reset_config_cache
+    from osprey_connectors.workspace import load_osprey_config, reset_config_cache
 
     config_file = project_dir / "config.yml"
     if config_file.exists():

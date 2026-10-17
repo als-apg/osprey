@@ -575,13 +575,13 @@ class TestHelloWorldMiddleLayer:
     def test_run_sql_answers_from_the_database_the_build_writes(
         self, middle_layer_repo: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
         from osprey.mcp_server.channel_finder_middle_layer.server_context import (
             initialize_cf_ml_context,
             reset_cf_ml_context,
         )
         from osprey.mcp_server.channel_finder_middle_layer.tools.run_sql import run_sql
-        from osprey.utils.workspace import reset_config_cache
+        from osprey_connectors.workspace import reset_config_cache
 
         def reset() -> None:
             reset_cf_ml_context()

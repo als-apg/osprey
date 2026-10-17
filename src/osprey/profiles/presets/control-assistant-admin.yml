@@ -38,11 +38,13 @@ deploy_services: false
 # desk minus. Persona lists UNION over the base, so these are added to the
 # inherited builtin set. Each tab's URL, path and label are not spelled here:
 # the hosting deployment's build derives them when it injects the event
-# dispatcher and the bluesky-web sidecar, and this attached render is told
-# them from that render (the Reach Contract, `osprey.deployment.reach`).
+# dispatcher, the bluesky-web sidecar and the trajectory service, and this
+# attached render is told them from that render (the Reach Contract,
+# `osprey.deployment.reach`).
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
+  - trajectory      # Trajectory shots, steps and apply (the trajectory service)
 
 # The guided configuration workflow, left out of the base on purpose because it
 # edits config.yml and .mcp.json. Skill lists UNION over the base, so this is

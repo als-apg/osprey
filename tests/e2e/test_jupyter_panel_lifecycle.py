@@ -37,15 +37,15 @@ last.
 2. Attaching a terminal yields a session id, and the deployment's
    control-context record — owned by the web terminal — names the target the
    posture route reports.
-3. With writes on, a runtime write lands, while a direct ``epics.caput`` from a
+3. With writes on, a runtime write lands, while a direct ``aioca.caput`` from a
    cell is refused with ``RAW_CLIENT_WRITE``, the write-through-the-runtime
    line and one ``raw_client_write`` audit record, and leaves the value where
-   the runtime put it. A client put made from a libca callback thread while a
+   the runtime put it. A client put made from a monitor callback while a
    runtime write is in flight is refused too: the connector's write door is
-   open only in the context that opened it, never on a thread libca started.
-   The kernel loads no Channel Access client of its own: the libca check fires
-   before the cell's raw client is made, and the raw client is addressed by
-   the cell.
+   open only in the context that opened it, never in a callback libca woke.
+   The kernel makes no Channel Access context of its own: the context check
+   fires before the cell's raw client is made, and the raw client is addressed
+   by the cell.
 4. A cell run while writes are off for that target reads, and refuses a write
    with the connector's text plus the turn-writes-on line and exactly one audit
    record on the ``notebook_kernel`` surface, filed under the KERNEL's own
@@ -104,8 +104,8 @@ from websockets.sync.client import connect as ws_connect
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
-from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
+from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.posture_store import STATE_DIR_NAME
 from tests.e2e._facility_select import repo_view
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
@@ -739,8 +739,9 @@ STAMPS_CELL = (
 )
 READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({CHANNEL!r})))\n"
 WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
-#: A client library's own put, straight past the runtime.
-RAW_CAPUT_CELL = f"import epics\nepics.caput({WRITE_TARGET!r}, 2.0)\n"
+#: A client library's own put, straight past the runtime. The kernel runs a
+#: cell's top-level ``await`` on its own loop, and aioca has no other spelling.
+RAW_CAPUT_CELL = f"import aioca\nawait aioca.caput({WRITE_TARGET!r}, 2.0)\n"
 #: How long a readback gets to follow its setpoint. The readback follows to
 #: within the motion its seed declares, never to the setpoint exactly.
 READBACK_SETTLE_SEC = 20.0
@@ -762,29 +763,37 @@ def _setpoint_cell(band: float) -> str:
     )
 
 
-#: The real-libca door proof. A monitor callback runs on a thread libca
-#: started, which never carries the connector's write door; it tries a client
-#: put of its own and records whether the runtime write was in flight at that
-#: moment. The in-flight flag is a plain ``threading.Event`` for the same
-#: reason: a context variable set here would be invisible on that thread. The
-#: callback catches its own refusal, because pyepics swallows what a callback
-#: raises. The initial-value callback is allowed to land before the flag is set,
-#: so the flag marks only callbacks the in-flight write caused. The kernel's
-#: runtime holds no Channel Access client, so nothing in the kernel's
-#: environment addresses a raw one; the cell points its own client at the
-#: server named by the deployment's gateway row, as an operator's raw client
-#: would have to.
+#: The real-libca door proof. aioca hands a monitor update to the loop that
+#: opened the subscription, woken from a thread libca started, so the callback
+#: never runs in the connector's context and never carries its write door. The
+#: subscription lives on a watcher thread with a loop of its own rather than on
+#: the kernel's: ``write_channel`` blocks the kernel's thread for the whole
+#: write, so a callback queued there could only run once the write was over.
+#: The callback tries a client put of its own and records whether the runtime
+#: write was in flight at that moment. The in-flight flag is a plain
+#: ``threading.Event`` for the same reason: a context variable set here would be
+#: invisible on the watcher. The callback catches its own refusal, because aioca
+#: closes a subscription whose callback raises. The initial-value callback is
+#: allowed to land before the flag is set, so the flag marks only callbacks the
+#: in-flight write caused. The kernel's runtime holds no Channel Access client,
+#: so no CA context exists in the kernel before this cell and nothing in the
+#: kernel's environment addresses a raw one; the cell points its own client at
+#: the server named by the deployment's gateway row, as an operator's raw client
+#: would have to. aioca reads that environment when it makes its context, on
+#: the cell's first Channel Access call. aioca offers no public probe for an
+#: existing context, so the cell reads its private ``_Context._ca_context``; a
+#: release that renames it fails the cell at that line, never passes it.
 DOOR_PROOF_CELL = (
-    "import json, threading, time\n"
-    "import os\n"
+    "import asyncio, json, os, threading, time\n"
     "from osprey_connectors.config import get_config_value\n"
     "from osprey_connectors.control_system.va_connector import fill_gateway_ports\n"
     "gateway = fill_gateway_ports(\n"
     "    get_config_value('control_system.connector.virtual_accelerator', {})\n"
     ")['gateways']['write_access']\n"
-    "import epics\n"
-    "assert epics.ca.libca is None, (\n"
-    "    'a Channel Access client was loaded in the kernel before the cell made one'\n"
+    "import aioca\n"
+    "from aioca._catools import _Context\n"
+    "assert _Context._ca_context is None, (\n"
+    "    'a Channel Access context was made in the kernel before the cell made one'\n"
     ")\n"
     "if gateway.get('use_name_server'):\n"
     "    os.environ['EPICS_CA_NAME_SERVERS'] = f\"{gateway['address']}:{gateway['port']}\"\n"
@@ -795,27 +804,36 @@ DOOR_PROOF_CELL = (
     "os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'\n"
     "from osprey.runtime import write_channel\n"
     "in_flight = threading.Event()\n"
+    "done = threading.Event()\n"
     "seen = []\n"
-    "def on_change(pvname=None, value=None, **kw):\n"
+    "async def on_change(value):\n"
     "    try:\n"
-    f"        epics.caput({WRITE_TARGET!r}, value)\n"
+    f"        await aioca.caput({WRITE_TARGET!r}, float(value))\n"
     "        refused = None\n"
     "    except Exception as exc:\n"
     "        refused = getattr(exc, 'reason', None) or type(exc).__name__\n"
-    "    seen.append({'in_flight': in_flight.is_set(), 'value': value, 'refused': refused})\n"
-    f"pv = epics.PV({WRITE_TARGET!r}, callback=on_change, auto_monitor=True)\n"
-    "assert pv.wait_for_connection(timeout=30), 'the setpoint never connected'\n"
-    "deadline = time.monotonic() + 10\n"
+    "    seen.append({'in_flight': in_flight.is_set(), 'value': float(value), 'refused': refused})\n"
+    "async def watch():\n"
+    f"    sub = aioca.camonitor({WRITE_TARGET!r}, on_change)\n"
+    "    try:\n"
+    "        while not done.is_set():\n"
+    "            await asyncio.sleep(0.1)\n"
+    "    finally:\n"
+    "        sub.close()\n"
+    "watcher = threading.Thread(target=asyncio.run, args=(watch(),), daemon=True)\n"
+    "watcher.start()\n"
+    "deadline = time.monotonic() + 30\n"
     "while not seen and time.monotonic() < deadline:\n"
     "    time.sleep(0.1)\n"
+    "assert seen, 'the setpoint never connected'\n"
     "in_flight.set()\n"
     "try:\n"
     f"    write_channel({WRITE_TARGET!r}, 3.0, confirm=True)\n"
     "finally:\n"
     "    in_flight.clear()\n"
     "time.sleep(1.0)\n"
-    "pv.clear_callbacks()\n"
-    "pv.disconnect()\n"
+    "done.set()\n"
+    "watcher.join(timeout=10)\n"
     "print(json.dumps(seen))\n"
 )
 
@@ -973,8 +991,8 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
     an in-flight runtime write reaches the worker the connector hands the put
     to, and nothing else: a monitor callback libca delivers on its own thread
     during that write is outside it, so its client put is refused while the
-    write it was woken by is still going. The kernel loads no Channel Access
-    client of its own: the libca check fires before the cell's raw client is
+    write it was woken by is still going. The kernel makes no Channel Access
+    context of its own: the context check fires before the cell's raw client is
     made, and the raw client is addressed by the cell.
     """
     assert terminal.session_id and terminal.first_target

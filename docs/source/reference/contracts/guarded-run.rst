@@ -50,8 +50,9 @@ Who holds it
   holds none.
 - The trajectory service's worker takes the lock around each writing action
   it runs, after the action's admission checks pass
-  (:ref:`architecture-trajectory-service`). A take-over or a release never
-  takes it.
+  (:ref:`architecture-trajectory-service`). A continuous run takes it for
+  each shot and releases it between shots. A take-over, a release, a Stop
+  or a heartbeat never takes it.
 
 Whose run it is
 ===============

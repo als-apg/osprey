@@ -739,7 +739,9 @@ class TestDemoRender:
 
         assert [m["name"] for m in models] == [name for name in served if name != TEXTURE]
         assert [(m["name"], m["served"], m["solve"]) for m in models] == [
+            ("BTS", True, "single_pass"),
             ("LINE", True, "single_pass"),
+            ("LTB", True, "single_pass"),
             ("SR", True, "periodic"),
         ]
 
@@ -749,7 +751,7 @@ class TestDemoRender:
         selection = demo.get("/api/state").json()["selection"]
 
         assert (selection["model"], selection["status"]) == (first, "ready")
-        assert first == "LINE"
+        assert first == "BTS"
 
     def test_line_chromaticity_figure_409(self, demo):
         assert select(demo, "LINE")["selection"]["model"] == "LINE"

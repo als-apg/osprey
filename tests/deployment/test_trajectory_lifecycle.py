@@ -27,7 +27,7 @@ from osprey.deployment.compose_generator import (
     service_audit_identities,
     trajectory_state_relpath,
 )
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 _TEMPLATES_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
 _TEMPLATE = "services/trajectory/docker-compose.yml.j2"

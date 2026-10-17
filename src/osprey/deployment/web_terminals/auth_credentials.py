@@ -78,7 +78,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
     ENV_LOCAL_FILENAME,
@@ -89,7 +89,7 @@ from osprey.utils.dotenv import (
     env_file_lock,
     parse_dotenv_file,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 
@@ -248,7 +248,7 @@ def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -
     """Append ``entries`` to ``.env.auth`` under ``header``, creating it 0600.
 
     A file created here is stamped with
-    :data:`~osprey.utils.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
+    :data:`~osprey_connectors.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
     per-block ``header`` — creation is the only moment the file-top readme can
     be added, since every later write appends below it and the rewrite paths
     preserve existing lines.
@@ -858,7 +858,7 @@ def _drop_env_assignments(env_path: Path, is_target: Callable[[str], bool]) -> t
     """Remove every assignment line in ``env_path`` whose variable is a target.
 
     The deploy ``.env`` is append-only to
-    :func:`~osprey.utils.dotenv.append_profile_env` — a key already in the file
+    :func:`~osprey_connectors.dotenv.append_profile_env` — a key already in the file
     is never rewritten, which is what protects an operator's secrets from a
     re-deploy. This is the one narrow exception to that, and it works by
     *removal* rather than by rewriting a value: the callers either have nothing
@@ -872,13 +872,13 @@ def _drop_env_assignments(env_path: Path, is_target: Callable[[str], bool]) -> t
 
     Comments, blank lines, and every other variable's lines are preserved
     verbatim. The rewrite goes through
-    :func:`~osprey.utils.dotenv.atomic_write`, so a reader sees either the whole
+    :func:`~osprey_connectors.dotenv.atomic_write`, so a reader sees either the whole
     old file or the whole new one, and the result carries the 0600 mode that
     function enforces on a file holding facility secrets.
 
     The read, the filter and the replace happen under
-    :func:`~osprey.utils.dotenv.env_file_lock` — the SAME lock
-    :func:`~osprey.utils.dotenv.append_profile_env` takes, which is the whole
+    :func:`~osprey_connectors.dotenv.env_file_lock` — the SAME lock
+    :func:`~osprey_connectors.dotenv.append_profile_env` takes, which is the whole
     point. The deploy ``.env`` is appended to by several unrelated writers
     (``osprey up`` persisting a minted service token, ``osprey build`` writing
     its derived keys, profile seeding), and a locked append landing between an

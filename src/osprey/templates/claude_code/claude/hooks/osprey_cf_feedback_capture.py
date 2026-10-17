@@ -49,6 +49,7 @@ COMPLETELY SILENT: never writes to stdout. Always exits 0.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -373,10 +374,8 @@ try:
                         json.dump(data, tmp_f, indent=2)
                     os.replace(tmp_path, store_path)
                 except BaseException:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.unlink(tmp_path)
-                    except OSError:
-                        pass
                     raise
             finally:
                 fcntl.flock(lf, fcntl.LOCK_UN)

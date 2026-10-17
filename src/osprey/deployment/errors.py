@@ -1,7 +1,7 @@
 """Deployment-subsystem errors.
 
 Recurring domain errors for container deployment. Framework-level, cross-cutting
-errors live in :mod:`osprey.errors`.
+errors live in :mod:`osprey_connectors.errors`.
 """
 
 from __future__ import annotations

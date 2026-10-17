@@ -103,7 +103,7 @@ class TestPatternDetection:
 
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=mock_config,
             ),
         ):
@@ -196,7 +196,7 @@ class TestPatternDetection:
 
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=mock_config,
             ),
         ):

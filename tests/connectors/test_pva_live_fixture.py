@@ -30,9 +30,8 @@ variable the connector wrote back after each test.
 **The Channel Access half of the mixed batch is unreachable on purpose.** Its
 address matches no ``pva_channels`` glob, so it takes the CA path, where no
 server answers it — that is the point. The connectors are built against a
-stand-in pyepics whose channels never connect, so that half sends no Channel
-Access search off the host, and the real libca is never loaded into (nor its
-shutdown hook taken out of) the test process.
+stand-in aioca whose channels never connect, so that half sends no Channel
+Access search off the host, and the process's real CA loop is never started.
 """
 
 import gc
@@ -47,10 +46,10 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
-    install_fake_pyepics,
+    install_fake_aioca,
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
@@ -190,7 +189,7 @@ def connector_factory(pva_server):
     and they must be closed deterministically rather than collected at some
     later moment. The ``EPICS_PVA_*`` variables ``connect()`` writes are put
     back at the same time, so nothing downstream of this module inherits a
-    pinned name server, and the stand-in pyepics is taken out of
+    pinned name server, and the stand-in aioca is taken out of
     ``sys.modules`` again.
     """
     import asyncio
@@ -199,7 +198,7 @@ def connector_factory(pva_server):
     saved_env = {key: os.environ.get(key) for key in _PVA_ENV_KEYS}
     built: list[EPICSConnector] = []
     patcher = pytest.MonkeyPatch()
-    install_fake_pyepics(patcher)
+    install_fake_aioca(patcher)
 
     def build(timeout: float = READ_TIMEOUT_S) -> EPICSConnector:
         connector = EPICSConnector()
@@ -409,10 +408,10 @@ def tool_singletons():
     test. Resetting on both sides keeps a store rooted at a deleted ``tmp_path``
     from leaking into whatever runs next in this directory.
     """
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
     from osprey.mcp_server.control_system.server_context import reset_server_context
     from osprey.stores.artifact_store import reset_artifact_store
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     def reset_all():
         reset_server_context()
@@ -438,11 +437,11 @@ async def _read_through_the_tool(tmp_path, monkeypatch, connector, channels: lis
 
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
     ):
         result = await get_tool_fn(channel_read)(channels=channels)
     return extract_response_dict(result)

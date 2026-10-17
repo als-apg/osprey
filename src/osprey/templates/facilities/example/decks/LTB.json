@@ -1,0 +1,741 @@
+{
+  "atjson": 1,
+  "elements": [
+    {
+      "FamName": "START",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_START_HCM1",
+      "Length": 0.76,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "HCM1",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_HCM1_VCM1",
+      "Length": 0.126,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM1",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM1_BX",
+      "Length": 0.44299999999999995,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BX",
+      "Length": 0.5,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": 0.0,
+      "EntranceAngle": 0.0,
+      "ExitAngle": 0.0,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_BX_VCM2",
+      "Length": 0.44299999999999995,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM2",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM2_HCM2",
+      "Length": 0.18000000000000002,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "HCM2",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_HCM2_Q11",
+      "Length": 0.191,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q11",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -4.022946852643493
+      ],
+      "K": -4.022946852643493,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q11_Q12",
+      "Length": 0.30000000000000004,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q12",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        5.5562831530363
+      ],
+      "K": 5.5562831530363,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q12_Q13",
+      "Length": 0.30000000000000004,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q13",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -4.022946852643493
+      ],
+      "K": -4.022946852643493,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q13_BPM1",
+      "Length": 0.131,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM1",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM1_TV1",
+      "Length": 0.385,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "TV1",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_TV1_BPM2",
+      "Length": 0.558,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM2",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM2_BS",
+      "Length": 0.326,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BS",
+      "Length": 0.515,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": 0.6981317007977318,
+      "EntranceAngle": 0.0,
+      "ExitAngle": 0.0,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_BS_VCM3",
+      "Length": 0.886,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM3",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM3_Q2",
+      "Length": 0.181,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q2",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        9.018655444245862
+      ],
+      "K": 9.018655444245862,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q2_TV3",
+      "Length": 0.27899999999999997,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "TV2",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_TV3_BPM4",
+      "Length": 0.126,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM3",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM4_B1",
+      "Length": 0.528,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "B1",
+      "Length": 0.515,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": 0.6981317007977318,
+      "EntranceAngle": 0.3141592653589793,
+      "ExitAngle": 0.3141592653589793,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_B1_Q31",
+      "Length": 0.49999999999999994,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q31",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        10.650916667244656
+      ],
+      "K": 10.650916667244656,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q31_Q32",
+      "Length": 0.30000000000000004,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q32",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -9.612204979881788
+      ],
+      "K": -9.612204979881788,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q32_VCM4",
+      "Length": 0.432,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM4",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM4_BPM5",
+      "Length": 1.435,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM4",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM5_B2",
+      "Length": 0.3434,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "B2",
+      "Length": 0.503,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": -0.3490658503988659,
+      "EntranceAngle": 0.0,
+      "ExitAngle": 0.0,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_B2_Q41",
+      "Length": 0.49999999999999994,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q41",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        10.733354102749646
+      ],
+      "K": 10.733354102749646,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q41_TV4",
+      "Length": 0.14700000000000002,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "TV3",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_TV4_Q42",
+      "Length": 0.15200000000000002,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q42",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -9.331917699164823
+      ],
+      "K": -9.331917699164823,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q42_VCM5",
+      "Length": 0.295,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM5",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM5_VCM6",
+      "Length": 1.021,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM6",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM6_BPM6",
+      "Length": 0.195,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM5",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM6_Q5",
+      "Length": 0.9450000000000001,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q5",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        7.089619453429107
+      ],
+      "K": 7.089619453429107,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q5_BPM7",
+      "Length": 0.20699999999999996,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM6",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "LTB_BPM7_Q6",
+      "Length": 0.293,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "Q6",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -5.243020898117339
+      ],
+      "K": -5.243020898117339,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_Q6_VCM7",
+      "Length": 0.309,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "VCM7",
+      "Length": 0.052,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "LTB_VCM7_B3",
+      "Length": 0.191,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "B3",
+      "Length": 0.354,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": -0.17453292519943295,
+      "EntranceAngle": -0.08726646259971647,
+      "ExitAngle": -0.08726646259971647,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_B3_TV5",
+      "Length": 0.407,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "TV4",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_TV5_BR1QD1",
+      "Length": 0.611,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BR1QD1",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_BR1QD1_TV6",
+      "Length": 0.9175,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "TV5",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "LTB_TV6_BRKI",
+      "Length": 0.2763,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BRKI",
+      "Length": 0.5,
+      "PassMethod": "BndMPoleSymplectic4Pass",
+      "BendingAngle": -0.07853981633974483,
+      "EntranceAngle": -0.07853981633974483,
+      "ExitAngle": 0.0,
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        0.0
+      ],
+      "K": 0.0,
+      "Class": "Bend"
+    },
+    {
+      "FamName": "LTB_BRKI_BR1QF2",
+      "Length": 0.346,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BR1QF2",
+      "Length": 0.15,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        2.7421988546379743
+      ],
+      "K": 2.7421988546379743,
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "LTB_BR1QF2_END",
+      "Length": 0.3375,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "END",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    }
+  ],
+  "properties": {
+    "name": "LTB",
+    "energy": 150000000.0,
+    "particle": {
+      "name": "relativistic",
+      "rest_energy": 0.0,
+      "charge": -1.0
+    },
+    "periodicity": 1
+  }
+}

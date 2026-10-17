@@ -7,6 +7,7 @@ manager with cleanup) for the OSPREY Web Terminal.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import hashlib
 import os
@@ -20,7 +21,7 @@ from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.interfaces.web_terminal import process_tree
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("pty_manager")
 
@@ -331,33 +332,25 @@ class PtySession:
         # standard Unix mechanism for cleaning up terminal sessions.  Shells
         # handle SIGHUP by terminating their children.
         if self._master_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(self._master_fd)
-            except OSError:
-                pass
             self._master_fd = None
 
         if self._process is not None:
             # Give the SIGHUP from PTY close a moment to propagate.
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 self._process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                pass
 
             if self._process.poll() is None:
                 # Still alive — send SIGTERM to the process group.
-                try:
+                with contextlib.suppress(OSError, ProcessLookupError):
                     os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
-                except (OSError, ProcessLookupError):
-                    pass
                 try:
                     self._process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     # Last resort — SIGKILL.
-                    try:
+                    with contextlib.suppress(OSError, ProcessLookupError):
                         os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        pass
                     try:
                         self._process.wait(timeout=2)
                     except subprocess.TimeoutExpired:

@@ -260,7 +260,7 @@ async def channel_limits(
 
     # Load validator
     try:
-        from osprey.connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system.limits_validator import LimitsValidator
     except ImportError:
         LimitsValidator = None  # type: ignore[assignment,misc]
 

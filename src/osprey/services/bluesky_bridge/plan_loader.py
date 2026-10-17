@@ -63,17 +63,16 @@ without loading the RunEngine.
 
 from __future__ import annotations
 
-import hashlib
-import importlib.util
 import logging
 import os
-import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from osprey.utils.module_loading import load_by_path
 
 from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure, RowWindow
 from .plan_fields import MOVABLE_ROLE, channel_roles
@@ -99,6 +98,11 @@ _EXCLUDED_PLANS_ENV = "BLUESKY_EXCLUDED_PLANS"
 # The in-image core plan directory shipped with this package (scanned even if
 # absent/empty).
 _SHIPPED_PLANS_DIR = Path(__file__).parent / "plans_core"
+
+# `sys.modules` name prefixes for the by-path loads: one for directory-layer
+# plan files, one for the legacy single-module contract.
+PLAN_MODULE_PREFIX = "_osprey_bridge_plan_"
+LEGACY_MODULE_PREFIX = "_bluesky_bridge_facility_plans_"
 
 _TRUST_ORDER: dict[Provenance, int] = {
     "shipped": 0,
@@ -146,7 +150,7 @@ def _resolve_plan_module_path() -> str | None:
     if path:
         return path
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     value = config.get("bluesky", {}).get("plan_module")
@@ -165,7 +169,7 @@ def _resolve_plan_dir_layers() -> list[tuple[Path, Provenance]]:
     """
     layers: list[tuple[Path, Provenance]] = [(_SHIPPED_PLANS_DIR, "shipped")]
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     preset_dirs = config.get("bluesky", {}).get("plan_dirs") or []
@@ -202,7 +206,7 @@ def _resolve_excluded_plans() -> set[str]:
     if env_value:
         excluded.update(t for t in env_value.split(os.pathsep) if t)
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     config_excluded = config.get("bluesky", {}).get("excluded_plans") or []
@@ -214,58 +218,24 @@ def _resolve_excluded_plans() -> set[str]:
 
 
 def _load_module_from_path(path: Path) -> Any:
-    """Import a `.py` file at ``path`` as a standalone module, by path (not name).
+    """Import the legacy single facility plan module at ``path``, by path.
 
-    Used for the legacy single-module contract, keyed by the file's stem —
-    a colliding stem here is a genuine misconfiguration (there is only ever
-    one legacy module per bridge instance), unlike directory-layer files
-    (see `_load_plan_module_from_path`).
+    A missing file is refused here with the bridge's own message; everything
+    else (naming, registration, cleanup on failure) is `load_by_path`.
     """
     if not path.is_file():
         raise FileNotFoundError(f"facility plan module not found: {path}")
-    spec = importlib.util.spec_from_file_location(
-        f"_bluesky_bridge_facility_plans_{path.stem}", path
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load facility plan module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    # Register before exec so the module can reference itself during import
-    # (dataclasses, pickling, submodule imports all resolve the module by name
-    # via sys.modules). Remove it again if exec fails, so a half-initialized
-    # module never lingers to shadow a later, fixed load of the same path.
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(spec.name, None)
-        raise
-    return module
+    return load_by_path(path, LEGACY_MODULE_PREFIX)
 
 
 def _load_plan_module_from_path(path: Path) -> Any:
-    """Import a directory-layer `.py` file under a unique, full-path-derived
-    `sys.modules` name.
+    """Import a directory-layer `.py` file under its path-derived module name.
 
-    Unlike the legacy single-module loader (keyed by stem), directory layers
-    commonly reuse stems across layers (e.g. a shipped and a facility-tier
-    `orm.py`) — hashing the resolved absolute path into the synthetic name
-    keeps every file's `sys.modules` entry distinct regardless of filename
-    collisions. Registered before `exec_module` and popped on failure,
-    mirroring `_load_module_from_path`.
+    Directory layers commonly reuse stems across layers (e.g. a shipped and a
+    facility-tier `orm.py`); `load_by_path` names each file after its resolved
+    absolute path, so every file keeps a distinct `sys.modules` entry.
     """
-    abspath = path.resolve()
-    name = f"_osprey_bridge_plan_{hashlib.sha1(str(abspath).encode()).hexdigest()[:16]}"
-    spec = importlib.util.spec_from_file_location(name, abspath)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load plan file: {abspath}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(name, None)
-        raise
-    return module
+    return load_by_path(path, PLAN_MODULE_PREFIX)
 
 
 def _iter_plan_files(directory: Path) -> Iterator[Path]:

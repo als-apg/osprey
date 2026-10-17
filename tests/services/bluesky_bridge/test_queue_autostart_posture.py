@@ -35,7 +35,7 @@ def _configure(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
             raise config
         return config.get(key, default)
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 @pytest.mark.parametrize(

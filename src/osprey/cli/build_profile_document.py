@@ -19,8 +19,8 @@ from typing import Any
 
 import yaml
 
-from osprey.errors import BuildProfileError
 from osprey_connectors import yaml_loader
+from osprey_connectors.errors import BuildProfileError
 
 # Top-level collection keys whose value is a plain selection — a list of names,
 # or the panel-layout mapping — and whose empty spelling therefore has exactly

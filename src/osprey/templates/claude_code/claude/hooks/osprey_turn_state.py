@@ -105,6 +105,7 @@ Every one of these events would otherwise block the operator's prompt or the end
 of their turn, and a missed report costs a flip its fast path, never the turn.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -189,10 +190,8 @@ def report_turn_state(body, port):
     server one edge, which it recovers from its own evidence. It must never
     cost the operator the prompt or the turn that triggered the report.
     """
-    try:
+    with contextlib.suppress(Exception):
         urllib.request.urlopen(_turn_request(body, port), timeout=_POST_TIMEOUT).close()
-    except Exception:
-        pass
 
 
 def main():

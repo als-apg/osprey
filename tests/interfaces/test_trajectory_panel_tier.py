@@ -30,6 +30,23 @@ _PROXY_PREFIX = "/panel/trajectory"
 _AGENT_DOOR = "/api/"
 _PANEL_DOOR = "/panel/"
 
+#: The agent door's routes by name: the session, Stop, and the three calls the
+#: agent's trajectory tools make.
+_AGENT_ROUTES = ("session", "takeover", "state", "stop", "shot", "step", "apply")
+
+#: Routes only the panel door serves, by method and path inside the service.
+_PANEL_ONLY = (
+    ("POST", "/panel/api/setup"),
+    ("POST", "/panel/api/continuous"),
+    ("POST", "/panel/api/continuous/heartbeat"),
+    ("GET", "/panel/api/references"),
+    ("POST", "/panel/api/references"),
+    ("GET", "/panel/api/references/golden"),
+    ("POST", "/panel/api/references/select"),
+    ("GET", "/panel/api/shots"),
+    ("GET", "/panel/api/events"),
+)
+
 
 def _service_routes() -> set[tuple[str, str]]:
     """Every ``(method, path)`` the trajectory app declares, lifespan not run.
@@ -60,8 +77,8 @@ def test_the_rows_are_exactly_the_agent_doors_routes() -> None:
     service = _service_routes()
     agent_door = {(method, path) for method, path in service if path.startswith(_AGENT_DOOR)}
     assert agent_door, "the trajectory app declares no agent-door routes"
-    # The door's four routes, so an empty or renamed door cannot pass vacuously.
-    assert {path for _, path in agent_door} == {"/api/session", "/api/takeover", "/api/state"}
+    # The door's routes, so an empty or renamed door cannot pass vacuously.
+    assert {path for _, path in agent_door} == {f"/api/{name}" for name in _AGENT_ROUTES}
 
     assert _trajectory_rows() == {(method, _PROXY_PREFIX + path) for method, path in agent_door}
 
@@ -170,3 +187,34 @@ def test_the_panel_token_is_refused_on_the_panel_doors_session_route(method: str
         message.get("body", b"") for message in sent if message["type"] == "http.response.body"
     )
     assert json.loads(body)["detail"] == "this route requires operator credentials"
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [("POST", "stop"), ("POST", "shot"), ("GET", "step"), ("POST", "apply")],
+)
+def test_the_panel_token_is_admitted_on_the_agent_doors_write_routes(
+    method: str, route: str
+) -> None:
+    """Stop, shot, step and apply reach the agent door on the panel token."""
+    path = f"{_PROXY_PREFIX}/api/{route}"
+    reached, sent = _drive(method, path)
+
+    assert [scope["path"] for scope in reached] == [path]
+    assert _statuses(sent) == [200]
+
+
+@pytest.mark.parametrize(("method", "path"), _PANEL_ONLY)
+def test_the_panel_token_is_refused_on_the_panel_only_routes(method: str, path: str) -> None:
+    """Setup, continuous, references, shots and the stream never take the panel token."""
+    reached, sent = _drive(method, _PROXY_PREFIX + path)
+
+    assert not reached, f"{method} {path} must never be reached on the panel token"
+    assert _statuses(sent) == [401]
+
+
+@pytest.mark.parametrize("route", ["setup", "continuous", "references", "shots", "events"])
+def test_the_agent_door_serves_no_panel_only_route(route: str) -> None:
+    """The panel door's own routes have no agent-door twin to reach on the token."""
+    agent_paths = {path for _, path in _service_routes() if path.startswith(_AGENT_DOOR)}
+    assert not [path for path in agent_paths if path.startswith(f"/api/{route}")]

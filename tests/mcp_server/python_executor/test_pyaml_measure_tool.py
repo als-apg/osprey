@@ -78,7 +78,7 @@ def gated(rendered: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     monkeypatch.setattr(tool, "enforce_posture_clamp", lambda mode, *, tool: None)
     monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: rendered)
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {"python_executor": {"execution_timeout_seconds": 60}},
     )
     return gate

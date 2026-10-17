@@ -109,7 +109,7 @@ def _patch_config(
     db_path: str | None = None,
     project_root: str | None = None,
 ) -> None:
-    """Patch `osprey.utils.config.get_config_value` for the keys the guard reads.
+    """Patch `osprey_connectors.config.get_config_value` for the keys the guard reads.
 
     Write posture is per connector type, so the guard reads the whole
     `control_system` SECTION rather than a dotted `writes_enabled` key, plus
@@ -126,9 +126,9 @@ def _patch_config(
     deployment-wide, since the deployment mounts one limits database.
 
     `_assert_limits_readable_if_writable` does its own
-    `from osprey.utils.config import get_config_value` inside the function
+    `from osprey_connectors.config import get_config_value` inside the function
     body (never at module import time), so patching the underlying
-    `osprey.utils.config` attribute — the same convention
+    `osprey_connectors.config` attribute — the same convention
     `test_epics_gateway_selection.py` uses for `EPICSConnector.connect` —
     takes effect on the next call.
     """
@@ -155,7 +155,7 @@ def _patch_config(
             return targets.get(key.split(".")[1], default)
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 def _valid_limits_db(tmp_path: Path) -> Path:
@@ -172,7 +172,7 @@ def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     The returned list staying empty is the assertion that a non-writable
     posture never even reached for the database.
     """
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
     probe_calls: list[str] = []
     original_load = LimitsValidator._load_limits_database
@@ -334,6 +334,54 @@ def test_writable_with_limits_checking_disabled_starts_without_db(
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
+
+
+def test_writable_optional_with_no_db_path_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """writes enabled + optional limits + no path: legal, nothing to load (q-0001/1, q-0002)."""
+    probe_calls = _spy_on_limits_probe(monkeypatch)
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        limits_enabled=True,
+        db_path=None,
+    )
+
+    with TestClient(app) as client:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+    assert probe_calls == []
+
+
+def test_writable_exclusive_with_no_db_path_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exclusive mode needs the database to know what is writable at all."""
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "exclusive"}},
+        limits_enabled=True,
+        db_path=None,
+    )
+
+    with pytest.raises(RuntimeError, match="database_path is not configured"):
+        with TestClient(app):
+            pass
+
+
+def test_writable_optional_with_missing_db_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A configured path must load whatever the mode."""
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        limits_enabled=True,
+        db_path=str(tmp_path / "does_not_exist.json"),
+    )
+
+    with pytest.raises(RuntimeError, match="could not be read or parsed"):
+        with TestClient(app):
+            pass
 
 
 def test_writes_disabled_starts_readonly_even_with_missing_db(

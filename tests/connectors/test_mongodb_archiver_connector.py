@@ -11,17 +11,17 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from osprey.connectors.archiver.base import ArchiverMetadata
-from osprey.connectors.archiver.mongodb_archiver_connector import (
+from osprey.port_layout import default_port
+from osprey_connectors.archiver.base import ArchiverMetadata
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver.mongodb_archiver_connector import (
     DEPLOY_HINT,
     HOST_OVERRIDE_ENV,
     PORT_OVERRIDE_ENV,
     MongoDBArchiverConnector,
     address_overrides,
 )
-from osprey.connectors.factory import ConnectorFactory
-from osprey.port_layout import default_port
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.factory import ConnectorFactory
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -505,7 +505,7 @@ class TestFactoryIntegration:
         teardown — we leave built-ins in place so subsequent tests can rely on
         them.
         """
-        from osprey.connectors.factory import register_builtin_connectors
+        from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
         yield
@@ -547,7 +547,7 @@ class TestQueryShapeWithoutDocker:
         """Return a connector wired to an in-memory stub collection."""
         from unittest.mock import MagicMock
 
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -1509,3 +1509,327 @@ class TestInNetworkAddressOverride:
         from osprey.services.archiver_recorder import config as recorder_config
 
         assert recorder_config.address_overrides is address_overrides
+
+
+# ---------------------------------------------------------------------------
+# Waveform channels
+# ---------------------------------------------------------------------------
+
+#: A pulsed-supply trace channel, as the demo facility names it.
+WAVEFORM_CHANNEL = "SR:SEK:WAVEFORM"
+WAVEFORM_T0 = datetime(2024, 1, 1, 6, 0, 0, tzinfo=UTC)
+WAVEFORM_EXPIRES = datetime(2030, 1, 1, tzinfo=UTC)
+
+
+def _sek_documents(count: int, spacing: timedelta = timedelta(milliseconds=100)):
+    """``count`` archived SEK traces, built the way every writer builds them."""
+    from osprey_connectors.simulation.archive import waveform_document
+    from osprey_connectors.simulation.pulse import TRACE_POINTS, trace
+
+    documents = []
+    for i in range(count):
+        date = WAVEFORM_T0 + i * spacing
+        values = trace(WAVEFORM_CHANNEL, date.timestamp(), driver=2.5, enable=True)
+        assert values.shape == (TRACE_POINTS,)
+        documents.append(
+            waveform_document(WAVEFORM_CHANNEL, date, values, expire_at=WAVEFORM_EXPIRES)
+        )
+    return documents
+
+
+class _StubStore:
+    """An in-memory stand-in for one pymongo collection.
+
+    ``find`` and ``find_one`` honour the ``$exists`` field test and the date
+    sort, which is all the connector asks of a store; ``raises`` makes every
+    method fail the way a dropped connection does.
+    """
+
+    def __init__(self, documents=(), raises: BaseException | None = None):
+        self.documents = list(documents)
+        self.raises = raises
+        self.calls: list[str] = []
+
+    def _matching(self, query):
+        self.calls.append("read")
+        if self.raises is not None:
+            raise self.raises
+        fields = [next(iter(clause)) for clause in query.get("$or", [])]
+        fields += [key for key in query if key not in ("$or", "date")]
+        return [doc for doc in self.documents if any(field in doc for field in fields)]
+
+    def find(self, query, projection):  # noqa: ARG002 - the stub ignores projection
+        matching = self._matching(query)
+
+        class _Cursor:
+            def sort(self, key, direction):
+                return iter(sorted(matching, key=lambda doc: doc[key], reverse=direction < 0))
+
+        return _Cursor()
+
+    def find_one(self, query, projection, sort):  # noqa: ARG002 - the stub ignores projection
+        matching = sorted(self._matching(query), key=lambda doc: doc["date"])
+        if not matching:
+            return None
+        return matching[0] if sort == [("date", 1)] else matching[-1]
+
+    def count_documents(self, query, limit):
+        return min(len(self._matching(query)), limit)
+
+
+def _waveform_connector(scalars=(), waveforms=(), waveform_raises=None):
+    """A connected connector reading the two stub stores."""
+    connector = MongoDBArchiverConnector()
+    connector._connected = True
+    connector._collection = _StubStore(scalars)
+    connector._waveforms = _StubStore(waveforms, raises=waveform_raises)
+    connector._timeout = 10
+    return connector
+
+
+def _scalar_documents():
+    """Hourly scalar snapshots of one numeric channel."""
+    return [{"date": WAVEFORM_T0 + timedelta(hours=h), "BEAM:CURRENT": 100.0 + h} for h in range(4)]
+
+
+class TestWaveformReadWithoutDocker:
+    """The waveform contract of ``get_data``, ``get_metadata`` and ``check_availability``."""
+
+    @pytest.mark.asyncio
+    async def test_raw_returns_each_stored_trace_as_a_float_list(self):
+        documents = _sek_documents(3)
+        connector = _waveform_connector(waveforms=documents)
+
+        df = await connector.get_data(
+            channels=[WAVEFORM_CHANNEL],
+            start_date=WAVEFORM_T0 - timedelta(minutes=1),
+            end_date=WAVEFORM_T0 + timedelta(minutes=1),
+        )
+
+        assert list(df["channel"]) == [WAVEFORM_CHANNEL] * 3
+        for sample, document in zip(df["value"], documents, strict=True):
+            assert isinstance(sample, list)
+            assert len(sample) == 500
+            assert all(type(x) is float for x in sample)
+            assert sample == document[field_name(WAVEFORM_CHANNEL)]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("precision_ms", [0, 1000, 60_000])
+    async def test_raw_is_unbinned_whatever_precision_ms(self, precision_ms):
+        """Ten traces 100 ms apart are all returned, at their own instants."""
+        documents = _sek_documents(10)
+        connector = _waveform_connector(waveforms=documents)
+
+        df = await connector.get_data(
+            channels=[WAVEFORM_CHANNEL],
+            start_date=WAVEFORM_T0,
+            end_date=WAVEFORM_T0 + timedelta(seconds=5),
+            precision_ms=precision_ms,
+        )
+
+        assert len(df) == 10
+        expected = [pd.Timestamp(doc["date"]) for doc in documents]
+        assert list(df["timestamp"]) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("processing", ["mean", "min", "max", "median", "std", "count"])
+    async def test_non_raw_on_a_waveform_channel_is_refused(self, processing):
+        connector = _waveform_connector(waveforms=_sek_documents(3))
+
+        with pytest.raises(ValueError, match=r"waveform.*processing='raw'") as excinfo:
+            await connector.get_data(
+                channels=[WAVEFORM_CHANNEL],
+                start_date=WAVEFORM_T0,
+                end_date=WAVEFORM_T0 + timedelta(minutes=1),
+                processing=processing,
+            )
+        assert WAVEFORM_CHANNEL in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_non_raw_is_refused_even_with_no_trace_in_the_window(self):
+        """A waveform channel is a waveform channel outside its stored range too."""
+        connector = _waveform_connector(waveforms=_sek_documents(3))
+
+        with pytest.raises(ValueError, match="waveform"):
+            await connector.get_data(
+                channels=[WAVEFORM_CHANNEL],
+                start_date=WAVEFORM_T0 + timedelta(days=10),
+                end_date=WAVEFORM_T0 + timedelta(days=11),
+                processing="mean",
+            )
+
+    @pytest.mark.asyncio
+    async def test_non_raw_on_a_scalar_channel_still_works(self):
+        connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(3))
+
+        df = await connector.get_data(
+            channels=["BEAM:CURRENT"],
+            start_date=WAVEFORM_T0,
+            end_date=WAVEFORM_T0 + timedelta(hours=4),
+            precision_ms=7_200_000,
+            processing="mean",
+        )
+
+        assert list(df["value"]) == [100.5, 102.5]
+
+    @pytest.mark.asyncio
+    async def test_scalar_and_waveform_channels_in_one_request(self):
+        connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(2))
+
+        df = await connector.get_data(
+            channels=["BEAM:CURRENT", WAVEFORM_CHANNEL],
+            start_date=WAVEFORM_T0,
+            end_date=WAVEFORM_T0 + timedelta(hours=4),
+        )
+
+        scalar = df[df["channel"] == "BEAM:CURRENT"]["value"]
+        waveform = df[df["channel"] == WAVEFORM_CHANNEL]["value"]
+        assert list(scalar) == [100.0, 101.0, 102.0, 103.0]
+        assert [len(sample) for sample in waveform] == [500, 500]
+
+    @pytest.mark.asyncio
+    async def test_a_waveform_only_channel_is_available(self):
+        connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(1))
+
+        availability = await connector.check_availability(
+            ["BEAM:CURRENT", WAVEFORM_CHANNEL, "NOT:STORED"]
+        )
+
+        assert availability == {
+            "BEAM:CURRENT": True,
+            WAVEFORM_CHANNEL: True,
+            "NOT:STORED": False,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_waveform_only_channel_reports_its_stored_extent(self):
+        documents = _sek_documents(4, spacing=timedelta(minutes=10))
+        connector = _waveform_connector(scalars=_scalar_documents(), waveforms=documents)
+
+        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+
+        assert metadata.is_archived is True
+        assert metadata.archival_start == documents[0]["date"]
+        assert metadata.archival_end == documents[-1]["date"]
+
+    @pytest.mark.asyncio
+    async def test_the_extent_spans_both_collections(self):
+        """A channel held in both stores reports the union of its coverage."""
+        early = {"date": WAVEFORM_T0 - timedelta(days=1), WAVEFORM_CHANNEL: [0.0, 1.0]}
+        documents = _sek_documents(2, spacing=timedelta(hours=1))
+        connector = _waveform_connector(scalars=[early], waveforms=documents)
+
+        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+
+        assert metadata.archival_start == early["date"]
+        assert metadata.archival_end == documents[-1]["date"]
+
+    @pytest.mark.asyncio
+    async def test_an_interrupted_read_reports_absent_not_an_error(self):
+        pymongo_errors = pytest.importorskip("pymongo.errors")
+        lost = pymongo_errors.AutoReconnect("connection reset")
+        connector = _waveform_connector(waveforms=_sek_documents(1), waveform_raises=lost)
+
+        availability = await connector.check_availability([WAVEFORM_CHANNEL])
+        metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+
+        assert availability == {WAVEFORM_CHANNEL: False}
+        assert metadata.is_archived is False
+        assert metadata.archival_start is None
+        assert metadata.archival_end is None
+
+    @pytest.mark.asyncio
+    async def test_a_connector_without_a_waveform_handle_reads_scalars_only(self):
+        connector = _waveform_connector(scalars=_scalar_documents())
+        connector._waveforms = None
+
+        df = await connector.get_data(
+            channels=["BEAM:CURRENT"],
+            start_date=WAVEFORM_T0,
+            end_date=WAVEFORM_T0 + timedelta(hours=4),
+            processing="max",
+            precision_ms=3_600_000 * 4,
+        )
+
+        assert list(df["value"]) == [103.0]
+        assert await connector.check_availability([WAVEFORM_CHANNEL]) == {WAVEFORM_CHANNEL: False}
+
+    @pytest.mark.asyncio
+    async def test_disconnect_drops_the_waveform_handle(self):
+        connector = _waveform_connector(waveforms=_sek_documents(1))
+
+        await connector.disconnect()
+
+        assert connector._waveforms is None
+
+
+class TestWaveformReadAgainstMongo:
+    """The waveform sibling collection, read through a real store."""
+
+    @pytest.fixture
+    def waveform_store(self, mongodb_container, mongodb_test_data):  # noqa: ARG002 - seeds the scalars
+        from osprey_connectors.simulation.archive import prepare_collection, waveform_collection
+
+        client, scalars = _test_collection(mongodb_container)
+        waveforms = scalars.database[waveform_collection(scalars.name)]
+        waveforms.delete_many({})
+        prepare_collection(scalars, waveforms=waveforms)
+        documents = _sek_documents(5)
+        waveforms.insert_many([dict(doc) for doc in documents])
+        try:
+            yield documents
+        finally:
+            waveforms.drop()
+            client.close()
+
+    @pytest.mark.asyncio
+    async def test_raw_reads_the_sek_traces(self, mongodb_config, waveform_store):
+        connector = MongoDBArchiverConnector()
+        await connector.connect(mongodb_config)
+        try:
+            df = await connector.get_data(
+                channels=[WAVEFORM_CHANNEL],
+                start_date=WAVEFORM_T0,
+                end_date=WAVEFORM_T0 + timedelta(minutes=1),
+                precision_ms=60_000,
+            )
+        finally:
+            await connector.disconnect()
+
+        assert len(df) == len(waveform_store)
+        for sample, document in zip(df["value"], waveform_store, strict=True):
+            assert isinstance(sample, list)
+            assert len(sample) == 500
+            assert all(type(x) is float for x in sample)
+            assert sample == document[field_name(WAVEFORM_CHANNEL)]
+
+    @pytest.mark.asyncio
+    async def test_availability_metadata_and_processing(self, mongodb_config, waveform_store):
+        connector = MongoDBArchiverConnector()
+        await connector.connect(mongodb_config)
+        try:
+            availability = await connector.check_availability([WAVEFORM_CHANNEL, "BEAM:CURRENT"])
+            metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
+            with pytest.raises(ValueError, match="waveform"):
+                await connector.get_data(
+                    channels=[WAVEFORM_CHANNEL],
+                    start_date=WAVEFORM_T0,
+                    end_date=WAVEFORM_T0 + timedelta(minutes=1),
+                    processing="mean",
+                )
+            scalar = await connector.get_data(
+                channels=["BEAM:CURRENT"],
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 1, 1, 4, tzinfo=UTC),
+                precision_ms=3_600_000,
+                processing="mean",
+            )
+        finally:
+            await connector.disconnect()
+
+        assert availability == {WAVEFORM_CHANNEL: True, "BEAM:CURRENT": True}
+        assert metadata.is_archived is True
+        assert pd.Timestamp(metadata.archival_start).tz_localize(None) == pd.Timestamp(
+            waveform_store[0]["date"]
+        ).tz_localize(None)
+        assert len(scalar) > 0

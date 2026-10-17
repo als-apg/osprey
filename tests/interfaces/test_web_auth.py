@@ -45,7 +45,7 @@ from osprey.interfaces.web_auth import (
     peek_supplied_panel_token,
     reset_web_credentials,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: Length of ``secrets.token_urlsafe(32)``, the minting recipe every absent
 #: credential falls back to. Still the length of the id ``create_session``
@@ -1597,6 +1597,10 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/panel/trajectory/api/takeover"),
     ("DELETE", "/panel/trajectory/api/session"),
     ("GET", "/panel/trajectory/api/state"),
+    ("POST", "/panel/trajectory/api/stop"),
+    ("POST", "/panel/trajectory/api/shot"),
+    ("GET", "/panel/trajectory/api/step"),
+    ("POST", "/panel/trajectory/api/apply"),
 }
 
 #: Routes that must stay operator-only. Each is a real route in the tree (see

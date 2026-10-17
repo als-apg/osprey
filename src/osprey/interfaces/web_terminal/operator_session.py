@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,7 +41,7 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -801,10 +801,8 @@ class OperatorSession:
         # 1. Interrupt the runner first so the CLI stops generating.
         agent = self._connected_agent
         if agent is not None:
-            try:
+            with suppress(Exception):
                 await agent.interrupt()
-            except Exception:
-                pass
 
         # 2. Drain toward the interrupt's terminal message, bounded. Shield so
         #    the timeout cancels only our wait, not the reader itself — the
@@ -821,10 +819,8 @@ class OperatorSession:
         # 3. Hard-cancel the reader regardless of the drain's outcome.
         if not task.done():
             task.cancel()
-        try:
+        with suppress(asyncio.CancelledError, Exception):
             await task
-        except (asyncio.CancelledError, Exception):
-            pass
 
     def spawn_quiesce(self) -> asyncio.Task:
         """Spawn a detached task that quiesces the in-flight turn.
@@ -903,10 +899,8 @@ class OperatorSession:
         scope = self._agent_scope
         if scope is not None:
             self._agent_scope = None
-            try:
+            with suppress(Exception):
                 await scope.aclose()
-            except Exception:
-                pass
 
         if self._agent is not None:
             try:

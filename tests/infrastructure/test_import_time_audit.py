@@ -56,6 +56,17 @@ WHITELIST: dict[str, set[str]] = {
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.
     "bridges/teams/test_relay_validation.py": {"sys.modules"},
+    # The demo facility's element table is a script loaded by path, and its rows
+    # feed a parametrize decorator the same way.
+    "facility/test_element_table.py": {"sys.modules"},
+    "facility/test_mml_parse.py": {"sys.modules"},
+    "scripts/test_panel_rename.py": {"sys.modules"},
+    # The demo facility's transfer-line scripts import their siblings by bare
+    # name, as generate.py runs them: the loader holds the scripts folder on
+    # sys.path only while one executes, and their sections feed parametrize.
+    "facility/test_gate_chain.py": {"sys.modules", "sys.path"},
+    "facility/test_transfer_decks.py": {"sys.modules", "sys.path"},
+    "facility/test_transfer_wiring.py": {"sys.modules", "sys.path"},
     "va/e2e/conftest.py": {"socket", "sys.modules"},
     # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
     # imports any osprey module: osprey.cli.styles builds its Console at import

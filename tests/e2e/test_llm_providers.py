@@ -436,7 +436,7 @@ def setup_llm_test_environment(test_config):
             saved_proxy_vars[var] = os.environ.pop(var)
 
     from osprey.registry import initialize_registry, reset_registry
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     reset_registry()
     config_module._default_config = None

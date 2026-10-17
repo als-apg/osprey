@@ -68,18 +68,6 @@ class AttachmentInfo(TypedDict):
     caption: NotRequired[str | None]  # Caption (JLab)
 
 
-class AttachmentFileRecord(TypedDict):
-    """Row from the attachment_files table."""
-
-    attachment_id: str
-    entry_id: str
-    filename: str
-    mime_type: str | None
-    data: NotRequired[bytes]  # Omitted in metadata-only queries
-    size_bytes: int
-    created_at: datetime
-
-
 class EnhancedLogbookEntry(TypedDict):
     """ARIEL's enriched logbook entry - the core data model.
 
@@ -468,7 +456,7 @@ def parse_time_bound(value: str | float, *, end: bool) -> datetime:
     Raises:
         ValueError: If `value` is none of the above.
     """
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     if isinstance(value, bool):
         raise ValueError(f"not a date, a time or epoch seconds: {value!r}")

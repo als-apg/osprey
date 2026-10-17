@@ -1,22 +1,19 @@
 """A control-system denial of a write is a structured refusal, not an internal error.
 
-When an IOC's access security refuses a put, the client library raises
-``epics.ca.CASeverityException`` out of ``caput``. That exception used to escape
-``write_channel`` and land in the MCP catch-all as ``internal_error`` — an
-answer that told the operator nothing and misattributed the denial.
+When an IOC's access security refuses a put, Channel Access answers it with
+``ECA_NOWTACCESS`` ("Write access denied"). That denial once escaped
+``write_channel`` as an exception and landed in the MCP catch-all as
+``internal_error`` — an answer that told the operator nothing and
+misattributed the denial.
 
 The invariant this file pins: such a denial comes back as
 ``ChannelWriteResult(outcome=WriteOutcome.REFUSED,
 refusal_reason="CONTROL_SYSTEM_REFUSED")``, its message names the CONTROL
 SYSTEM rather than OSPREY's reference monitor, and every rendering path that
 sees it says the same thing. The narrowing matters as much as the catch: any
-other exception raised by ``caput`` (a dead gateway, a timeout) is still a
-genuine failure and still propagates untouched (pinned in
+other put failure (a lost circuit) is still a genuine failure and still
+propagates (pinned in
 test_write_fail_closed.py::test_caput_connection_error_propagates_not_refused).
-
-``epics`` is never imported here — not at module scope, not inside a test. The
-connector resolves the exception class off the module it connected with, so a
-locally defined stand-in attached to the mock is a faithful stand-in.
 """
 
 import json
@@ -25,16 +22,17 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.connectors.control_system.base import (
-    ChannelWriteResult,
-    WriteOutcome,
-    raise_for_write_result,
-)
-from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
 )
+from osprey_connectors.control_system.base import (
+    ChannelWriteResult,
+    WriteOutcome,
+    raise_for_write_result,
+)
+from osprey_connectors.errors import ChannelWriteBlockedError
+from tests.connectors._epics_fakes import ECA_NOWTACCESS
 from tests.connectors._write_fakes import make_mock_epics_connector
 from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
@@ -42,33 +40,13 @@ from tests.facility.served_tree import in_process_config, served_tree
 CHANNEL = "TEST:MAG:PS:SP"
 
 
-class CASeverityException(Exception):
-    """Stand-in for ``epics.ca.CASeverityException``.
-
-    pyepics is not installed in this environment and must not be imported by
-    the connector module in any environment, so the production code resolves
-    the class off the connected module object. That makes a locally defined
-    subclass — attached where the real one lives — an exact stand-in.
-    """
-
-    def __init__(self, fcn="put", msg="Write access denied"):
-        self.fcn = fcn
-        self.msg = msg
-        super().__init__(f" {fcn} returned '{msg}'")
-
-
-def _make_connector(caput_side_effect=None, expose_exception_class=True):
-    """A mocked EPICSConnector; ``expose_exception_class`` controls whether the
-    mock module carries a real exception class at ``ca.CASeverityException``,
-    which is what production resolution keys on."""
-    return make_mock_epics_connector(
-        caput_side_effect=caput_side_effect,
-        ca_severity_exception=CASeverityException if expose_exception_class else None,
-    )
+def _make_connector():
+    """A connector whose every put is denied by the IOC's access security."""
+    return make_mock_epics_connector(put=ECA_NOWTACCESS)
 
 
 async def _write(connector, value=42.0, confirm=False):
-    with patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled_config):
+    with patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config):
         return await connector.write_channel(CHANNEL, value, confirm=confirm)
 
 
@@ -76,7 +54,7 @@ class TestConnectorRefusal:
     @pytest.mark.asyncio
     async def test_access_denied_becomes_a_structured_refusal(self):
         """A denied caput comes back blocked, not raised and not a bare failure."""
-        connector = _make_connector(caput_side_effect=CASeverityException())
+        connector = _make_connector()
 
         result = await _write(connector)
 
@@ -84,12 +62,12 @@ class TestConnectorRefusal:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The caput WAS attempted — that is what distinguishes this refusal.
-        connector._epics.caput.assert_called_once()
+        assert [name for name, _value, _wait in connector._aioca.puts] == [CHANNEL]
 
     @pytest.mark.asyncio
     async def test_message_names_the_control_system_and_the_channel(self):
         """The operator is told who refused, which channel, and that nothing moved."""
-        connector = _make_connector(caput_side_effect=CASeverityException())
+        connector = _make_connector()
 
         result = await _write(connector)
 
@@ -104,37 +82,19 @@ class TestConnectorRefusal:
     @pytest.mark.asyncio
     async def test_refusal_survives_a_verifying_write_level(self):
         """The denial is answered before verification, at every level."""
-        connector = _make_connector(caput_side_effect=CASeverityException())
+        connector = _make_connector()
 
         result = await _write(connector, confirm=True)
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
-    @pytest.mark.asyncio
-    async def test_a_mock_attribute_is_not_mistaken_for_the_exception_class(self):
-        """The class guard rejects a MagicMock auto-attribute.
-
-        ``self._epics`` is a MagicMock in every test that does not connect, so
-        ``_epics.ca.CASeverityException`` always *exists* — it is a Mock, not a
-        class. A truthiness check would build an ``except`` clause out of it and
-        change behaviour for every mocked connector in the suite, which is why
-        the guard is isinstance/issubclass. Without a real class attached,
-        nothing is caught and the error propagates exactly as before.
-        """
-        connector = _make_connector(
-            caput_side_effect=CASeverityException(), expose_exception_class=False
-        )
-
-        with pytest.raises(CASeverityException):
-            await _write(connector)
-
 
 class TestDenialContract:
     @pytest.mark.asyncio
     async def test_raise_for_write_result_raises_blocked_with_the_new_reason(self):
         """The denial contract routes the new code to the refusal exception."""
-        connector = _make_connector(caput_side_effect=CASeverityException())
+        connector = _make_connector()
 
         result = await _write(connector)
 
@@ -274,12 +234,12 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
     fn = channel_write.fn if hasattr(channel_write, "fn") else channel_write
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
         pytest.raises(ToolError) as excinfo,

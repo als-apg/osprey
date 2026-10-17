@@ -24,6 +24,7 @@
     .srv-bluesky      { --srv: #fb923c; }
     .srv-health       { --srv: #a3e635; }
     .srv-event-dispatcher { --srv: #e879f9; }
+    .srv-trajectory   { --srv: #2dd4bf; }
     .srv-unknown      { --srv: #64748b; }
     /* hygiene-allow-color-end */
 

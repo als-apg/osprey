@@ -299,8 +299,12 @@ def test_the_route_sits_at_the_design_system_route_s_tier() -> None:
     assert web_auth.classify("GET", terminal_static, False) is web_auth.Tier.OPERATOR
     assert {path for _, path in web_auth.PANEL_TIER_ROUTES if path.startswith("/panel/")} == {
         "/panel/events/mcp",
+        "/panel/trajectory/api/apply",
         "/panel/trajectory/api/session",
+        "/panel/trajectory/api/shot",
         "/panel/trajectory/api/state",
+        "/panel/trajectory/api/step",
+        "/panel/trajectory/api/stop",
         "/panel/trajectory/api/takeover",
     }
 

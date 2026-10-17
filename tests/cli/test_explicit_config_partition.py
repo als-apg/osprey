@@ -205,6 +205,25 @@ def _panel_switches(document: Mapping[str, Any]) -> set[str]:
     return {f"web.panels.{panel}.enabled" for panel in document.get("web_panels") or []}
 
 
+def _carried_block_switches(render: Mapping[str, Any], config: Mapping[str, Any]) -> set[str]:
+    """``web.panels.<id>.enabled`` for every block the render carries a ``config:`` fact for.
+
+    The build tells every ``web.panels`` block the render ends up with whether
+    this render shows it (``build_profile_panels.panel_selection_overrides``),
+    so a block a persona inherits for a tab it does not select is written
+    ``enabled: false`` beside the inherited fact. That switch belongs to the
+    fact's block, not to the persona's selection.
+    """
+    switches: set[str] = set()
+    for key in render:
+        if not (key.startswith("web.panels.") and key.endswith(".enabled")):
+            continue
+        block = key.removesuffix("enabled")
+        if any(leaf.startswith(block) and leaf != key for leaf in config):
+            switches.add(key)
+    return switches
+
+
 def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
     """Split the render's keys into the eight named sets, in claim order.
 
@@ -362,7 +381,7 @@ def test_persona_render_stays_inside_the_partition(
     document = _preset_document(persona)
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
-    panel_switches = _panel_switches(document)
+    panel_switches = _panel_switches(document) | _carried_block_switches(render, config)
     root_document = _preset_document(preset)
     corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
     unclaimed = [

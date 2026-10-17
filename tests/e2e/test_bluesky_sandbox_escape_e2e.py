@@ -412,7 +412,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
 
 
 def _minted_token(repo: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
@@ -425,15 +425,16 @@ def _minted_token(repo: Path) -> str:
 # ---------------------------------------------------------------------------
 # Real EPICS CA probe -- from this test PROCESS, never through the bridge.
 # Subprocess-based (mirrors tests/va/e2e/conftest.py's `_readiness_pv_served`):
-# an in-process pyepics CA context in the main pytest process can deadlock
-# unrelated executor-thread CA calls elsewhere in the same run, so every read
-# below runs out-of-process against the VA's published CA port.
+# Channel Access reads its EPICS_CA_* environment once, when a process's context
+# is created, so a client pointed at the VA's published CA port belongs in a
+# process of its own rather than pinning this pytest process to it. A failed
+# read comes back as ``None`` (aioca's ``throw=False`` answer, ``.ok`` false).
 # ---------------------------------------------------------------------------
 def _caget(address: str, *, timeout: float = 5.0) -> float | None:
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({address!r}, timeout={timeout!r}, connection_timeout={timeout!r})\n"
-        "sys.stdout.write(repr(v))\n"
+        "import asyncio, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({address!r}, timeout={timeout!r}, throw=False))\n"
+        "sys.stdout.write(repr(float(v)) if v.ok else 'None')\n"
     )
     env = {
         **os.environ,

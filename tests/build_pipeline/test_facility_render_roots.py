@@ -23,7 +23,7 @@ from osprey.cli.build_cmd import build
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.facility.validate import FACILITY_HEADER
-from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 from tests._builds import BuiltProject, init_project
 
 pytestmark = [pytest.mark.slow]
@@ -73,7 +73,9 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/facility_facts.json",
             "data/facility_facts.md",
             "data/graph/facility.ttl",
+            "data/pyaml/BTS/configuration.yaml",
             "data/pyaml/LINE/configuration.yaml",
+            "data/pyaml/LTB/configuration.yaml",
             "data/pyaml/SR/configuration.yaml",
             "data/pyaml/SR/crm.json",
             "data/pyaml/SR/lattice.json",
@@ -81,7 +83,9 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/pyaml/SR/trajectory_rm.json",
             "data/pyaml/SR/trm.json",
             "data/simulator/addresses.json",
+            "data/simulator/decks/BTS.json",
             "data/simulator/decks/LINE.json",
+            "data/simulator/decks/LTB.json",
             "data/simulator/decks/SR.json",
             "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
             "data/simulator/scenarios/nominal/plots/orbit_rms.json",

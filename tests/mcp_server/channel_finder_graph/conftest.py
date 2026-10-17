@@ -15,8 +15,8 @@ from osprey.mcp_server.graph.server_context import reset_server_context
 @pytest.fixture(autouse=True)
 def _reset_graph_context():
     """Reset the graph server context and the config caches around every test."""
-    import osprey.utils.config as _cfg
-    from osprey.utils.workspace import reset_config_cache
+    import osprey_connectors.config as _cfg
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_server_context()
     reset_config_cache()

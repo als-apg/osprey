@@ -1,26 +1,30 @@
-pyAML (`accelerator-middle-layer` 0.3.1) ships with OSPREY as the `pyaml-cs-osprey`
+pyAML (`accelerator-middle-layer-apg` 0.3.1.post1, upstream 0.3.1 with its
+zero-length magnet fix) ships with OSPREY as the `pyaml-cs-osprey`
 control-system backend: every pyAML read and write goes through the OSPREY
 connector, so channel limits, write posture, control-target pinning and audit
-apply to it. A pyAML write runs only inside a pyaml_measure run (a run_tool call);
-anywhere else it is refused and nothing is written.
+apply to it. A pyAML write runs only inside a pyaml_measure run (a run_tool
+call); anywhere else it is refused and nothing is written.
 
-`osprey build` writes a pyAML view for every served model that names a deck and
-has a `measurement/<model>.yaml`: `data/pyaml/<model>/configuration.yaml`, with
-the design simulator's lattice beside it (a `single_pass` model has no design
-simulator), one array per measurement group, one tool per measurement kind and,
-for a periodic model, the tune and chromaticity response matrices of its design
-optics. The lattice is the deck with each corrector the view drives carrying its
-kick as the dipole polynomials pyAML reads, so a corrector step in pyAML's design
-mode moves the orbit the served deck's kick moves; a zero-length corrector takes
-a micrometre from the drift beside it, else from the nearest thick element,
-whose integrated field strengths are kept. An engine that cannot carry the
-kicks as polynomials (no `polynomial_kicks()`) stops the build of a periodic
-model whose view drives correctors (`engine-invalid`). Magnets are named after
-their setpoint addresses, BPMs and arrays after their device and group ids; one
+`osprey build` writes a pyAML view for every served model that names a deck
+and has a `measurement/<model>.yaml`: `data/pyaml/<model>/configuration.yaml`,
+with the design simulator's lattice beside it (a `single_pass` model has no
+design simulator), one array per measurement group, one tool per measurement
+kind and, for a periodic model, the tune and chromaticity response matrices of
+its design optics. The lattice is the deck with each corrector the view drives
+carrying its kick as the dipole polynomials pyAML reads, so a corrector step
+in pyAML's design mode moves the orbit the served deck's kick moves; a
+zero-length corrector stays a zero-length thin multipole carrying its kick. An
+engine that cannot carry the kicks as polynomials (no `polynomial_kicks()`)
+stops the build of a periodic model whose view drives correctors
+(`engine-invalid`). A magnet sliced across zero-length and thick elements has
+no pyAML magnet model and is left out with the other setpoints pyAML cannot
+convert; a magnet whose every slice is zero-length is driven at unit length,
+its polynomials being its integrated strength. Magnets are named after their
+setpoint addresses, BPMs and arrays after their device and group ids; one
 group named as both `hcor` and `vcor` is two arrays, its name followed by `_h`
-and `_v`. A served model without a view is named
-in a note on stderr. `data/pyaml/` is written by the build only; a profile's
-`project/` mirror may not carry it.
+and `_v`. A served model without a view is named in a note on stderr.
+`data/pyaml/` is written by the build only; a profile's `project/` mirror may
+not carry it.
 
 A measurement file is held to the kinds it allows: `orm` needs groups `bpm`,
 `hcor` and `vcor`; `dispersion` adds instrument `rf`; `trm` needs group `quad`

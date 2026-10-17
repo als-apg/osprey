@@ -25,8 +25,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.deployment.subprocess_capture import SPOOL_DIR
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 from . import output
 from .phase_reporter import NullReporter, current_reporter
@@ -142,7 +142,7 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         rows.append(
             (
                 DANGEROUSLY_ALLOW_BASH_KEY,
-                "ON -- a persona may run Bash while holding a launch token",
+                "ON -- a persona may run a shell (Bash or Monitor) while holding a launch token",
             )
         )
     rows.append(("command output", str(root / SPOOL_DIR)))

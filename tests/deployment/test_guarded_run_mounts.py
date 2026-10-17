@@ -23,7 +23,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 from tests.templates.test_render_defaults_golden import (
     TEMPLATES,
     _default_context,

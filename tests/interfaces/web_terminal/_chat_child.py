@@ -11,6 +11,7 @@ runner, so ``sdk_seam`` can hand a real child to a real session.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import subprocess
 import sys
@@ -115,10 +116,8 @@ class ChildClient:
         popen = self._popen
         if popen is not None:
             if popen.stdin is not None:
-                try:
+                with contextlib.suppress(OSError):
                     popen.stdin.close()
-                except OSError:
-                    pass
             for signum in (signal.SIGTERM, signal.SIGKILL):
                 if await _waited(popen, _CLOSE_WAIT_S):
                     break

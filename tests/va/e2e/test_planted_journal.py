@@ -43,6 +43,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import TEXTURE, VIEW_RELPATH, Channel, SimulatorView
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -109,12 +110,17 @@ def _wiring_defaults(view: SimulatorView) -> dict[str, float]:
 
 
 def _seed_nominals(view: SimulatorView) -> dict[str, float]:
-    """Every writable texture setpoint whose seed states a nominal, with that nominal."""
+    """Every writable texture setpoint whose seed states a nominal, as Channel Access reads it.
+
+    A bool or enum seed states a label, which Channel Access reads as its index.
+    """
     nominals: dict[str, float] = {}
     for address in view.channels():
         channel = view.channel(address)
         nominal = (view.seed(address) or {}).get("nominal")
         if _writable_setpoint(channel) and channel.owner == TEXTURE and nominal is not None:
+            if channel.value_type in LABELLED_TYPES:
+                nominal = list(channel.options or DEFAULT_BOOL_OPTIONS).index(nominal)
             nominals[address] = float(nominal)
     return nominals
 
@@ -211,10 +217,11 @@ def _caget_many(port: int, addresses: list[str], *, timeout: float) -> dict[str,
     An address that does not answer reads ``None``.
     """
     code = (
-        "import json, os, sys, epics\n"
+        "import asyncio, json, os, sys, aioca\n"
         f"names = {addresses!r}\n"
-        f"values = epics.caget_many(names, connection_timeout={timeout}, timeout={timeout})\n"
-        "out = {n: (None if v is None else float(v)) for n, v in zip(names, values)}\n"
+        f"values = asyncio.run(aioca.caget(names, timeout={timeout}, throw=False))\n"
+        "out = {n: (None if isinstance(v, aioca.CANothing) else float(v))\n"
+        "       for n, v in zip(names, values)}\n"
         f"sys.stdout.write('\\n' + {REPORT_MARK!r} + json.dumps(out) + '\\n')\n"
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
@@ -322,7 +329,7 @@ def test_every_setpoint_holds_its_wiring_default_after_three_ticks(
 async def test_the_in_process_connector_replays_the_planted_journal(
     project: e2e_conftest.VaProject, ports: dict[str, int]
 ) -> None:
-    from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
     del ports  # the containers read the journal first, and the mock may rewrite it
     connector = VAInProcessConnector()

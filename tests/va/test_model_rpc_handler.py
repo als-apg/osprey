@@ -8,6 +8,7 @@ loop: it runs an item's jobs, then its completion, by hand.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import sys
@@ -135,15 +136,13 @@ class Loop:
         while self.items:
             item = self.items.pop(0)
             for job in item["jobs"]:
-                try:
+                # the run loop logs a failed job and moves on
+                with contextlib.suppress(Exception):
                     job()
-                except Exception:  # the run loop logs a failed job and moves on
-                    pass
             if item["done"] is not None:
-                try:
+                # the run loop logs a failed completion
+                with contextlib.suppress(Exception):
                     item["done"](error)
-                except Exception:  # the run loop logs a failed completion
-                    pass
 
 
 def _door(

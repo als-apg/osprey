@@ -465,7 +465,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], No
                 return section
             return value
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
     return _set
 

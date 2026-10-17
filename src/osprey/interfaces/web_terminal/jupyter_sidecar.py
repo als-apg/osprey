@@ -50,6 +50,7 @@ sidecar when the operator opens the panel again.
 from __future__ import annotations
 
 import collections
+import contextlib
 import json
 import logging
 import os
@@ -150,7 +151,7 @@ def _deployment_config() -> Mapping[str, Any]:
     Imported at call time: the loader pulls in the workspace machinery, which
     a sidecar has no other reason to carry.
     """
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config()
 
@@ -808,15 +809,11 @@ def _reap_stragglers(runtime_dir: str) -> None:
 
 def _signal_pid(pid: int, signum: signal.Signals) -> None:
     """Send *signum* to *pid*; a process already gone is fine."""
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signum)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def _signal_group(pid: int, signum: signal.Signals) -> None:
     """Send *signum* to the process group led by *pid*; a gone group is fine."""
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(pid, signum)
-    except ProcessLookupError:
-        pass

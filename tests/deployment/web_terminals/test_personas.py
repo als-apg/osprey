@@ -14,6 +14,7 @@ from osprey.deployment.web_terminals.personas import (
     CONTROL_IDENTITY_COLLISION_CODE,
     EVENTS_PANEL_ID,
     PERSONA_CATALOG_REQUIRED,
+    SHELL_DENY_ENTRIES,
     UnresolvedRoleError,
     _is_shared_entry,
     access_wire_value,
@@ -43,7 +44,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
     personas_needing_phoebus_handles,
-    personas_not_denying_bash,
+    personas_with_open_shell,
     phoebus_server_runs,
     resolve_access_principals,
     resolve_authorization_roles,
@@ -2810,7 +2811,7 @@ def test_settings_json_denies_for_bash_ignores_non_string_deny_entries(tmp_path)
     assert settings_json_denies(tmp_path / "mixed", (BASH_DENY_ENTRY,)) is True
 
 
-def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path) -> None:
+def test_personas_with_open_shell_reports_only_the_permissive_persona(tmp_path) -> None:
     """The roster form: the persona whose shipped settings dropped the Bash deny is
     named; the locked-down one is not."""
     # Arrange
@@ -2818,7 +2819,7 @@ def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path)
         "locked": {
             "project": "locked",
             "project_path": _write_settings_json(
-                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Edit"]}}
+                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Monitor", "Edit"]}}
             ),
         },
         "shelly": {
@@ -2837,13 +2838,47 @@ def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path)
     )
 
     # Act
-    result = personas_not_denying_bash(config, tmp_path)
+    result = personas_with_open_shell(config, tmp_path)
 
     # Assert
     assert result == {"shelly"}
 
 
-def test_personas_not_denying_bash_includes_unrendered_and_pathless_personas(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("deny", "open_shell"),
+    [
+        (["Monitor", "Edit"], True),
+        (["Bash", "Edit"], True),
+        (["Bash(rm:*)", "Monitor(*)"], True),
+        (["Bash", "Monitor"], False),
+    ],
+    ids=["allows-bash", "allows-monitor", "scoped-denies", "denies-both"],
+)
+def test_personas_with_open_shell_requires_both_bash_and_monitor_denied(
+    tmp_path, deny: list[str], open_shell: bool
+) -> None:
+    """`Monitor` runs shell commands in the background, so a persona denying `Bash`
+    while allowing `Monitor` still has a shell -- and so does the mirror image. Only
+    the exact literals of both close it; a scoped deny constrains one command family."""
+    # Arrange
+    catalog = {
+        "p": {
+            "project": "p",
+            "project_path": _write_settings_json(tmp_path, "p", {"permissions": {"deny": deny}}),
+        },
+    }
+    config = _catalog_config(catalog, [{"name": "alice", "index": 0, "persona": "p"}])
+
+    # Act / Assert
+    assert personas_with_open_shell(config, tmp_path) == ({"p"} if open_shell else set())
+
+
+def test_shell_deny_entries_are_bash_and_monitor() -> None:
+    """The two tools that give an agent a shell, as exact deny literals."""
+    assert SHELL_DENY_ENTRIES == (BASH_DENY_ENTRY, "Monitor")
+
+
+def test_personas_with_open_shell_includes_unrendered_and_pathless_personas(tmp_path) -> None:
     """Fail-closed at roster level too: a persona whose artifact cannot be located
     is reported as permissive rather than silently skipped."""
     # Arrange
@@ -2859,10 +2894,10 @@ def test_personas_not_denying_bash_includes_unrendered_and_pathless_personas(tmp
     )
 
     # Act / Assert
-    assert personas_not_denying_bash(config, tmp_path) == {"ghost", "pathless"}
+    assert personas_with_open_shell(config, tmp_path) == {"ghost", "pathless"}
 
 
-def test_personas_not_denying_bash_covers_the_default_persona(tmp_path) -> None:
+def test_personas_with_open_shell_covers_the_default_persona(tmp_path) -> None:
     """`default_persona` is deployed by every roster entry that names none, so it is
     walked alongside the explicitly referenced ones."""
     # Arrange
@@ -2878,10 +2913,10 @@ def test_personas_not_denying_bash_covers_the_default_persona(tmp_path) -> None:
     config["modules"]["web_terminals"]["default_persona"] = "fallback"
 
     # Act / Assert
-    assert personas_not_denying_bash(config, tmp_path) == {"fallback"}
+    assert personas_with_open_shell(config, tmp_path) == {"fallback"}
 
 
-def test_personas_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path) -> None:
+def test_personas_with_open_shell_ignores_unreferenced_catalog_entries(tmp_path) -> None:
     """A persona nobody deploys cannot leak a token, so it is not reported."""
     # Arrange
     catalog = {
@@ -2893,10 +2928,10 @@ def test_personas_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path
     config = _catalog_config(catalog, [])
 
     # Act / Assert
-    assert personas_not_denying_bash(config, tmp_path) == set()
+    assert personas_with_open_shell(config, tmp_path) == set()
 
 
-def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -> None:
+def test_personas_with_open_shell_reads_the_artifact_not_the_config(tmp_path) -> None:
     """`osprey up` does not rebuild, so a config edited after the last build does not
     change what ships. Both directions of that divergence are asserted here, because
     the function must follow the artifact whichever way the two disagree.
@@ -2920,7 +2955,9 @@ def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -
         )
 
     # Intent says the shell was unblocked; the built artifact still blocks it.
-    _write_settings_json(tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash"]}})
+    _write_settings_json(
+        tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash", "Monitor"]}}
+    )
     _write_config_yml("intent-permissive", {"permissions": {"remove_deny": ["Bash"]}})
 
     # Intent says the shell is blocked; the built artifact does not block it.
@@ -2942,7 +2979,7 @@ def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -
     )
 
     # Act
-    result = personas_not_denying_bash(config, tmp_path)
+    result = personas_with_open_shell(config, tmp_path)
 
     # Assert -- the verdict tracks the artifact, opposite to the intent, both ways
     assert result == {"intent-safe"}

@@ -8,7 +8,7 @@ a fallback save path when full serialization fails.
 import json
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("osprey")
 

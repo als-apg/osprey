@@ -13,6 +13,10 @@ the texture and one physics child per served model whose engine is not
 * A confirming read carries the held value, without motion.
 * Metadata comes from the channel's record in ``variables.json``: its
   description, and the unit of its variable.
+* A reading is stamped with the time it was read, except a turn series a shot
+  has filled: it carries the time of that shot (:func:`shot_times`), so two
+  shots read with increasing timestamps and a read with no shot between keeps
+  the one before.
 * A write to a channel that is not a writable setpoint is refused before
   anything is put; a write the composite refuses is refused with the
   composite's text.
@@ -72,6 +76,7 @@ from osprey_connectors.control_system.base import (
 )
 from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
     VARIABLES_FILE,
     VIEW_RELPATH,
@@ -95,6 +100,8 @@ __all__ = [
     "SIMULATOR_VIEW_SETTING",
     "VAInProcessConnector",
     "active_set_sha256",
+    "shot_time",
+    "shot_times",
     "simulation_state_dir",
     "simulator_view_dir",
 ]
@@ -113,7 +120,6 @@ UDF_SEVERITY = 3
 UDF_STATUS = "UDF"
 
 _RENDERED_CONFIG = "config.yml"
-_LABELLED = ("bool", "enum")
 _REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
 
 #: The session-writes journal, under the simulation state directory.
@@ -135,6 +141,44 @@ COMMAND_NOT_REPLAYED = "a command is never replayed"
 
 #: Why an operation on a connector that is not connected is refused.
 NOT_CONNECTED = "the in-process simulator is not connected"
+
+
+def _shot_times_of(model: Any) -> Mapping[str, float]:
+    """The shot times a physics model reports, by address; none for a model that keeps none."""
+    answered = getattr(model, "shot_times", None)
+    return answered if isinstance(answered, Mapping) else {}
+
+
+def shot_times(composite: Any) -> dict[str, float]:
+    """When each turn series the composite serves was filled by a shot, in epoch seconds.
+
+    A physics model that keeps turn series reports them as its ``shot_times``,
+    by address; a series no shot has filled since its model was last at rest
+    is not named, and neither is a series of a model that failed to build.
+
+    Args:
+        composite: The composite serving the view; any other model names none.
+
+    Returns:
+        The shot time by series address.
+    """
+    times: dict[str, float] = {}
+    for child in getattr(composite, "_children", {}).values():
+        times.update(_shot_times_of(child.model))
+    return times
+
+
+def shot_time(composite: Any, address: str) -> float | None:
+    """When the shot that filled turn series ``address`` was taken, as :func:`shot_times` names it.
+
+    Returns:
+        The epoch seconds, or ``None`` for an address no shot has filled.
+    """
+    owner = getattr(composite, "_owner", {}).get(address)
+    child = getattr(composite, "_children", {}).get(owner)
+    if child is None:
+        return None
+    return _shot_times_of(child.model).get(address)
 
 
 def _loaded_config_path() -> str | None:
@@ -365,10 +409,8 @@ class VAInProcessConnector(ControlSystemConnector):
         """Stop the tick and drop the composite."""
         if self._tick_task is not None:
             self._tick_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._tick_task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._tick_task = None
         self._subscriptions.clear()
         self._last_held.clear()
@@ -582,7 +624,7 @@ class VAInProcessConnector(ControlSystemConnector):
         if record is None:
             return value
         value_type = record.get("value_type")
-        if value_type in _LABELLED:
+        if value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             options = values.channel_labels(record)
@@ -595,19 +637,21 @@ class VAInProcessConnector(ControlSystemConnector):
         return value
 
     def _metadata(self, address: str, composite: Composite) -> ChannelMetadata:
-        """Metadata from the channel record, alarm from the composite's severity."""
+        """Metadata from the channel record; alarm from the composite; time of read or shot."""
         record = self._records.get(address, {})
         variable = composite.supported_variables[address]
         unit = getattr(variable, "unit", None) or record.get("unit") or ""
         severity = composite.output_severity([address])
         labels: list[str] | None = None
-        if record.get("value_type") in _LABELLED:
+        if record.get("value_type") in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             labels = values.channel_labels(record)
+        zone = get_facility_timezone()
+        shot = shot_time(composite, address)
         return ChannelMetadata(
             units=str(unit),
-            timestamp=datetime.now(get_facility_timezone()),
+            timestamp=datetime.now(zone) if shot is None else datetime.fromtimestamp(shot, zone),
             description=record.get("description"),
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,

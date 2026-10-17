@@ -52,7 +52,7 @@ from osprey.deployment.container_lifecycle import (
     pinned_env_keys,
 )
 from osprey.deployment.runtime_helper import ComposeProvider
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     ENV_LOCAL_FILENAME,
     ENV_SHARED_FILENAME,
     parse_dotenv_file,
@@ -283,7 +283,7 @@ def _render_repo(repo: Path) -> Path:
 
 def resolve_via_load_project_dotenv(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The framework's entry-point loader: the chain over ``os.environ``, cwd-rooted."""
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(repo)
@@ -432,7 +432,7 @@ def resolve_via_service_token_read_path(
     the finding: the mint would resolve a credential from a different file than
     it does today, and would mint over the shared half rather than honour it.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
     from osprey.deployment.service_tokens import _effective_value
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
@@ -586,7 +586,7 @@ class TestShellOverrideRecordAcrossTheChain:
     @pytest.fixture(autouse=True)
     def _fresh_record(self, monkeypatch: pytest.MonkeyPatch):
         """The record accumulates process-wide; start every test from empty."""
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
         return config
@@ -601,7 +601,7 @@ class TestShellOverrideRecordAcrossTheChain:
         ``from-shared`` by the time ``.env`` loaded, and would report the
         defaults file as the operator's own export.
         """
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setenv(CONFLICT, "from-the-shell")
         monkeypatch.chdir(chain_repo)
@@ -616,7 +616,7 @@ class TestShellOverrideRecordAcrossTheChain:
     ) -> None:
         """The judgement is against the value the chain delivers — the local
         one — however the shared defaults spelled it."""
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setenv(CONFLICT, "from-local")
         monkeypatch.chdir(chain_repo)
@@ -630,7 +630,7 @@ class TestShellOverrideRecordAcrossTheChain:
         self, chain_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The defaults file overrides a shell export just as the local one does."""
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setenv(SHARED_ONLY, "from-the-shell")
         monkeypatch.chdir(chain_repo)
@@ -649,7 +649,7 @@ class TestShellOverrideRecordAcrossTheChain:
         re-derived record would be empty, and the shadow preflight would report
         an operator's export as absent.
         """
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setenv(CONFLICT, "from-the-shell")
         monkeypatch.chdir(chain_repo)

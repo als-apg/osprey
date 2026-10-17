@@ -355,7 +355,7 @@ def _launched_env(
     folder = tmp_path / "exec"
     (folder / "figures").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: config)
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
     monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
     monkeypatch.setattr(executor, "_load_limits_validator", lambda target: None)
     monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: "/bin/true")
@@ -465,7 +465,7 @@ async def test_a_refused_call_spawns_nothing(
         raise AssertionError("a refused call spawns nothing")
 
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: _ASKING_CONFIG)
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: _ASKING_CONFIG)
     monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
     monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
 
@@ -499,7 +499,7 @@ async def test_a_non_bool_switch_spawns_nothing(
 
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config", lambda: _approval(enabled="false")
+        "osprey_connectors.workspace.load_osprey_config", lambda: _approval(enabled="false")
     )
     monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
     monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
@@ -557,7 +557,7 @@ async def test_a_measurement_whose_view_digest_disagrees_spawns_nothing(
         raise AssertionError("a refused call spawns nothing")
 
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: _ASKING_CONFIG)
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: _ASKING_CONFIG)
     monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
     monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
 
@@ -755,7 +755,11 @@ _HOLD_PROBE = textwrap.dedent(
 def test_a_readwrite_run_fills_one_action_context(
     tmp_path: Path, env_extra: dict[str, str], owner: str | None
 ) -> None:
-    """The wrapper's one lock entry carries the stamped target, the owner and that target."""
+    """The wrapper's one lock entry carries the stamped target, the owner and that target.
+
+    A sandbox run never claims limits checking is off: its writes go through
+    the sandbox's own validator, so its context leaves ``limits_off`` false.
+    """
     sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0})
     calls = tmp_path / "lock_calls.jsonl"
     env = {**env_extra, "LOCK_CALLS": str(calls)}
@@ -767,7 +771,7 @@ def test_a_readwrite_run_fills_one_action_context(
     metadata = sandbox.run(env, _HOLD_PROBE)
 
     assert metadata["success"] is True, metadata.get("traceback")
-    expected = {"target": "live", "owner": owner, "approved_target": "live"}
+    expected = {"target": "live", "owner": owner, "approved_target": "live", "limits_off": False}
     lines = calls.read_text(encoding="utf-8").splitlines()
     assert [json.loads(line) for line in lines] == [expected], "exactly one context per run"
     results = metadata["_results"]

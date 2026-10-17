@@ -3,6 +3,7 @@
 Tests the main CLI group and lazy command loading mechanism.
 """
 
+import contextlib
 import importlib
 import subprocess
 import sys
@@ -276,12 +277,10 @@ class TestLazyLoading:
                 setattr(mock_module, cmd_name, mock.Mock())
                 mock_import.return_value = mock_module
 
-                try:
+                # Import errors are OK - we're testing mapping exists
+                with contextlib.suppress(ImportError):
                     group.get_command(ctx, cmd_name)
                     # Should not raise KeyError from missing mapping
-                except ImportError:
-                    # Import errors are OK - we're testing mapping exists
-                    pass
 
 
 class TestIntegration:

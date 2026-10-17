@@ -13,6 +13,7 @@ not be importable. It must never import anything from ``osprey.*``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import re
 import sys
@@ -232,10 +233,8 @@ def _atomic_write(path: str, text: str) -> None:
             handle.write(text)
         os.replace(tmp_name, path)
     except BaseException:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
         raise
 
 

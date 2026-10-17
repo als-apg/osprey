@@ -104,14 +104,6 @@ def test_port_env_override_key_is_health():
 # -- launcher alias + proxy state ----------------------------------------------
 
 
-def test_ensure_system_health_server_alias_delegates_to_registry_key(monkeypatch):
-    assert hasattr(server_launcher, "ensure_system_health_server")
-    keys: list[str] = []
-    monkeypatch.setattr(server_launcher, "ensure_web_server", keys.append)
-    server_launcher.ensure_system_health_server()
-    assert keys == [REGISTRY_KEY]
-
-
 def test_proxy_state_map_wires_system_health_to_server_url():
     assert proxy_module._PANEL_STATE_MAP[PANEL_ID] == "system_health_server_url"
 

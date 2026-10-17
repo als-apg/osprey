@@ -47,6 +47,7 @@ both are imported by :func:`main`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -217,7 +218,7 @@ def _install_shutdown_signals() -> None:
 
 def _configure_logging() -> None:
     """Give the records this process drives a handler on stderr."""
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     configure_logging()
 
@@ -285,10 +286,8 @@ def main() -> None:
     # Shutdown is process exit: a write already queued when the signal arrives
     # is never applied, so its client's put times out rather than being told
     # a value landed that did not.
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         runner.run()
-    except KeyboardInterrupt:
-        pass
     print("virtual accelerator IOC stopped", flush=True)
 
 

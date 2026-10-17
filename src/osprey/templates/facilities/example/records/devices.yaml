@@ -54,6 +54,13 @@
   - DC current transformer
   label: DCCT 01
   place: BR
+- id: BR/DIPOLE-RAMP01
+  class: Dipole
+  description: Booster ring bending magnet ramp 01.
+  names:
+  - DIPOLE-RAMP01
+  label: DIPOLE-RAMP 01
+  place: BR
 - id: BR/DIPOLE01
   class: Dipole
   names:
@@ -102,6 +109,20 @@
   - DIPOLE08
   label: DIPOLE 08
   place: BR
+- id: BR/KICKER01
+  class: Kicker
+  description: Booster ring injection kicker 01.
+  names:
+  - KICKER01
+  label: KICKER 01
+  place: BR
+- id: BR/QD-RAMP01
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole ramp 01.
+  names:
+  - QD-RAMP01
+  label: QD-RAMP 01
+  place: BR
 - id: BR/QD01
   class: Quadrupole
   names:
@@ -126,6 +147,13 @@
   - QD04
   label: QD 04
   place: BR
+- id: BR/QF-RAMP01
+  class: Quadrupole
+  description: Booster ring focusing quadrupole ramp 01.
+  names:
+  - QF-RAMP01
+  label: QF-RAMP 01
+  place: BR
 - id: BR/QF01
   class: Quadrupole
   names:
@@ -149,6 +177,57 @@
   names:
   - QF04
   label: QF 04
+  place: BR
+- id: BR/SEPTUM01
+  class: Septum
+  description: Booster ring extraction septum SEN.
+  names:
+  - SEPTUM01
+  - SEN
+  label: SEN
+  place: BR
+- id: BR/SEPTUM02
+  class: Septum
+  description: Booster ring extraction septum SEK.
+  names:
+  - SEPTUM02
+  - SEK
+  label: SEK
+  place: BR
+- id: BR/TV01
+  class: ScreenDiagnostic
+  description: Booster ring screen 01.
+  names:
+  - TV01
+  label: TV 01
+  place: BR
+- id: BR/TV02
+  class: ScreenDiagnostic
+  description: Booster ring screen 02.
+  names:
+  - TV02
+  label: TV 02
+  place: BR
+- id: BR/TV03
+  class: ScreenDiagnostic
+  description: Booster ring screen 03.
+  names:
+  - TV03
+  label: TV 03
+  place: BR
+- id: BR/TV04
+  class: ScreenDiagnostic
+  description: Booster ring screen 04.
+  names:
+  - TV04
+  label: TV 04
+  place: BR
+- id: BR/TV05
+  class: ScreenDiagnostic
+  description: Booster ring screen 05.
+  names:
+  - TV05
+  label: TV 05
   place: BR
 - id: BTS/BPM01
   class: BeamPositionMonitor
@@ -186,6 +265,34 @@
   - BPM06
   label: BPM 06
   place: BTS
+- id: BTS/DIPOLE01
+  class: Dipole
+  description: Booster-to-storage transfer line bending magnet 01.
+  names:
+  - DIPOLE01
+  label: DIPOLE 01
+  place: BTS
+- id: BTS/DIPOLE02
+  class: Dipole
+  description: Booster-to-storage transfer line bending magnet 02.
+  names:
+  - DIPOLE02
+  label: DIPOLE 02
+  place: BTS
+- id: BTS/DIPOLE03
+  class: Dipole
+  description: Booster-to-storage transfer line bending magnet 03.
+  names:
+  - DIPOLE03
+  label: DIPOLE 03
+  place: BTS
+- id: BTS/DIPOLE04
+  class: Dipole
+  description: Booster-to-storage transfer line bending magnet 04.
+  names:
+  - DIPOLE04
+  label: DIPOLE 04
+  place: BTS
 - id: BTS/HCM01
   class: HCorrector
   names:
@@ -221,6 +328,76 @@
   names:
   - HCM06
   label: HCM 06
+  place: BTS
+- id: BTS/HCM07
+  class: HCorrector
+  description: Booster-to-storage transfer line horizontal corrector 07.
+  names:
+  - HCM07
+  label: HCM 07
+  place: BTS
+- id: BTS/HCM08
+  class: HCorrector
+  description: Booster-to-storage transfer line horizontal corrector 08.
+  names:
+  - HCM08
+  label: HCM 08
+  place: BTS
+- id: BTS/HCM09
+  class: HCorrector
+  description: Booster-to-storage transfer line horizontal corrector 09.
+  names:
+  - HCM09
+  label: HCM 09
+  place: BTS
+- id: BTS/ICT01
+  class: BeamCurrentMonitor
+  description: Booster-to-storage transfer line integrating current transformer 01.
+  names:
+  - ICT01
+  label: ICT 01
+  place: BTS
+- id: BTS/PADDLES01
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line paddle summary 01.
+  names:
+  - PADDLES01
+  label: PADDLES 01
+  place: BTS
+- id: BTS/QD01
+  class: Quadrupole
+  description: Booster-to-storage transfer line defocusing quadrupole 01.
+  names:
+  - QD01
+  label: QD 01
+  place: BTS
+- id: BTS/QD02
+  class: Quadrupole
+  description: Booster-to-storage transfer line defocusing quadrupole 02.
+  names:
+  - QD02
+  label: QD 02
+  place: BTS
+- id: BTS/QD03
+  class: Quadrupole
+  description: Booster-to-storage transfer line defocusing quadrupole 03.
+  names:
+  - QD03
+  label: QD 03
+  place: BTS
+- id: BTS/QD04
+  class: Quadrupole
+  description: Booster-to-storage transfer line defocusing quadrupole 04.
+  names:
+  - QD04
+  label: QD 04
+  place: BTS
+- id: BTS/QD05
+  class: Quadrupole
+  description: Booster-to-storage transfer line defocusing quadrupole 05.
+  names:
+  - QD05
+  label: QD 05
   place: BTS
 - id: BTS/QF01
   class: Quadrupole
@@ -270,6 +447,55 @@
   - focusing quadrupole
   label: QF 06
   place: BTS
+- id: BTS/TV01
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 01.
+  names:
+  - TV01
+  label: TV 01
+  place: BTS
+- id: BTS/TV02
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 02.
+  names:
+  - TV02
+  label: TV 02
+  place: BTS
+- id: BTS/TV03
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 03.
+  names:
+  - TV03
+  label: TV 03
+  place: BTS
+- id: BTS/TV04
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 04.
+  names:
+  - TV04
+  label: TV 04
+  place: BTS
+- id: BTS/TV05
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 05.
+  names:
+  - TV05
+  label: TV 05
+  place: BTS
+- id: BTS/TV06
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 06.
+  names:
+  - TV06
+  label: TV 06
+  place: BTS
+- id: BTS/TV07
+  class: ScreenDiagnostic
+  description: Booster-to-storage transfer line screen 07.
+  names:
+  - TV07
+  label: TV 07
+  place: BTS
 - id: BTS/VCM01
   class: VCorrector
   names:
@@ -306,6 +532,174 @@
   - VCM06
   label: VCM 06
   place: BTS
+- id: BTS/VCM07
+  class: VCorrector
+  description: Booster-to-storage transfer line vertical corrector 07.
+  names:
+  - VCM07
+  label: VCM 07
+  place: BTS
+- id: BTS/VCM08
+  class: VCorrector
+  description: Booster-to-storage transfer line vertical corrector 08.
+  names:
+  - VCM08
+  label: VCM 08
+  place: BTS
+- id: BTS/VCM09
+  class: VCorrector
+  description: Booster-to-storage transfer line vertical corrector 09.
+  names:
+  - VCM09
+  label: VCM 09
+  place: BTS
+- id: GTL/BC01
+  class: BuckingCoil
+  description: Gun-to-linac line bucking coil 01.
+  names:
+  - BC01
+  label: BC 01
+  place: GTL
+- id: GTL/BC02
+  class: BuckingCoil
+  description: Gun-to-linac line bucking coil 02.
+  names:
+  - BC02
+  label: BC 02
+  place: GTL
+- id: GTL/BPM01
+  class: BeamPositionMonitor
+  description: Gun-to-linac line beam position monitor 01.
+  names:
+  - BPM01
+  label: BPM 01
+  place: GTL
+- id: GTL/BPM02
+  class: BeamPositionMonitor
+  description: Gun-to-linac line beam position monitor 02.
+  names:
+  - BPM02
+  label: BPM 02
+  place: GTL
+- id: GTL/EGUN01
+  class: ElectronGun
+  description: Gun-to-linac line electron gun 01.
+  names:
+  - EGUN01
+  label: EGUN 01
+  place: GTL
+- id: GTL/HCM01
+  class: HCorrector
+  description: Gun-to-linac line horizontal corrector 01.
+  names:
+  - HCM01
+  label: HCM 01
+  place: GTL
+- id: GTL/HCM02
+  class: HCorrector
+  description: Gun-to-linac line horizontal corrector 02.
+  names:
+  - HCM02
+  label: HCM 02
+  place: GTL
+- id: GTL/HCM03
+  class: HCorrector
+  description: Gun-to-linac line horizontal corrector 03.
+  names:
+  - HCM03
+  label: HCM 03
+  place: GTL
+- id: GTL/HCM04
+  class: HCorrector
+  description: Gun-to-linac line horizontal corrector 04.
+  names:
+  - HCM04
+  label: HCM 04
+  place: GTL
+- id: GTL/ICT01
+  class: BeamCurrentMonitor
+  description: Gun-to-linac line integrating current transformer 01.
+  names:
+  - ICT01
+  label: ICT 01
+  place: GTL
+- id: GTL/SHB01
+  class: SubHarmonicBuncher
+  description: Gun-to-linac line sub-harmonic buncher 01.
+  names:
+  - SHB01
+  label: SHB 01
+  place: GTL
+- id: GTL/SHB02
+  class: SubHarmonicBuncher
+  description: Gun-to-linac line sub-harmonic buncher 02.
+  names:
+  - SHB02
+  label: SHB 02
+  place: GTL
+- id: GTL/SOL01
+  class: Solenoid
+  description: Gun-to-linac line solenoid 01.
+  names:
+  - SOL01
+  label: SOL 01
+  place: GTL
+- id: GTL/SOL02
+  class: Solenoid
+  description: Gun-to-linac line solenoid 02.
+  names:
+  - SOL02
+  label: SOL 02
+  place: GTL
+- id: GTL/SOL03
+  class: Solenoid
+  description: Gun-to-linac line solenoid 03.
+  names:
+  - SOL03
+  label: SOL 03
+  place: GTL
+- id: GTL/TV01
+  class: ScreenDiagnostic
+  description: Gun-to-linac line screen 01.
+  names:
+  - TV01
+  label: TV 01
+  place: GTL
+- id: GTL/TV02
+  class: ScreenDiagnostic
+  description: Gun-to-linac line screen 02.
+  names:
+  - TV02
+  label: TV 02
+  place: GTL
+- id: GTL/VCM01
+  class: VCorrector
+  description: Gun-to-linac line vertical corrector 01.
+  names:
+  - VCM01
+  label: VCM 01
+  place: GTL
+- id: GTL/VCM02
+  class: VCorrector
+  description: Gun-to-linac line vertical corrector 02.
+  names:
+  - VCM02
+  label: VCM 02
+  place: GTL
+- id: GTL/VCM03
+  class: VCorrector
+  description: Gun-to-linac line vertical corrector 03.
+  names:
+  - VCM03
+  label: VCM 03
+  place: GTL
+- id: GTL/VCM04
+  class: VCorrector
+  description: Gun-to-linac line vertical corrector 04.
+  names:
+  - VCM04
+  label: VCM 04
+  place: GTL
 - id: LINE/BPM01
   class: BeamPositionMonitor
   label: LINE BPM 01
@@ -366,6 +760,384 @@
 - id: LINE/VCM04
   class: VCorrector
   label: LINE VCM 04
+- id: LN/ACC01
+  class: TravellingWaveCavity
+  description: Linac accelerating section 01.
+  names:
+  - ACC01
+  label: ACC 01
+  place: LN
+- id: LN/ACC02
+  class: TravellingWaveCavity
+  description: Linac accelerating section 02.
+  names:
+  - ACC02
+  label: ACC 02
+  place: LN
+- id: LN/BPM01
+  class: BeamPositionMonitor
+  description: Linac beam position monitor 01.
+  names:
+  - BPM01
+  label: BPM 01
+  place: LN
+- id: LN/BPM02
+  class: BeamPositionMonitor
+  description: Linac beam position monitor 02.
+  names:
+  - BPM02
+  label: BPM 02
+  place: LN
+- id: LN/BUNCHER01
+  class: BunchingCavity
+  description: Linac buncher cavity 01.
+  names:
+  - BUNCHER01
+  label: BUNCHER 01
+  place: LN
+- id: LN/HCM01
+  class: HCorrector
+  description: Linac horizontal corrector 01.
+  names:
+  - HCM01
+  label: HCM 01
+  place: LN
+- id: LN/HCM02
+  class: HCorrector
+  description: Linac horizontal corrector 02.
+  names:
+  - HCM02
+  label: HCM 02
+  place: LN
+- id: LN/ICT01
+  class: BeamCurrentMonitor
+  description: Linac integrating current transformer 01.
+  names:
+  - ICT01
+  label: ICT 01
+  place: LN
+- id: LN/MASTER01
+  class: RadioFrequency
+  description: Linac master RF 01.
+  names:
+  - MASTER01
+  label: MASTER 01
+  place: LN
+- id: LN/QD01
+  class: Quadrupole
+  description: Linac defocusing quadrupole 01.
+  names:
+  - QD01
+  label: QD 01
+  place: LN
+- id: LN/QF01
+  class: Quadrupole
+  description: Linac focusing quadrupole 01.
+  names:
+  - QF01
+  label: QF 01
+  place: LN
+- id: LN/SOL01
+  class: Solenoid
+  description: Linac solenoid 01.
+  names:
+  - SOL01
+  label: SOL 01
+  place: LN
+- id: LN/SOL02
+  class: Solenoid
+  description: Linac solenoid 02.
+  names:
+  - SOL02
+  label: SOL 02
+  place: LN
+- id: LN/SOL03
+  class: Solenoid
+  description: Linac solenoid 03.
+  names:
+  - SOL03
+  label: SOL 03
+  place: LN
+- id: LN/SOL04
+  class: Solenoid
+  description: Linac solenoid 04.
+  names:
+  - SOL04
+  label: SOL 04
+  place: LN
+- id: LN/TV01
+  class: ScreenDiagnostic
+  description: Linac screen 01.
+  names:
+  - TV01
+  label: TV 01
+  place: LN
+- id: LN/TV02
+  class: ScreenDiagnostic
+  description: Linac screen 02.
+  names:
+  - TV02
+  label: TV 02
+  place: LN
+- id: LN/VCM01
+  class: VCorrector
+  description: Linac vertical corrector 01.
+  names:
+  - VCM01
+  label: VCM 01
+  place: LN
+- id: LN/VCM02
+  class: VCorrector
+  description: Linac vertical corrector 02.
+  names:
+  - VCM02
+  label: VCM 02
+  place: LN
+- id: LN/WATER01
+  class: RadioFrequency
+  description: Linac RF cooling water 01.
+  names:
+  - WATER01
+  label: WATER 01
+  place: LN
+- id: LTB/BPM01
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 01.
+  names:
+  - BPM01
+  label: BPM 01
+  place: LTB
+- id: LTB/BPM02
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 02.
+  names:
+  - BPM02
+  label: BPM 02
+  place: LTB
+- id: LTB/BPM03
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 03.
+  names:
+  - BPM03
+  label: BPM 03
+  place: LTB
+- id: LTB/BPM04
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 04.
+  names:
+  - BPM04
+  label: BPM 04
+  place: LTB
+- id: LTB/BPM05
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 05.
+  names:
+  - BPM05
+  label: BPM 05
+  place: LTB
+- id: LTB/BPM06
+  class: BeamPositionMonitor
+  description: Linac-to-booster line beam position monitor 06.
+  names:
+  - BPM06
+  label: BPM 06
+  place: LTB
+- id: LTB/DIPOLE01
+  class: Dipole
+  description: Linac-to-booster line bending magnet 01.
+  names:
+  - DIPOLE01
+  label: DIPOLE 01
+  place: LTB
+- id: LTB/DIPOLE02
+  class: Dipole
+  description: Linac-to-booster line bending magnet 02.
+  names:
+  - DIPOLE02
+  label: DIPOLE 02
+  place: LTB
+- id: LTB/DIPOLE03
+  class: Dipole
+  description: Linac-to-booster line bending magnet 03.
+  names:
+  - DIPOLE03
+  label: DIPOLE 03
+  place: LTB
+- id: LTB/DIPOLE04
+  class: Dipole
+  description: Linac-to-booster line bending magnet 04.
+  names:
+  - DIPOLE04
+  label: DIPOLE 04
+  place: LTB
+- id: LTB/HCM01
+  class: HCorrector
+  description: Linac-to-booster line horizontal corrector 01.
+  names:
+  - HCM01
+  label: HCM 01
+  place: LTB
+- id: LTB/HCM02
+  class: HCorrector
+  description: Linac-to-booster line horizontal corrector 02.
+  names:
+  - HCM02
+  label: HCM 02
+  place: LTB
+- id: LTB/ICT01
+  class: BeamCurrentMonitor
+  description: Linac-to-booster line integrating current transformer 01.
+  names:
+  - ICT01
+  label: ICT 01
+  place: LTB
+- id: LTB/QD01
+  class: Quadrupole
+  description: Linac-to-booster line defocusing quadrupole 01.
+  names:
+  - QD01
+  label: QD 01
+  place: LTB
+- id: LTB/QD02
+  class: Quadrupole
+  description: Linac-to-booster line defocusing quadrupole 02.
+  names:
+  - QD02
+  label: QD 02
+  place: LTB
+- id: LTB/QD03
+  class: Quadrupole
+  description: Linac-to-booster line defocusing quadrupole 03.
+  names:
+  - QD03
+  label: QD 03
+  place: LTB
+- id: LTB/QD04
+  class: Quadrupole
+  description: Linac-to-booster line defocusing quadrupole 04.
+  names:
+  - QD04
+  label: QD 04
+  place: LTB
+- id: LTB/QF01
+  class: Quadrupole
+  description: Linac-to-booster line focusing quadrupole 01.
+  names:
+  - QF01
+  label: QF 01
+  place: LTB
+- id: LTB/QF02
+  class: Quadrupole
+  description: Linac-to-booster line focusing quadrupole 02.
+  names:
+  - QF02
+  label: QF 02
+  place: LTB
+- id: LTB/QF03
+  class: Quadrupole
+  description: Linac-to-booster line focusing quadrupole 03.
+  names:
+  - QF03
+  label: QF 03
+  place: LTB
+- id: LTB/QF04
+  class: Quadrupole
+  description: Linac-to-booster line focusing quadrupole 04.
+  names:
+  - QF04
+  label: QF 04
+  place: LTB
+- id: LTB/QF05
+  class: Quadrupole
+  description: Linac-to-booster line focusing quadrupole 05.
+  names:
+  - QF05
+  label: QF 05
+  place: LTB
+- id: LTB/TV01
+  class: ScreenDiagnostic
+  description: Linac-to-booster line screen 01.
+  names:
+  - TV01
+  label: TV 01
+  place: LTB
+- id: LTB/TV02
+  class: ScreenDiagnostic
+  description: Linac-to-booster line screen 02.
+  names:
+  - TV02
+  label: TV 02
+  place: LTB
+- id: LTB/TV03
+  class: ScreenDiagnostic
+  description: Linac-to-booster line screen 03.
+  names:
+  - TV03
+  label: TV 03
+  place: LTB
+- id: LTB/TV04
+  class: ScreenDiagnostic
+  description: Linac-to-booster line screen 04.
+  names:
+  - TV04
+  label: TV 04
+  place: LTB
+- id: LTB/TV05
+  class: ScreenDiagnostic
+  description: Linac-to-booster line screen 05.
+  names:
+  - TV05
+  label: TV 05
+  place: LTB
+- id: LTB/VCM01
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 01.
+  names:
+  - VCM01
+  label: VCM 01
+  place: LTB
+- id: LTB/VCM02
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 02.
+  names:
+  - VCM02
+  label: VCM 02
+  place: LTB
+- id: LTB/VCM03
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 03.
+  names:
+  - VCM03
+  label: VCM 03
+  place: LTB
+- id: LTB/VCM04
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 04.
+  names:
+  - VCM04
+  label: VCM 04
+  place: LTB
+- id: LTB/VCM05
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 05.
+  names:
+  - VCM05
+  label: VCM 05
+  place: LTB
+- id: LTB/VCM06
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 06.
+  names:
+  - VCM06
+  label: VCM 06
+  place: LTB
+- id: LTB/VCM07
+  class: VCorrector
+  description: Linac-to-booster line vertical corrector 07.
+  names:
+  - VCM07
+  label: VCM 07
+  place: LTB
 - id: SR/BPM01
   class: BeamPositionMonitor
   names:
@@ -1994,6 +2766,22 @@
   names:
   - SD24
   label: SD 24
+- id: SR/SEPTUM01
+  class: Septum
+  description: 'Storage ring injection septum SEK: pulsed injection septum; its current pulse is sampled as a waveform.'
+  names:
+  - SEPTUM01
+  - SEK
+  label: SEK
+  place: SR/SECT1
+- id: SR/SEPTUM02
+  class: Septum
+  description: 'Storage ring injection septum SEN: the second injection septum; its current is read as a scalar.'
+  names:
+  - SEPTUM02
+  - SEN
+  label: SEN
+  place: SR/SECT1
 - id: SR/SF01
   class: Sextupole
   names:

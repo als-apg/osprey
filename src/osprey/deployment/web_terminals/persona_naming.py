@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 __all__ = ["derived_persona_catalog", "persona_project"]
 

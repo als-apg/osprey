@@ -47,8 +47,8 @@ from tests._facility_file import write_demo_facility_file
 
 #: What the shipped demo tree holds, pinned alongside
 #: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 485
-DEMO_READS = 2829
+DEMO_WRITES = 595
+DEMO_READS = 3105
 #: The settables that are write-only commands, pairing with no readback: a
 #: turn-by-turn arm per ring BPM and the ring's injection request.
 DEMO_COMMANDS = 73
@@ -314,7 +314,7 @@ class TestTheShippedDemoRoster:
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """485 settables / 2829 readables: every channel the demo tree holds."""
+        """595 settables / 3105 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)

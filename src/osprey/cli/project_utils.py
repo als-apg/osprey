@@ -77,7 +77,7 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 def project_config_path(project_path: Path) -> Path:
     """The ``config.yml`` a resolved project directory answers with.
 
-    Two spellings, in the order :func:`osprey.utils.workspace.resolve_config_path`
+    Two spellings, in the order :func:`osprey_connectors.workspace.resolve_config_path`
     reads them: the render at ``build/config.yml`` for a deployment repo, then
     the flat ``config.yml`` a rendered or container project directory holds at
     its own root.
@@ -97,7 +97,7 @@ def project_config_path(project_path: Path) -> Path:
     Returns:
         The config path, which is not required to exist.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     from .repo_resolver import PROFILE_FILENAME
 
@@ -120,7 +120,7 @@ def _is_project_directory(candidate: Path) -> bool:
     persona render does, in ``build/``) would be silently redirected to that
     repo — reporting on the wrong project rather than on the one named.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     return rendered_config_path(candidate).is_file() or (candidate / "config.yml").is_file()
 

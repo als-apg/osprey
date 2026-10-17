@@ -21,7 +21,7 @@
  *            again", or completing the tour)
  *   always — invite on every load, no permanent dismissal (shared screens)
  *   never  — no automatic invite
- * The rail's Tour control and the command palette start the tour on demand
+ * ⋯ More in the rail and the command palette start the tour on demand
  * regardless of policy. The dismissal flag is storage-scoped so users
  * sharing a browser on a multi-user deployment do not dismiss each other's
  * invite.
@@ -231,6 +231,22 @@ const liveAnchor = (step) => {
   return node && isLive(node) ? node : null;
 };
 
+/**
+ * Where the feedback step points: the rail's Feedback control, or the status
+ * bar's Feedback item when the operator hid the rail one. A hidden rail control
+ * is withdrawn by CSS but stays in the DOM (the bar item clicks it by id), so
+ * it still answers `querySelector` and has to be ruled out by its flag. With
+ * neither on screen the step drops out like any other absent anchor.
+ * @returns {Element | null}
+ */
+function feedbackAnchor() {
+  if (document.documentElement.dataset.railFeedback !== 'hidden') {
+    const rail = document.querySelector('#panel-feedback-btn');
+    if (rail) return rail;
+  }
+  return document.querySelector('.bar-feedback');
+}
+
 /** @type {TourStep[]} */
 const STEPS = [
   {
@@ -348,7 +364,7 @@ const STEPS = [
     foot: 'Tip: right-click any panel entry → “Open in a new window” for a standalone version.',
   },
   {
-    anchor: () => document.querySelector('#panel-feedback-btn'),
+    anchor: feedbackAnchor,
     title: 'Something wrong? Tell us',
     body: () => ['If something is not working as you expect, please let us know.'],
     foot: 'Tip: save it as Local, then paste the record id into your coding-agent session to have it looked at.',
@@ -360,7 +376,7 @@ const STEPS = [
       'Pick a question to start.',
     ],
     chips: starterPrompts,
-    foot: 'Retake this tour any time from the rail.',
+    foot: 'Retake this tour any time from ⋯ More in the rail.',
   },
 ];
 
@@ -639,7 +655,7 @@ window.addEventListener('resize', () => {
 /* ---- Public seams ---- */
 
 /**
- * Start the tour on demand (rail Tour control, command palette), regardless
+ * Start the tour on demand (⋯ More in the rail, command palette), regardless
  * of the invite policy. Restarts from the first step when already open.
  */
 export function startTour() {
@@ -677,14 +693,4 @@ export function applyTourConfig(panelsPayload) {
   setTimeout(() => {
     if (!tour.open) tour.start();
   }, INVITE_DELAY_MS);
-}
-
-/* ---- Rail control ---- */
-
-const railButton = document.getElementById('panel-tour-btn');
-if (railButton) {
-  railButton.addEventListener('click', (event) => {
-    event.preventDefault();
-    startTour();
-  });
 }

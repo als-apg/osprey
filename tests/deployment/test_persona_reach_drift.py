@@ -116,7 +116,7 @@ def _dial_port_bluesky(persona_dir: Path, _persona_cfg: dict, monkeypatch) -> in
     and an attached persona render carries none.
     """
     from osprey.bluesky_bridge_connection import resolve_bridge_url
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(persona_dir / "config.yml"))

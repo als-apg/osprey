@@ -34,7 +34,7 @@ import osprey.channel_roster as channel_roster
 from osprey.services.channel_finder.databases import FlatChannelDatabase
 from tests._facility_file import channel_tree, write_facility_file
 
-_CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _GRAPH_CONTEXT_SEAM = "osprey.interfaces.channel_finder.app._make_graph_context"
 
 #: The action every unavailable answer puts in front of an operator.

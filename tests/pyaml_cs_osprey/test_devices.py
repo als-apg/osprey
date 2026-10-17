@@ -12,15 +12,15 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccesslist import DeviceAccessList
 
 import osprey.runtime
-from osprey.errors import (
-    ChannelLimitsViolationError,
-    ChannelWriteBlockedError,
-    ChannelWriteFailedError,
-)
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
+)
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
 )
 from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey.catalog import parse_reference

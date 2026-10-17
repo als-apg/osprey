@@ -1132,7 +1132,7 @@ config:
   # invites until a browser dismisses it or finishes the tour; `always` invites
   # on every load and offers no permanent dismissal, which is what a shared
   # read-only screen wants; `never` offers nothing and leaves the tour on the
-  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # rail's More menu and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
@@ -1193,6 +1193,10 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
+  # The SYSTEM tab is served but starts off the rail: the status bar's health
+  # dot opens it, and so does ⋯ More on the rail, which can also pin it there.
+  # Delete this line to give it a rail entry from the first load.
+  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1985,12 +1989,14 @@ deploy_services: false
 # The write-oriented panels. Persona lists UNION over the base, so these are
 # added to the inherited builtin set. Each tab's URL, path and label are not
 # spelled here: the hosting deployment's build derives them when it injects
-# the event dispatcher and the bluesky-web sidecar, and this attached render
-# is told them from that render (the Reach Contract, `osprey.deployment.reach`)
-# — so a sidecar moved on the hosting profile moves the tab with it.
+# the event dispatcher, the bluesky-web sidecar and the trajectory service, and
+# this attached render is told them from that render (the Reach Contract,
+# `osprey.deployment.reach`) — so a sidecar moved on the hosting profile moves
+# the tab with it.
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
+  - trajectory      # Trajectory shots, steps and apply (the trajectory service)
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
@@ -2056,11 +2062,13 @@ deploy_services: false
 # desk minus. Persona lists UNION over the base, so these are added to the
 # inherited builtin set. Each tab's URL, path and label are not spelled here:
 # the hosting deployment's build derives them when it injects the event
-# dispatcher and the bluesky-web sidecar, and this attached render is told
-# them from that render (the Reach Contract, `osprey.deployment.reach`).
+# dispatcher, the bluesky-web sidecar and the trajectory service, and this
+# attached render is told them from that render (the Reach Contract,
+# `osprey.deployment.reach`).
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
+  - trajectory      # Trajectory shots, steps and apply (the trajectory service)
 
 # The guided configuration workflow, left out of the base on purpose because it
 # edits config.yml and .mcp.json. Skill lists UNION over the base, so this is

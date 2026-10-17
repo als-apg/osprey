@@ -73,8 +73,8 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     variable is unset) are cleared first, so they read as absent rather than as
     a shell value that shadows the whole chain.
     """
-    from osprey.utils.dotenv import chain_files
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.dotenv import chain_files
+    from osprey_connectors.workspace import repo_root_for_config
 
     config_path = os.environ.get("OSPREY_CONFIG", "")
     if config_path:

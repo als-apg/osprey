@@ -91,7 +91,7 @@ async def test_set_draft_panel_id_resolved_from_web_panels_config():
     with (
         patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)),
         patch(f"{_MOD}.notify_agent_activity") as notify,
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+        patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
     ):
         await _set_fn()(plan_name="grid_scan")
 
@@ -341,7 +341,7 @@ async def test_write_plan_panel_id_resolved_from_web_panels_config():
     with (
         patch(f"{_AUTHORING_MOD}._http_post_json", return_value=(200, _WRITE_RESP)),
         patch(f"{_AUTHORING_MOD}.notify_agent_activity") as notify,
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+        patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
     ):
         await _write_plan_fn()(**_WRITE_ARGS)
 

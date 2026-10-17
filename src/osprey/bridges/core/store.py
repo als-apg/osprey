@@ -19,6 +19,7 @@ Subclasses override :meth:`_coerce` to validate/normalize the loaded mapping.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -64,8 +65,6 @@ class JsonFileStore:
                 json.dump(snapshot, f, indent=2)
             os.replace(tmp, self.path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise

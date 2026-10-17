@@ -18,7 +18,7 @@ import json
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 # ---------------------------------------------------------------------------

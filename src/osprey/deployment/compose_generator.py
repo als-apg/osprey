@@ -66,17 +66,16 @@ from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
 )
 from osprey.port_layout import layout_ports, resolve_port_base
-from osprey.utils import dotenv
-from osprey.utils.config import ConfigBuilder, load_project_config
-from osprey.utils.log_filter import quiet_logger
-from osprey.utils.logger import get_logger
 
 # The single config key naming the channel-limits database, spelled once in the
 # validator that enforces it: the bind source on the host, the mount target in
 # the container and every refusal that names the key back to the operator all
 # read it from there.
-from osprey_connectors import yaml_loader
+from osprey_connectors import dotenv, yaml_loader
+from osprey_connectors.config import ConfigBuilder, load_project_config
 from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
+from osprey_connectors.log_filter import quiet_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.compose")
 
@@ -109,7 +108,7 @@ COMPOSE_ENV_FILENAME = ".env"
 
 #: The committed, non-secret defaults file beside it — lower precedence than
 #: :data:`COMPOSE_ENV_FILENAME` wherever both are delivered. Taken from
-#: :mod:`osprey.utils.dotenv` rather than re-typed, so the renderer that lists
+#: :mod:`osprey_connectors.dotenv` rather than re-typed, so the renderer that lists
 #: the chain and the helpers that merge it cannot disagree about the filename.
 ENV_SHARED_FILENAME = dotenv.ENV_SHARED_FILENAME
 
@@ -216,7 +215,7 @@ def resolve_repo_root(config=None, config_path=None):
 
     1. The config *path*, when the caller has one: the repo is the directory
        holding it, or its parent when the config sits in the ``build/`` zone
-       (:func:`osprey.utils.workspace.repo_root_for_config`). Filesystem truth,
+       (:func:`osprey_connectors.workspace.repo_root_for_config`). Filesystem truth,
        and the only answer immune to a rewritten ``project_root``.
     2. The config's ``project_root`` key — but only when it names a directory
        that exists here. A project built with ``--runtime-root`` records the
@@ -235,7 +234,7 @@ def resolve_repo_root(config=None, config_path=None):
     Returns:
         An absolute path to the deployment repo root.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     if config_path:
         return repo_root_for_config(Path(config_path).expanduser().absolute())
@@ -416,7 +415,7 @@ def read_rendered_env_chain(repo_root, build_dir=None):
         ``build``.
     :return: Recorded chain filenames in chain order, or ``None``.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     marker = Path(repo_root) / (build_dir or BUILD_DIR_NAME) / ENV_CHAIN_MARKER_FILENAME
     try:
@@ -435,7 +434,7 @@ def labels_override_path(repo_root):
     :param repo_root: The deployment repo root.
     :return: Path of :data:`LABELS_OVERRIDE_FILENAME` in the render zone.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     return Path(repo_root) / BUILD_DIR_NAME / LABELS_OVERRIDE_FILENAME
 
@@ -845,10 +844,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     silently re-point the mount at a file that is not there.
 
     Refusals are gated on
-    :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
-    opens this file only when it both arms writes and has
-    ``limits_checking.enabled`` on, so that pairing is what makes the file's
-    absence a fault rather than a posture. Both halves are read off the SAME
+    :func:`~osprey_connectors.types.any_armed_target_requires_limits_database`:
+    a target needs this file only when it both arms writes and
+    :func:`~osprey_connectors.types.limits_database_required` answers yes for
+    it — limits checking on, and either a mode other than ``optional`` or a
+    path configured — so that pairing is what makes the file's absence a fault
+    rather than a posture. Both halves are read off the SAME
     target, and the write half is a union over the targets a session here can
     select rather than the flat key — the mount is rendered per Bluesky lane,
     on each lane's own target posture (:func:`_bluesky_lane_write_posture`), so
@@ -861,11 +862,16 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     A limits database is therefore optional, exactly as it is at runtime. A
     deployment with no armed target never opens it; neither does one that arms
     writes with limits checking off for every armed target, where the connector
-    builds no validator and consults no database. Both leave an unset or
+    builds no validator and consults no database; nor does one whose armed
+    targets check limits in ``optional`` mode with no path configured, where the
+    connector checks every channel as unlisted against an empty database. All
+    three leave an unset or
     not-yet-staged path a posture rather than a fault, and the render carries
     no mount — a bind source that does not exist would otherwise materialise as
-    a stray empty directory. Checking that is ON for an armed target is the
-    combination that needs the file, the same rule
+    a stray empty directory. A configured path is different: once named, a
+    file that is not on this host is refused for any armed target that checks
+    limits, whatever its mode. Requiring the database for an armed target is
+    the combination that needs the file, the same rule
     ``bluesky_bridge.validation._assert_limits_readable_if_writable`` starts
     on, and catching it here turns an unhealthy container an hour into a deploy
     into a refusal while the operator still has the config in front of them.
@@ -881,20 +887,22 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all, or names one that is not on this host and no armed
-        target checks limits — there is nothing to mount either way, and a bind
+        no path at all and no armed target requires the database, or names
+        one that is not on this host and no armed target checks limits — there is nothing to mount either way, and a bind
         source that is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Some target arms writes with limits
-        checking on for it, and the key is unset, is not a string, or names a
-        file that is not on this host
+    :raises DeploymentPreconditionError: Some target arms writes and requires
+        a limits database, and the key is unset or not a string (a mode other
+        than ``optional``), or names a file that is not on this host
     """
-    from osprey_connectors.types import any_armed_target_checks_limits
+    from osprey_connectors.types import any_armed_target_requires_limits_database
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    limits_required = any_armed_target_checks_limits(control_system)
+    limits_required = any_armed_target_requires_limits_database(
+        control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
+    )
 
     if not isinstance(raw, str) or not raw.strip():
         if limits_required:
@@ -903,7 +911,8 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"At least one control target arms writes_enabled (from "
                     f"control_system.writes_enabled or a "
                     f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"overrides it) AND has limits_checking.enabled on in a mode "
+                    f"other than optional, so the "
                     f"channel-limits database is mounted into the services that "
                     f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
                     f"(found: {raw!r}). There is nothing to mount, so those "
@@ -918,7 +927,9 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "Or turn limits checking off for the armed target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
-                    "needs no limits database. Disarming every target "
+                    "needs no limits database; limits_checking.mode: optional "
+                    "with no path checks every channel as unlisted and needs "
+                    "none either. Disarming every target "
                     "(control_system.writes_enabled: false with no "
                     "control_system.connector.<type>.writes_enabled: true "
                     "overriding it) needs none either."
@@ -1227,7 +1238,7 @@ def _resolve_archive_render_context(config):
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
     from osprey.deployment import telemetry_config as tc
     from osprey.deployment.web_terminals.personas import roster_user_names
-    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
     config = config or {}
     deployed = {str(name) for name in config.get("deployed_services") or []}
@@ -1716,7 +1727,7 @@ def _project_image_limits_mount(config, container_project_dir):
         ``limits_mount``
     :rtype: dict[str, str] or None
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     limits_mount = config.get("limits_mount")
     if not isinstance(limits_mount, Mapping):
@@ -1912,7 +1923,7 @@ def _inject_project_metadata(config):
     # with an explicit ``./`` — a bind source that is neither absolute nor
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         AUDIT_DIR_RELPATH,
         SIMULATOR_LOG_DIR_RELPATH,
         agent_data_base_dir,
@@ -2141,7 +2152,7 @@ def _inject_project_metadata(config):
     # already under var/audit, so a directory keeps its receiver (and its
     # checkpoint) after its writer leaves the config.
     from osprey.deployment.telemetry_gateway import gateway_render_context, ledger_receivers
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
     config_with_labels["osprey_telemetry_gateway"] = gateway_render_context(
         config,
@@ -2686,7 +2697,7 @@ def audit_identity_dir(repo_root, identity):
         reject on their own account.
     """
     from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
     if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
         raise ValueError(
@@ -2782,7 +2793,7 @@ def ensure_archive_dir(repo_root, relative_to=None):
     :return: The archive root, or ``None`` when it could not be provisioned
     :rtype: pathlib.Path | None
     """
-    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
+    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
 
     target = Path(repo_root) / ARCHIVE_DIR_RELPATH
     try:
@@ -3001,14 +3012,13 @@ def control_target_tree_dir(config, repo_root):
     :return: The control-context tree root
     :rtype: pathlib.Path
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path
-
-    # Aliased on import: ``osprey.utils.workspace`` — already imported here for
+    # Aliased on import: ``osprey_connectors.workspace`` — already imported here for
     # two other names — exports a ``STATE_DIR_NAME`` of its own, spelled "var".
     # Under one name, folding this constant into that import line is a one-word
     # edit that silently repoints the whole tree at <agent-data root>/var, which
     # is the single class of drift this seam exists to make impossible.
     from osprey_connectors.posture_store import STATE_DIR_NAME as CONTROL_TREE_DIR_NAME
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     return anchored_path(agent_data_base_dir(config), Path(repo_root)) / CONTROL_TREE_DIR_NAME
 
@@ -3318,7 +3328,7 @@ def _control_tree_build_account(config, repo_root):
     :return: The identity to provision a directory for, or ``None``
     :rtype: str | None
     """
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     identity = acting_identity()
     try:
@@ -3424,8 +3434,8 @@ def simulator_log_mount_sources():
     :return: ``{instance key: bind source}``
     :rtype: dict[str, str]
     """
-    from osprey.connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
-    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
 
     base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
     return {
@@ -3447,7 +3457,7 @@ def simulated_target_configured(config):
     :return: Whether any configured target is simulated
     :rtype: bool
     """
-    from osprey.connectors.types import (
+    from osprey_connectors.types import (
         _SIMULATED_TYPES,
         STANDIN_TYPES,
         TARGET_STANDIN,
@@ -3484,7 +3494,7 @@ def ensure_simulator_log_dirs(repo_root, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
-    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
 
     log_dir = Path(repo_root) / SIMULATOR_LOG_DIR_RELPATH
     gid = _ensure_group_shared_dir(
@@ -3516,7 +3526,7 @@ def guarded_run_relpath():
     :rtype: str
     """
     from osprey.runtime.guarded_run import GUARDED_RUN_DIR
-    from osprey.utils.workspace import STATE_DIR_NAME
+    from osprey_connectors.workspace import STATE_DIR_NAME
 
     return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
 
@@ -3527,7 +3537,7 @@ def trajectory_state_relpath():
     :return: The repo-relative POSIX path
     :rtype: str
     """
-    from osprey.utils.workspace import STATE_DIR_NAME
+    from osprey_connectors.workspace import STATE_DIR_NAME
 
     return f"{STATE_DIR_NAME}/{TRAJECTORY_SERVICE_KEY}"
 
@@ -3589,7 +3599,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
-    from osprey.connectors.types import configured_targets
+    from osprey_connectors.types import configured_targets
 
     section = config.get("control_system") if isinstance(config, Mapping) else None
     root = Path(repo_root) / guarded_run_relpath()
@@ -3613,7 +3623,7 @@ def _ensure_agent_data_structure(config):
     directories. The root comes from ``agent_data.base_dir`` — ``var/agent_data``
     under the repo root unless a profile moved it; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
-    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime. The
+    matches what :func:`osprey_connectors.config.get_agent_dir` resolves at runtime. The
     scenario state directory is the one addition outside ``file_paths``, created only
     for a Virtual Accelerator deployment — the one compose service that mounts it.
     The control-context tree is the other: its root, its marker and one directory
@@ -3623,8 +3633,8 @@ def _ensure_agent_data_structure(config):
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
-    from osprey.connectors.types import VIRTUAL_ACCELERATOR
-    from osprey.utils.workspace import (
+    from osprey_connectors.types import VIRTUAL_ACCELERATOR
+    from osprey_connectors.workspace import (
         agent_data_base_dir,
         anchored_path,
         resolve_simulation_state_dir,
@@ -4123,8 +4133,8 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
         return False
 
-    from osprey.connectors.types import talks_to_network
     from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
+    from osprey_connectors.types import talks_to_network
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
     view_path = f"data/{BLUESKY_DEVICES_FILE}"

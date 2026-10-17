@@ -68,7 +68,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
     DISCOVERY_WITHOUT_AUTHORIZATION_ENDPOINT,

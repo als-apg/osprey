@@ -62,10 +62,10 @@ to the run, so a concurrent run of another module in this directory cannot
 collide with, or force-remove, this one's.
 
 Process-boundary note (the directory conftest's rule): every Channel Access
-operation here runs in a SUBPROCESS. pyepics' libca contexts are per-thread and
-a client that has used CA from a worker thread can wedge this process at
-interpreter exit, so the client lives and dies in a process of its own, exactly
-as the sibling lanes do.
+operation here runs in a SUBPROCESS. libca reads ``EPICS_CA_*`` once, when a
+process's context is created, and each tree's container serves on a port of
+its own, so the client lives and dies in a process of its own, exactly as the
+sibling lanes do.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ from pathlib import Path
 from typing import Any
 
 
-def _worker(request: dict) -> dict:
+async def _worker(request: dict) -> dict:
     """Run one scripted Channel Access exchange and report what it read.
 
     Two operations cover this module:
@@ -97,24 +97,19 @@ def _worker(request: dict) -> dict:
         meaningful: the server ends the asynchronous write only once the model
         has taken the value and every readback it owes has been posted.
 
-    Values are read off the wire (``use_monitor=False``). A subscribed PV's
-    cached value can lag a completed put, and an assertion that reads a cache
-    which never moves passes for free.
+    Every value is a ``caget`` of its own, off the wire: aioca keeps no monitor
+    cache a read could be answered from, so an assertion cannot read a cache
+    which never moves and pass for free. A write that fails raises, and the
+    worker exits non-zero with the traceback.
     """
-    import epics
+    import aioca
 
     op = request["op"]
     timeout = float(request.get("timeout", 30.0))
 
-    def connect(address: str) -> Any:
-        pv = epics.PV(address, connection_timeout=timeout)
-        if not pv.wait_for_connection(timeout=timeout):
-            raise RuntimeError(f"{address} never connected")
-        return pv
-
     if op == "write_read":
         for address, value in request["writes"]:
-            connect(address).put(value, wait=True, timeout=timeout)
+            await aioca.caput(address, value, wait=True, timeout=timeout)
     elif op != "read":
         raise RuntimeError(f"unknown worker op {op!r}")
 
@@ -122,17 +117,31 @@ def _worker(request: dict) -> dict:
     failed: dict[str, str] = {}
     for address in request["addresses"]:
         try:
-            values[address] = connect(address).get(use_monitor=False, timeout=timeout)
+            values[address] = await aioca.caget(address, timeout=timeout)
         except Exception as error:  # reported to the test, not raised here
             failed[address] = f"{type(error).__name__}: {error}"
     return {"values": values, "failed": failed}
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
-    # Before the heavy imports below, so the CA client process carries pyepics
-    # and nothing else.
-    print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
-    raise SystemExit(0)
+    # Before the heavy imports below, so the CA client process carries aioca
+    # and nothing else. It leaves through ``os._exit`` whichever way the
+    # exchange ends: a normal exit runs aioca's teardown hook, whose
+    # ``ca_context_destroy`` blocks for as long as a name-server circuit is
+    # still retrying a port nothing serves yet -- what a readiness probe of a
+    # container still booting leaves behind. The answer, or the traceback, is
+    # already written.
+    import asyncio
+    import traceback
+
+    try:
+        print(json.dumps(asyncio.run(_worker(json.loads(sys.argv[2]))), default=str), flush=True)
+    except BaseException:
+        traceback.print_exc()
+        sys.stderr.flush()
+        os._exit(1)
+    sys.stdout.flush()
+    os._exit(0)
 
 import pytest  # noqa: E402
 import yaml  # noqa: E402

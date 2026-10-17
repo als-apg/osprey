@@ -29,8 +29,8 @@ from osprey.cli.scaffold_pull import (
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.preset_data import PresetData
-from osprey.errors import BuildProfileError
 from osprey.services.facility_knowledge.okf.index import check_indexes
+from osprey_connectors.errors import BuildProfileError
 
 # The forward check the emitted CI files already get, borrowed rather than
 # rewritten: one extraction and one resolver, so a verb named in help text and a
@@ -178,7 +178,9 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/ariel/vocabulary.yml",
     "data/benchmarks/cross_paradigm/queries/in_context_queries.json",
     "data/benchmarks/cross_paradigm/queries/tree_queries.json",
+    "data/facility/decks/BTS.json",
     "data/facility/decks/LINE.json",
+    "data/facility/decks/LTB.json",
     "data/facility/decks/SR.json",
     "data/facility/identity.yaml",
     "data/facility/knowledge/devices/bpm.md",
@@ -205,7 +207,9 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/knowledge/subsystems/transport-delivery.md",
     "data/facility/knowledge/subsystems/vacuum.md",
     "data/facility/limits.yaml",
+    "data/facility/measurement/BTS.yaml",
     "data/facility/measurement/LINE.yaml",
+    "data/facility/measurement/LTB.yaml",
     "data/facility/measurement/SR.yaml",
     "data/facility/models.yaml",
     "data/facility/records/channels.yaml",

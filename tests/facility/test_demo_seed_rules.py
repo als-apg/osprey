@@ -18,6 +18,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.facility.sources import read_yaml
 
@@ -84,7 +85,7 @@ def test_every_moving_channel_is_matched_by_exactly_one_rule() -> None:
     module = reseed_module()
     channels, devices = records("channel"), records("device")
     moving = [a for a, seed in generated().items() if set(MOTION_KEYS) & set(seed)]
-    assert len(moving) == 626
+    assert len(moving) == 751
     for address in moving:
         channel = channels[address]
         device = channel["on"]["device"]
@@ -92,7 +93,7 @@ def test_every_moving_channel_is_matched_by_exactly_one_rule() -> None:
             rules(), cls=devices[device]["class"], signal=channel["signal"], device=device
         )
         assert row is not None, address
-        stamped = module.motion(row, channel["unit"])
+        stamped = module.motion(row, channel.get("unit", ""))
         assert {k: generated()[address][k] for k in MOTION_KEYS if k in generated()[address]} == (
             stamped
         ), address
@@ -127,14 +128,19 @@ def test_a_micrometre_rule_lands_in_each_channels_unit() -> None:
 def test_every_setpoint_carries_a_tolerance() -> None:
     channels = read_yaml(reseed_module().stamp())
     setpoints = [
-        channel for channel in channels if channel.get("role") == "setpoint" and "pair" in channel
+        channel
+        for channel in channels
+        if channel.get("role") == "setpoint"
+        and "pair" in channel
+        and channel.get("value_type") != "bool"
+        and channel.get("unit")
     ]
     commands = [
         channel
         for channel in channels
         if channel.get("role") == "setpoint" and "pair" not in channel
     ]
-    assert len(setpoints) == 412
+    assert len(setpoints) == 491
     assert len(commands) == 73
     assert not [channel["id"] for channel in commands if "tolerance" in channel]
     assert sum(channel["id"].startswith("LINE:") for channel in setpoints) == 16
@@ -222,8 +228,113 @@ def test_non_motion_keys_are_untouched() -> None:
     assert carried == BASELINE
 
 
-#: Every seed's ``nominal``, ``clamp`` and ``linear`` before the rule table owned
-#: the seeds' motion, as ``(address, key, value)`` in address order.
+#: A two-device tree: a pulsed waveform readback, its driver and enable, a gated
+#: float readback, and a bool setpoint with no tolerance row.
+SMALL_DEVICES = """\
+- id: T/SEK
+  class: Kicker
+- id: T/DIP
+  class: Dipole
+"""
+
+SMALL_CHANNELS = """\
+- id: T:DIP:CURRENT:RB
+  on: {device: T/DIP}
+  signal: current
+  unit: A
+- id: T:DIP:CURRENT:SP
+  on: {device: T/DIP}
+  signal: current_setpoint
+  role: setpoint
+  unit: A
+  pair: T:DIP:CURRENT:RB
+- id: T:SEK:STATUS:ON
+  on: {device: T/SEK}
+  signal: enable
+  role: setpoint
+  value_type: bool
+  pair: T:SEK:STATUS:ON
+- id: T:SEK:VOLTAGE:RB
+  on: {device: T/SEK}
+  signal: voltage
+  unit: V
+- id: T:SEK:WAVEFORM
+  on: {device: T/SEK}
+  signal: trace
+  unit: V
+"""
+
+SMALL_SEEDS = """\
+T:DIP:CURRENT:RB:
+  nominal: 100.0
+T:SEK:STATUS:ON:
+  nominal: 'TRUE'
+T:SEK:VOLTAGE:RB:
+  clamp: [0.0, null]
+  gate:
+    inputs: {T:SEK:STATUS:ON: 'FALSE'}
+    gated: 0.5
+  nominal: 10.0
+T:SEK:WAVEFORM:
+  pulse: {driver: T:SEK:VOLTAGE:RB, enable: T:SEK:STATUS:ON}
+  nominal: 0.0
+"""
+
+SMALL_RULES: list[dict[str, Any]] = [
+    {
+        "class": "Dipole",
+        "signal": "current_setpoint",
+        "tolerance": {"value": 0.01, "unit": "A"},
+        "source": "test",
+    },
+]
+
+
+@pytest.fixture
+def small_tree(tmp_path: Path) -> Path:
+    """A facility tree whose seeds carry ``pulse`` and ``gate`` and a bool setpoint."""
+    (tmp_path / "records").mkdir()
+    (tmp_path / "records/devices.yaml").write_text(SMALL_DEVICES, encoding="utf-8")
+    (tmp_path / "records/channels.yaml").write_text(SMALL_CHANNELS, encoding="utf-8")
+    (tmp_path / "seeds.yaml").write_text(SMALL_SEEDS, encoding="utf-8")
+    return tmp_path
+
+
+def test_pulse_and_gate_round_trip_in_content_and_in_key_order(small_tree: Path) -> None:
+    module = reseed_module()
+    committed = read_yaml(SMALL_SEEDS)
+    seeds = module.reseed(small_tree, rules=SMALL_RULES)
+    assert seeds == committed
+    assert list(seeds["T:SEK:WAVEFORM"]) == ["nominal", "pulse"]
+    assert list(seeds["T:SEK:VOLTAGE:RB"]) == ["nominal", "gate", "clamp"]
+    assert list(module.KEY_ORDER[:3]) == ["nominal", "pulse", "gate"]
+    rendered = yaml.safe_dump(seeds, sort_keys=False)
+    (small_tree / "seeds.yaml").write_text(rendered, encoding="utf-8")
+    again = module.reseed(small_tree, rules=SMALL_RULES)
+    assert yaml.safe_dump(again, sort_keys=False) == rendered
+
+
+def test_a_bool_setpoint_reseeds_without_a_tolerance_and_keeps_its_nominal(
+    small_tree: Path,
+) -> None:
+    module = reseed_module()
+    assert module.reseed(small_tree, rules=SMALL_RULES)["T:SEK:STATUS:ON"] == {"nominal": "TRUE"}
+    assert module.tolerances(small_tree, rules=SMALL_RULES) == {"T:DIP:CURRENT:SP": 0.01}
+    text = module.stamp(tree=small_tree, rules=SMALL_RULES)
+    stamped = {channel["id"]: channel for channel in read_yaml(text)}
+    assert "tolerance" not in stamped["T:SEK:STATUS:ON"]
+    assert stamped["T:DIP:CURRENT:SP"]["tolerance"] == {"absolute": 0.01}
+
+
+def test_a_float_setpoint_with_no_tolerance_row_still_stops_the_stamper(small_tree: Path) -> None:
+    module = reseed_module()
+    with pytest.raises(module.ReseedError, match="no tolerance rule"):
+        module.tolerances(small_tree, rules=[])
+
+
+#: Every seed's ``nominal``, ``pulse``, ``gate``, ``clamp`` and ``linear``
+#: before the rule table owned the seeds' motion, as ``(address, key, value)``
+#: in address order.
 BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BR:DIAG:BPM:01:POSITION:X", "nominal", 0.0),
     ("BR:DIAG:BPM:01:POSITION:Y", "nominal", 0.0),
@@ -251,6 +362,44 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BR:DIAG:BPM:08:STATUS:VALID", "nominal", "TRUE"),
     ("BR:DIAG:DCCT:01:CURRENT:RB", "nominal", 500.0),
     ("BR:DIAG:DCCT:01:STATUS:VALID", "nominal", "TRUE"),
+    ("BR:DIAG:TV:01:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BR:DIAG:TV:01:LAMP:RB",
+        "gate",
+        {"inputs": {"BR:DIAG:TV:01:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BR:DIAG:TV:01:PADDLE:SP", "nominal", "FALSE"),
+    ("BR:DIAG:TV:02:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BR:DIAG:TV:02:LAMP:RB",
+        "gate",
+        {"inputs": {"BR:DIAG:TV:02:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BR:DIAG:TV:02:PADDLE:SP", "nominal", "FALSE"),
+    ("BR:DIAG:TV:03:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BR:DIAG:TV:03:LAMP:RB",
+        "gate",
+        {"inputs": {"BR:DIAG:TV:03:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BR:DIAG:TV:03:PADDLE:SP", "nominal", "FALSE"),
+    ("BR:DIAG:TV:04:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BR:DIAG:TV:04:LAMP:RB",
+        "gate",
+        {"inputs": {"BR:DIAG:TV:04:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BR:DIAG:TV:04:PADDLE:SP", "nominal", "FALSE"),
+    ("BR:DIAG:TV:05:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BR:DIAG:TV:05:LAMP:RB",
+        "gate",
+        {"inputs": {"BR:DIAG:TV:05:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BR:DIAG:TV:05:PADDLE:SP", "nominal", "FALSE"),
+    ("BR:MAG:DIPOLE-RAMP:01:GAIN:SP", "nominal", 1.0),
+    ("BR:MAG:DIPOLE-RAMP:01:OFFSET:SP", "nominal", 0.0),
+    ("BR:MAG:DIPOLE-RAMP:01:STATUS:ON", "nominal", "TRUE"),
     ("BR:MAG:DIPOLE:01:CURRENT:RB", "nominal", 325.578),
     ("BR:MAG:DIPOLE:01:CURRENT:RB", "clamp", [0.0, None]),
     ("BR:MAG:DIPOLE:01:CURRENT:SP", "nominal", 325.578),
@@ -291,6 +440,11 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BR:MAG:DIPOLE:08:CURRENT:SP", "nominal", 310.693),
     ("BR:MAG:DIPOLE:08:STATUS:FAULT", "nominal", "FALSE"),
     ("BR:MAG:DIPOLE:08:STATUS:READY", "nominal", "TRUE"),
+    ("BR:MAG:KICKER:01:STATUS:ON", "nominal", "TRUE"),
+    ("BR:MAG:KICKER:01:VOLTAGE:SP", "nominal", 25.0),
+    ("BR:MAG:QD-RAMP:01:GAIN:SP", "nominal", 1.0),
+    ("BR:MAG:QD-RAMP:01:OFFSET:SP", "nominal", 0.0),
+    ("BR:MAG:QD-RAMP:01:STATUS:ON", "nominal", "TRUE"),
     ("BR:MAG:QD:01:CURRENT:RB", "nominal", 38.662),
     ("BR:MAG:QD:01:CURRENT:RB", "clamp", [0.0, None]),
     ("BR:MAG:QD:01:CURRENT:SP", "nominal", 38.662),
@@ -311,6 +465,9 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BR:MAG:QD:04:CURRENT:SP", "nominal", 38.7),
     ("BR:MAG:QD:04:STATUS:FAULT", "nominal", "FALSE"),
     ("BR:MAG:QD:04:STATUS:READY", "nominal", "TRUE"),
+    ("BR:MAG:QF-RAMP:01:GAIN:SP", "nominal", 1.0),
+    ("BR:MAG:QF-RAMP:01:OFFSET:SP", "nominal", 0.0),
+    ("BR:MAG:QF-RAMP:01:STATUS:ON", "nominal", "TRUE"),
     ("BR:MAG:QF:01:CURRENT:RB", "nominal", 45.784),
     ("BR:MAG:QF:01:CURRENT:RB", "clamp", [0.0, None]),
     ("BR:MAG:QF:01:CURRENT:SP", "nominal", 45.784),
@@ -331,96 +488,1081 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BR:MAG:QF:04:CURRENT:SP", "nominal", 45.829),
     ("BR:MAG:QF:04:STATUS:FAULT", "nominal", "FALSE"),
     ("BR:MAG:QF:04:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:01:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:01:POSITION:Y", "nominal", 0.0),
+    ("BR:MAG:SEPTUM:01:CURRENT:SP", "nominal", 800.0),
+    ("BR:MAG:SEPTUM:01:STATUS:ON", "nominal", "TRUE"),
+    ("BR:MAG:SEPTUM:02:CURRENT:SP", "nominal", 3000.0),
+    ("BR:MAG:SEPTUM:02:STATUS:ON", "nominal", "TRUE"),
     ("BTS:DIAG:BPM:01:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:02:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:02:POSITION:Y", "nominal", 0.0),
+    (
+        "BTS:DIAG:BPM:01:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:01:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:01:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
     ("BTS:DIAG:BPM:02:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:03:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:03:POSITION:Y", "nominal", 0.0),
+    (
+        "BTS:DIAG:BPM:02:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:02:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:02:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
     ("BTS:DIAG:BPM:03:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:04:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:04:POSITION:Y", "nominal", 0.0),
+    (
+        "BTS:DIAG:BPM:03:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:03:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:03:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
     ("BTS:DIAG:BPM:04:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:05:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:05:POSITION:Y", "nominal", 0.0),
+    (
+        "BTS:DIAG:BPM:04:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:04:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:04:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
     ("BTS:DIAG:BPM:05:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:DIAG:BPM:06:POSITION:X", "nominal", 0.0),
-    ("BTS:DIAG:BPM:06:POSITION:Y", "nominal", 0.0),
+    (
+        "BTS:DIAG:BPM:05:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:05:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:05:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
     ("BTS:DIAG:BPM:06:STATUS:VALID", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:01:CURRENT:RB", "nominal", 1.221),
+    (
+        "BTS:DIAG:BPM:06:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("BTS:DIAG:BPM:06:SUM:RB", "nominal", 1.0),
+    (
+        "BTS:DIAG:BPM:06:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("BTS:DIAG:ICT:01:CHARGE:RB", "nominal", 0.8),
+    (
+        "BTS:DIAG:ICT:01:CHARGE:RB",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:06:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:07:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("BTS:DIAG:PADDLES:01:COUNT:INSERTED", "nominal", 0),
+    (
+        "BTS:DIAG:PADDLES:01:COUNT:INSERTED",
+        "gate",
+        {
+            "inputs": {
+                "BR:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BR:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:05:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:06:PADDLE:RB": "TRUE",
+                "BTS:DIAG:TV:07:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 1,
+        },
+    ),
+    ("BTS:DIAG:TV:01:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:01:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:01:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:01:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:02:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:02:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:02:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:02:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:03:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:03:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:03:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:03:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:04:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:04:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:04:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:04:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:05:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:05:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:05:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:05:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:06:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:06:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:06:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:06:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:DIAG:TV:07:LAMP:RB", "nominal", "FALSE"),
+    (
+        "BTS:DIAG:TV:07:LAMP:RB",
+        "gate",
+        {"inputs": {"BTS:DIAG:TV:07:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("BTS:DIAG:TV:07:PADDLE:SP", "nominal", "FALSE"),
+    ("BTS:MAG:DIPOLE:01:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:DIPOLE:02:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:DIPOLE:03:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:DIPOLE:04:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:01:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:01:CURRENT:SP", "nominal", 1.221),
+    ("BTS:MAG:HCM:01:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:01:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:02:CURRENT:RB", "nominal", 1.234),
     ("BTS:MAG:HCM:02:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:02:CURRENT:SP", "nominal", 1.234),
+    ("BTS:MAG:HCM:02:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:02:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:03:CURRENT:RB", "nominal", 1.235),
     ("BTS:MAG:HCM:03:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:03:CURRENT:SP", "nominal", 1.235),
+    ("BTS:MAG:HCM:03:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:03:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:04:CURRENT:RB", "nominal", 1.222),
     ("BTS:MAG:HCM:04:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:04:CURRENT:SP", "nominal", 1.222),
+    ("BTS:MAG:HCM:04:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:04:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:05:CURRENT:RB", "nominal", 1.201),
     ("BTS:MAG:HCM:05:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:05:CURRENT:SP", "nominal", 1.201),
+    ("BTS:MAG:HCM:05:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:05:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:HCM:06:CURRENT:RB", "nominal", 1.18),
     ("BTS:MAG:HCM:06:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:HCM:06:CURRENT:SP", "nominal", 1.18),
+    ("BTS:MAG:HCM:06:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:HCM:06:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:01:CURRENT:RB", "nominal", 40.697),
+    ("BTS:MAG:HCM:07:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:HCM:08:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:HCM:09:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:QD:01:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:QD:02:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:QD:03:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:QD:04:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:QD:05:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:01:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:01:CURRENT:SP", "nominal", 40.697),
+    ("BTS:MAG:QF:01:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:01:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:02:CURRENT:RB", "nominal", 41.135),
     ("BTS:MAG:QF:02:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:02:CURRENT:SP", "nominal", 41.135),
+    ("BTS:MAG:QF:02:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:02:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:03:CURRENT:RB", "nominal", 41.15),
     ("BTS:MAG:QF:03:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:03:CURRENT:SP", "nominal", 41.15),
+    ("BTS:MAG:QF:03:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:03:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:04:CURRENT:RB", "nominal", 40.737),
     ("BTS:MAG:QF:04:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:04:CURRENT:SP", "nominal", 40.737),
+    ("BTS:MAG:QF:04:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:04:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:05:CURRENT:RB", "nominal", 40.05),
     ("BTS:MAG:QF:05:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:05:CURRENT:SP", "nominal", 40.05),
+    ("BTS:MAG:QF:05:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:05:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:QF:06:CURRENT:RB", "nominal", 39.344),
     ("BTS:MAG:QF:06:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:QF:06:CURRENT:SP", "nominal", 39.344),
+    ("BTS:MAG:QF:06:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:QF:06:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:01:CURRENT:RB", "nominal", 1.017),
     ("BTS:MAG:VCM:01:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:01:CURRENT:SP", "nominal", 1.017),
+    ("BTS:MAG:VCM:01:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:01:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:02:CURRENT:RB", "nominal", 1.028),
     ("BTS:MAG:VCM:02:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:02:CURRENT:SP", "nominal", 1.028),
+    ("BTS:MAG:VCM:02:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:02:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:03:CURRENT:RB", "nominal", 1.029),
     ("BTS:MAG:VCM:03:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:03:CURRENT:SP", "nominal", 1.029),
+    ("BTS:MAG:VCM:03:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:03:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:04:CURRENT:RB", "nominal", 1.018),
     ("BTS:MAG:VCM:04:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:04:CURRENT:SP", "nominal", 1.018),
+    ("BTS:MAG:VCM:04:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:04:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:05:CURRENT:RB", "nominal", 1.001),
     ("BTS:MAG:VCM:05:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:05:CURRENT:SP", "nominal", 1.001),
+    ("BTS:MAG:VCM:05:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:05:STATUS:READY", "nominal", "TRUE"),
-    ("BTS:MAG:VCM:06:CURRENT:RB", "nominal", 0.984),
     ("BTS:MAG:VCM:06:CURRENT:RB", "clamp", [0.0, None]),
-    ("BTS:MAG:VCM:06:CURRENT:SP", "nominal", 0.984),
+    ("BTS:MAG:VCM:06:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:06:STATUS:READY", "nominal", "TRUE"),
+    ("BTS:MAG:VCM:07:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:VCM:08:STATUS:ON", "nominal", "TRUE"),
+    ("BTS:MAG:VCM:09:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:DIAG:BPM:01:POSITION:X", "nominal", 0.0),
+    ("GTL:DIAG:BPM:01:POSITION:Y", "nominal", 0.0),
+    ("GTL:DIAG:BPM:01:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "GTL:DIAG:BPM:01:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("GTL:DIAG:BPM:01:SUM:RB", "nominal", 1.0),
+    (
+        "GTL:DIAG:BPM:01:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("GTL:DIAG:BPM:02:POSITION:X", "nominal", 0.0),
+    ("GTL:DIAG:BPM:02:POSITION:Y", "nominal", 0.0),
+    ("GTL:DIAG:BPM:02:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "GTL:DIAG:BPM:02:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("GTL:DIAG:BPM:02:SUM:RB", "nominal", 1.0),
+    (
+        "GTL:DIAG:BPM:02:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("GTL:DIAG:ICT:01:CHARGE:RB", "nominal", 1.0),
+    (
+        "GTL:DIAG:ICT:01:CHARGE:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("GTL:DIAG:TV:01:LAMP:RB", "nominal", "FALSE"),
+    (
+        "GTL:DIAG:TV:01:LAMP:RB",
+        "gate",
+        {"inputs": {"GTL:DIAG:TV:01:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("GTL:DIAG:TV:01:PADDLE:SP", "nominal", "FALSE"),
+    ("GTL:DIAG:TV:02:LAMP:RB", "nominal", "FALSE"),
+    (
+        "GTL:DIAG:TV:02:LAMP:RB",
+        "gate",
+        {"inputs": {"GTL:DIAG:TV:02:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("GTL:DIAG:TV:02:PADDLE:SP", "nominal", "FALSE"),
+    ("GTL:GUN:EGUN:01:AUX_ON:SP", "nominal", "TRUE"),
+    ("GTL:GUN:EGUN:01:BIAS:SP", "nominal", 40.0),
+    ("GTL:GUN:EGUN:01:HEATER:SP", "nominal", 6.0),
+    ("GTL:GUN:EGUN:01:HEATER_ON:SP", "nominal", "TRUE"),
+    ("GTL:GUN:EGUN:01:HV_ON:SP", "nominal", "TRUE"),
+    ("GTL:GUN:EGUN:01:PHASE:SP", "nominal", 0.0),
+    ("GTL:GUN:EGUN:01:VOLTAGE:SP", "nominal", 120.0),
+    ("GTL:MAG:BC:01:CURRENT:SP", "nominal", 1.5),
+    ("GTL:MAG:BC:01:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:BC:02:CURRENT:SP", "nominal", 1.5),
+    ("GTL:MAG:BC:02:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:HCM:01:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:HCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:HCM:02:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:HCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:HCM:03:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:HCM:03:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:HCM:04:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:HCM:04:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:SOL:01:CURRENT:SP", "nominal", 5.0),
+    ("GTL:MAG:SOL:01:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:SOL:02:CURRENT:SP", "nominal", 6.0),
+    ("GTL:MAG:SOL:02:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:SOL:03:CURRENT:SP", "nominal", 7.0),
+    ("GTL:MAG:SOL:03:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:VCM:01:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:VCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:VCM:02:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:VCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:VCM:03:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:VCM:03:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:MAG:VCM:04:CURRENT:SP", "nominal", 0.0),
+    ("GTL:MAG:VCM:04:STATUS:ON", "nominal", "TRUE"),
+    ("GTL:RF:SHB:01:HV_ON:SP", "nominal", "TRUE"),
+    ("GTL:RF:SHB:01:PHASE:SP", "nominal", 45.0),
+    ("GTL:RF:SHB:01:PHASE_ON:SP", "nominal", "TRUE"),
+    ("GTL:RF:SHB:01:VOLTAGE:SP", "nominal", 10.0),
+    ("GTL:RF:SHB:02:HV_ON:SP", "nominal", "TRUE"),
+    ("GTL:RF:SHB:02:PHASE:SP", "nominal", 30.0),
+    ("GTL:RF:SHB:02:PHASE_ON:SP", "nominal", "TRUE"),
+    ("GTL:RF:SHB:02:VOLTAGE:SP", "nominal", 12.0),
+    ("LN:DIAG:BPM:01:POSITION:X", "nominal", 0.0),
+    ("LN:DIAG:BPM:01:POSITION:Y", "nominal", 0.0),
+    ("LN:DIAG:BPM:01:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LN:DIAG:BPM:01:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LN:DIAG:BPM:01:SUM:RB", "nominal", 1.0),
+    (
+        "LN:DIAG:BPM:01:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LN:DIAG:BPM:02:POSITION:X", "nominal", 0.0),
+    ("LN:DIAG:BPM:02:POSITION:Y", "nominal", 0.0),
+    ("LN:DIAG:BPM:02:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LN:DIAG:BPM:02:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LN:DIAG:BPM:02:SUM:RB", "nominal", 1.0),
+    (
+        "LN:DIAG:BPM:02:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LN:DIAG:ICT:01:CHARGE:RB", "nominal", 0.95),
+    (
+        "LN:DIAG:ICT:01:CHARGE:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LN:DIAG:TV:01:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LN:DIAG:TV:01:LAMP:RB",
+        "gate",
+        {"inputs": {"LN:DIAG:TV:01:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LN:DIAG:TV:01:PADDLE:SP", "nominal", "FALSE"),
+    ("LN:DIAG:TV:02:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LN:DIAG:TV:02:LAMP:RB",
+        "gate",
+        {"inputs": {"LN:DIAG:TV:02:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LN:DIAG:TV:02:PADDLE:SP", "nominal", "FALSE"),
+    ("LN:MAG:HCM:01:CURRENT:SP", "nominal", 0.0),
+    ("LN:MAG:HCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:HCM:02:CURRENT:SP", "nominal", 0.0),
+    ("LN:MAG:HCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:QD:01:CURRENT:SP", "nominal", 3.9),
+    ("LN:MAG:QD:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:QF:01:CURRENT:SP", "nominal", 2.5),
+    ("LN:MAG:QF:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:SOL:01:CURRENT:SP", "nominal", 10.0),
+    ("LN:MAG:SOL:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:SOL:02:CURRENT:SP", "nominal", 12.0),
+    ("LN:MAG:SOL:02:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:SOL:03:CURRENT:SP", "nominal", 14.0),
+    ("LN:MAG:SOL:03:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:SOL:04:CURRENT:SP", "nominal", 16.0),
+    ("LN:MAG:SOL:04:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:VCM:01:CURRENT:SP", "nominal", 0.0),
+    ("LN:MAG:VCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:MAG:VCM:02:CURRENT:SP", "nominal", 0.0),
+    ("LN:MAG:VCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("LN:RF:ACC:01:TEMPERATURE:RB", "nominal", 45.0),
+    ("LN:RF:ACC:02:PHASE:SP", "nominal", 10.0),
+    ("LN:RF:ACC:02:STATUS:ON", "nominal", "TRUE"),
+    ("LN:RF:ACC:02:TEMPERATURE:RB", "nominal", 45.0),
+    ("LN:RF:BUNCHER:01:TEMPERATURE:RB", "nominal", 45.0),
+    ("LN:RF:MASTER:01:PHASE:SP", "nominal", 0.0),
+    ("LN:RF:MASTER:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:RF:WATER:01:STATUS:INTERLOCK", "nominal", "FALSE"),
+    ("LN:RF:WATER:01:STATUS:ON", "nominal", "TRUE"),
+    ("LN:RF:WATER:01:TEMPERATURE:SP", "nominal", 45.0),
+    ("LTB:DIAG:BPM:01:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:01:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:01:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:01:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:BPM:02:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:02:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:02:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:02:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:BPM:03:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:03:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:03:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:03:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:BPM:04:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:04:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:04:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:04:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:BPM:05:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:05:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:05:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:05:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:BPM:06:STATUS:VALID", "nominal", "TRUE"),
+    (
+        "LTB:DIAG:BPM:06:STATUS:VALID",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+            },
+            "gated": "FALSE",
+        },
+    ),
+    ("LTB:DIAG:BPM:06:SUM:RB", "nominal", 1.0),
+    (
+        "LTB:DIAG:BPM:06:SUM:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:ICT:01:CHARGE:RB", "nominal", 0.9),
+    (
+        "LTB:DIAG:ICT:01:CHARGE:RB",
+        "gate",
+        {
+            "inputs": {
+                "GTL:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "GTL:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "GTL:GUN:EGUN:01:HEATER_ON:RB": "FALSE",
+                "GTL:GUN:EGUN:01:HV_ON:RB": "FALSE",
+                "LN:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LN:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:01:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:02:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:03:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:04:PADDLE:RB": "TRUE",
+                "LTB:DIAG:TV:05:PADDLE:RB": "TRUE",
+            },
+            "gated": 0.01,
+        },
+    ),
+    ("LTB:DIAG:TV:01:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LTB:DIAG:TV:01:LAMP:RB",
+        "gate",
+        {"inputs": {"LTB:DIAG:TV:01:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LTB:DIAG:TV:01:PADDLE:SP", "nominal", "FALSE"),
+    ("LTB:DIAG:TV:02:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LTB:DIAG:TV:02:LAMP:RB",
+        "gate",
+        {"inputs": {"LTB:DIAG:TV:02:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LTB:DIAG:TV:02:PADDLE:SP", "nominal", "FALSE"),
+    ("LTB:DIAG:TV:03:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LTB:DIAG:TV:03:LAMP:RB",
+        "gate",
+        {"inputs": {"LTB:DIAG:TV:03:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LTB:DIAG:TV:03:PADDLE:SP", "nominal", "FALSE"),
+    ("LTB:DIAG:TV:04:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LTB:DIAG:TV:04:LAMP:RB",
+        "gate",
+        {"inputs": {"LTB:DIAG:TV:04:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LTB:DIAG:TV:04:PADDLE:SP", "nominal", "FALSE"),
+    ("LTB:DIAG:TV:05:LAMP:RB", "nominal", "FALSE"),
+    (
+        "LTB:DIAG:TV:05:LAMP:RB",
+        "gate",
+        {"inputs": {"LTB:DIAG:TV:05:PADDLE:RB": "TRUE"}, "gated": "TRUE"},
+    ),
+    ("LTB:DIAG:TV:05:PADDLE:SP", "nominal", "FALSE"),
+    ("LTB:MAG:DIPOLE:01:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:DIPOLE:02:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:DIPOLE:03:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:DIPOLE:04:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:HCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:HCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QD:01:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QD:02:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QD:03:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QD:04:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QF:01:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QF:02:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QF:03:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QF:04:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:QF:05:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:01:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:02:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:03:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:04:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:05:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:06:STATUS:ON", "nominal", "TRUE"),
+    ("LTB:MAG:VCM:07:STATUS:ON", "nominal", "TRUE"),
     ("SR:DIAG:BPM:01:GOLDEN:X", "nominal", 100.0),
     ("SR:DIAG:BPM:01:GOLDEN:Y", "nominal", 100.0),
     ("SR:DIAG:BPM:01:OFFSET:X", "nominal", 100.0),
@@ -1845,6 +2987,15 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("SR:MAG:SD:24:STATUS:FAULT", "nominal", "TRUE"),
     ("SR:MAG:SD:24:STATUS:ON", "nominal", "TRUE"),
     ("SR:MAG:SD:24:STATUS:READY", "nominal", "TRUE"),
+    ("SR:MAG:SEPTUM:01:CURRENT:SP", "nominal", 3000.0),
+    (
+        "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM",
+        "pulse",
+        {"driver": "SR:MAG:SEPTUM:01:CURRENT:SP", "enable": "SR:MAG:SEPTUM:01:STATUS:ON"},
+    ),
+    ("SR:MAG:SEPTUM:01:STATUS:ON", "nominal", "TRUE"),
+    ("SR:MAG:SEPTUM:02:CURRENT:SP", "nominal", 800.0),
+    ("SR:MAG:SEPTUM:02:STATUS:ON", "nominal", "TRUE"),
     ("SR:MAG:SF:01:CURRENT:GOLDEN", "nominal", 150.0),
     ("SR:MAG:SF:01:CURRENT:RB", "clamp", [0.0, None]),
     ("SR:MAG:SF:01:STATUS:FAULT", "nominal", "TRUE"),

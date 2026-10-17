@@ -17,6 +17,7 @@ Three pieces every picture path shares:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import weakref
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Literal
@@ -24,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from osprey.models.providers.health import failure_reason
 from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -241,10 +242,8 @@ async def _relation_exists(pool: Any, relation: str) -> bool:
         value = row[0]
     if value is None:
         return False
-    try:
+    with contextlib.suppress(TypeError):
         _relations.setdefault(pool, set()).add(relation)
-    except TypeError:
-        pass
     return True
 
 

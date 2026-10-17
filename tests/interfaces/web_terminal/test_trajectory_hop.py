@@ -31,9 +31,9 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     TERMINAL_SECRET_HEADER,
     _is_stripped_header,
 )
-from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
 
 from ._proxy_fakes import _lower, panel_app
 
@@ -61,7 +61,7 @@ def _capture_request(app) -> dict[str, str]:
     captured: dict[str, str] = {}
 
     # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends.
-    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
+    async def fake_request(*, method, url, headers, content, follow_redirects=True, timeout=None):  # noqa: ARG001
         captured.update(headers)
         captured["__url__"] = url
         return httpx.Response(200, json={"ok": True}, headers={"content-type": "application/json"})
@@ -227,6 +227,36 @@ class TestTheHop:
             values = " ".join(captured.values())
             assert LAUNCH_TOKEN not in values
             assert "forged-token" not in values
+
+    @pytest.mark.parametrize(
+        ("path", "bounded"),
+        [
+            pytest.param("api/shot", True, id="agent-door"),
+            pytest.param("panel/api/state", False, id="panel-door"),
+        ],
+    )
+    def test_the_agent_door_hop_has_a_connect_bound_and_no_read_bound(self, booted, path, bounded):
+        app, client = booted
+        timeouts: list[object] = []
+
+        async def fake_request(**kwargs):
+            timeouts.append(kwargs.get("timeout", "shared"))
+            return httpx.Response(200, json={}, headers={"content-type": "application/json"})
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.post(f"/panel/{TRAJECTORY_PANEL_ID}/{path}", json={})
+
+        assert resp.status_code == 200
+        (timeout,) = timeouts
+        if bounded:
+            # A shot answers when its action ends; the shared 30 s read bound
+            # would cut it off while the service still works on it.
+            assert isinstance(timeout, httpx.Timeout)
+            assert timeout.read is None
+            assert timeout.connect == 5.0
+        else:
+            assert timeout == "shared"
 
 
 @pytest.mark.parametrize(

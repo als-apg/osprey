@@ -10,6 +10,10 @@ built and rendered project whose limits records state ``confirm: false`` for
 the commands, and its control target is stamped with the service's target, so
 the connector's own per-write chip check judges the target the service drives.
 
+A further case deploys the same project with no limits records and limits
+checking ``optional`` with no database path, a deployment that legitimately
+keeps no limits file (q-0001/1, q-0002): the arm still fires.
+
 Nothing in the write path is patched. In the second case the owner's record is
 narrowed while ``admit`` is stubbed to pass, so the refusal can only come from
 the connector's per-write chip check.
@@ -87,9 +91,37 @@ def _config(view: Path) -> dict[str, Any]:
     }
 
 
+def _optional_config(view: Path) -> dict[str, Any]:
+    """The deployment's config with limits checking optional and no limits database."""
+    config = _config(view)
+    config["control_system"]["limits_checking"] = {
+        "enabled": True,
+        "mode": "optional",
+        "on_violation": "error",
+    }
+    return config
+
+
 @pytest.fixture
 def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A built, rendered deployment this process reads, with a provisioned control-context tree."""
+    yield from _deploy(tmp_path, monkeypatch, _tree(), _config)
+
+
+@pytest.fixture
+def optional_deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """The same deployment with no limits records, checking optional with no database path."""
+    tree = _tree()
+    del tree["limits.yaml"]
+    yield from _deploy(tmp_path, monkeypatch, tree, _optional_config)
+
+
+def _deploy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    facility_tree: dict[str, Any],
+    configure: Any,
+) -> Iterator[Path]:
     from osprey.facility.build import build_facility
     from osprey.facility.render import render_facility_outputs
 
@@ -106,11 +138,11 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
         monkeypatch.delenv(name, raising=False)
     root = tmp_path / "deploy"
     facility = root / "data" / "facility"
-    write_tree(facility, _tree())
+    write_tree(facility, facility_tree)
     render = root / "build"
     render.mkdir(parents=True)
     view = render / "data" / "simulator"
-    config = _config(view)
+    config = configure(view)
     document = build_facility(facility, project_name="served")
     render_facility_outputs(render, document, config, facility, omitted_reported=set())
     config_path = render / "config.yml"
@@ -136,6 +168,16 @@ async def connector(deployment: Path) -> AsyncIterator[VAInProcessConnector]:
     va = VAInProcessConnector()
     va._control_target = TARGET
     await va.connect(in_process_config(deployment, response_delay_ms=0))
+    yield va
+    await va.disconnect()
+
+
+@pytest.fixture
+async def optional_connector(optional_deployment: Path) -> AsyncIterator[VAInProcessConnector]:
+    """The in-process VA connector of the optional, no-limits-file deployment."""
+    va = VAInProcessConnector()
+    va._control_target = TARGET
+    await va.connect(in_process_config(optional_deployment, response_delay_ms=0))
     yield va
     await va.disconnect()
 
@@ -243,5 +285,25 @@ async def test_the_same_narrowing_is_refused_by_the_real_admit_before_the_connec
 
         assert caught.value.code == NARROWING
         assert await _armed(connector) == 0
+    finally:
+        await layer.close()
+
+
+async def test_an_optional_deployment_with_no_limits_file_fires_the_arm(
+    optional_connector: VAInProcessConnector,
+) -> None:
+    layer = _layer(optional_connector)
+    try:
+        assert await _armed(optional_connector) == 0
+
+        result = await asyncio.wait_for(layer.submit(OWNER, KIND, _arm_action(layer)), 30)
+
+        assert result["fired"] == [ARM]
+        assert await _armed(optional_connector) == 1
+        # Optional with no path: an enforcing validator over an empty database.
+        validator = optional_connector._limits_validator
+        assert validator is not None
+        assert getattr(validator, "failsafe_reason", None) is None
+        assert validator.resolve_confirm(ARM) is True, "no record says how the arm confirms"
     finally:
         await layer.close()

@@ -21,17 +21,31 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
+#: The value types whose channels carry labels.
+LABELLED_TYPES = ("bool", "enum")
+#: The value types a seed's ``gate`` applies to.
+GATED_TYPES = ("float", "int", *LABELLED_TYPES)
 DEFAULT_VALUE_TYPE = "float"
 DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
+#: The value type of a channel that carries a flat ``list[float]`` trace.
+WAVEFORM = "waveform"
 
 __all__ = [
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
+    "GATED_TYPES",
+    "LABELLED_TYPES",
     "VALUE_TYPES",
     "channel_labels",
     "coerce",
+    "is_waveform",
     "zero",
 ]
+
+
+def is_waveform(value_type: str | None) -> bool:
+    """Whether a channel of ``value_type`` carries a trace rather than a scalar."""
+    return value_type == WAVEFORM
 
 
 def _refuse(value: Any, value_type: str, reason: str) -> ValueError:
@@ -127,7 +141,7 @@ def coerce(
         if _is_number(value) and math.isfinite(value) and float(value).is_integer():
             return int(value)
         raise _refuse(value, value_type, "expected an int or an integral float")
-    if value_type in ("bool", "enum"):
+    if value_type in LABELLED_TYPES:
         return _coerce_label(value, value_type, _labels(value_type, options))
     if value_type == "string":
         if isinstance(value, str):
@@ -172,7 +186,7 @@ def zero(
         return 0.0
     if value_type == "int":
         return 0
-    if value_type in ("bool", "enum"):
+    if value_type in LABELLED_TYPES:
         labels = _labels(value_type, options)
         if not labels:
             raise ValueError(f"value_type {value_type} needs at least one label")
