@@ -675,6 +675,28 @@ the limit.</p></td>
 </table>
 </div>
 </section>
+<section id="the-write-boundary-today">
+<span id="deploy-write-boundary"></span><h2>The write boundary today<a class="headerlink" href="#the-write-boundary-today" title="Link to this heading">#</a></h2>
+<p>A process in a terminal or dispatch-worker container reaches the control
+system the way the host does. OSPREY’s block on raw puts is cooperative, not a
+sandbox (<a class="reference internal" href="../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a>). The boundary that does not depend
+on OSPREY’s own code is the facility’s EPICS access security, at the CA
+gateway or the IOCs:</p>
+<ul class="simple">
+<li><p>a host access group (HAG) holding only the OSPREY host, so writes from any
+other machine are refused;</p></li>
+<li><p>a user access group (UAG) holding only the writer names OSPREY uses (the
+control identities in <a class="reference internal" href="../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a>);</p></li>
+<li><p>a gateway pvlist that denies by default and allows writes only to the
+channels this deployment is meant to move.</p></li>
+</ul>
+<p>The client reports its own user name, so these rules narrow which writes are
+possible; they do not authenticate the process that makes one. Where the
+server supports it, match hosts by address rather than by the name the client
+reports. Code in a container that claims a writer name can still write to the
+allowed channels. The end state closes that gap: the connector runs as its own
+service, and the agent containers have no route to the control system.</p>
+</section>
 <section id="step-1-create-the-facility-repository">
 <h2>Step 1 — Create the facility repository<a class="headerlink" href="#step-1-create-the-facility-repository" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
@@ -1454,6 +1476,7 @@ one needs.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-are-building">What you are building</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-perimeter-needs">What the perimeter needs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-write-boundary-today">The write boundary today</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-facility-repository">Step 1 — Create the facility repository</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-trim-the-profile-to-this-facility-s-stack">Step 2 — Trim the profile to this facility’s stack</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-name-the-facility-and-pin-its-services">Step 3 — Name the facility and pin its services</a></li>

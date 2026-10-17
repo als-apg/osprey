@@ -573,7 +573,9 @@ name means the container, so writes and queue calls are refused on connect
 while every health check still passes. Put the pair on the host network and
 the addresses mean what they say. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does
 exactly that, and any profile that keeps a control system or a co-deployed
-bridge at a loopback address should too.</p>
+bridge at a loopback address should too.
+A container on the host network reaches whatever the host reaches;
+<a class="reference internal" href="../deploy-a-facility.html#deploy-write-boundary"><span class="std std-ref">The write boundary today</span></a> covers the access security that limits its writes.</p>
 <p>A worker kept on the compose network still reaches a plan queue this project
 deploys: OSPREY hands it the bridge’s in-network address instead. The control
 system is the half with no such answer, because one connector block is read by
