@@ -3730,6 +3730,87 @@ def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_check_pr_la
         test_all_checks_passed_needs_the_model_free_lane(mutated)
 
 
+# ---------------------------------------------------------------------------
+# The trajectory closed loop runs alone, unconditionally, with no skip
+# ---------------------------------------------------------------------------
+
+CLOSED_LOOP_JOB = "trajectory-closed-loop"
+CLOSED_LOOP_RUN_STEP = "Run the trajectory closed loop"
+CLOSED_LOOP_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+CLOSED_LOOP_FILE = "tests/services/trajectory/test_closed_loop.py"
+
+
+def test_the_closed_loop_runs_in_its_own_unconditional_job(workflow: dict[str, Any]) -> None:
+    """The unit lane drops the module by name, so its one reading is this
+    job's: an ``if:`` on the job or on the step that names the file would read
+    it on fewer events than the lane it left."""
+    assert CLOSED_LOOP_FILE in _IGNORE_ARG_RE.findall(_unit_test_pytest_line(workflow)), (
+        f"the '{UNIT_TEST_JOB}' lane must drop {CLOSED_LOOP_FILE} by name"
+    )
+    assert CLOSED_LOOP_JOB in _unconditional_hosts(workflow, CLOSED_LOOP_FILE), (
+        f"'{CLOSED_LOOP_JOB}' must run {CLOSED_LOOP_FILE} by name with no `if:` on the "
+        f"job or the step"
+    )
+
+
+def test_the_closed_loop_runs_in_its_own_unconditional_job__mutation_gates_the_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[CLOSED_LOOP_JOB]["if"] = "github.event_name == 'pull_request'"
+    with pytest.raises(AssertionError, match="no `if:`"):
+        test_the_closed_loop_runs_in_its_own_unconditional_job(mutated)
+
+
+def test_the_closed_loop_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """The module's one skip path is a missing PyAT, which the lane installs,
+    so a skip is the lane being wrong about its runner — and pytest exits 0 on
+    an all-skipped run."""
+    run = _find_named_step(workflow, CLOSED_LOOP_JOB, CLOSED_LOOP_RUN_STEP)["run"]
+    reports = _JUNIT_RE.findall(run)
+    assert len(reports) == 1, (
+        f"'{CLOSED_LOOP_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, CLOSED_LOOP_JOB, CLOSED_LOOP_SKIP_GATE_STEP)
+    assert "if" not in gate, f"'{CLOSED_LOOP_SKIP_GATE_STEP}' must run on every event"
+    assert reports[0] in gate["run"], f"'{CLOSED_LOOP_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    assert 'get("skipped"' in gate["run"], "the gate must read the junit skipped count"
+    assert "total == 0" in gate["run"], "the gate must refuse an empty selection"
+    assert "sys.exit(1)" in gate["run"], "the gate must fail the job, not just print"
+
+
+def test_the_closed_loop_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, CLOSED_LOOP_JOB, CLOSED_LOOP_RUN_STEP)
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="exactly one --junitxml report"):
+        test_the_closed_loop_fails_on_any_skipped_test(mutated)
+
+
+def test_the_closed_loop_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, CLOSED_LOOP_JOB, CLOSED_LOOP_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_the_closed_loop_fails_on_any_skipped_test(mutated)
+
+
+def test_all_checks_passed_needs_the_closed_loop(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait and ``check_pr_lane`` makes it care."""
+    assert CLOSED_LOOP_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{CLOSED_LOOP_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_the_closed_loop__mutation_drops_check_pr_lane_line() -> None:
+    """The needs entry stays, so the gate waits, while nothing reads the result."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if CLOSED_LOOP_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert CLOSED_LOOP_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_the_closed_loop(mutated)
+
+
 def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
     """The ``tests/e2e/**/test_*.py`` paths the shared lane's directory sweep
     still collects, repo-relative and POSIX.
