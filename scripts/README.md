@@ -15,6 +15,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
+| `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
 
 ## Scripts
 
@@ -283,6 +284,33 @@ makes a re-run write the same bytes on one host and the same picture on any.
 ```bash
 uv run python scripts/bpm_polarity_picture.py
 uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
+```
+
+---
+
+### va/capture_nominals.py
+
+**Purpose**: Write `tests/facility/golden/nominal_va.json`, the served nominals
+`tests/va/e2e/test_substrate_parity.py` holds the live VA container to.
+
+---
+
+**What it does**: Stages the project the live-container suite serves, applies
+the `still` scenario on its fresh state directory and asserts no captured
+address moves, boots the VA image (`osprey-va-full:latest`, built by
+`scripts/va/build_and_boot_check.sh`, or the one `OSPREY_VA_E2E_IMAGE` names)
+and reads every served address over Channel Access until two snapshots agree.
+A bool or enum is written as its label, a string as its text. The suite's
+synthetic string channel and every waveform are left out. `--check` recaptures
+and prints every header key and address that differs, exiting 1 on any.
+Needs Docker.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/va/capture_nominals.py --out tests/facility/golden/nominal_va.json
+uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nominal_va.json
 ```
 
 ---
