@@ -434,6 +434,13 @@ def _load_deck(path: Path) -> _Deck:
     return _Deck(energy_ev=float(lattice.energy), lengths=lengths, lattice=lattice)
 
 
+def _mixes_thin_and_thick(magnet: _Magnet, deck: _Deck) -> bool:
+    """Whether the magnet's slices mix zero-length and thick elements of the deck."""
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in _slice_elements(magnet.entry)]
+    # Stand-in until pyAML round-trips or refuses a magnet whose slices mix zero-length and thick elements; this refusal goes with it.
+    return 0.0 in lengths and any(lengths)
+
+
 def _magnet_model(
     magnet: _Magnet, deck: _Deck, limits: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, Any] | None:
@@ -461,9 +468,9 @@ def _magnet_model(
     pieces = _slice_elements(entry)
     if any((piece.get("curve") is not None) for piece in entry.get("slices") or []):
         return None
-    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
-    if 0.0 in lengths and any(lengths):
+    if _mixes_thin_and_thick(magnet, deck):
         return None
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
     unit = magnet.role in ("hcor", "vcor") or not any(lengths)
     scale = sum(
         weight * (1.0 if unit else length)
