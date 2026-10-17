@@ -44,7 +44,6 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ClientLibraryRefusedError,
-    raw_client_write_message,
 )
 from tests._control_context_fixtures import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
@@ -379,13 +378,14 @@ REFUSALS = {
     "write_blocked": lambda: ChannelWriteBlockedError("SR:MAG:1", "WRITES_DISABLED"),
     "limits": lambda: ChannelLimitsViolationError("SR:MAG:1", 42.0, "range", "above maximum"),
     "target_changed": lambda: ControlTargetChangedError("the target moved"),
+    "client_import": lambda: ClientLibraryRefusedError(package="epics"),
 }
 
 
 class TestInstallingTheHook:
     """What the shell is asked to trap, and where the asking happens."""
 
-    def test_the_three_refusal_classes_are_registered_as_a_tuple(self, shell):
+    def test_the_four_refusal_classes_are_registered_as_a_tuple(self, shell):
         """``set_custom_exc`` rejects a list, and a subclass check needs a tuple."""
         jupyter_kernel.install_refusal_handler(shell)
 
@@ -395,6 +395,7 @@ class TestInstallingTheHook:
             ChannelWriteBlockedError,
             ChannelLimitsViolationError,
             ControlTargetChangedError,
+            ClientLibraryRefusedError,
         }
         assert handler is jupyter_kernel._refusal_handler
 
@@ -857,52 +858,44 @@ class TestTheActionLine:
         assert not hasattr(jupyter_kernel, name)
 
 
-def raw_client_write_refusal():
-    """The refusal a direct client-library put raises inside a cell."""
-    return ChannelWriteBlockedError(
-        "SR:MAG:1", "RAW_CLIENT_WRITE", raw_client_write_message("SR:MAG:1")
-    )
-
-
-class TestARawClientWrite:
-    """A put that went around the runtime is answered by its reason, not its class."""
+class TestARawClientImport:
+    """A client a cell tried to load is answered by the runtime calls, not the chip."""
 
     @pytest.mark.usefixtures("audit_records", "unstamped")
-    def test_raw_client_write_hint_names_write_channel(self, shell, capsys):
-        """The line names the call that applies limits and approval."""
-        fire(shell, raw_client_write_refusal())
+    def test_the_hint_names_the_runtime_calls(self, shell, capsys):
+        """No client is ever let into a kernel, so the line names the route that is."""
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
-        assert "osprey.runtime.write_channel" in jupyter_kernel.HINT_RAW_CLIENT_WRITE
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_IMPORT + "\n"
+        assert "osprey.runtime" in jupyter_kernel.HINT_RAW_CLIENT_IMPORT
 
     @pytest.mark.usefixtures("audit_records")
-    def test_raw_client_write_hint_wins_over_writes_off(self, shell, unstamped, capsys):
-        """Turning writes on would not let a raw put through, so the chip is not the answer."""
+    def test_the_hint_wins_over_writes_off(self, shell, unstamped, capsys):
+        """Turning writes on would not load the client, so the chip is not the answer."""
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
-        fire(shell, raw_client_write_refusal())
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
-
-    @pytest.mark.usefixtures("unstamped")
-    def test_raw_client_write_records_raw_client_write_reason(self, shell, audit_records):
-        """The ledger tells a bypass apart from a posture refusal on the same class."""
-        fire(shell, raw_client_write_refusal())
-
-        assert len(audit_records) == 1
-        assert audit_records[0]["reason"] == "raw_client_write"
-        assert audit_records[0]["decision"] == DECISION_REFUSED
-        assert detail_tokens(audit_records[0]["detail"]) == {
-            "channel": "SR:MAG:1",
-            "ca_user": CA_USER,
-        }
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_IMPORT + "\n"
 
     @pytest.mark.usefixtures("unstamped")
-    def test_raw_client_write_leaves_other_reasons_on_the_class_code(self, shell, audit_records):
-        """Only the raw-write reason re-files; a posture refusal keeps its class code."""
-        fire(shell, REFUSALS["write_blocked"]())
+    def test_a_package_refusal_records_its_package(self, shell, audit_records):
+        """The ledger names what the cell tried to load, and as whom."""
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert audit_records[0]["reason"] == "channel_write_blocked"
+        (entry,) = audit_records
+        assert entry["reason"] == "raw_client_import"
+        assert entry["decision"] == DECISION_REFUSED
+        assert detail_tokens(entry["detail"]) == {"package": "epics", "ca_user": CA_USER}
+
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_library_refusal_records_its_library(self, shell, audit_records):
+        """A shared library the cell tried to load is named by its basename."""
+        fire(shell, ClientLibraryRefusedError(library="libca.so"))
+
+        (entry,) = audit_records
+        assert entry["reason"] == "raw_client_import"
+        assert detail_tokens(entry["detail"]) == {"library": "libca.so", "ca_user": CA_USER}
 
 
 @pytest.fixture
