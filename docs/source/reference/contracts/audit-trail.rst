@@ -295,6 +295,11 @@ different key:
      - None; nothing reached the wire
      - The kernel's refusal record, with ``channel=`` and ``ca_user=``
      - None
+   * - Refused client-library import
+     - None; nothing reached the wire
+     - The kernel's refusal record, reason ``raw_client_import``, with
+       ``package=`` or ``library=`` and ``ca_user=``
+     - None
    * - Python executor write
      - The card's identity
      - The ``python_execute`` record, with ``ca_user`` and ``ca_host``, and

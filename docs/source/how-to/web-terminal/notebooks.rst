@@ -165,46 +165,40 @@ fixes it.
 
 .. _notebooks-write-channel:
 
-A cell writes through ``osprey.runtime``. A client library's own put ---
-``epics.caput``, ``PV.put``, a caproto ``PV.write``, a Tango
-``write_attribute``, an ophyd-async signal set directly --- goes around the
-connector, and with it around the write posture, the limits check and the
-audit record, so the kernel refuses it whatever the chip says. It raises
-``ChannelWriteBlockedError`` with reason ``RAW_CLIENT_WRITE``, nothing is
-sent, and the cell prints one line above the traceback:
+A cell reaches the machine through ``osprey.runtime``. Importing a
+control-system client library --- ``epics``, ``aioca``, ``epicscorelibs``,
+``caproto``, ``p4p``, ``pvaccess``, ``tango``, ``PyTango`` or ``doocs4py`` ---
+or loading one through ``ctypes`` or ``cffi`` is refused, for reads as for
+writes, whatever the chip says. It raises ``ClientLibraryRefusedError``,
+nothing is loaded, and the cell prints one line above the traceback:
 
 .. code-block:: text
 
-   Direct client-library writes are refused. Write through osprey.runtime.write_channel(address, value) instead.
+   Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
 
-Turning writes on does not change that answer. Replace the put with the
-runtime's call, which takes the same address and value:
+Turning writes on does not change that answer. Replace the import with the
+runtime's calls, which take the same address and value:
 
 .. code-block:: python
 
    # Refused:
-   #   from epics import caput
-   #   caput("DEMO:CORR1:SP", 1.5)
+   #   from epics import caget, caput
 
-   from osprey.runtime import write_channel, write_channels
+   from osprey.runtime import read_channel, write_channel, write_channels
 
+   value = read_channel("DEMO:CORR1:SP")
    write_channel("DEMO:CORR1:SP", 1.5)
    write_channels({"DEMO:CORR1:SP": 1.5, "DEMO:CORR2:SP": -0.4})
 
-Reads through a client library are unchanged. So are the rpc calls (p4p's
-``rpc``, pvaPy's ``RpcClient.invoke``) and Tango commands, which carry no
-channel value and stay allowed in a kernel, and the PVAccess puts (a p4p
-``Context.put``, a pvaPy ``Channel.put`` on a channel opened on PVAccess): the
-connector does not write PVAccess yet, so ``write_channel`` has no route to a
-PVAccess channel and a raw put is how one is written. A kernel does not
-limits-check it. A pvaPy channel opened with ``pvaccess.CA`` is a Channel
-Access channel, and its put is refused like ``caput``; so is a pvaPy
-``MultiChannel`` write. A
-``RunEngine`` driving ophyd or ophyd-async devices inside a cell is refused
-the same way, because its devices end in a raw put; submit the plan to a
-Bluesky lane queue instead, where it runs unchanged. The refusal is filed in
-``notebook_kernel.jsonl`` with reason ``raw_client_write``. The full list of
-refused entry points is under :ref:`python-executor-armed-block`.
+ophyd, and ophyd-async's EPICS modules such as ``ophyd_async.epics.core``, are
+refused with them, because they load a client library underneath; ``bluesky``
+and ``ophyd_async.core`` import. Submit a plan that drives devices to a Bluesky
+lane queue instead, where it runs unchanged. Each refusal is filed in
+``notebook_kernel.jsonl`` with reason ``raw_client_import``.
+
+The refusal keeps a cell on the connector path; it is not a sandbox. A shell
+escape or a subprocess starts a fresh interpreter without it, and what closes
+that route is the deployment's network; see :ref:`architecture-safety-chain`.
 
 A refusal for any other reason — a write ceiling, a limits violation — carries
 no extra line, because nothing you do in the notebook would change it.

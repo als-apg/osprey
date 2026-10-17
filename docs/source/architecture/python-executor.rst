@@ -280,8 +280,7 @@ What a readwrite run refuses
 
 A ``readwrite`` run may write, but only through the connector. The raw-put
 block (layer 8) reads the same table as the list above and splits its client
-rows into four buckets, so the page, the executor and the notebook kernel
-agree on every row:
+rows into four buckets, so the page and the executor agree on every row:
 
 ``_ARMED_BLOCKED`` --- **refused** unless a connector is making the put. The
 refusal does not depend on the value: an in-range ``caput`` is refused like an
@@ -321,8 +320,8 @@ PVAccess writes away from every deployment. These keep the posture they had
 before the raw-put block: the approval hook asks for the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a ``parsePut`` or a builder callable carries no value to
-check and is refused). A run with limits off, and a notebook kernel, let them
-through. They move to ``_ARMED_BLOCKED`` once the connector writes PVAccess.
+check and is refused). A run with limits off lets them through. They move to
+``_ARMED_BLOCKED`` once the connector writes PVAccess.
 
 - **p4p** --- ``Context.put`` for the raw, thread, asyncio and cothread
   clients
@@ -335,7 +334,7 @@ Tango's ``command_inout`` (on ``DeviceProxy``, ``Connection`` and ``Group``).
 An rpc payload or a Tango command has no channel value a connector write could
 carry, so no ``write_channel`` call can stand in for one. An executor run with
 the limits database on **refuses** them, because nothing could bound them; a
-run with limits off, and a notebook kernel, **lets them through**.
+run with limits off **lets them through**.
 
 ``_ARMED_PASSED`` --- **let through**, because they write no device: p4p's
 ``SharedPV.post``/``open`` and pvaPy's ``PvaServer``/``PvaMirrorServer``
@@ -399,6 +398,19 @@ comment or a message does not count. The hook answers with a ``deny`` and the
 ``.put(`` --- which also matches ``queue.put`` --- are still asked about as
 before. ``execute_file`` carries a path rather than source, so it is asked
 about as before and relies on the runtime block.
+
+**A notebook kernel's mode.** A notebook kernel installs the same block in its
+``no_client`` mode, and never the armed one; ``no_client`` is never embedded in
+an executor run. It refuses the import of every package in ``CLIENT_PACKAGES``
+--- the top-level names of the armed block's client rows --- and a client shared
+library (``libca``, the PVAccess libraries) loaded through Python's two
+loaders, ``ctypes`` and ``cffi``, for reads as for writes, with
+``ClientLibraryRefusedError`` and reason ``RAW_CLIENT_IMPORT``. A client
+already loaded when the block is installed cannot be unloaded, so the install
+refuses it and the kernel does not start. Like the armed block it is
+cooperative: it keeps honest cell code on the connector path and is not a
+sandbox (see :ref:`architecture-safety-chain`). See
+:ref:`what a cell may load <notebooks-write-channel>`.
 
 .. _python-executor-write-channel:
 
