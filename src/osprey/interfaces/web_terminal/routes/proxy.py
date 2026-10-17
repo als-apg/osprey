@@ -222,6 +222,31 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
     return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
 
 
+#: The panel id the trajectory service is declared under. The same spelling as
+#: ``web_terminal.app.TRAJECTORY_PANEL_ID``, which this module cannot import.
+_TRAJECTORY_PANEL_ID = "trajectory"
+
+#: The bounds of the hop to the trajectory service's agent door: a connect
+#: bound and no read bound. A shot or an apply answers only when its action
+#: ends, which can be minutes; the agent's MCP client bounds the call by the
+#: service's own budgets, and the shared client's 30 s read bound would cut a
+#: running action's answer off while the service still works on it.
+_TRAJECTORY_AGENT_HOP_TIMEOUT = httpx.Timeout(None, connect=5.0)
+
+
+def _is_trajectory_agent_hop(panel_id: str, path: str) -> bool:
+    """Whether this request is the hop to the trajectory service's agent door.
+
+    The agent door is the service's ``/api/*`` tree; the panel door
+    (``panel/api/*``) and the panel's page are ordinary panel traffic.
+
+    Args:
+        panel_id: The panel id from the proxied URL.
+        path: The path segment below the panel id, without a leading slash.
+    """
+    return panel_id == _TRAJECTORY_PANEL_ID and path.startswith("api/")
+
+
 #: Request headers that are never forwarded to a panel backend.
 #:
 #: Three of them carry the operator's identity at the terminal: the browser
@@ -598,6 +623,7 @@ async def _request_no_redirect(
     url: str,
     headers: dict[str, str],
     content: bytes | None,
+    timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
     """Send one panel request without letting httpx chase redirects.
 
@@ -619,13 +645,25 @@ async def _request_no_redirect(
     The redirect is relayed to the browser instead (:func:`_relay_redirect`),
     whose re-request is re-gated by the terminal's own auth and, if it comes
     back through a panel path, earns a freshly evaluated injection.
+
+    *timeout* replaces the shared client's bounds for this one request;
+    ``None`` keeps them.
     """
+    if timeout is None:
+        return await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=content,
+            follow_redirects=False,
+        )
     return await client.request(
         method=method,
         url=url,
         headers=headers,
         content=content,
         follow_redirects=False,
+        timeout=timeout,
     )
 
 
@@ -1539,6 +1577,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             url=target,
             headers=fwd_headers,
             content=body if body else None,
+            timeout=_TRAJECTORY_AGENT_HOP_TIMEOUT
+            if _is_trajectory_agent_hop(panel_id, path)
+            else None,
         )
         if _is_redirect(resp):
             return _relay_redirect(

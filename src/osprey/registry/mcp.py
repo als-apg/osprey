@@ -132,10 +132,11 @@ def _approval_entry(timeout: int) -> HookEntry:
 
 
 _APPROVAL = _approval_entry(5)
-#: Approval for the Bluesky arming pair, whose prompt renders the queue over
-#: the bridge before an operator can answer: the preview IS the approval, so
-#: these two buy the budget it needs. Every other prompt answers from data the
-#: hook already holds and keeps the default.
+#: Approval for the prompts that render what the call would move, fetched over
+#: HTTP before an operator can answer — the Bluesky arming pair's queue over the
+#: bridge, the trajectory apply's pending step from the service: the preview IS
+#: the approval, so these buy the budget it needs. Every other prompt answers
+#: from data the hook already holds, or one short read, and keeps the default.
 _APPROVAL_PREFLIGHT = _approval_entry(30)
 _WRITES_CHECK = HookEntry(
     command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
@@ -715,6 +716,40 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
                 hooks=[_APPROVAL],
             ),
         ],
+    ),
+    "trajectory": ServerDefinition(
+        name="trajectory",
+        module="osprey.mcp_server.trajectory",
+        # The server reaches the trajectory service only through the terminal's
+        # proxy, with the panel token every agent child carries; the proxy
+        # injects the service's launch token. A deployment without the
+        # trajectory panel serves no such route, so the server is rendered only
+        # where the panel is declared (``config_declares_trajectory_panel``,
+        # read into this ctx key in cli/templates/claude_code.py).
+        condition="trajectory_panel_declared",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Reading the pending step moves nothing. A shot fires the injection
+        # chain and an apply writes correctors, so a human sees both.
+        permissions_allow=["trajectory_step"],
+        permissions_ask=["trajectory_shot", "trajectory_apply"],
+        # The approval hook binds each call to the service's target, and an
+        # apply to the step or put-back the prompt showed; the server refuses
+        # a call without that stamp. An apply's prompt renders the pending
+        # step fetched from the service, so it buys the pre-flight budget.
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__trajectory__trajectory_shot",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__trajectory__trajectory_apply",
+                hooks=[_APPROVAL_PREFLIGHT],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__trajectory__.*")],
     ),
 }
 

@@ -520,3 +520,40 @@ class TestServerDenylistFloor:
 
         # Assert
         assert _decision(result) == "deny"
+
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "mcp__trajectory__trajectory_shot",
+            "mcp__trajectory__trajectory_step",
+            "mcp__trajectory__trajectory_apply",
+        ],
+    )
+    def test_every_trajectory_tool_is_on_the_server_denylist(self, tool):
+        # Arrange / Act
+        from osprey.agent_runner import tool_names
+        from osprey.mcp_server.dispatch_worker import dispatch_api
+
+        # Assert — a headless job never drives the trajectory loop
+        assert tool in tool_names.DISPATCH_DENIED_TOOLS
+        assert dispatch_api._is_denied(tool) is True
+
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "mcp__trajectory__trajectory_shot",
+            "mcp__trajectory__trajectory_step",
+            "mcp__trajectory__trajectory_apply",
+        ],
+    )
+    async def test_the_hook_denies_a_trajectory_tool_a_trigger_names(self, tool):
+        # Arrange — the trigger names it; the run carries the server's denylist
+        from osprey.agent_runner import tool_names
+
+        hook = make_pretooluse_hook([tool], SURFACES, sorted(tool_names.DISPATCH_DENIED_TOOLS))
+
+        # Act
+        result = await hook(_main_input(tool), "t1", None)
+
+        # Assert
+        assert _decision(result) == "deny"

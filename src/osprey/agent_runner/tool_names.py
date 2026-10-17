@@ -155,6 +155,13 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
         # entry is the run-time floor, which holds whatever a dispatch request asks
         # for and whether or not the dispatcher is wired into the render at all.
         "mcp__event_dispatcher__manual_fire",
+        # A job never drives the trajectory loop: a shot fires the injection
+        # chain and an apply writes correctors, each behind a human's approval
+        # that a headless run has nobody to give. The read goes with them, so a
+        # job has no half of the loop to act on.
+        "mcp__trajectory__trajectory_shot",
+        "mcp__trajectory__trajectory_step",
+        "mcp__trajectory__trajectory_apply",
     }
 )
 
