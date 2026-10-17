@@ -15,9 +15,10 @@ a periodic lattice. This asserts the antisymmetric-linear shape directly: +I
 and -I give opposite shifts, 2x I doubles the shift, and the shift is nonzero
 at the paired BPM -- never same-sign or magnitude alone.
 
-The shared container serves its monitors without their declared noise and
-drift (``conftest.stage_demo_data_dir``), so a reading is the solved orbit and
-nothing else, and every cycle reproduces the first.
+The shared container starts in the suite scenario
+(``conftest.SUITE_SCENARIOS``), which serves its monitors without their
+declared noise and drift, so a reading is the solved orbit and nothing else,
+and every cycle reproduces the first.
 
 Sweep currents stay inside the +/-12 A band ``limits.yaml`` gives this
 corrector: the view carries it as the setpoint's ``value_range`` and the runner
