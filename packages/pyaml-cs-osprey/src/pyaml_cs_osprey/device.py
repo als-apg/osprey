@@ -33,6 +33,7 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
+from osprey_connectors.errors import ChannelReadFailedError
 from osprey_connectors.settle import SettleTimeoutError
 from pyaml_cs_osprey import _run
 from pyaml_cs_osprey._run import OUTSIDE_A_RUN
@@ -77,18 +78,19 @@ def _wait_settled(demands: Mapping[str, float]) -> None:
         OspreyWriteFailed: A readback did not come within its bound in time; names
             the setpoint, and the reason names its readback, the demand, the bound
             and the last reading.
-        OspreyReadFailed: A readback read raised; names the setpoints settling.
-        FileNotFoundError: The render has no facility file; nothing was read.
-        ValueError: An address is no setpoint in the facility file; nothing was read.
+        OspreyReadFailed: A readback could not be read, or answered no value; names
+            the readback.
+
+        Refusals (``FileNotFoundError`` for a missing config or facility file,
+        ``ValueError`` for an address that is no setpoint) and a control-target
+        change propagate as raised; nothing was read.
     """
     try:
         osprey.runtime.settle(demands)
     except SettleTimeoutError as exc:
         raise OspreyWriteFailed(str(exc), exc.landing.setpoint) from exc
-    except (FileNotFoundError, ValueError):
-        raise
-    except Exception as exc:
-        raise map_read_error(exc, list(demands)) from exc
+    except ChannelReadFailedError as exc:
+        raise map_read_error(exc) from exc
 
 
 class OspreyDevice(DeviceAccess):
@@ -166,7 +168,8 @@ class OspreyDevice(DeviceAccess):
         Raises:
             PyAMLException: The reference is indexed (read-only), or the suffix has no
                 known SI factor; nothing was recorded or written.
-            OspreyReadFailed: The prior setpoint could not be read; nothing was written.
+            OspreyReadFailed: The prior setpoint could not be read, and nothing was
+                written; or inside :func:`settling` its readback could not be read.
             OspreyWriteRefused: The write was refused, or no ``run_tool`` call is in
                 progress; nothing was written.
             OspreyWriteFailed: The write was attempted and not confirmed, or inside

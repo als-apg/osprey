@@ -289,6 +289,8 @@ class StepMeasurement(MeasurementTool):
         Raises:
             OspreyWriteFailed: A stepped setpoint's readback did not settle in
                 time; the run stops where it was.
+            OspreyReadFailed: A stepped setpoint's readback could not be read; the
+                run stops where it was.
         """
         self._register_callback(callback)
         try:

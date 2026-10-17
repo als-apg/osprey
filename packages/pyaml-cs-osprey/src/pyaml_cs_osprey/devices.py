@@ -154,7 +154,9 @@ class OspreyDeviceList(DeviceAccessList):
                 was recorded or written.
             ValueError: ``value`` does not hold one entry per device, or one
                 address is given two different values; nothing was written.
-            OspreyReadFailed: A prior setpoint could not be read; nothing was written.
+            OspreyReadFailed: A prior setpoint could not be read, and nothing was
+                written; or inside :func:`~pyaml_cs_osprey.device.settling` its
+                readback could not be read.
             OspreyWriteRefused: The batch was refused whole before anything was
                 sent (limits, write gate, control-target change), or no ``run_tool``
                 call is in progress (:data:`~pyaml_cs_osprey.device.OUTSIDE_A_RUN`,

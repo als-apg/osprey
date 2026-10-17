@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -257,9 +258,43 @@ def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
     with pytest.raises(OspreyReadFailed) as info:
         _device(RW).set_and_wait(4.0)
 
-    assert info.value.addresses == ["QF_001:Cm:set"]
+    assert info.value.addresses == ["QF_001:Cm:rdbk"]
     assert "QF_001:Cm:rdbk is unreachable" in info.value.reason
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+def test_a_connector_value_error_during_the_settle_is_a_read_failure(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback read that raises ValueError while settling is a read failure of the readback."""
+    del clock
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    def bad_reply(address: str) -> None:
+        del address
+        raise ValueError("bad reply")
+
+    runtime.on_poll = bad_reply
+
+    with pytest.raises(OspreyReadFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.addresses == ["QF_001:Cm:rdbk"]
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+@pytest.mark.usefixtures("in_run")
+def test_an_address_that_is_no_setpoint_propagates_as_raised(
+    runtime: _Runtime, guarded_repo: Path
+) -> None:
+    """A written address the facility states as a readback is refused before any read."""
+    facility = {"channels": [{"id": "QF_001:Cm:set", "role": "readback"}]}
+    (guarded_repo / "build" / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="is no setpoint"):
+        _device(RW).set_and_wait(4.0)
+
+    assert runtime.polls == []
 
 
 def test_set_records_the_prior_setpoint(runtime: _Runtime, in_run: RunRecord) -> None:
