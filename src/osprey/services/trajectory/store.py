@@ -45,6 +45,7 @@ from osprey.services.trajectory.state import ReferenceLoad, ShotResult
 
 __all__ = [
     "CURRENT_FILE",
+    "FILE_MODE",
     "NAME_PATTERN",
     "SHOTS_PER_MODEL",
     "STATE_DIR_ENV_VAR",
@@ -67,6 +68,12 @@ SHOTS_PER_MODEL = 100
 
 #: The pointer to a model's current reference, beside the references.
 CURRENT_FILE = "current.json"
+
+#: The mode every shot file, reference and pointer is written with: the owner
+#: writes, the group reads, nobody else. The deployment provisions the state
+#: directory setgid to the host's group, so the group read is what lets the
+#: host read a shot the service wrote under its own user.
+FILE_MODE = 0o640
 
 _CURRENT_NAME = CURRENT_FILE.removesuffix(".json")
 _SUFFIX = ".json"
@@ -137,10 +144,13 @@ def _from_json_reading(value: Any) -> float:
 
 
 def _write_atomic(path: Path, payload: bytes) -> None:
-    """Write ``payload`` to ``path`` through a temporary file and :func:`os.replace`."""
+    """Write ``payload`` to ``path`` at :data:`FILE_MODE`, through a temporary file and :func:`os.replace`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
+        # mkstemp creates the file 0600, and fchmod, unlike a mode handed to
+        # open, is not narrowed by the umask.
+        os.fchmod(fd, FILE_MODE)
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
             handle.flush()

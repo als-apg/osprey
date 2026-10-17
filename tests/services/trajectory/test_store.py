@@ -13,6 +13,7 @@ import pytest
 
 from osprey.services.trajectory.state import ReferenceLoad, ShotResult
 from osprey.services.trajectory.store import (
+    FILE_MODE,
     STATE_DIR_ENV_VAR,
     InvalidName,
     NoMatchingBpms,
@@ -145,6 +146,18 @@ async def test_a_shot_reading_nan_is_written_as_null_and_the_file_is_strict_json
     path = await store.save_shot(_shot("s1", x=None))
     data = json.loads(path.read_text(), parse_constant=pytest.fail)
     assert data["x"]["BPM1:X"] is None
+
+
+async def test_every_file_the_store_writes_is_owner_written_and_group_read(
+    store: TrajectoryStore,
+) -> None:
+    shot = await store.save_shot(_shot("s1"))
+    await store.save_reference(MODEL, "gold", {"BPM1": (0.0, 0.0)})
+    await store.set_current(MODEL, "gold")
+    references = store.root / "references" / MODEL
+
+    for path in (shot, references / "gold.json", references / "current.json"):
+        assert path.stat().st_mode & 0o777 == FILE_MODE == 0o640, path
 
 
 async def test_loading_a_missing_shot_raises_lookup_error(store: TrajectoryStore) -> None:
