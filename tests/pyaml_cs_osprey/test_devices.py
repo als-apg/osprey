@@ -25,12 +25,11 @@ from osprey_connectors.control_system.limits_validator import (
 )
 from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey.catalog import parse_reference
-from pyaml_cs_osprey.device import OUTSIDE_A_RUN, SETTLE_TIMEOUT_S, OspreyDevice
+from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice
 from pyaml_cs_osprey.devices import OspreyDeviceList
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
-from tests.pyaml_cs_osprey.conftest import DictConnector, RunRecord
+from tests.pyaml_cs_osprey.conftest import Clock, DictConnector, RunRecord, plant_facility
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
-from tests.pyaml_cs_osprey.test_settle import Clock, plant_facility
 
 REFS = [
     "(QF_001:Cm:rdbk, QF_001:Cm:set)[1/m]",
@@ -147,32 +146,31 @@ def test_set_is_one_batch_write_in_reference_order(runtime: _Runtime) -> None:
 
 
 @pytest.mark.usefixtures("in_run")
-def test_set_and_wait_confirms(runtime: _Runtime) -> None:
+def test_set_and_wait_confirms(runtime: _Runtime, guarded_repo: Path) -> None:
+    plant_facility(guarded_repo, {s: (r, None) for s, r in zip(SETS, RDBKS, strict=True)})
     _list().set_and_wait([10.0, 20.0, 30.0])
     [(_, kwargs)] = runtime.batch_writes
     assert kwargs == {"confirm": True}
 
 
 @pytest.mark.usefixtures("in_run")
-def test_set_and_wait_settles_every_toleranced_member_in_one_read_per_poll(
-    runtime: _Runtime, guarded_repo: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+def test_set_and_wait_settles_every_toleranced_member_in_one_call(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock
 ) -> None:
-    plant_facility(guarded_repo, {SETS[0]: (RDBKS[0], 0.1), SETS[2]: (RDBKS[2], 0.1)})
-    polls: list[list[str]] = []
-    read = runtime.read_channels
+    plant_facility(
+        guarded_repo,
+        {SETS[0]: (RDBKS[0], 0.1), SETS[1]: (RDBKS[1], None), SETS[2]: (RDBKS[2], 0.1)},
+    )
 
-    def lagging(addresses: Sequence[str], *, timeout: float | None = None) -> list[Any]:
-        if RDBKS[0] in addresses:
-            polls.append(list(addresses))
-            if len(polls) == 2:
-                runtime.values.update({RDBKS[0]: 10.05, RDBKS[2]: 29.95})
-        return read(addresses, timeout=timeout)
+    def lagging(_address: str) -> None:
+        if len(runtime.polls) == 3:
+            runtime.values.update({RDBKS[0]: 10.05, RDBKS[2]: 29.95})
 
-    monkeypatch.setattr(osprey.runtime, "read_channels", lagging)
+    runtime.on_poll = lagging
 
     _list().set_and_wait([10.0, 20.0, 30.0])
 
-    assert polls == [[RDBKS[0], RDBKS[2]]] * 2, "the untoleranced member is never read back"
+    assert runtime.polls == [RDBKS[0], RDBKS[2]] * 2, "the untoleranced member is never read back"
     assert clock.pauses == [pytest.approx(0.05)]
     [(_, kwargs)] = runtime.batch_writes
     assert kwargs == {"confirm": True}
@@ -181,7 +179,10 @@ def test_set_and_wait_settles_every_toleranced_member_in_one_read_per_poll(
 def test_set_and_wait_fails_closed_naming_the_unsettled_member(
     runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
 ) -> None:
-    plant_facility(guarded_repo, {SETS[0]: (RDBKS[0], 0.1), SETS[2]: (RDBKS[2], 0.1)})
+    plant_facility(
+        guarded_repo,
+        {SETS[0]: (RDBKS[0], 0.1), SETS[1]: (RDBKS[1], None), SETS[2]: (RDBKS[2], 0.1)},
+    )
     runtime.values[RDBKS[0]] = 10.0
 
     with pytest.raises(OspreyWriteFailed) as info:
@@ -189,7 +190,7 @@ def test_set_and_wait_fails_closed_naming_the_unsettled_member(
 
     assert info.value.channel_address == SETS[2]
     assert RDBKS[2] in info.value.reason
-    assert clock.now >= SETTLE_TIMEOUT_S
+    assert clock.now >= osprey.runtime.SETTLE_TIMEOUT_S
     assert set(in_run.moved) == set(SETS), "every member stays recorded as moved"
 
 

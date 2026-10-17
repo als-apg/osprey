@@ -16,9 +16,9 @@ falsy value stops the run and ``measure`` returns ``False``; what it had moved i
 left where it stopped and listed in the call's result.
 
 Every write of a measurement settles before its ``set_wait_time`` pause
-(:func:`pyaml_cs_osprey.device.settling`): a setpoint whose facility record states
-a ``tolerance`` waits for its readback to come within it, and one that does not
-come within it fails the run where it stopped.
+(:func:`pyaml_cs_osprey.device.settling`): its readback waits in
+:func:`osprey.runtime.settle` to come within the bound the facility states, and
+one that does not fails the run where it stopped.
 
 pySC is always called with ``skip_save=True``: its default writes result files
 under the working directory's ``data/``.
@@ -287,8 +287,8 @@ class StepMeasurement(MeasurementTool):
             result, ``False`` when the callback stopped it.
 
         Raises:
-            OspreyWriteFailed: A stepped setpoint's readback did not come within
-                its stated tolerance; the run stops where it was.
+            OspreyWriteFailed: A stepped setpoint's readback did not settle in
+                time; the run stops where it was.
         """
         self._register_callback(callback)
         try:

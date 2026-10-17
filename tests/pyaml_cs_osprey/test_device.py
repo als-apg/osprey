@@ -19,11 +19,10 @@ from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteR
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
-from pyaml_cs_osprey.device import SETTLE_TIMEOUT_S, OspreyDevice
+from pyaml_cs_osprey.device import OspreyDevice
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
+from tests.pyaml_cs_osprey.conftest import Clock, RunRecord, plant_facility
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
-from tests.pyaml_cs_osprey.conftest import RunRecord
-from tests.pyaml_cs_osprey.test_settle import Clock, plant_facility
 
 RW = "(QF_001:Cm:rdbk, QF_001:Cm:set)[1/m]"
 
@@ -196,35 +195,33 @@ def test_a_nan_before_value_is_recorded_and_the_write_goes_out(
 
 
 @pytest.mark.usefixtures("in_run")
-def test_set_and_wait_confirms(runtime: _Runtime) -> None:
-    """set_and_wait() is a confirmed write."""
+def test_set_and_wait_confirms(runtime: _Runtime, guarded_repo: Path) -> None:
+    """set_and_wait() is a confirmed write; an untoleranced live setpoint is not read back."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", None)})
     _device(RW).set_and_wait(4.0)
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert runtime.polls == []
 
 
 @pytest.mark.usefixtures("in_run")
 def test_set_and_wait_polls_the_pair_within_the_tolerance(
-    runtime: _Runtime, guarded_repo: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+    runtime: _Runtime, guarded_repo: Path, clock: Clock
 ) -> None:
     """A stated tolerance makes set_and_wait poll the readback until it is inside it."""
     plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
-    polls: list[float] = []
-    read = runtime.read_channels
 
-    def lagging(addresses: Sequence[str], *, timeout: float | None = None) -> list[Any]:
-        if "QF_001:Cm:rdbk" in addresses:
-            polls.append(clock.now)
-            if len(polls) == 3:
-                runtime.values["QF_001:Cm:rdbk"] = 3.99
-        return read(addresses, timeout=timeout)
+    def lagging(address: str) -> None:
+        if len(runtime.polls) == 3:
+            runtime.values[address] = 3.99
 
-    monkeypatch.setattr(osprey.runtime, "read_channels", lagging)
+    runtime.on_poll = lagging
 
     _device(RW).set_and_wait(4.0)
 
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
-    assert len(polls) == 3
-    assert runtime.calls == ["read_channels", "write_channel"] + ["read_channels"] * 3
+    assert runtime.polls == ["QF_001:Cm:rdbk"] * 3
+    assert runtime.calls == ["read_channels", "write_channel"] + ["poll"] * 3
+    assert len(clock.pauses) == 2
 
 
 def test_set_and_wait_fails_closed_when_the_pair_never_settles(
@@ -238,9 +235,30 @@ def test_set_and_wait_fails_closed_when_the_pair_never_settles(
 
     assert info.value.channel_address == "QF_001:Cm:set"
     assert "QF_001:Cm:rdbk" in info.value.reason
-    assert clock.now >= SETTLE_TIMEOUT_S
+    assert "4.0 ± 0.02" in info.value.reason and "(last read: 1.49)" in info.value.reason
+    assert clock.now >= osprey.runtime.SETTLE_TIMEOUT_S
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
     assert "QF_001:Cm:set" in _run.moved()
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback read that raises while settling surfaces as OspreyReadFailed."""
+    del clock
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    def unreachable(address: str) -> None:
+        raise ConnectionError(f"{address} is unreachable")
+
+    runtime.on_poll = unreachable
+
+    with pytest.raises(OspreyReadFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.addresses == ["QF_001:Cm:set"]
+    assert "QF_001:Cm:rdbk is unreachable" in info.value.reason
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 

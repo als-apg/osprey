@@ -37,7 +37,13 @@ from pyaml.control.deviceaccesslist import DeviceAccessList
 import osprey.runtime
 from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from pyaml_cs_osprey import _run
-from pyaml_cs_osprey.device import _SETTLING, OspreyDevice, indexed_element, settle, unknown_unit
+from pyaml_cs_osprey.device import (
+    _SETTLING,
+    OspreyDevice,
+    _wait_settled,
+    indexed_element,
+    unknown_unit,
+)
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,
@@ -163,26 +169,23 @@ class OspreyDeviceList(DeviceAccessList):
         batch = self._batch(value)
         self._write(batch, confirm=confirm)
         if _SETTLING.get():
-            settle(batch)
+            _wait_settled(batch)
 
     def set_and_wait(self, value: Any) -> None:
         """Write the setpoints, confirm each channel holds its value, and wait for readbacks.
 
-        The write is ``set(value, confirm=True)``. Each member whose facility record
-        states a ``tolerance`` then has its readback polled, all of them in one read
-        per poll, until each is within its tolerance of the value written
-        (:func:`~pyaml_cs_osprey.device.settle`).
+        The write is ``set(value, confirm=True)``; every member's readback then
+        settles in one :func:`osprey.runtime.settle` call.
 
         Raises:
-            OspreyWriteFailed: The write was not confirmed, or a readback was not
-                within its tolerance after
-                :data:`~pyaml_cs_osprey.device.SETTLE_TIMEOUT_S`, naming the first
-                such member; every written member stays recorded as moved.
+            OspreyWriteFailed: The write was not confirmed, or a readback did not
+                settle in time, naming the first such member; every written member
+                stays recorded as moved.
             OspreyReadFailed: A prior setpoint or a readback could not be read.
         """
         batch = self._batch(value)
         self._write(batch, confirm=True)
-        settle(batch)
+        _wait_settled(batch)
 
     def _batch(self, value: Any) -> dict[str, float]:
         """One native setpoint per distinct address, in list order.
