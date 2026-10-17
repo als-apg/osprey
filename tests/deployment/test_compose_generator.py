@@ -7490,10 +7490,11 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
 # A limits database is optional. Refusals ride on one target both arming
-# writes and having `limits_checking.enabled` on
-# (`any_armed_target_checks_limits`), because that pairing is what opens the
-# file: a target that checks no limits builds no validator and reads no
-# database. The write half is a union over the targets a session here can
+# writes and requiring the database (`any_armed_target_requires_limits_database`:
+# `limits_checking.enabled` on, and a mode other than `optional` or a path
+# configured), because that pairing is what opens the file: a target that checks
+# no limits builds no validator and reads no database, and one checking in
+# `optional` mode with no path checks every channel as unlisted. The write half is a union over the targets a session here can
 # select rather than the flat key, since the template mounts the file per
 # Bluesky lane off each lane's own target posture -- so a deployment-wide
 # `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
@@ -7660,6 +7661,46 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
         "the reason must say which posture makes the missing key fatal"
     )
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
+
+
+def test_limits_mount_lets_an_optional_writable_deployment_with_no_path_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Optional mode, no path: legal, and nothing to mount (q-0001/1, q-0002)."""
+    control_system = _limits_config(None)
+    control_system["limits_checking"]["mode"] = "optional"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert config.get("limits_mount") is None
+
+
+def test_limits_mount_refuses_an_exclusive_writable_deployment_with_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exclusive mode needs the database to know what is writable at all."""
+    control_system = _limits_config(None)
+    control_system["limits_checking"]["mode"] = "exclusive"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)):
+        prepare_compose_files(str(config_path))
+
+
+def test_limits_mount_refuses_an_optional_writable_deployment_whose_named_file_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured path must exist whatever the mode."""
+    control_system = _limits_config(DEFAULT_LIMITS_RELPATH)
+    control_system["limits_checking"]["mode"] = "optional"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)):
+        prepare_compose_files(str(config_path))
 
 
 def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(
