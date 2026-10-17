@@ -8,9 +8,9 @@ This module uses the standard library only. The Claude Code hooks run under
 the system ``python3`` and import nothing from OSPREY, so they ship this file
 beside them as ``.claude/hooks/osprey_safety_file.py``, a byte-identical copy
 that ``tests/hooks/test_osprey_safety_file.py`` holds equal to this one. A
-change is made here and copied there. The build also stages this file, as
-``osprey_safety_file.py``, beside the control-identity module that containers
-run by path.
+change is made here and copied there. That hooks catalog row is also the copy
+the build stages beside the control-identity script that containers run by
+path, so the byte pin keeps that copy equal to this module too.
 """
 
 from __future__ import annotations

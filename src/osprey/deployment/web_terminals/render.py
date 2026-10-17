@@ -38,7 +38,6 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
     SAFETY_FILE_CONTAINER_PATH,
-    SAFETY_FILE_FILENAME,
 )
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.telemetry_config import (
@@ -118,10 +117,9 @@ _LANDING_TEMPLATE = "landing.html.j2"
 _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
-# Mounted as `./build/control_identity/control_identity.py` by the template,
-# beside the safety-file helper it replaces files through.
-_CONTROL_IDENTITY_OUTPUT = "control_identity/control_identity.py"
-_SAFETY_FILE_OUTPUT = "control_identity/" + SAFETY_FILE_FILENAME
+# Bound as `./build/control_identity/` by the template: the identity script
+# and its catalog closure.
+_CONTROL_IDENTITY_DIR = "control_identity"
 
 # The one button a `names: hidden` users section shows in place of its cards.
 _SIGN_IN_LABEL = "Log in to your terminal"
@@ -1721,22 +1719,24 @@ def render_web_terminals(
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)
         rendered_landing = html_env.get_template(_LANDING_TEMPLATE).render(**landing_ctx)
 
-    # The sources of the identity module's bind and its helper's, written beside
-    # the compose file whenever the template emits those binds — the same
-    # predicate, so a card never mounts a missing file (which the runtime would
-    # turn into an empty directory) and a deployment with no identity stages
-    # nothing. Byte-equal to the packaged sources, exactly as the build-context
-    # stager copies them.
+    # The source of the identity script's directory bind, written beside the
+    # compose file whenever the template emits that bind — the same predicate,
+    # so a card never mounts a missing directory (which the runtime would create
+    # empty) and a deployment with no identity stages nothing. The script and
+    # its catalog closure, byte-equal to their sources, exactly as the
+    # build-context stager copies them.
     identity_module: dict[str, str] = {}
     if auth_tls_ctx["walled"] and any(svc.get("control_identity") for svc in services):
-        from osprey.deployment import control_identity
-        from osprey_connectors import safety_file
+        from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+        from osprey.cli.templates.manager import TemplateManager
 
-        for output, source in (
-            (_CONTROL_IDENTITY_OUTPUT, control_identity.__file__),
-            (_SAFETY_FILE_OUTPUT, safety_file.__file__),
-        ):
-            identity_module[output] = Path(source).read_text(encoding="utf-8")
+        beside = BuildArtifactCatalog.default().files_beside(
+            "control-identity", TemplateManager().template_root
+        )
+        for filename, source in sorted(beside.items()):
+            identity_module[f"{_CONTROL_IDENTITY_DIR}/{filename}"] = source.read_text(
+                encoding="utf-8"
+            )
 
     return {
         _COMPOSE_OUTPUT: rendered_compose,

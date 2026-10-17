@@ -6713,8 +6713,16 @@ def test_render_accepts_one_person_on_two_cards_under_one_control_identity() -> 
 # control_identity -> the walled card's env, mount and staged module artifact
 # ---------------------------------------------------------------------------
 
-_CONTROL_IDENTITY_ARTIFACT = "control_identity/control_identity.py"
-_SAFETY_FILE_ARTIFACT = "control_identity/osprey_safety_file.py"
+
+def _identity_artifacts() -> dict[str, Path]:
+    """The staged directory's files, keyed by their output path: the script and its closure."""
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
+
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    return {f"control_identity/{name}": source for name, source in files.items()}
 
 
 def _identity_roster() -> list:
@@ -6800,21 +6808,22 @@ def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
 
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
-def test_walled_render_stages_the_module_byte_equal_to_the_package_source(method: str) -> None:
-    """The mount sources are written by the render itself, byte-equal to the
-    packaged module and helper, so a bind never lands on a missing file."""
+def test_walled_render_stages_the_closure_byte_equal_to_its_sources(method: str) -> None:
+    """The bound directory is written by the render itself: exactly the script
+    and its closure, byte-equal to their sources, so a bind never lands on a
+    missing file."""
     # Arrange
-    from osprey.deployment import control_identity
-    from osprey_connectors import safety_file
-
     config = copy.deepcopy(_walled_identity_config(method))
 
     # Act
     artifacts = render_web_terminals(config)
 
     # Assert
-    assert artifacts[_CONTROL_IDENTITY_ARTIFACT] == Path(control_identity.__file__).read_text()
-    assert artifacts[_SAFETY_FILE_ARTIFACT] == Path(safety_file.__file__).read_text()
+    expected = _identity_artifacts()
+    staged = {path for path in artifacts if path.startswith("control_identity/")}
+    assert staged == set(expected)
+    for path, source in expected.items():
+        assert artifacts[path] == source.read_text(encoding="utf-8"), path
 
 
 @pytest.mark.parametrize("method", ["none", "token"])
@@ -6833,8 +6842,7 @@ def test_unwalled_card_with_control_identity_emits_nothing(method: str) -> None:
     baseline = render_web_terminals(copy.deepcopy(without_identity))
 
     # Assert
-    assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
-    assert _SAFETY_FILE_ARTIFACT not in artifacts
+    assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert artifacts["docker-compose.web.yml"] == baseline["docker-compose.web.yml"]
 
@@ -6849,8 +6857,7 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
     artifacts = render_web_terminals(config)
 
     # Assert
-    assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
-    assert _SAFETY_FILE_ARTIFACT not in artifacts
+    assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert "control_identity.py" not in artifacts["docker-compose.web.yml"]
     assert "osprey_safety_file.py" not in artifacts["docker-compose.web.yml"]

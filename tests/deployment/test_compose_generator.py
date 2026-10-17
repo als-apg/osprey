@@ -9565,10 +9565,10 @@ class TestTerminalControlContextBind:
 # ---------------------------------------------------------------------------
 # The control-identity module (``_stage_control_identity_module``)
 #
-# The dispatch worker and every bluesky lane mount ``control_identity.py`` and
-# the ``osprey_safety_file.py`` helper it writes through unconditionally, so
-# for those two build contexts staging is mandatory: both files are always
-# there, byte-for-byte the packaged sources, or the render refuses. Every other
+# The dispatch worker and every bluesky lane bind the staged
+# ``control_identity/`` directory unconditionally, so for those two build
+# contexts staging is mandatory: the directory holds exactly the script and
+# its catalog closure, byte-for-byte, or the render refuses. Every other
 # context carries no copy at all.
 # ---------------------------------------------------------------------------
 
@@ -9582,16 +9582,22 @@ services:
 """
 
 
-def _control_identity_source_bytes() -> bytes:
-    from osprey.deployment import control_identity
+def _control_identity_files() -> dict[str, Path]:
+    """The script and its closure, as the catalog names them."""
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
 
-    return Path(control_identity.__file__).read_bytes()
+    return BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
 
 
-def _safety_file_source_bytes() -> bytes:
-    from osprey_connectors import safety_file
-
-    return Path(safety_file.__file__).read_bytes()
+def _assert_staged_closure(staged_dir: Path) -> None:
+    """*staged_dir* holds exactly the script and its closure, byte for byte."""
+    files = _control_identity_files()
+    assert sorted(p.name for p in staged_dir.iterdir()) == sorted(files)
+    for name, source in files.items():
+        assert (staged_dir / name).read_bytes() == source.read_bytes(), name
 
 
 def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
@@ -9601,16 +9607,15 @@ def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
-def test_stage_control_identity_copies_the_module_byte_for_byte(
+def test_stage_control_identity_copies_the_closure_byte_for_byte(
     tmp_path: Path, service: str
 ) -> None:
-    """A mandatory context receives the packaged module and its helper, unchanged."""
+    """A mandatory context receives the script and its closure in one directory, unchanged."""
     out_dir = tmp_path / service
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
-    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
 
 
 @pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
@@ -9620,20 +9625,20 @@ def test_stage_control_identity_skips_every_other_context(tmp_path: Path, servic
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is False
-    assert not (out_dir / "control_identity.py").exists()
-    assert not (out_dir / "osprey_safety_file.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
-    """Copies an earlier build left in a non-mandatory context are removed."""
+    """The directory, and top-level copies an earlier build left, are removed
+    from a non-mandatory context."""
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
-    (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
+    (out_dir / "control_identity").mkdir(parents=True)
+    for name in _control_identity_files():
+        (out_dir / name).write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert not (out_dir / "control_identity.py").exists()
-    assert not (out_dir / "osprey_safety_file.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_stale_removal_failure_only_warns(
@@ -9644,12 +9649,14 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
     from osprey.deployment import compose_generator
 
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
+    (out_dir / "control_identity").mkdir(parents=True)
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
 
-    def refuse(path: str) -> None:
+    def refuse(path: str, *args: object, **kwargs: object) -> None:
         raise PermissionError(errno.EACCES, "denied", path)
 
     monkeypatch.setattr(compose_generator.os, "remove", refuse)
+    monkeypatch.setattr(compose_generator.shutil, "rmtree", refuse)
     with caplog.at_level(logging.WARNING):
         assert _stage_control_identity(out_dir, "services/bluesky_web") is False
     assert "stale control-identity file" in caplog.text
@@ -9658,25 +9665,29 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
 def test_stage_control_identity_raises_when_the_copy_fails(tmp_path: Path, service: str) -> None:
     """A mandatory context whose copy cannot be written refuses the render:
-    its compose file mounts the module unconditionally."""
-    missing_out_dir = tmp_path / "does-not-exist"
+    its compose file binds the directory unconditionally."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+    # A file where the directory goes: nothing can be staged into it.
+    (out_dir / "control_identity").write_text("", encoding="utf-8")
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_control_identity(missing_out_dir, f"services/{service}")
-    assert "control_identity.py" in excinfo.value.reason
+        _stage_control_identity(out_dir, f"services/{service}")
+    assert "control_identity" in excinfo.value.reason
     assert excinfo.value.remedy
 
 
 def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
-    """A re-stage overwrites whatever an earlier build left behind."""
+    """A re-stage leaves exactly the closure, whatever an earlier build left behind."""
     out_dir = tmp_path / "dispatch_worker"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
-    (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
+    staged_dir = out_dir / "control_identity"
+    staged_dir.mkdir(parents=True)
+    for name in _control_identity_files():
+        (staged_dir / name).write_text("# stale\n", encoding="utf-8")
+    (staged_dir / "retired_helper.py").write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
-    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
+    _assert_staged_closure(staged_dir)
 
 
 def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -9709,13 +9720,12 @@ def test_both_render_paths_stage_the_control_identity_module(
     if entry_point == "full":
         setup_build_dir(template, config, {})
     else:
-        out_dir.mkdir(parents=True)
-        (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
-        (out_dir / "osprey_safety_file.py").write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity").mkdir(parents=True)
+        for name in _control_identity_files():
+            (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
         _incremental_setup_build_dir(template, config, {}, str(out_dir))
 
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
-    assert (out_dir / "osprey_safety_file.py").read_bytes() == _safety_file_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
     assert (out_dir / "docker-compose.yml").is_file()
 
 

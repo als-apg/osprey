@@ -3913,27 +3913,30 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
 #: the one ``bluesky`` directory, so one staged copy serves them all).
 _CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky"})
 
-#: The module's file name inside a build context.
-CONTROL_IDENTITY_FILENAME = "control_identity.py"
+#: The directory inside a build context that holds the script and its closure.
+CONTROL_IDENTITY_DIRNAME = "control_identity"
 
 
 def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
-    """Copy the control-identity module and its helper into the build contexts that mount them.
+    """Stage the control-identity script and its catalog closure into the contexts that bind it.
+
+    The staged directory, ``<out_dir>/control_identity/``, holds exactly
+    :meth:`~osprey.agent_runner.build_artifacts.catalog.BuildArtifactCatalog.files_beside`
+    for the ``control-identity`` lone script: the packaged
+    :mod:`osprey.deployment.control_identity` source and the helper rows it
+    imports beside itself, byte for byte.
 
     For the contexts in :data:`_CONTROL_IDENTITY_SERVICES` staging is
-    mandatory: their compose fragments bind both files unconditionally, which
-    is only legitimate because this function either lands byte-for-byte copies
-    of the packaged :mod:`osprey.deployment.control_identity` source and of the
-    safety-file helper it replaces files through
-    (:mod:`osprey_connectors.safety_file`, staged as
-    :data:`~osprey.deployment.control_identity.SAFETY_FILE_FILENAME`), or
-    refuses the render. A mount whose source is missing would make the
-    container runtime create an empty directory in its place, and the service
-    would start without the identity step it depends on.
+    mandatory: their compose fragments bind the directory unconditionally,
+    which is only legitimate because this function either lands it or refuses
+    the render. A bind whose source is missing would make the container runtime
+    create an empty directory in its place, and the service would start
+    without the identity step it depends on.
 
-    Every other context mounts nothing, so copies an earlier build left there
-    are removed and the answer is False. The copies overwrite in place on every
-    call, so an incremental rebuild never keeps a previous release's files.
+    Every other context binds nothing, so the directory and any top-level
+    copies an earlier build left there are removed and the answer is False.
+    The directory is rebuilt on every call, so an incremental rebuild never
+    keeps a previous release's files.
 
     :param config: Full project configuration dictionary (unused; the files
         are the same for every configuration)
@@ -3942,48 +3945,56 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
     :type source_dir: str
     :param out_dir: The service's build context directory
     :type out_dir: str
-    :return: True iff both files are staged in ``out_dir``
+    :return: True iff the directory is staged in ``out_dir``
     :rtype: bool
     :raises DeploymentPreconditionError: A mandatory context could not receive
         its copies
     """
-    from osprey.deployment import control_identity
-    from osprey_connectors import safety_file
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
 
-    staged = {
-        CONTROL_IDENTITY_FILENAME: control_identity.__file__,
-        control_identity.SAFETY_FILE_FILENAME: safety_file.__file__,
-    }
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    staged_dir = os.path.join(out_dir, CONTROL_IDENTITY_DIRNAME)
     if os.path.basename(source_dir) not in _CONTROL_IDENTITY_SERVICES:
-        for filename in sorted(staged):
-            staged_path = os.path.join(out_dir, filename)
+        for filename in sorted(files):
+            stale_path = os.path.join(out_dir, filename)
+            if not os.path.lexists(stale_path):
+                continue
             try:
-                os.remove(staged_path)
-            except FileNotFoundError:
-                pass
+                os.remove(stale_path)
             except OSError as e:
                 logger.warning(
-                    f"Could not remove the stale control-identity file {staged_path}: {e}"
+                    f"Could not remove the stale control-identity file {stale_path}: {e}"
+                )
+        if os.path.isdir(staged_dir):
+            try:
+                shutil.rmtree(staged_dir)
+            except OSError as e:
+                logger.warning(
+                    f"Could not remove the stale control-identity file {staged_dir}: {e}"
                 )
         return False
 
-    for filename, module_source in sorted(staged.items()):
-        staged_path = os.path.join(out_dir, filename)
-        try:
-            shutil.copyfile(module_source, staged_path)
-        except OSError as e:
-            raise DeploymentPreconditionError(
-                reason=(
-                    f"The {os.path.basename(source_dir)} service mounts {filename} "
-                    f"to set its control identity, and it could not be staged at "
-                    f"{staged_path}: {e}"
-                ),
-                remedy=(
-                    f"Make {out_dir} writable and {module_source} readable, then rebuild. "
-                    f"The service cannot start without the file, so the render is refused "
-                    f"rather than emitted with a mount that points at nothing."
-                ),
-            ) from e
+    try:
+        if os.path.isdir(staged_dir):
+            shutil.rmtree(staged_dir)
+        os.mkdir(staged_dir)
+        for filename, source in sorted(files.items()):
+            shutil.copyfile(source, os.path.join(staged_dir, filename))
+    except OSError as e:
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The {os.path.basename(source_dir)} service binds {CONTROL_IDENTITY_DIRNAME}/ "
+                f"to set its control identity, and it could not be staged at {staged_dir}: {e}"
+            ),
+            remedy=(
+                f"Make {out_dir} writable and the packaged OSPREY sources readable, then "
+                f"rebuild. The service cannot start without the directory, so the render is "
+                f"refused rather than emitted with a bind that points at nothing."
+            ),
+        ) from e
     return True
 
 
