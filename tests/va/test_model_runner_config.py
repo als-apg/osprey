@@ -3,8 +3,9 @@
 ``apply_safety`` takes a configuration shaped as ``Runner.generate_config``
 returns it and fixes the five write-path keys, each setpoint's band and each
 variable's PV mode; ``periodic_addresses`` names the channels whose binding
-refreshes ``periodic``; ``shot_records`` and ``command_readback`` name what a
-write pass of commands alone reads back. All read the view through
+refreshes ``periodic``; ``shot_records``, ``setting_records`` and
+``pass_readback`` name what a write pass of commands alone, or of physics
+settings, reads back. All read the view through
 ``SimulatorView`` and are pure, so these run on any host.
 """
 
@@ -21,8 +22,9 @@ import pytest
 from osprey.services.virtual_accelerator.serving import runner_config
 from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
-    command_readback,
+    pass_readback,
     periodic_addresses,
+    setting_records,
     shot_records,
 )
 from osprey_connectors.simulation.view import (
@@ -341,14 +343,14 @@ def test_an_arm_command_reads_back_its_models_shot_alone_on_the_demo(
     served = {*addresses["channels"], *addresses["status"]}
 
     records = shot_records(view)
-    readback = command_readback(records, sorted(arms)[:1])
+    readback = pass_readback(records, sorted(arms)[:1])
 
     assert len(arms) == len(flags) == 72
     assert series
     assert readback == {*arms, *flags, *series, request}
     assert readback < served
     assert len(readback) * 5 < len(served)
-    assert command_readback(records, [request]) == readback
+    assert pass_readback(records, [request]) == readback
 
 
 def test_a_pass_writing_any_setting_reads_no_shot_alone_on_the_demo(
@@ -358,13 +360,58 @@ def test_a_pass_writing_any_setting_reads_no_shot_alone_on_the_demo(
     arms, _, _ = _demo_shot(variables)
     records = shot_records(view)
 
-    assert command_readback(records, [*arms, "SR:MAG:HCM:01:CURRENT:SP"]) is None
-    assert command_readback(records, []) is None
+    assert pass_readback(records, [*arms, "SR:MAG:HCM:01:CURRENT:SP"]) is None
+    assert pass_readback(records, []) is None
+
+
+def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_records_on_the_demo(
+    built_control_assistant: BuiltProject,
+) -> None:
+    view, variables, addresses = _demo_view(built_control_assistant)
+    hcm, vcm = "SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:VCM:01:CURRENT:SP"
+    sr = [channel for channel in variables["channels"] if channel["owner"] == "SR"]
+    paired = {channel["pair"] for channel in sr if channel["role"] == "setpoint"}
+    _, flags, series = _demo_shot(variables)
+    computed = (
+        {
+            channel["address"]
+            for channel in sr
+            if channel["role"] != "setpoint" and channel["address"] not in paired
+        }
+        - flags
+        - series
+    )
+    served = {*addresses["channels"], *addresses["status"]}
+
+    records = setting_records(view)
+    readback = pass_readback(records, [hcm])
+
+    assert {"SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:TUNE:X"} <= computed
+    assert readback == {hcm, "SR:MAG:HCM:01:CURRENT:RB", *computed, view.status_addresses()["SR"]}
+    assert len(readback) * 10 < len(served)
+    assert pass_readback(records, [hcm, vcm]) == readback | {vcm, "SR:MAG:VCM:01:CURRENT:RB"}
+
+
+def test_a_pass_writing_a_texture_setting_reads_no_model_alone_on_the_demo(
+    built_control_assistant: BuiltProject,
+) -> None:
+    view, variables, _ = _demo_view(built_control_assistant)
+    texture = sorted(
+        channel["address"]
+        for channel in variables["channels"]
+        if channel["owner"] == "texture" and channel["role"] == "setpoint"
+    )
+    records = setting_records(view)
+
+    assert texture
+    assert pass_readback(records, texture[:1]) is None
+    assert pass_readback(records, [texture[0], "SR:MAG:HCM:01:CURRENT:SP"]) is None
+    assert pass_readback(records, []) is None
 
 
 def test_a_view_without_commands_names_no_shot_records(view: SimulatorView) -> None:
     assert shot_records(view) == {}
-    assert command_readback(shot_records(view), ["M:HCM:SP"]) is None
+    assert pass_readback(shot_records(view), ["M:HCM:SP"]) is None
 
 
 def test_the_module_imports_no_server_library() -> None:

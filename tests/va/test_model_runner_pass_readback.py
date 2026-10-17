@@ -1,14 +1,17 @@
-"""A write pass of commands alone reads back the shot records of the commands' models.
+"""A write pass reads back only what its write can change.
 
-An arm writes one command per device, and every write is a pass of its own, so
-a command pass that read the whole roster back would put one full publishing
-pass per device between an arm and the injection that follows it. A command
+An arm writes one command per device, and an apply one setting per corrector,
+and every write is a pass of its own, so a pass that read the whole roster back
+would put one full publishing pass per device behind the write. A command
 writes no setting, so the shot records -- the commands, the armed flag and the
-turn series -- are all such a pass can change. The first tests check that on the
-built example's composite in process, through the helper the runner uses: every
-value an arm or an injection changes is a shot record. The last checks that the
-runner reads back exactly that for a command pass, and the usual roster for any
-other; it needs the serving package but no transport.
+turn series -- are all a pass of commands can change; a physics setting reaches
+its own model alone, and there moves itself, its readback and what the model
+computes from its settings. The first tests check that on the built example's
+composite in process, through the helpers the runner uses: every value an arm
+or an injection changes is a shot record, and every value a corrector or a
+quadrupole write changes one of the setting's records. The last checks that the runner
+reads back exactly that for each pass, and the usual roster for any other; it
+needs the serving package but no transport.
 """
 
 from __future__ import annotations
@@ -22,8 +25,9 @@ import pytest
 pytest.importorskip("at")
 
 from osprey.services.virtual_accelerator.serving.runner_config import (
-    command_readback,
+    pass_readback,
     periodic_addresses,
+    setting_records,
     shot_records,
 )
 from osprey_connectors.simulation.composite import Composite
@@ -41,6 +45,8 @@ ARMED = "SR:DIAG:BPM:01:TBT:ARMED"
 REQUEST = "SR:DIAG:INJECTION:REQUEST"
 SERIES = "SR:DIAG:BPM:01:TBT:SUM"
 CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
+CORRECTOR_READBACK = "SR:MAG:HCM:01:CURRENT:RB"
+MONITOR = "SR:DIAG:BPM:01:POSITION:X"
 
 
 @pytest.fixture
@@ -85,12 +91,32 @@ def test_every_value_an_arm_and_an_injection_change_is_a_shot_record(
     injected = _changed_by(composite, roster, {REQUEST: 1})
 
     assert ARMED in armed
-    assert armed <= command_readback(records, [ARM])
+    assert armed <= pass_readback(records, [ARM])
     assert {ARMED, SERIES} <= injected
-    assert injected <= command_readback(records, [REQUEST])
+    assert injected <= pass_readback(records, [REQUEST])
 
 
-def test_a_command_pass_reads_back_its_shot_and_any_other_write_pass_the_roster(
+@pytest.mark.parametrize(
+    ("setting", "readback"),
+    [
+        (CORRECTOR, CORRECTOR_READBACK),
+        ("SR:MAG:VCM:10:CURRENT:SP", "SR:MAG:VCM:10:CURRENT:RB"),
+        ("SR:MAG:QF:01:CURRENT:SP", "SR:MAG:QF:01:CURRENT:RB"),
+    ],
+)
+def test_every_value_a_setting_write_changes_is_one_of_its_setting_records(
+    composite: Composite, view: SimulatorView, setting: str, readback: str
+) -> None:
+    roster = _roster(composite, view)
+    level = composite.get(setting)
+
+    changed = _changed_by(composite, roster, {setting: level + 0.5})
+
+    assert {setting, readback, MONITOR} <= changed
+    assert changed <= pass_readback(setting_records(view), [setting])
+
+
+def test_each_write_pass_reads_back_what_its_write_can_change(
     view: SimulatorView, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip(
@@ -100,7 +126,15 @@ def test_a_command_pass_reads_back_its_shot_and_any_other_write_pass_the_roster(
 
     from osprey.services.virtual_accelerator.serving.runner import ModelRunner
 
-    roster = sorted({*command_readback(shot_records(view), [ARM]), CORRECTOR, "SR:DIAG:TUNE:X"})
+    texture = sorted(
+        address
+        for address in view.channels()
+        if view.channel(address).role == "setpoint" and address not in setting_records(view)
+    )[0]
+    other = view.status_addresses()["BTS"]
+    roster = sorted(
+        {*pass_readback(shot_records(view), [ARM]), CORRECTOR, "SR:DIAG:TUNE:X", texture, other}
+    )
     read: list[list[str]] = []
     monkeypatch.setattr(Runner, "_cycle_output_names", lambda _self: list(roster))
     monkeypatch.setattr(
@@ -109,11 +143,14 @@ def test_a_command_pass_reads_back_its_shot_and_any_other_write_pass_the_roster(
     runner = object.__new__(ModelRunner)
     runner._periodic = periodic_addresses(view)
     runner._shot_records = shot_records(view)
+    runner._setting_records = setting_records(view)
 
-    for values in ({ARM: 1}, {ARM: 1, CORRECTOR: 0.5}, {}):
+    for values in ({ARM: 1}, {CORRECTOR: 0.5}, {ARM: 1, CORRECTOR: 0.5}, {texture: 1.0}, {}):
         ModelRunner._run_cycle(runner, {"values": values, "done": []})
 
-    command_pass, setting_pass, empty_pass = read
-    assert set(command_pass) == command_readback(shot_records(view), [ARM])
-    assert setting_pass == roster
+    command_pass, setting_pass, mixed_pass, texture_pass, empty_pass = read
+    assert set(command_pass) == pass_readback(shot_records(view), [ARM])
+    assert setting_pass == ["SR:DIAG:TUNE:X", CORRECTOR]
+    assert mixed_pass == roster
+    assert texture_pass == roster
     assert empty_pass == roster

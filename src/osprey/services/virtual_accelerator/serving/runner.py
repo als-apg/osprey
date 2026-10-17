@@ -38,9 +38,10 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
     command_addresses,
-    command_readback,
+    pass_readback,
     periodic_addresses,
     restorable_state,
+    setting_records,
     shot_records,
 )
 from osprey_connectors.control_system.va_in_process_connector import shot_times
@@ -58,12 +59,13 @@ class ModelRunner(Runner):
     the view's write safety applied
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
     A write pass reads back every served channel except those the view says
-    refresh ``periodic``, which the next periodic pass publishes; a write
+    refresh ``periodic``, which the next periodic pass publishes. A write
     pass of commands alone reads back only the shot records of the
-    commands' models
-    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.command_readback`),
-    the one part of the composite a command changes; a pass with no input
-    values reads them all.
+    commands' models, the one part of the composite a command changes; one
+    of physics settings only the settings, their readbacks and what their
+    models compute from their settings, the one part a setting changes
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.pass_readback`).
+    A pass with no input values reads them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The cache holds settings only: a command acts once
@@ -112,6 +114,7 @@ class ModelRunner(Runner):
         self._periodic = periodic_addresses(view)
         self._commands = command_addresses(view)
         self._shot_records = shot_records(view)
+        self._setting_records = setting_records(view)
         self._written: frozenset[str] = frozenset()
         self._write_pass = False
         self._set_landed = False
@@ -170,16 +173,21 @@ class ModelRunner(Runner):
         """The roster read after ``model.set``, narrowed for a write pass.
 
         A write pass leaves the periodic addresses out; one of commands alone
-        reads only the shot records of the commands' models.
+        reads only the shot records of the commands' models, and one of
+        physics settings only the records those settings can change.
         """
         self._set_landed = True
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
-        shot = command_readback(self._shot_records, self._written)
-        if shot is not None:
-            return [name for name in roster if name in shot]
-        return [name for name in roster if name not in self._periodic]
+        changed = pass_readback(self._shot_records, self._written)
+        if changed is None:
+            changed = pass_readback(self._setting_records, self._written)
+        return [
+            name
+            for name in roster
+            if name not in self._periodic and (changed is None or name in changed)
+        ]
 
     def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
         """Post the pass's values, each turn series a shot filled at that shot's time.

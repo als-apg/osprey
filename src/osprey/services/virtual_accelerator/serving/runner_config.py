@@ -24,12 +24,15 @@ it back would act again -- arm an acquisition or fire a shot -- and a batch
 mixing one model's command with another owner's channel is refused whole by the
 composite. A command is therefore never restored.
 
-:func:`shot_records` and :func:`command_readback` name what a write pass of
-commands alone reads back. A command writes no setting of its model, so such a
-pass changes only the shot its models hold: the commands, the armed flag and
-the turn series, which the view describes as ``turn_series``. Every other
-value stands as the last pass left it, and reading it back again would make
-each command write -- one per device for an arm -- cost the whole roster.
+:func:`shot_records`, :func:`setting_records` and :func:`pass_readback` name
+what a write pass reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings;
+a command writes no setting of its model, so a pass of commands alone
+changes only the shot its models hold: the commands, the armed flag and the
+turn series, which the view describes as ``turn_series``. Every other value
+stands as the last pass left it -- what moves with time alone, the next
+periodic pass publishes -- and reading it back again would make each write, one
+per device for an arm or a corrector step, cost the whole roster.
 
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
@@ -52,7 +55,8 @@ __all__ = [
     "SAFETY_KEYS",
     "apply_safety",
     "command_addresses",
-    "command_readback",
+    "setting_records",
+    "pass_readback",
     "periodic_addresses",
     "restorable_state",
     "shot_records",
@@ -180,19 +184,57 @@ def shot_records(view: SimulatorView) -> dict[str, frozenset[str]]:
     }
 
 
-def command_readback(
-    records: Mapping[str, frozenset[str]], written: Iterable[str]
-) -> frozenset[str] | None:
-    """What a write pass of ``written`` reads back when every value of it is a command.
+def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
+    """The records a setting's write can change, by setting address, across every model.
+
+    A setting reaches its own model alone. There it moves itself, the readback
+    it pairs with and what the model computes from all its settings -- every
+    record that pairs with no setpoint, and the model's status -- but no other
+    setting or the readback paired with it, and it takes no shot: only a
+    command fills the turn series or moves the armed flag.
 
     Args:
-        records: The shot records by command address, as :func:`shot_records`
-            names them.
+        view: The simulator view.
+
+    Returns:
+        For each setpoint a physics model binds that is not a command: itself,
+        its readback, the model's records that are no setpoint, no readback
+        paired with one and no ``turn_series``, and the model's status address.
+    """
+    bindings = view.bindings(served_only=False)
+    settings = [
+        binding for binding in bindings if binding.role == _SETPOINT and not binding.command
+    ]
+    pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
+    paired = {pair for pair in pairs.values() if pair is not None}
+    computed: dict[str, set[str]] = {}
+    for binding in bindings:
+        if binding.role not in (_SETPOINT, _TURN_SERIES) and binding.address not in paired:
+            computed.setdefault(binding.model, set()).add(binding.address)
+    for model, address in view.status_addresses().items():
+        computed.setdefault(model, set()).add(address)
+    records: dict[str, frozenset[str]] = {}
+    for binding in settings:
+        own = {binding.address, *computed.get(binding.model, ())}
+        if (pair := pairs[binding.address]) is not None:
+            own.add(pair)
+        records[binding.address] = frozenset(own)
+    return records
+
+
+def pass_readback(
+    records: Mapping[str, frozenset[str]], written: Iterable[str]
+) -> frozenset[str] | None:
+    """What a write pass of ``written`` reads back when ``records`` names every value of it.
+
+    Args:
+        records: The records each address's write can change, as
+            :func:`shot_records` or :func:`setting_records` names them.
         written: The addresses the pass writes.
 
     Returns:
-        The shot records of every written command, or ``None`` when the pass
-        writes nothing or writes any address that is not a command.
+        The records of every written address, or ``None`` when the pass
+        writes nothing or writes any address ``records`` does not name.
     """
     addresses = set(written)
     if not addresses or not addresses <= records.keys():
