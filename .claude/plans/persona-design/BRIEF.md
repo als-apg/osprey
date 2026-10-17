@@ -29,6 +29,12 @@ Short glossary:
 - **digest pin**: a test holding a hash of each preset's resolved content
   (`tests/cli/test_preset_hash_pin.py:316-330`).
 
+> **Ruled 2026-10-17 — see `RULINGS.md`.** The owner round reshaped the proposal: the
+> standalone app deployments are dropped (no `standalone:` block, no `osprey init --preset
+> logbook`), the words are **tier** and **app** (`tiers/`, `apps/`), the roster lists people
+> plus `shared: [...]`, and the graph stays ON in the logbook app. §1–§2 (measurement, surface)
+> stand; §3–§7 are the pre-round proposal and are superseded by `RULINGS.md` where they differ.
+
 ---
 
 ## 0. Headline
