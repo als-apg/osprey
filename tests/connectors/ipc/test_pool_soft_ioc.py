@@ -15,13 +15,7 @@ child, which is the only way one process can talk to both IOCs at once.
 """
 
 import asyncio
-import contextlib
 import os
-import socket
-import subprocess
-import sys
-import time
-import uuid
 from pathlib import Path
 
 import pytest
@@ -30,7 +24,7 @@ import yaml
 from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.ipc.pool import ConnectorHostPool
-from tests._ports import reserved_port
+from tests.connectors.ipc._soft_ioc import SoftIOC
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -42,106 +36,15 @@ PYTHONPATH = os.pathsep.join(
 SEED_A = 1.0
 SEED_B = 100.0
 
-IOC_READY_TIMEOUT_S = 30.0
 CA_TIMEOUT_S = 5.0
 
-#: Lines the IOC logs when it could not bind its configured port and fell back.
-#: The port is reserved for it, so either means the reservation was broken.
-_PORT_FALLBACK_LINES = ("Configured TCP port was unavailable", "No TCP server started")
-
-
-class SoftIOC:
-    """One ``epicscorelibs`` soft IOC on its own port, serving the test records.
-
-    The port is reserved for the IOC's whole life: the reservation is entered
-    here and closed in ``stop()`` once the process is reaped.
-    """
-
-    def __init__(self, directory: Path, name: str, prefix: str, seed: float) -> None:
-        self._reservation = contextlib.ExitStack()
-        self.port = self._reservation.enter_context(reserved_port())
-        database = directory / f"{name}.db"
-        database.write_text(
-            f'record(ao, "{prefix}:SP") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
-            f'record(ai, "{prefix}:RB") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
-        )
-        # Output to a file, never an unread pipe: an IOC that fills a pipe
-        # nobody drains blocks, and the file is what a failure message quotes.
-        self.log = directory / f"{name}.log"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("EPICS_CA", "EPICS_PVA"))}
-        env.update(
-            {
-                "EPICS_CA_SERVER_PORT": str(self.port),
-                "EPICS_CAS_INTF_ADDR_LIST": "127.0.0.1",
-                "EPICS_CA_AUTO_ADDR_LIST": "NO",
-            }
-        )
-        # stdin stays open: the IOC's interactive shell exits the IOC on EOF.
-        try:
-            with self.log.open("wb") as output:
-                self.process = subprocess.Popen(
-                    [sys.executable, "-m", "epicscorelibs.ioc", "-d", str(database)],
-                    stdin=subprocess.PIPE,
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                )
-        except BaseException:
-            self._reservation.close()
-            raise
-        self._wait_until_serving()
-
-    def _log_text(self) -> str:
-        try:
-            return self.log.read_text(errors="replace")
-        except OSError:
-            return ""
-
-    def _wait_until_serving(self) -> None:
-        deadline = time.monotonic() + IOC_READY_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                self.stop()
-                raise RuntimeError(
-                    f"soft IOC exited with {self.process.returncode}: {self._log_text()}"
-                )
-            log = self._log_text()
-            if any(line in log for line in _PORT_FALLBACK_LINES):
-                self.stop()
-                raise RuntimeError(
-                    f"soft IOC could not bind its reserved port 127.0.0.1:{self.port}: {log}"
-                )
-            try:
-                with socket.create_connection(("127.0.0.1", self.port), timeout=0.5):
-                    return
-            except OSError:
-                time.sleep(0.1)
-        self.stop()
-        raise RuntimeError(f"soft IOC never listened on 127.0.0.1:{self.port}: {self._log_text()}")
-
-    def stop(self) -> None:
-        try:
-            self.process.kill()
-            self.process.wait(timeout=10)
-        finally:
-            self._reservation.close()
-
 
 @pytest.fixture
-def prefix() -> str:
-    """One prefix per test, so an IOC this test did not start — another xdist
-    worker's, or one that fell back to a different port — serves none of the
-    names this test reads, and a mix-up fails as "cannot connect" instead of
-    returning somebody else's plausible value."""
-    return f"POOL{uuid.uuid4().hex[:8].upper()}"
-
-
-@pytest.fixture
-def iocs(tmp_path, prefix):
+def iocs(tmp_path, ioc_prefix):
     """Two IOCs serving the SAME names — this test's prefix — with different seeds."""
-    first = SoftIOC(tmp_path, "machine", prefix, SEED_A)
+    first = SoftIOC(tmp_path, "machine", ioc_prefix, SEED_A)
     try:
-        second = SoftIOC(tmp_path, "standin", prefix, SEED_B)
+        second = SoftIOC(tmp_path, "standin", ioc_prefix, SEED_B)
     except BaseException:
         first.stop()
         raise
@@ -208,8 +111,8 @@ def deployment(tmp_path, monkeypatch, iocs):
 # ----------------------------------------------------------------- the wire
 
 
-async def test_two_targets_each_reach_only_their_own_ioc(deployment, prefix):
-    setpoint, readback = f"{prefix}:SP", f"{prefix}:RB"
+async def test_two_targets_each_reach_only_their_own_ioc(deployment, ioc_prefix):
+    setpoint, readback = f"{ioc_prefix}:SP", f"{ioc_prefix}:RB"
     make, machine, standin = deployment
     pool = make("both")
     try:
@@ -241,8 +144,8 @@ async def test_two_targets_each_reach_only_their_own_ioc(deployment, prefix):
         await pool.close()
 
 
-async def test_only_the_armed_type_can_write(deployment, prefix):
-    setpoint = f"{prefix}:SP"
+async def test_only_the_armed_type_can_write(deployment, ioc_prefix):
+    setpoint = f"{ioc_prefix}:SP"
     make, _, _ = deployment
     pool = make("epics")
     try:
