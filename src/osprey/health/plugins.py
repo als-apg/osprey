@@ -42,10 +42,7 @@ core-category override channel).
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-import importlib.util
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -58,6 +55,7 @@ from osprey.health.config import (
     resolve_callable_timeout_s,
 )
 from osprey.health.models import CheckResult, Status
+from osprey.utils.module_loading import load_by_path
 
 if TYPE_CHECKING:
     from osprey.health.config import HealthSettings
@@ -215,32 +213,17 @@ def _import_plugin_file(
         errors.append(_error_row(entry, f"health plugin file '{entry}' not found: {resolved}"))
         return None
 
-    # A digest only to keep the name short and filesystem-agnostic — nothing here
-    # is a security boundary, hence usedforsecurity=False (a FIPS-strict host
-    # otherwise refuses sha1 outright).
-    digest = hashlib.sha1(str(resolved).encode(), usedforsecurity=False).hexdigest()[:12]
-    module_name = f"{PLUGIN_MODULE_PREFIX}{digest}"
     try:
-        spec = importlib.util.spec_from_file_location(module_name, resolved)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"no Python import machinery handles {resolved}")
-        module = importlib.util.module_from_spec(spec)
-        # Registered BEFORE exec_module: dataclasses and postponed annotations
-        # resolve a class's own module through sys.modules while the file is
-        # still executing. A re-load replaces the entry, which is why a plugin
-        # cannot carry module-level state across a refresh cycle.
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        return load_by_path(resolved, PLUGIN_MODULE_PREFIX)
     except Exception as exc:  # any load failure is a reported error row
-        # A half-executed module must not be left behind for the next cycle to
-        # find and treat as loaded.
-        sys.modules.pop(module_name, None)
+        # load_by_path has already removed the half-executed module, so the next
+        # cycle never finds it and treats it as loaded. A re-load replaces the
+        # entry, which is why a plugin cannot carry module-level state across a
+        # refresh cycle.
         errors.append(
             _error_row(entry, f"failed to import health plugin '{entry}' ({resolved}): {exc}")
         )
         return None
-
-    return module
 
 
 def _resolve_plugin_file(entry: str, project_root: Path | None) -> Path:
