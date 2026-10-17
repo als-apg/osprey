@@ -699,13 +699,18 @@ def _readiness_pv_served() -> bool:
     return proc.stdout.strip() == "SERVED"
 
 
-@pytest.fixture(scope="session")
-def va_container(va_project: VaProject) -> Iterator[VaProject]:
-    """Boot the session-shared VA container and wait for it to serve PVs.
+@contextmanager
+def boot_va_container(project: VaProject) -> Iterator[VaProject]:
+    """Boot a VA container serving *project* and wait until it serves PVs.
 
     Exact container name ``CONTAINER_NAME`` -- ``osprey-va-e2e-<pid>``
     (containment rule); created, logged and torn down by that same name
-    regardless of how this fixture exits, and by no other.
+    regardless of how the block exits, and by no other. On the way in, this
+    process's Channel Access environment is pointed at the container's
+    published port.
+
+    A plain context manager rather than the fixture body so a caller can boot
+    the container without a pytest session.
     """
     # Stale-cleanup only: with the pid suffix this can name nothing but a
     # container left behind by an earlier process that has since exited and
@@ -721,11 +726,11 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             CONTAINER_NAME,
             "-p",
             f"127.0.0.1:{CA_PORT}:{CONTAINER_CA_PORT}/tcp",
-            *data_root_run_args(va_project.data_dir),
+            *data_root_run_args(project.data_dir),
             # Scenario state is a SEPARATE mount: the host writes it at run
             # time (`osprey sim apply`) while data/ is build-owned.
             "-v",
-            f"{va_project.state_dir}:/state/simulation:ro",
+            f"{project.state_dir}:/state/simulation:ro",
             "-e",
             "VA_STATE_DIR=/state/simulation",
             # The instance, named. Without it the IOC refuses to boot.
@@ -763,9 +768,16 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
         )
 
     try:
-        yield va_project
+        yield project
     finally:
         _docker_rm(CONTAINER_NAME)
+
+
+@pytest.fixture(scope="session")
+def va_container(va_project: VaProject) -> Iterator[VaProject]:
+    """The session-shared VA container, booted by :func:`boot_va_container`."""
+    with boot_va_container(va_project) as project:
+        yield project
 
 
 #: Fast enough that a switch tool's wait is never the reconciler's clock.
