@@ -559,25 +559,29 @@ class TestAtomicWrite:
         assert [p.name for p in directory.iterdir()] == ["server_1234.json"]
         assert json.loads((directory / "server_1234.json").read_text(encoding="utf-8"))
 
-    def test_failed_dump_leaves_no_temp_file_and_no_state_file(self, state_root, monkeypatch):
+    def test_failed_serialisation_leaves_no_temp_file_and_no_state_file(
+        self, state_root, monkeypatch
+    ):
         def boom(*args, **kwargs):
             raise RuntimeError("disk on fire")
 
-        monkeypatch.setattr(target_state.json, "dump", boom)
+        monkeypatch.setattr(target_state.json, "dumps", boom)
 
         with pytest.raises(RuntimeError):
             target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert list(state_dir_under(state_root).iterdir()) == []
 
-    def test_failed_dump_does_not_corrupt_the_previous_record(self, state_root, monkeypatch):
+    def test_failed_serialisation_does_not_corrupt_the_previous_record(
+        self, state_root, monkeypatch
+    ):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         def boom(*args, **kwargs):
             raise RuntimeError("disk on fire")
 
         with monkeypatch.context() as patched:
-            patched.setattr(target_state.json, "dump", boom)
+            patched.setattr(target_state.json, "dumps", boom)
             with pytest.raises(RuntimeError):
                 target_state.publish_switch("va", 1, server_pid=1234)
 

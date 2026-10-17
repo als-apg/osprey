@@ -47,8 +47,6 @@ import hashlib
 import inspect
 import json
 import math
-import os
-import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +63,7 @@ from osprey_connectors.control_system.base import (
 )
 from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation.view import (
     VARIABLES_FILE,
     VIEW_RELPATH,
@@ -240,15 +239,12 @@ class _Journal:
         return stat.st_ino, stat.st_mtime_ns, stat.st_size
 
     def write(self, document: Mapping[str, Any]) -> None:
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{JOURNAL_FILE}.")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, sort_keys=True)
-            os.replace(tmp, self.path)
-        except BaseException:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(tmp)
-            raise
+        atomic_replace(
+            self.path,
+            json.dumps(document, sort_keys=True).encode("utf-8"),
+            mode=0o600,
+            sync="best_effort",
+        )
 
 
 def _seq(document: Any) -> int | None:
