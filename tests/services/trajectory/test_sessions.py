@@ -1,10 +1,12 @@
-"""Sessions on the action layer: open in the worker, take-over and release on the control path.
+"""Sessions on the action layer: open in the worker; Stop, take-over and release on the control path.
 
 The gate is the real :class:`AdmitGate` on a real control-context tree and the
 run lock is the real :func:`~osprey.runtime.guarded_run.lock` under a
 throwaway deployment root; the connector is a stand-in whose injection-flag
 read answers or fails on demand. The limits validator is stubbed, as in the
-action layer's own tests.
+action layer's own tests. The cross-door apply runs the real apply over the
+apply tests' machine and tool; the continuous runs use the continuous tests'
+fakes.
 """
 
 from __future__ import annotations
@@ -12,16 +14,22 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from tests._guarded_run import reset_run_state
+from tests.services.trajectory import test_apply as applying
+from tests.services.trajectory import test_continuous as looping
 
 from osprey.runtime.guarded_run import ENV_CONTROL_IDENTITY
 from osprey.services.trajectory import actions
 from osprey.services.trajectory.actions import ACTION_STOPPED, ActionLayer, ActionRefused
 from osprey.services.trajectory.admit import NARROWING, Admission, AdmitGate, AdmitRefused
+from osprey.services.trajectory.apply import APPLY, PUT_BACK, apply
+from osprey.services.trajectory.constants import CHECKPOINT_POLL_S, MAX_PAUSE_CEILING_S, budgets
 from osprey.services.trajectory.sessions import (
+    APPLY_IN_PROGRESS,
     BAD_REQUEST,
     NO_SESSION,
     NOT_SESSION_HOLDER,
@@ -32,8 +40,15 @@ from osprey.services.trajectory.sessions import (
     Sessions,
     check_body,
 )
-from osprey.services.trajectory.startup import TrajectoryCommands, TrajectoryStartup
+from osprey.services.trajectory.startup import (
+    TrajectoryCommands,
+    TrajectorySettings,
+    TrajectoryStartup,
+)
+from osprey.services.trajectory.state import LastAction, Moved, RunningAction
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S
+from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig, LimitsValidator
 from osprey_connectors.errors import ChannelReadFailedError
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
@@ -465,13 +480,462 @@ def test_release_with_no_holder_is_not_session_holder() -> None:
 # -- state ----------------------------------------------------------------------
 
 
+def _holder_view(state: dict[str, Any]) -> dict[str, Any]:
+    return {key: state[key] for key in ("target", "owner", "kind")}
+
+
 async def test_state_names_the_holder_and_never_the_client_id() -> None:
     sessions, _ = _sessions()
-    assert sessions.state() == {"target": TARGET, "owner": None, "kind": None}
+    assert _holder_view(sessions.state()) == {"target": TARGET, "owner": None, "kind": None}
     try:
         grant = await sessions.open(ALICE, PANEL)
     finally:
         await sessions.layer.close()
     state = sessions.state()
-    assert state == {"target": TARGET, "owner": ALICE, "kind": PANEL}
+    assert _holder_view(state) == {"target": TARGET, "owner": ALICE, "kind": PANEL}
     assert grant.client_id not in repr(state)
+
+
+def test_state_publishes_the_budgets_with_the_ceiling_pause_when_no_module_is_loaded() -> None:
+    sessions, _ = _sessions()
+    expected = budgets(
+        max_pause_s=MAX_PAUSE_CEILING_S, call_timeout_s=DEFAULT_TIMEOUT_S, action_timeout_s=60.0
+    )
+    state = sessions.state()
+    assert state["action_timeout_s"] == 60.0
+    assert state["stop_budget_s"] == expected.stop_budget_s
+    assert state["action_budget_s"] == expected.action_budget_s
+    assert state["action"] is None
+
+
+def test_state_budgets_take_the_modules_pause_the_call_timeout_and_the_action_timeout() -> None:
+    startup = TrajectoryStartup(
+        target=TARGET,
+        connector=_Connector(),
+        commands=COMMANDS,
+        guarded_run_dir=Path("/unused"),
+        settings=TrajectorySettings(action_timeout_s=30.0),
+        sequence=SimpleNamespace(metadata=SimpleNamespace(max_pause_s=2.0)),
+    )
+    layer = ActionLayer(startup, AdmitGate(target=TARGET, section={"writes_enabled": True}))
+    state = Sessions(layer, call_timeout_s=1.5).state()
+    assert state["stop_budget_s"] == 2.0 + 1.5 + CHECKPOINT_POLL_S
+    assert state["action_budget_s"] == 30.0 + 2.0 + 1.5 + CHECKPOINT_POLL_S
+    assert state["action_timeout_s"] == 30.0
+
+
+# -- Stop ----------------------------------------------------------------------------
+
+
+def _holding(started: asyncio.Event) -> Any:
+    async def runs_until_stopped(_admission: Admission, stop: asyncio.Event) -> str:
+        started.set()
+        await stop.wait()
+        return "stopped"
+
+    return runs_until_stopped
+
+
+async def test_stop_by_another_owner_on_the_other_door_ends_the_action_and_keeps_the_holder() -> (
+    None
+):
+    sessions, _ = _sessions()
+    started = asyncio.Event()
+    try:
+        grant = await sessions.open(ALICE, AGENT)
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, AGENT, grant.client_id, _holding(started), name="shot")
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        old_stop = sessions.layer.stop_event
+        record = sessions.stop(BOB, PANEL)
+        # Stop answers at once; it never awaits the action it stopped.
+        assert not in_flight.done()
+        assert sessions.stopper == BOB
+        assert sessions.running_action() == RunningAction(name="shot", stopping=True)
+        assert sessions.state()["action"] == {
+            "name": "shot",
+            "stopping": True,
+            "armed_stragglers": [],
+        }
+        assert await asyncio.wait_for(in_flight, 2) == "stopped"
+        # The holder's next call runs under the renewed, clear event.
+        assert await sessions.call(ALICE, AGENT, grant.client_id, _noop) == "ran"
+    finally:
+        await sessions.layer.close()
+    assert record.as_record() == {"owner": BOB, "kind": PANEL, "target": TARGET, "action": "shot"}
+    assert old_stop.is_set() and not sessions.layer.stop_event.is_set()
+    holder = sessions.holder
+    assert holder is not None and (holder.owner, holder.client_id) == (ALICE, grant.client_id)
+    assert sessions.running_action() is None and sessions.stopper is None
+
+
+async def test_stop_with_nothing_in_flight_names_no_action_and_renews_the_event() -> None:
+    sessions, _ = _sessions()
+    try:
+        await sessions.open(ALICE, PANEL)
+        old_stop = sessions.layer.stop_event
+        record = sessions.stop(ALICE, PANEL)
+    finally:
+        await sessions.layer.close()
+    assert record.action is None and record.owner == ALICE
+    assert old_stop.is_set() and not sessions.layer.stop_event.is_set()
+    assert sessions.holder is not None
+
+
+async def test_a_second_stop_keeps_the_first_stopper() -> None:
+    sessions, _ = _sessions()
+    started = asyncio.Event()
+    try:
+        grant = await sessions.open(ALICE, PANEL)
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, PANEL, grant.client_id, _holding(started), name="setup")
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        sessions.stop(BOB, AGENT)
+        sessions.stop(ALICE, PANEL)
+        assert sessions.stopper == BOB
+        await asyncio.wait_for(in_flight, 2)
+    finally:
+        await sessions.layer.close()
+
+
+async def test_stop_is_refused_by_admit_and_sets_nothing() -> None:
+    sessions, _ = _sessions()
+    try:
+        await sessions.open(ALICE, PANEL)
+        _narrow(BOB)
+        stop = sessions.layer.stop_event
+        with pytest.raises(AdmitRefused) as caught:
+            sessions.stop(BOB, AGENT)
+    finally:
+        await sessions.layer.close()
+    assert caught.value.code == NARROWING
+    assert not stop.is_set() and sessions.layer.stop_event is stop
+
+
+@pytest.mark.parametrize(
+    ("body", "code"), [({"owner": BOB}, OWNER_IN_BODY), ({"x": 1}, BAD_REQUEST)]
+)
+def test_stop_refuses_body_keys(body: dict[str, Any], code: str) -> None:
+    sessions, _ = _sessions()
+    stop = sessions.layer.stop_event
+    with pytest.raises(SessionRefused) as caught:
+        sessions.stop(ALICE, PANEL, body)
+    assert (caught.value.code, caught.value.status) == (code, 400)
+    assert not stop.is_set()
+
+
+async def test_stop_of_an_unreachable_target_reads_nothing() -> None:
+    sessions, connector = _sessions()
+    try:
+        await sessions.open(ALICE, PANEL)
+        connector.outcome = ChannelReadFailedError("SR:INJ:BUSY", "down")
+        reads = connector.reads
+        sessions.stop(BOB, AGENT)
+    finally:
+        await sessions.layer.close()
+    assert connector.reads == reads
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_the_stop_budget_covers_a_checkpointed_pause_and_one_connector_call() -> None:
+    """The budget's composition: a pause polled at the checkpoint, then one connector call.
+
+    The action here is a stand-in that models those terms itself; the budget is
+    checked against what it composes, not against a production action's pace.
+    """
+    startup_pause = 2.0
+    sessions, _ = _sessions()
+    sessions.layer.startup.sequence = SimpleNamespace(
+        metadata=SimpleNamespace(max_pause_s=startup_pause)
+    )
+    clock = _Clock()
+    paused = asyncio.Event()
+    ended_at: list[float] = []
+
+    async def pauses_then_reads(_admission: Admission, stop: asyncio.Event) -> str:
+        # The module's longest pause, polled for the stop event at the checkpoint.
+        waited = 0.0
+        while waited < startup_pause and not stop.is_set():
+            paused.set()
+            clock.now += CHECKPOINT_POLL_S
+            waited += CHECKPOINT_POLL_S
+            await asyncio.sleep(0)
+        # The one connector call in flight when the Stop landed runs out its timeout.
+        clock.now += sessions.call_timeout_s
+        ended_at.append(clock.now)
+        return "stopped" if stop.is_set() else "done"
+
+    try:
+        grant = await sessions.open(ALICE, PANEL)
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, PANEL, grant.client_id, pauses_then_reads, name="shot")
+        )
+        await asyncio.wait_for(paused.wait(), 2)
+        stopped_at = clock.now
+        sessions.stop(BOB, AGENT)
+        assert await asyncio.wait_for(in_flight, 2) == "stopped"
+    finally:
+        await sessions.layer.close()
+    assert ended_at[0] - stopped_at <= sessions.state()["stop_budget_s"]
+
+
+# -- take-over during an apply -------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["apply", "put_back"])
+async def test_take_over_during_an_apply_is_apply_in_progress_and_changes_nothing(
+    name: str,
+) -> None:
+    sessions, _ = _sessions()
+    started = asyncio.Event()
+    try:
+        grant = await sessions.open(ALICE, PANEL)
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, PANEL, grant.client_id, _holding(started), name=name)
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        stop = sessions.layer.stop_event
+        with pytest.raises(SessionRefused) as caught:
+            sessions.take_over(BOB, AGENT)
+        assert not stop.is_set() and sessions.layer.stop_event is stop
+        holder = sessions.holder
+        assert holder is not None and holder.client_id == grant.client_id
+        # A Stop ends the apply; then the take-over goes through.
+        sessions.stop(BOB, AGENT)
+        await asyncio.wait_for(in_flight, 2)
+        new = sessions.take_over(BOB, AGENT)
+    finally:
+        await sessions.layer.close()
+    assert (caught.value.code, caught.value.status) == (APPLY_IN_PROGRESS, 409)
+    assert sessions.holder is not None and sessions.holder.client_id == new.client_id
+
+
+async def test_take_over_during_another_action_voids_the_step_and_stops_it() -> None:
+    sessions, _ = _sessions()
+    started = asyncio.Event()
+    try:
+        grant = await sessions.open(ALICE, PANEL)
+        _pending_step(sessions, grant.client_id, _apply_validator())
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, PANEL, grant.client_id, _holding(started), name="shot")
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        assert sessions.step.step is not None
+        sessions.take_over(BOB, AGENT)
+        assert await asyncio.wait_for(in_flight, 2) == "stopped"
+    finally:
+        await sessions.layer.close()
+    assert sessions.step.step is None
+
+
+# -- release ---------------------------------------------------------------------------
+
+
+async def test_release_renews_the_stop_event_and_voids_the_step() -> None:
+    sessions, _ = _sessions()
+    started = asyncio.Event()
+    validator = _apply_validator()
+    try:
+        grant = await sessions.open(ALICE, PANEL)
+        in_flight = asyncio.create_task(
+            sessions.call(ALICE, PANEL, grant.client_id, _holding(started), name="shot")
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        old_stop = sessions.layer.stop_event
+        _pending_step(sessions, grant.client_id, validator)
+        assert sessions.step.step is not None
+        sessions.release(ALICE, PANEL, grant.client_id)
+        assert await asyncio.wait_for(in_flight, 2) == "stopped"
+    finally:
+        await sessions.layer.close()
+    assert old_stop.is_set() and not sessions.layer.stop_event.is_set()
+    assert sessions.step.step is None and sessions.holder is None
+
+
+def _apply_validator() -> LimitsValidator:
+    return LimitsValidator(
+        {
+            address: ChannelLimitsConfig(
+                address,
+                record["min_value"],
+                record["max_value"],
+                max_step=record.get("max_step"),
+                writable=True,
+            )
+            for address, record in applying.RECORDS.items()
+        },
+        {"mode": "optional", "on_violation": "error"},
+        {address: {**record, "confirm": True} for address, record in applying.RECORDS.items()},
+    )
+
+
+def _pending_step(sessions: Sessions, client_id: str, validator: LimitsValidator) -> Any:
+    """A real step over the apply tests' tool, made pending on *sessions*."""
+    sessions.layer.startup.tool = applying._tool()
+    return applying._pend(sessions, client_id, validator)
+
+
+# -- the cross-door Stop of an apply -------------------------------------------------
+
+
+async def test_a_panel_door_stop_ends_an_agent_door_apply_with_its_moved_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    validator = _apply_validator()
+    monkeypatch.setattr(
+        actions.LimitsValidator, "from_config", staticmethod(lambda **_kw: validator)
+    )
+    sessions, machine = applying._sessions()
+    gate = machine.gates[applying.HCM2] = applying._Gate()
+    try:
+        client_id = (await sessions.open(ALICE, AGENT)).client_id
+        step = applying._pend(sessions, client_id, validator)
+        task = asyncio.ensure_future(
+            apply(
+                sessions,
+                ALICE,
+                AGENT,
+                client_id,
+                {"step_digest": step.digest},
+                plan_running=applying._Plans(),
+            )
+        )
+        await asyncio.wait_for(gate.started.wait(), 2)
+        stop = sessions.layer.stop_event
+        with pytest.raises(SessionRefused) as caught:
+            sessions.take_over(BOB, PANEL)
+        assert not stop.is_set() and sessions.layer.stop_event is stop
+        assert sessions.holder is not None and sessions.holder.client_id == client_id
+        record = sessions.stop(BOB, PANEL)  # the panel door, another owner, no client_id
+        assert sessions.stopper == BOB
+        gate.release.set()
+        result = await asyncio.wait_for(task, 2)
+        stopper_after = sessions.stopper
+    finally:
+        await sessions.layer.close()
+    assert (caught.value.code, caught.value.status) == (APPLY_IN_PROGRESS, 409)
+    assert record.action == APPLY
+    assert stopper_after == BOB  # still readable once the stopped apply returned
+    assert result == LastAction(
+        name=APPLY,
+        stopped=True,
+        moved=[
+            Moved(name=applying.HCM1, before=1.0, outcome="confirmed"),
+            Moved(name=applying.HCM2, before=-2.0, outcome="confirmed"),
+        ],
+    )
+    assert machine.written() == [applying.HCM1, applying.HCM2]
+    assert (record.owner, record.kind) == (BOB, PANEL)
+    holder = sessions.holder
+    assert holder is not None and (holder.owner, holder.kind) == (ALICE, AGENT)
+
+
+async def test_a_real_putback_cannot_be_taken_over_and_its_stop_names_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    validator = _apply_validator()
+    monkeypatch.setattr(
+        actions.LimitsValidator, "from_config", staticmethod(lambda **_kw: validator)
+    )
+    sessions, machine = applying._sessions()
+    gate = machine.gates[applying.HCM1] = applying._Gate()
+    try:
+        client_id = (await sessions.open(ALICE, AGENT)).client_id
+        task = asyncio.ensure_future(
+            apply(
+                sessions,
+                ALICE,
+                AGENT,
+                client_id,
+                {"model": applying.MODEL, "values": [{"name": applying.HCM1, "before": 0.75}]},
+                plan_running=applying._Plans(),
+            )
+        )
+        await asyncio.wait_for(gate.started.wait(), 2)
+        stop = sessions.layer.stop_event
+        with pytest.raises(SessionRefused) as caught:
+            sessions.take_over(BOB, PANEL)
+        assert not stop.is_set() and sessions.layer.stop_event is stop
+        record = sessions.stop(BOB, PANEL)
+        gate.release.set()
+        result = await asyncio.wait_for(task, 2)
+    finally:
+        await sessions.layer.close()
+    assert (caught.value.code, caught.value.status) == (APPLY_IN_PROGRESS, 409)
+    assert record.action == PUT_BACK
+    assert result.moved == [Moved(name=applying.HCM1, before=1.0, outcome="confirmed")]
+    assert sessions.stopper == BOB
+    holder = sessions.holder
+    assert holder is not None and holder.client_id == client_id
+
+
+# -- the continuous run ---------------------------------------------------------------
+
+
+async def test_stop_ends_a_continuous_run_as_stopped_and_keeps_the_holder() -> None:
+    sessions, _fake = looping._sessions()
+    client = await looping._open(sessions)
+    shots = looping._Shots(gated=True)
+    run = looping._start(sessions, client, shots, max_shots=10)
+    await looping._until(lambda: shots.started == [1])
+    sessions.stop(BOB, AGENT)
+    event = await looping._ended(run)
+    assert event.end == "stopped"
+    assert sessions.holder is not None and sessions.holder.client_id == client
+
+
+async def test_take_over_ends_a_continuous_run_as_taken_over_and_voids_its_step() -> None:
+    sessions, _fake = looping._sessions()
+    client = await looping._open(sessions)
+    shots = looping._Shots(gated=True)
+    run = looping._start(sessions, client, shots, max_shots=10)
+    await looping._until(lambda: shots.started == [1])
+    shots.permits.release()  # type: ignore[union-attr]
+    await looping._until(lambda: shots.started == [1, 2])
+    assert sessions.step.step is not None
+    sessions.take_over(BOB, AGENT)
+    event = await looping._ended(run)
+    assert event.end == "taken_over"
+    assert sessions.step.step is None and not sessions.continuous_running
+
+
+async def test_release_ends_a_continuous_run_as_released_and_voids_its_step() -> None:
+    sessions, _fake = looping._sessions()
+    client = await looping._open(sessions)
+    shots = looping._Shots(gated=True)
+    run = looping._start(sessions, client, shots, max_shots=10)
+    await looping._until(lambda: shots.started == [1])
+    shots.permits.release()  # type: ignore[union-attr]
+    await looping._until(lambda: shots.started == [1, 2])
+    sessions.release(looping.OWNER, looping.KIND, client)
+    event = await looping._ended(run)
+    assert event.end == "released"
+    assert sessions.step.step is None and sessions.holder is None
+
+
+async def test_a_heartbeat_only_moves_the_lease_deadline() -> None:
+    clock = _Clock()
+    sessions, _fake = looping._sessions()
+    client = await looping._open(sessions)
+    shots = looping._Shots(gated=True)
+    run = looping._start(
+        sessions, client, shots, max_shots=10, clock=clock, sleep=looping._tick, lease_s=10.0
+    )
+    await looping._until(lambda: shots.started == [1])
+    stop = sessions.layer.stop_event
+    step = sessions.step.step
+    clock.now += 4.0
+    status = sessions.heartbeat(looping.OWNER, looping.KIND, client)
+    assert status is not None and status.lease_expires_in_s == 10.0
+    assert sessions.layer.stop_event is stop and not stop.is_set()
+    assert sessions.step.step is step and run.running
+    await run.cancel()

@@ -26,6 +26,7 @@ from osprey.services.trajectory.actions import (
     GUARDED_RUN_UNAVAILABLE,
     LIMITS_UNAVAILABLE,
     RUN_BUSY,
+    SERVICE_STOPPING,
     ActionLayer,
     ActionRefused,
 )
@@ -367,6 +368,103 @@ async def test_no_enforcing_validator_is_limits_unavailable(
     assert _run_state.STATE.hold is None
 
 
+def _configure(root: Path, control_system: str) -> None:
+    """Write the deployment's ``control_system`` section and drop the cached config."""
+    from osprey_connectors.workspace import reset_config_cache
+
+    (root / "config.yml").write_text(f"control_system: {control_system}\n", "utf-8")
+    reset_config_cache()
+
+
+async def _fires(layer: ActionLayer, connector: Any) -> dict[str, Any]:
+    seen: dict[str, Any] = {}
+
+    async def action(_admission: Admission, _stop: asyncio.Event) -> str:
+        seen["hold"] = _run_state.STATE.hold
+        seen["validator"] = connector._limits_validator
+        return "done"
+
+    try:
+        assert await layer.submit(OWNER, KIND, action) == "done"
+    finally:
+        await layer.close()
+    return seen
+
+
+async def _limits_refused(layer: ActionLayer, connector: Any) -> ActionRefused:
+    async def action(_admission: Admission, _stop: asyncio.Event) -> None:
+        raise AssertionError("never runs")
+
+    try:
+        refusal = await _refused(layer.submit(OWNER, KIND, action))
+    finally:
+        await layer.close()
+    assert (refusal.code, refusal.status) == (LIMITS_UNAVAILABLE, 503)
+    assert connector._limits_validator == "never-assigned"
+    assert _run_state.STATE.hold is None
+    return refusal
+
+
+async def test_limits_checking_stated_off_fires_with_no_validator(_deployment: Path) -> None:
+    _configure(_deployment, "{limits_checking: {enabled: false}}")
+    layer, connector = _layer()
+    seen = await _fires(layer, connector)
+    assert seen["validator"] is None
+    assert seen["hold"].context == ActionContext(
+        target=TARGET, owner=OWNER, approved_target=TARGET, limits_off=True
+    )
+
+
+async def test_stated_off_replaces_a_validator_an_earlier_action_left(
+    _deployment: Path, validators: _Handed
+) -> None:
+    _configure(_deployment, "{limits_checking: {enabled: false}}")
+    validators[:] = [None]
+    layer, connector = _layer()
+    connector._limits_validator = _Validator()
+    seen = await _fires(layer, connector)
+    assert seen["validator"] is None
+    assert seen["hold"].context.limits_off is True
+
+
+async def test_limits_checking_unstated_is_limits_unavailable(_deployment: Path) -> None:
+    _configure(_deployment, "{limits_checking: {mode: optional}}")
+    layer, connector = _layer()
+    refusal = await _limits_refused(layer, connector)
+    assert "control_system.limits_checking.enabled" in refusal.detail
+
+
+async def test_an_unreadable_config_is_limits_unavailable() -> None:
+    # The deployment root carries no config.yml, so no config can be read.
+    layer, connector = _layer()
+    refusal = await _limits_refused(layer, connector)
+    assert "cannot be read" in refusal.detail
+
+
+@pytest.mark.parametrize(
+    "control_system",
+    [
+        "{limits_checking: {enabled: 'false'}}",
+        "{limits_checking: {enabled: true, database_path: missing.json}}",
+    ],
+)
+async def test_a_fail_safe_posture_is_limits_unavailable(
+    _deployment: Path, control_system: str
+) -> None:
+    _configure(_deployment, control_system)
+    layer, connector = _layer()
+    await _limits_refused(layer, connector)
+
+
+async def test_optional_with_no_database_fires_unchecked(_deployment: Path) -> None:
+    _configure(_deployment, "{limits_checking: {enabled: true, mode: optional}}")
+    layer, connector = _layer()
+    seen = await _fires(layer, connector)
+    validator = seen["validator"]
+    assert validator is not None and validator.failsafe_reason is None
+    assert seen["hold"].context.limits_off is False
+
+
 # -- the lock -------------------------------------------------------------------
 
 
@@ -648,8 +746,79 @@ async def test_close_ends_the_worker_and_a_later_submit_is_refused() -> None:
     worker = layer.worker_task
     await layer.close()
     assert worker is not None and worker.done()
-    with pytest.raises(RuntimeError, match="closed"):
-        await layer.submit(OWNER, KIND, action)
+    assert layer.closed
+    refusal = await _refused(layer.submit(OWNER, KIND, action))
+    assert (refusal.code, refusal.status) == (SERVICE_STOPPING, 503)
+
+
+@pytest.mark.usefixtures("validators")
+async def test_close_fails_the_queued_actions_and_lets_the_one_in_flight_finish() -> None:
+    layer, _ = _layer()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    ran: list[str] = []
+
+    async def slow(_admission: Admission, _stop: asyncio.Event) -> str:
+        started.set()
+        await release.wait()
+        return "done"
+
+    async def queued(_admission: Admission, _stop: asyncio.Event) -> None:
+        ran.append("queued")
+
+    first = asyncio.create_task(layer.submit(OWNER, KIND, slow))
+    await asyncio.wait_for(started.wait(), 2)
+    second = asyncio.create_task(layer.submit(OWNER, KIND, queued))
+    third = asyncio.create_task(layer.submit(OWNER, KIND, queued))
+    await asyncio.sleep(0.02)
+    closing = asyncio.create_task(layer.close())
+    for waiting in (second, third):
+        refusal = await asyncio.wait_for(_refused(waiting), 2)
+        assert (refusal.code, refusal.status) == (SERVICE_STOPPING, 503)
+    assert not closing.done(), "close awaits the action in flight"
+    release.set()
+    assert await asyncio.wait_for(first, 2) == "done"
+    await asyncio.wait_for(closing, 2)
+    assert ran == []
+    worker = layer.worker_task
+    assert worker is not None and worker.done()
+
+
+@pytest.mark.usefixtures("validators")
+async def test_refuse_new_refuses_submits_and_keeps_the_queued_ones() -> None:
+    layer, _ = _layer()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow(_admission: Admission, _stop: asyncio.Event) -> str:
+        started.set()
+        await release.wait()
+        return "slow"
+
+    async def ok(_admission: Admission, _stop: asyncio.Event) -> str:
+        return "ok"
+
+    try:
+        first = asyncio.create_task(layer.submit(OWNER, KIND, slow))
+        await asyncio.wait_for(started.wait(), 2)
+        second = asyncio.create_task(layer.submit(OWNER, KIND, ok))
+        await asyncio.sleep(0.02)
+        layer.refuse_new()
+        refusal = await _refused(layer.submit(OWNER, KIND, ok))
+        assert refusal.code == SERVICE_STOPPING
+        release.set()
+        assert await asyncio.wait_for(first, 2) == "slow"
+        assert await asyncio.wait_for(second, 2) == "ok"
+    finally:
+        await layer.close()
+
+
+async def test_close_without_a_worker_and_close_again_are_no_ops() -> None:
+    layer, _ = _layer()
+    await layer.close()
+    assert layer.worker_task is None
+    await layer.close()
+    assert layer.closed
 
 
 @pytest.mark.usefixtures("validators")

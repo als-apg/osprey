@@ -11,9 +11,13 @@ first that refuses decides and nothing after it runs:
 3. the reachability probe (503 ``target_unreachable`` /
    ``trajectory_unavailable``);
 4. a limits validator rebuilt for the service target and assigned onto the
-   connector: none, or a fail-safe one, is 503 ``limits_unavailable`` whatever
-   the limits posture says, because a command fires without confirmation only
-   when a limits record says so;
+   connector. A fail-safe one is 503 ``limits_unavailable``. When none is
+   built, the limits posture of the service target decides: a readable config
+   whose posture is complete and states ``enabled: false`` lets the action run
+   with no validator and an :class:`~osprey.runtime.guarded_run.ActionContext`
+   marked ``limits_off``; an unstated ``enabled`` or a config that cannot be
+   read is 503 ``limits_unavailable``, because a command fires unchecked only
+   where the deployment says so;
 5. the owner bound with :func:`~osprey_connectors.posture_store.bind_owner` and
    the target's run lock taken with an
    :class:`~osprey.runtime.guarded_run.ActionContext` naming that owner: a lock
@@ -32,10 +36,12 @@ an executor: the owner lives in the worker task's context and would not follow.
 
 The **control path**, :meth:`ActionLayer.control`, acts at admission instead:
 outside the queue, never taking the run lock, never probing, never writing —
-so a take-over or a release is answered while an action is in flight, and an
-unreachable target never blocks one. The layer keeps the current holder's
-stop event; renewing it on the control path sets the old one, which the
-in-flight action was handed, and installs a clear one for the next holder.
+so a Stop, a take-over or a release is answered while an action is in flight,
+and an unreachable target never blocks one. The layer keeps the current
+holder's stop event; a Stop, a take-over, a release and a continuous lease's
+expiry renew it on the control path, which sets the old one — the in-flight
+action was handed it — and installs a clear one for what is submitted next.
+Nothing on the control path awaits the action it stops.
 """
 
 from __future__ import annotations
@@ -66,6 +72,7 @@ __all__ = [
     "GUARDED_RUN_UNAVAILABLE",
     "LIMITS_UNAVAILABLE",
     "RUN_BUSY",
+    "SERVICE_STOPPING",
     "Action",
     "ActionLayer",
     "ActionRefused",
@@ -76,6 +83,7 @@ RUN_BUSY = "run_busy"
 GUARDED_RUN_UNAVAILABLE = "guarded_run_unavailable"
 LIMITS_UNAVAILABLE = "limits_unavailable"
 ACTION_STOPPED = "action_stopped"
+SERVICE_STOPPING = "service_stopping"
 
 #: The HTTP status each refusal raised here answers with.
 _STATUS = {
@@ -83,6 +91,7 @@ _STATUS = {
     ACTION_STOPPED: 409,
     GUARDED_RUN_UNAVAILABLE: 503,
     LIMITS_UNAVAILABLE: 503,
+    SERVICE_STOPPING: 503,
     TARGET_UNREACHABLE: 503,
     TRAJECTORY_UNAVAILABLE: 503,
     WRITES_DISABLED: 403,
@@ -132,6 +141,11 @@ class ActionLayer:
         self._closed = False
         self._stop = asyncio.Event()
 
+    @property
+    def queued(self) -> int:
+        """How many submitted actions wait behind the one the worker runs."""
+        return self._queue.qsize()
+
     # -- the stop event ------------------------------------------------------
 
     @property
@@ -142,9 +156,10 @@ class ActionLayer:
     def renew_stop_event(self) -> asyncio.Event:
         """Set the current holder's stop event and install a clear one.
 
-        Called on the control path when the holder changes or is told to stop;
-        an action in flight keeps the event it was handed and sees it set, and
-        one submitted before the renewal that has not started is refused.
+        Called on the control path by a Stop, a take-over, a release and a
+        continuous lease's expiry; an action in flight keeps the event it was
+        handed and sees it set, and one submitted before the renewal that has
+        not started is refused.
 
         Returns:
             The new holder's stop event.
@@ -198,14 +213,28 @@ class ActionLayer:
                 self._run(), name="trajectory-action-worker"
             )
 
-    async def close(self) -> None:
-        """Refuse new actions, run those already queued, and end the worker."""
+    @property
+    def closed(self) -> bool:
+        """Whether the layer refuses new actions (``service_stopping``)."""
+        return self._closed
+
+    def refuse_new(self) -> None:
+        """Refuse every later :meth:`submit` with ``service_stopping``; queued actions stay."""
         self._closed = True
+
+    async def close(self) -> None:
+        """Refuse new actions, fail the queued ones, and end the worker.
+
+        Every action still queued fails with ``service_stopping``; the one in
+        flight, if any, runs to its end and its caller gets its result. Closing
+        a closed layer again is a no-op beyond awaiting the worker's end.
+        """
+        self._closed = True
+        _fail_pending(self._queue, _stopping)
         if self._worker is None or self._worker.done():
-            _fail_pending(self._queue)
             return
         self._queue.put_nowait(_CLOSE)
-        await self._worker
+        await asyncio.shield(self._worker)
 
     async def submit(
         self,
@@ -226,14 +255,15 @@ class ActionLayer:
 
         Raises:
             AdmitRefused: ``admit`` refused the owner.
-            ActionRefused: The target, the limits or the lock refused, or the
-                action's stop event was set before it started.
-            RuntimeError: The layer is closed, or the worker ended before
-                the action ran.
+            ActionRefused: The target, the limits or the lock refused, the
+                action's stop event was set before it started, or the layer
+                is closed or closed while the action was queued
+                (``service_stopping``).
+            RuntimeError: The worker ended before the action ran.
             Exception: Whatever the precondition or the action raised.
         """
         if self._closed:
-            raise RuntimeError("the action layer is closed")
+            raise _stopping()
         self.start()
         future: asyncio.Future[T] = asyncio.get_running_loop().create_future()
         self._queue.put_nowait(_Job(owner, kind, action, precondition, self._stop, future))
@@ -276,15 +306,23 @@ class ActionLayer:
             raise ActionRefused(code, _unreachable_detail(code, self.startup.target))
         target = self.startup.target
         validator = LimitsValidator.from_config(target=target)
-        if validator is None or getattr(validator, "failsafe_reason", None) is not None:
-            why = "limits checking is off" if validator is None else validator.failsafe_reason
+        failsafe = getattr(validator, "failsafe_reason", None)
+        if failsafe is not None:
             raise ActionRefused(
                 LIMITS_UNAVAILABLE,
-                f"no limits record can be read for target {target!r} ({why}); "
-                "a command fires only when a limits record allows it",
+                f"limits checking for target {target!r} blocks every write ({failsafe}); "
+                "a command fires only under an enforcing limits validator or with "
+                "limits checking stated off",
             )
+        if validator is None:
+            _refuse_unless_limits_off(target)
         self.startup.connector._limits_validator = validator
-        context = ActionContext(target=target, owner=admission.owner, approved_target=target)
+        context = ActionContext(
+            target=target,
+            owner=admission.owner,
+            approved_target=target,
+            limits_off=validator is None,
+        )
         with bind_owner({RESERVED_OWNER_KWARG: admission.owner}), contextlib.ExitStack() as held:
             try:
                 held.enter_context(lock(target, context=context))
@@ -302,6 +340,36 @@ class ActionLayer:
             return await job.action(admission, job.stop)
 
 
+def _refuse_unless_limits_off(target: str) -> None:
+    """Refuse unless the config states limits checking off for *target*.
+
+    Only a readable config whose posture for *target* is complete and says
+    ``enabled: false`` is off; silence and an unreadable config are not
+    permission to fire a command unchecked.
+    """
+    from osprey_connectors.config import get_config_value
+    from osprey_connectors.types import target_limits_posture
+
+    try:
+        section = get_config_value("control_system", {})
+    except (FileNotFoundError, KeyError, RuntimeError) as exc:
+        raise ActionRefused(
+            LIMITS_UNAVAILABLE,
+            f"the deployment config cannot be read ({exc.__class__.__name__}), so no limits "
+            f"posture holds for target {target!r}; a command fires only under an enforcing "
+            "limits validator or with limits checking stated off",
+        ) from exc
+    posture = target_limits_posture(section, target)
+    if not posture.incomplete and posture.enabled is False:
+        return
+    raise ActionRefused(
+        LIMITS_UNAVAILABLE,
+        f"limits checking for target {target!r} is neither on nor stated off "
+        f"({posture.key('enabled')} is unstated); a command fires only under an "
+        "enforcing limits validator or with limits checking stated off",
+    )
+
+
 def _unreachable_detail(code: str, target: str) -> str:
     if code == TRAJECTORY_UNAVAILABLE:
         return "the build gives this service no trajectory model, so there is nothing to command"
@@ -317,10 +385,19 @@ def _refuse_if_stopped(job: _Job) -> None:
         )
 
 
-def _fail_pending(queue: asyncio.Queue[Any]) -> None:
+def _stopping() -> ActionRefused:
+    return ActionRefused(SERVICE_STOPPING, "the service is shutting down; this action did not run")
+
+
+def _worker_ended() -> RuntimeError:
+    return RuntimeError("the action worker ended before running this action")
+
+
+def _fail_pending(
+    queue: asyncio.Queue[Any], error: Callable[[], BaseException] = _worker_ended
+) -> None:
+    """Fail every job still queued with a fresh *error*."""
     while not queue.empty():
         job = queue.get_nowait()
         if job is not _CLOSE and not job.future.done():
-            job.future.set_exception(
-                RuntimeError("the action worker ended before running this action")
-            )
+            job.future.set_exception(error())

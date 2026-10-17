@@ -686,16 +686,20 @@ class WebCredentials:
           write it attempts.
         * the trajectory service's agent door,
           ``POST|DELETE /panel/trajectory/api/session``,
-          ``POST /panel/trajectory/api/takeover`` and
-          ``GET /panel/trajectory/api/state``. Holding this token is therefore
-          enough to open, take over or release a trajectory session on the
-          terminal's target and to read the session state — but not enough to
-          name whose session it is or to clear the service's own checks. The
-          proxy injects the service's launch token and the terminal's secret on
-          that hop and never hands either back; the service's gate names the
-          owner from that secret, never from the caller; and every write the
-          session starts still passes the service's admission (the owner's
-          chip, the narrowing and the writes posture) and the guarded-run lock.
+          ``POST /panel/trajectory/api/{takeover,stop,shot,apply}`` and
+          ``GET /panel/trajectory/api/{state,step}``. Holding this token is
+          therefore enough to open, take over or release a trajectory session
+          on the terminal's target, to read its state and pending step, to
+          Stop the action in flight, and to take a shot and apply a step or a
+          put-back on that machine — but not enough to name whose session it
+          is or to clear the service's own checks. The proxy injects the
+          service's launch token and the terminal's secret on that hop and
+          never hands either back; the service's gate names the owner from
+          that secret, never from the caller; every write passes the
+          service's admission (the owner's chip, the narrowing and the writes
+          posture) and runs under the guarded-run lock; and the approval of a
+          shot or an apply is checked on the client side, by the agent's
+          approval hook and its MCP server's stamp check, before the call.
         """
         return _same_secret(candidate, self.panel_token)
 
@@ -1503,21 +1507,28 @@ class Tier(Enum):
 #: carries a call, ``GET`` opens the event stream, ``DELETE`` ends the session.
 #: Anything else on that path, a websocket included, is not that client.
 #:
-#: ``/panel/trajectory/api/{session,takeover,state}`` is the terminal proxy's
-#: hop to the trajectory service's agent door — one row per route that door
-#: declares, with the method it declares — panel-tier so that the agent's
-#: trajectory MCP server, which reaches the service only through its own
-#: terminal's proxy, can open, take over and release a session and read its
-#: state. With the panel token alone a caller can therefore claim the
-#: terminal's target for a trajectory session, end that session, or read who
-#: holds it; nothing more. The service's launch token and the terminal's
+#: ``/panel/trajectory/api/{session,takeover,state,stop,shot,step,apply}`` is
+#: the terminal proxy's hop to the trajectory service's agent door — one row
+#: per route that door declares, with the method it declares — panel-tier so
+#: that the agent's trajectory MCP server, which reaches the service only
+#: through its own terminal's proxy, can open, take over and release a
+#: session, read its state and pending step, Stop, take a shot and apply.
+#: This is a write grant: with the panel token alone a caller can fire a shot's
+#: commands and write a step's (or a put-back's) corrector settings on the
+#: terminal's target, besides claiming, ending or reading the session. The
+#: grant is bounded three ways. The service's launch token and the terminal's
 #: secret are injected by the proxy on that hop and never passed back out, so
 #: the agent holds neither; the service's own gate names the owner from that
-#: secret, and the proxy drops any owner the caller sends, so the session is
-#: the terminal's owner's and no one else's. Every write the session then
-#: starts is bounded by the service, not by this table: its admission checks
-#: the owner's chip, the narrowing and the writes posture, and the guarded-run
-#: lock serialises it against every other write path on that target. The panel
+#: secret, and the proxy drops any owner the caller sends, so every action is
+#: the terminal's owner's and is audited as theirs. The service admits each
+#: write itself — the owner's chip, the narrowing and the writes posture — and
+#: runs it under the guarded-run lock, which serialises it against every other
+#: write path on that target and holds it to the limits validator. The human
+#: approval of a shot or an apply is not checked here or by the service: it is
+#: the agent's approval hook and its MCP server's stamp check (the approved
+#: target and the step digest or put-back hash) that stand between the agent
+#: and the call. Setup, the continuous run, the references, the shot listing
+#: and the state stream are absent: they are the panel door's alone. The panel
 #: door of the same service, ``/panel/trajectory/panel/api/*``, and the panel
 #: bundle under ``/panel/trajectory/panel/`` are operator-only: the panel door
 #: is the operator's own browser, and the panel token must never stand in for
@@ -1547,6 +1558,10 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/panel/trajectory/api/takeover"),
         ("DELETE", "/panel/trajectory/api/session"),
         ("GET", "/panel/trajectory/api/state"),
+        ("POST", "/panel/trajectory/api/stop"),
+        ("POST", "/panel/trajectory/api/shot"),
+        ("GET", "/panel/trajectory/api/step"),
+        ("POST", "/panel/trajectory/api/apply"),
     }
 )
 
