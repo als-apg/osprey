@@ -818,16 +818,17 @@ def _measurement_value(measurement: Mapping[str, Any], key: str) -> float | int:
 
 def _configuration(
     inputs: ViewInputs, model: str
-) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
     """One model's pyAML configuration, the extra files it references and what it leaves out.
 
     A setpoint whose calibration pyAML cannot represent has no magnet and is in
     no array.
 
     Returns:
-        ``(configuration, files, unmodelled)``: the configuration as a
-        mapping, each file beside it by name with its text and the setpoints
-        left out for want of a pyAML magnet model, in group order.
+        ``(configuration, files, unmodelled, mixed)``: the configuration as a
+        mapping, each file beside it by name with its text, the setpoints left
+        out for want of a pyAML magnet model and those left out because their
+        slices mix zero-length and thick elements, each in group order.
     """
     from pyaml_cs_osprey.names import (
         CHROMATICITY_MONITOR_NAME,
@@ -853,11 +854,18 @@ def _configuration(
     rf = instruments.get("rf")
     names = _names(magnets, bpms, groups_named, rf)
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
-    unmodelled = [address for address, found in models.items() if found is None]
+    mixed = [
+        magnet.address
+        for magnet in magnets
+        if models[magnet.address] is None and _mixes_thin_and_thick(magnet, deck)
+    ]
+    unmodelled = [
+        address for address, found in models.items() if found is None and address not in mixed
+    ]
     files: dict[str, str] = {}
     if periodic:
         files[LATTICE_FILE] = _design_lattice(inputs, record, magnets)
-    left_out = set(unmodelled)
+    left_out = {*unmodelled, *mixed}
     magnets = [magnet for magnet in magnets if magnet.address not in left_out]
     groups = {
         role: [address for address in addresses if address not in left_out]
@@ -1047,7 +1055,7 @@ def _configuration(
                     }
                 )
     configuration["devices"] = devices
-    return configuration, files, unmodelled
+    return configuration, files, unmodelled, mixed
 
 
 def _design_lattice(
@@ -1126,13 +1134,20 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        configuration, files, unmodelled = _configuration(inputs, model)
+        configuration, files, unmodelled, mixed = _configuration(inputs, model)
         if unmodelled:
             report_note(
                 inputs,
                 f"view pyaml: {model} leaves out {len(unmodelled)} "
                 f"setpoint{'' if len(unmodelled) == 1 else 's'} pyAML has no magnet model "
                 f"for: {_shown(unmodelled)}",
+            )
+        if mixed:
+            report_note(
+                inputs,
+                f"view pyaml: {model} leaves out {len(mixed)} "
+                f"setpoint{'' if len(mixed) == 1 else 's'} whose slices mix zero-length and "
+                f"thick elements, which pyAML drives with the wrong strength: {_shown(mixed)}",
             )
         directory = root / model
         directory.mkdir(parents=True, exist_ok=True)
