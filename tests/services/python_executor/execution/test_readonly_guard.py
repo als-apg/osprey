@@ -926,19 +926,26 @@ def test_readonly_gates_the_loader_class_itself():
 
 
 def test_the_refusing_loaders_keep_no_original_loader():
-    """No load is permitted, so no refusing loader holds an original to reach."""
-    import _ctypes
+    """No load is permitted, so no refusing loader holds an original to reach.
+
+    The rows come from the guard's own loader tables, so a row added there is
+    pinned here too; a row whose owner is absent on this interpreter is skipped.
+    """
     import importlib.util
 
+    from osprey.runtime import raw_put_block
+
     _run_guard("readonly")
-    loaders = {"ctypes._dlopen": ctypes._dlopen, "_ctypes.dlopen": _ctypes.dlopen}
-    if hasattr(_ctypes, "LoadLibrary"):
-        loaders["_ctypes.LoadLibrary"] = _ctypes.LoadLibrary
-    if importlib.util.find_spec("cffi") is not None:
-        import cffi.api
+    loaders = {}
+    for dotted, attr in sorted(raw_put_block._CTYPES_LOADER_ROWS | raw_put_block._FFI_LOADER_ROWS):
+        if importlib.util.find_spec(dotted.split(".")[0]) is None:
+            continue
+        owner = raw_put_block._resolve(dotted)
+        if owner is None or not hasattr(owner, attr):
+            continue
+        loaders[f"{dotted}.{attr}"] = getattr(owner, attr)
 
-        loaders["cffi.api.FFI.dlopen"] = cffi.api.FFI.dlopen
-
+    assert "_ctypes.dlopen" in loaders, sorted(loaders)
     for row, loader in loaders.items():
         assert getattr(loader, "_osprey_loader_gate", False), row
         cells = loader.__closure__ or ()
