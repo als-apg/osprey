@@ -16,8 +16,12 @@ rendered view, on every served channel:
 * **under a scenario the physics model cannot solve**, every channel reads
   with the alarm severity the composite gives it;
 * **at nominal**, the served values are the captured
-  ``tests/facility/golden/nominal_va.json``, every difference declared below
-  by cause;
+  ``tests/facility/golden/nominal_va.json``, written by
+  ``uv run python scripts/va/capture_nominals.py --out
+  tests/facility/golden/nominal_va.json`` and checked by its ``--check``; the
+  served set is the golden's but for the two kinds the capture leaves out, the
+  suite's synthetic string channel and every waveform, both held to the
+  in-process composite instead;
 * **on every string channel**, the synthetic one the directory conftest adds
   among them, :func:`decode_char_waveform` reads the wire value as the text
   the composite holds.
@@ -206,19 +210,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 #: leaves the file importable but empty, which would otherwise pass silently.
 MIN_COLLECTED_TESTS = 8
 
-#: The captured nominal reads of the demo, taken with every reading's noise
-#: zeroed.
+#: The captured nominal reads of the demo, every reading still: the capture of
+#: ``scripts/va/capture_nominals.py``, which leaves out the suite's synthetic
+#: string channel and every waveform.
 NOMINAL_GOLDEN = REPO_ROOT / "tests" / "facility" / "golden" / "nominal_va.json"
-#: The injector element table: one demo channel per row, in its third column.
-INJECTOR_TABLE = REPO_ROOT / "scripts" / "facility_demo" / "injector_elements.tsv"
-
-
-def _golden_predates(table: Path, golden: Path) -> frozenset[str]:
-    """The demo channels ``table`` names that ``golden`` holds no capture of."""
-    captured = json.loads(golden.read_text(encoding="utf-8"))["channels"]
-    rows = table.read_text(encoding="utf-8").splitlines()[1:]
-    named = {row.split("\t")[2] for row in rows if row and not row.startswith("#")}
-    return frozenset(named - set(captured))
 
 
 #: Agreement between the wire and the in-process composite on a channel
@@ -266,64 +261,9 @@ OPERATING_POINT: dict[str, float] = {
     "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
 }
 
-#: Every address whose served nominal is not the captured golden's, by cause.
-#: An address here is held to the in-process composite instead.
-NOMINAL_REBASELINES: dict[str, frozenset[str]] = {
-    # The model owns the cavity frequency, and the deck states it.
-    "lattice-owned: the value follows the deck": frozenset(
-        {"SR:RF:CAVITY:01:FREQUENCY:RB", "SR:RF:CAVITY:01:FREQUENCY:SP"}
-    ),
-    # The facility's seeds state the ion-pump voltages the golden served as zero.
-    "seeded: the value follows the seed's nominal": frozenset(
-        f"SR:VAC:ION-PUMP:{index:02d}:VOLTAGE:{suffix}"
-        for index in range(1, 7)
-        for suffix in ("RB", "SP")
-    ),
-}
-#: Served addresses the golden predates, by cause.
-NOMINAL_ADDITIONS: dict[str, frozenset[str]] = {
-    "lattice-owned: the model's optics outputs": frozenset(
-        {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
-    ),
-    "the physics model's status channel": frozenset({"ca:SIM:SR:STATUS"}),
-    # The golden captures the demo before it carried the transfer line.
-    "the transfer line: its model's status and every channel it owns": frozenset(
-        {
-            "ca:SIM:LINE:STATUS",
-            *(
-                f"LINE:DIAG:BPM:{index:02d}:POSITION:{plane}"
-                for index in range(1, 5)
-                for plane in ("X", "Y")
-            ),
-            *(
-                f"LINE:MAG:{family}:{index:02d}:CURRENT:{suffix}"
-                for family in ("HCM", "VCM", "QF", "QD")
-                for index in range(1, 5)
-                for suffix in ("RB", "SP")
-            ),
-        }
-    ),
-    "the suite's synthetic string channel": frozenset({e2e_conftest.STRING_CHANNEL}),
-    # The golden captures the demo before it carried the whole injector.
-    "the injector: its element table's channels and the LTB and BTS models' status": frozenset(
-        {
-            "ca:SIM:BTS:STATUS",
-            "ca:SIM:LTB:STATUS",
-            *_golden_predates(INJECTOR_TABLE, NOMINAL_GOLDEN),
-        }
-    ),
-    # The golden captures the demo before it carried the storage ring's injection septa.
-    "the injection septa: their supplies and the pulse trace": frozenset(
-        {
-            "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM",
-            *(
-                f"SR:MAG:SEPTUM:{index:02d}:{signal}"
-                for index in (1, 2)
-                for signal in ("CURRENT:RB", "CURRENT:SP", "STATUS:ON")
-            ),
-        }
-    ),
-}
+#: The served address the capture leaves out besides the waveforms: the suite's
+#: synthetic string channel, which the demo does not carry.
+SUITE_ADDITIONS = frozenset({e2e_conftest.STRING_CHANNEL})
 #: The physics model's status channel: ``ok`` while it solves, its error text
 #: once it fails.
 SR_STATUS = "ca:SIM:SR:STATUS"
@@ -622,51 +562,26 @@ def test_the_served_nominals_are_the_captured_golden(
     session_view: View, nominal_reads: dict[str, Any], va_container: e2e_conftest.VaProject
 ) -> None:
     golden = json.loads(NOMINAL_GOLDEN.read_text(encoding="utf-8"))["channels"]
-    rebaselined = frozenset().union(*NOMINAL_REBASELINES.values())
-    added = frozenset().union(*NOMINAL_ADDITIONS.values())
+    # A trace is computed when it is read, not held: the composite's read is its value.
+    traces = frozenset(a for a in session_view.addresses if is_waveform(session_view.value_type(a)))
+    added = SUITE_ADDITIONS | traces
     z = _family_z(len(session_view.addresses))
     composite = _composite(session_view, va_container.state_dir)
-    mock = composite.held(session_view.addresses)
-    # A trace is computed when it is read, not held: the composite's read is its value.
-    traces = [a for a in session_view.addresses if is_waveform(session_view.value_type(a))]
-    mock.update(composite.get(traces))
+    mock = composite.held(sorted(added))
+    mock.update(composite.get(sorted(traces)))
 
     differing: dict[str, tuple[Any, Any]] = {}
     for address in session_view.addresses:
-        raw = nominal_reads[address]["value"]
-        if address in rebaselined or address in added:
-            expected = mock[address]
-            served = _wire_value(session_view, address, raw)
-        else:
-            expected = golden[address]["nominal"]
-            served = raw
+        served = _wire_value(session_view, address, nominal_reads[address]["value"])
+        expected = mock[address] if address in added else golden[address]["nominal"]
         band = session_view.motion_band(address, z) if session_view.moving(address) else 0.0
-        ok = _same(address, expected, served, band)
-        if not ok:
+        if not _same(address, expected, served, band):
             differing[address] = (expected, served)
 
+    assert traces
     assert set(golden) - set(session_view.addresses) == set()
     assert set(session_view.addresses) - set(golden) == added
     assert differing == {}
-
-
-def test_every_declared_rebaseline_really_differs_from_the_golden(
-    session_view: View, nominal_reads: dict[str, Any]
-) -> None:
-    """The declared set holds only real differences: an address that came back
-    to its golden value leaves it."""
-    golden = json.loads(NOMINAL_GOLDEN.read_text(encoding="utf-8"))["channels"]
-    z = _family_z(len(session_view.addresses))
-
-    unchanged = sorted(
-        address
-        for addresses in NOMINAL_REBASELINES.values()
-        for address in addresses
-        if abs(float(nominal_reads[address]["value"]) - float(golden[address]["nominal"]))
-        <= session_view.motion_band(address, z)
-    )
-
-    assert unchanged == []
 
 
 def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
