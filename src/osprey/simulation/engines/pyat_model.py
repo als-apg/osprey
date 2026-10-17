@@ -893,7 +893,14 @@ class PyATLatticeModel(LUMEPyATModel):
         armed flag, the shot count, the last request seen, the series and the
         time of the shot that filled them is worked out beside the write and adopted only once the write has
         committed, so a refused batch changes none of them.
+
+        A batch of commands alone writes no setting, so the lattice and its
+        solve stand as they are and are not solved again: only the shot is
+        worked out, from the lattice as the last solve left it.
         """
+        if values and values.keys() <= self._commands.keys() and not self._restoring:
+            self._set_commands(values)
+            return
         faults = {name: value for name, value in values.items() if name in self._fault_names}
         rest = {name: value for name, value in values.items() if name not in self._fault_names}
         self._pending_shot = self._shot_after(values)
@@ -902,6 +909,24 @@ class PyATLatticeModel(LUMEPyATModel):
             shot = self._pending_shot
         finally:
             self._pending_shot = None
+        self._adopt(shot)
+
+    def _set_commands(self, values: dict[str, Any]) -> None:
+        """Apply a batch of commands alone: work out its shot, and track it when armed.
+
+        Raises:
+            Whatever pyAT raises for a lattice it cannot track; nothing of
+            the batch is adopted then.
+        """
+        shot = self._shot_after(values)
+        if shot.track:
+            shot.buffers = self._track_shot(shot.count)
+            shot.time = self._next_shot_time()
+        self._inputs.update(values)
+        self._adopt(shot)
+
+    def _adopt(self, shot: _Shot) -> None:
+        """Make ``shot`` the model's shot state, once its batch has committed."""
         self._armed, self._shot_count, self._seen = shot.armed, shot.count, shot.seen
         if shot.buffers is not None:
             self._buffers, self._shot_time = shot.buffers, shot.time

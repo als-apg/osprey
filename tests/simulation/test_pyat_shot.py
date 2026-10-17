@@ -439,6 +439,42 @@ class TestCommit:
         assert built.get([REQUEST, CORRECTOR]) == {REQUEST: 0.0, CORRECTOR: 0.0}
         assert built.lattice[built.element_index("HCOR_01")].KickAngle[0] == 0.0
 
+    def test_a_batch_of_commands_alone_takes_its_shot_without_a_solve(
+        self, built: PyATLatticeModel, monkeypatch: pytest.MonkeyPatch
+    ):
+        def refuse() -> None:
+            raise AssertionError("a batch of commands alone solved the lattice")
+
+        monkeypatch.setattr(built.simulator, "solve", refuse)
+        built.set({ARM: 1})
+        built.set({OTHER_ARM: 1})
+        built.set({REQUEST: 1})
+        monkeypatch.undo()
+
+        assert built.get([ARM, OTHER_ARM, REQUEST]) == {ARM: 1.0, OTHER_ARM: 1.0, REQUEST: 1.0}
+        assert built.armed is False
+        assert built.shot_count == 1
+        assert_tracked(built)
+
+    def test_a_command_shot_that_cannot_be_tracked_changes_nothing(
+        self, built: PyATLatticeModel, monkeypatch: pytest.MonkeyPatch
+    ):
+        built.set({ARM: 1})
+        before = shot_state(built)
+
+        def fail(*_: Any, **__: Any) -> None:
+            raise RuntimeError("no track")
+
+        monkeypatch.setattr(pyat_model.at, "lattice_track", fail)
+        with pytest.raises(RuntimeError, match="no track"):
+            built.set({REQUEST: 1})
+        monkeypatch.undo()
+
+        assert_same_state(shot_state(built), before)
+        assert built.get(REQUEST) == 0.0
+        built.set({REQUEST: 1})
+        assert built.shot_count == 1
+
     def test_a_batch_refused_for_a_name_changes_nothing(self, built: PyATLatticeModel):
         built.set({ARM: 1})
         before = shot_state(built)
