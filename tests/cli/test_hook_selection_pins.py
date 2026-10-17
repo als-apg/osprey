@@ -38,16 +38,6 @@ PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
     "hello-world": ("approval", "writes-check"),
 }
 
-#: The golden a deployment is scaffolded against — a facility profile in every
-#: respect except that it lives in the test tree, so it is held to the same rule.
-EXEMPLAR_PROFILE = (
-    Path(__file__).resolve().parents[1]
-    / "deployment"
-    / "goldens"
-    / "exemplar-profile"
-    / "profile.yml"
-)
-
 
 def _resolved_hooks(preset: str) -> list[str]:
     """The hook selections a facility gets from ``preset``, extends applied."""
