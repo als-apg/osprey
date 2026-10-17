@@ -1677,20 +1677,20 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
     assert admin_web["scaffold_gallery"]["write_enabled"] is True
 
 
-# Hook helper libraries: selected everywhere, wired nowhere
+# Hook helper files: shipped with the hooks that need them, wired nowhere
 # ---------------------------------------------------------------------------
 
 
-def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
-    """Selection COPIES a hook file; docstring frontmatter WIRES it to an event.
+def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
+    """Selecting a hook COPIES the helpers it needs; nothing WIRES them.
 
-    ``osprey_hook_log.py`` and ``osprey_target_state.py`` are shared libraries
-    the real hooks import — a JSONL logger and the control-target state reader.
-    They ship in every deployment because the hooks that import them do, which
-    is why profiles name them in ``hooks:`` like any other artifact. But neither
-    declares an ``event`` in its docstring, so neither may appear in
-    ``settings.json``: a registration for a module with no handler is a hook
-    Claude Code would run on every matching tool call to no effect.
+    ``osprey_hook_log.py``, ``osprey_target_state.py`` and
+    ``osprey_safety_file.py`` are libraries the real hooks import, and
+    ``hook_config.json`` is the file the logger reads beside itself. A profile
+    names none of them: the build ships the closure of the hooks it does name.
+    None of them declares an ``event``, so none may appear in ``settings.json``:
+    a registration for a module with no handler is a hook Claude Code would run
+    on every matching tool call to no effect.
 
     Pinning both halves together is the point. Either half alone passes while
     the feature is broken — copied-but-wired fires a no-op hook, and
@@ -1708,22 +1708,20 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
             # build's write-gate lint: a profile whose PreToolUse chain never
             # matches `Write` refuses to build at all, and a test that pins
             # copied-vs-wired needs a profile that builds.
-            "hooks": [
-                "hook-log",
-                "target-state",
-                "safety-file",
-                "hook-config",
-                "approval",
-                "memory-guard",
-            ],
+            "hooks": ["approval", "memory-guard"],
             "rules": ["safety"],
         },
         data_root=bundle_data_root("control_assistant"),
     )
 
-    helpers = ("osprey_hook_log.py", "osprey_target_state.py", "osprey_safety_file.py")
+    helpers = (
+        "osprey_hook_log.py",
+        "osprey_target_state.py",
+        "osprey_safety_file.py",
+        "hook_config.json",
+    )
 
-    # Half one: the files are on disk beside the hook that imports them.
+    # Half one: the files are on disk beside the hook that needs them.
     hooks_dir = project / ".claude" / "hooks"
     for helper in helpers:
         assert (hooks_dir / helper).is_file(), f"{helper} was not copied into .claude/hooks/"

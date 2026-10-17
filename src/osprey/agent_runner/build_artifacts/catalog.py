@@ -11,6 +11,7 @@ metadata.  The catalog enables:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 
@@ -33,6 +34,9 @@ class BuildArtifact:
             than a single rendered file.  Directory artifacts are never
             Jinja-rendered at build time — their ``.j2`` files are rendered
             later, by ``osprey up``.
+        requires: The canonical names of the sibling rows this file imports
+            or reads beside itself.  A build that ships this row ships those
+            rows with it.
     """
 
     canonical_name: str
@@ -41,6 +45,7 @@ class BuildArtifact:
     description: str
     template_root: str = "claude_code"
     is_directory: bool = False
+    requires: tuple[str, ...] = ()
 
 
 #: The one output path several artifacts render, one per persona. Which of them
@@ -207,48 +212,56 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
+            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
             template_path="claude/hooks/osprey_writes_check.py",
             output_path=".claude/hooks/osprey_writes_check.py",
             description="Control-system write detection hook",
+            requires=("hooks/hook-log", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/error-guidance",
             template_path="claude/hooks/osprey_error_guidance.py",
             output_path=".claude/hooks/osprey_error_guidance.py",
             description="Error-guidance injection hook",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/limits",
             template_path="claude/hooks/osprey_limits.py",
             output_path=".claude/hooks/osprey_limits.py",
             description="Channel limits validation hook",
+            requires=("hooks/hook-log", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/notebook-update",
             template_path="claude/hooks/osprey_notebook_update.py",
             output_path=".claude/hooks/osprey_notebook_update.py",
             description="Notebook artifact update hook",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/cf-feedback-capture",
             template_path="claude/hooks/osprey_cf_feedback_capture.py",
             output_path=".claude/hooks/osprey_cf_feedback_capture.py",
             description="Channel finder feedback capture hook",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/hook-log",
             template_path="claude/hooks/osprey_hook_log.py",
             output_path=".claude/hooks/osprey_hook_log.py",
             description="Shared hook logging utility",
+            requires=("hooks/hook-config",),
         ),
         BuildArtifact(
             canonical_name="hooks/target-state",
             template_path="claude/hooks/osprey_target_state.py",
             output_path=".claude/hooks/osprey_target_state.py",
             description="Shared control-system target-state reader",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/safety-file",
@@ -271,36 +284,42 @@ def _get_default_artifacts() -> list[BuildArtifact]:
                 "reachable: Write is held to Claude memory files, NotebookEdit to the "
                 "agent-data artifacts and notebooks trees"
             ),
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
             description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/config-drift",
             template_path="claude/hooks/osprey_config_drift.py",
             output_path=".claude/hooks/osprey_config_drift.py",
             description="SessionStart hook that warns when config.yml drifted from generated artifacts",
+            requires=("hooks/hook-config",),
         ),
         BuildArtifact(
             canonical_name="hooks/panels-context",
             template_path="claude/hooks/osprey_panels_context.py",
             output_path=".claude/hooks/osprey_panels_context.py",
             description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
+            requires=("hooks/safety-file",),
         ),
         BuildArtifact(
             canonical_name="hooks/workspace-delta",
             template_path="claude/hooks/osprey_workspace_delta.py",
             output_path=".claude/hooks/osprey_workspace_delta.py",
             description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
+            requires=("hooks/safety-file",),
         ),
         BuildArtifact(
             canonical_name="hooks/control-context",
             template_path="claude/hooks/osprey_control_context.py",
             output_path=".claude/hooks/osprey_control_context.py",
             description="Puts the active control target and each target's write state in front of the agent at session start and whenever it moved since its last turn",
+            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/turn-state",
@@ -578,6 +597,13 @@ class BuildArtifactCatalog:
                     f"CLAUDE.md persona; name one of: {known}"
                 )
             self._by_output[INSTRUCTIONS_OUTPUT] = chosen
+        for a in artifacts:
+            unknown = [name for name in a.requires if name not in self._by_name]
+            if unknown:
+                raise ValueError(
+                    f"Build artifact '{a.canonical_name}' requires "
+                    f"{', '.join(repr(name) for name in unknown)}, which no build artifact is named"
+                )
 
     @classmethod
     def default(
@@ -606,6 +632,29 @@ class BuildArtifactCatalog:
         For ``CLAUDE.md`` the answer is the persona this catalog was built for.
         """
         return self._by_output.get(output_path)
+
+    def closure(self, names: Iterable[str]) -> frozenset[str]:
+        """*names* plus every row they require, transitively.
+
+        Args:
+            names: Canonical names; a name no row carries is kept and followed
+                no further.
+        """
+        seen: set[str] = set()
+        pending = list(names)
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            artifact = self._by_name.get(name)
+            if artifact is not None:
+                pending.extend(artifact.requires)
+        return frozenset(seen)
+
+    def helpers(self) -> frozenset[str]:
+        """The rows some other row requires: they ship as a closure, never selected."""
+        return frozenset(name for a in self._by_name.values() for name in a.requires)
 
     def all_artifacts(self) -> list[BuildArtifact]:
         """Return all artifacts in registration order."""

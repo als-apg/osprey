@@ -1,5 +1,6 @@
 """Tests for BuildArtifactCatalog — the declarative catalog of prompt artifacts."""
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -246,3 +247,84 @@ class TestInstructionsPersona:
             counts[art.output_path] = counts.get(art.output_path, 0) + 1
         shared = {path: n for path, n in counts.items() if n > 1}
         assert shared == {INSTRUCTIONS_OUTPUT: 4}
+
+
+# ---------------------------------------------------------------------------
+# Hook helpers: each hook row declares the sibling files it needs
+# ---------------------------------------------------------------------------
+
+_TEMPLATES_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates"
+
+
+def _hook_rows() -> list[BuildArtifact]:
+    """Every catalog row rendered into ``.claude/hooks/``."""
+    return [
+        art
+        for art in BuildArtifactCatalog.default().all_artifacts()
+        if art.template_root == "claude_code" and art.template_path.startswith("claude/hooks/")
+    ]
+
+
+def _derived_requires(row: BuildArtifact) -> set[str]:
+    """The sibling rows *row*'s template imports or names, read from its AST."""
+    siblings = _hook_rows()
+    by_module = {
+        Path(art.output_path).stem: art.canonical_name
+        for art in siblings
+        if art.output_path.endswith(".py")
+    }
+    by_file = {Path(art.output_path).name: art.canonical_name for art in siblings}
+
+    tree = ast.parse((_TEMPLATES_DIR / row.template_root / row.template_path).read_text())
+    heads: set[str] = set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            heads.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            heads.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            names.add(node.value)
+    heads.discard("osprey_connectors")
+
+    derived = {by_module[head] for head in heads if head in by_module}
+    derived |= {by_file[name] for name in names if name in by_file}
+    derived.discard(row.canonical_name)
+    return derived
+
+
+@pytest.mark.parametrize(
+    "row",
+    [art for art in _hook_rows() if art.template_path.endswith(".py")],
+    ids=lambda art: art.canonical_name,
+)
+def test_each_hook_row_requires_exactly_the_siblings_its_file_uses(row: BuildArtifact):
+    derived = _derived_requires(row)
+    assert set(row.requires) == derived, (
+        f"{row.canonical_name} ({row.template_path}) declares requires "
+        f"{sorted(row.requires)} but its file uses {sorted(derived)}; "
+        f"set requires on that row to {sorted(derived)}"
+    )
+
+
+def test_the_closure_is_transitive():
+    closure = BuildArtifactCatalog.default().closure({"hooks/approval"})
+    assert "hooks/approval" in closure
+    assert "hooks/hook-config" in closure
+
+
+def test_helpers_are_the_rows_something_requires():
+    assert BuildArtifactCatalog.default().helpers() == {
+        "hooks/hook-config",
+        "hooks/hook-log",
+        "hooks/safety-file",
+        "hooks/target-state",
+    }
+
+
+def test_a_requires_entry_naming_no_row_is_refused():
+    hook = BuildArtifact("hooks/mine", "mine.py", "mine.py", "x", requires=("hooks/nope",))
+    with pytest.raises(ValueError) as excinfo:
+        BuildArtifactCatalog([hook])
+    assert "hooks/mine" in str(excinfo.value)
+    assert "hooks/nope" in str(excinfo.value)

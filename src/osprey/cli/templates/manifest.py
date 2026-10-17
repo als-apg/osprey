@@ -146,6 +146,8 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     Config artifacts (CLAUDE.md, .mcp.json, .claude/settings.json, .claude/statusline.py) are always included.
     For each manifest entry, prefix-matching is used against the prompt registry to
     handle multi-file artifacts (e.g. session-report -> SKILL.md + reference.md).
+    Every matched artifact brings the rows it requires, transitively, so a hook
+    ships with the helper files it imports or reads.
 
     Args:
         manifest: Parsed manifest dict (from load_template_manifest)
@@ -157,6 +159,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
 
     registry = BuildArtifactCatalog.default()
     all_artifacts = registry.all_artifacts()
+    matched: set[str] = set()
 
     for category, entries in manifest.get("artifacts", {}).items():
         prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
@@ -172,7 +175,12 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
                     artifact.canonical_name == canonical_prefix
                     or artifact.canonical_name.startswith(canonical_prefix + "/")
                 ):
-                    result.add(artifact.output_path)
+                    matched.add(artifact.canonical_name)
+
+    for name in registry.closure(matched):
+        shipped = registry.get(name)
+        if shipped is not None:
+            result.add(shipped.output_path)
 
     return result
 
