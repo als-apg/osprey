@@ -674,23 +674,22 @@ a device the file does not declare — validation builds a mock for whatever the
 sample arguments name, so it says nothing about what the worker has. The
 channel finder answers for the whole facility; this file answers for the queue
 worker, and a plan’s channels come from here.</p>
-<p>When a plan drives a settable, the write is followed by a poll of the readback
-until it reaches the demand. Two profile keys bound that wait:
-<code class="docutils literal notranslate"><span class="pre">bluesky.settle_timeout_s</span></code> (default 5.0 seconds) is how long the poll runs
-before the move fails and the plan aborts, and <code class="docutils literal notranslate"><span class="pre">bluesky.settle_tolerance</span></code>
-(default <code class="docutils literal notranslate"><span class="pre">1e-9</span></code>) is how close the readback must come, as an absolute
-difference. That tolerance is a floor, never a ceiling.</p>
-<p>A setpoint states its own bound in the facility file, next to its <code class="docutils literal notranslate"><span class="pre">pair</span></code>:
-<code class="docutils literal notranslate"><span class="pre">tolerance:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the channel’s unit, or <code class="docutils literal notranslate"><span class="pre">tolerance:</span>
-<span class="pre">{relative:</span> <span class="pre">&lt;f&gt;}</span></code>, a fraction of the demand. The build writes it into the
-device file, and the device settles within the larger of the floor and that
-tolerance on every lane. A setpoint with no <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> settles, on a lane
-that serves the simulator, within its readback’s motion band
-(<code class="docutils literal notranslate"><span class="pre">|drift.amplitude|</span></code> + 6 × the noise sigma, a <code class="docutils literal notranslate"><span class="pre">relative</span></code> sigma taken at the
-seed’s <code class="docutils literal notranslate"><span class="pre">nominal</span></code>), and on a live or stand-in lane within the floor. The
-build warns once per such lane with the count of setpoints that declare no
-<code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, and once per scenario that moves a readback beyond its
-setpoint’s tolerance, since that scenario’s moves time out while it is active.
+<p>When a plan drives a settable, the move waits for its readback to come within
+a bound of the demand. The bound is the setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> in the
+facility file, next to its <code class="docutils literal notranslate"><span class="pre">pair</span></code>: <code class="docutils literal notranslate"><span class="pre">tolerance:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the
+channel’s unit, or <code class="docutils literal notranslate"><span class="pre">tolerance:</span> <span class="pre">{relative:</span> <span class="pre">&lt;f&gt;}</span></code>, a fraction of the demand.
+A setpoint with no <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> settles, on a lane that serves the simulator,
+within its readback’s motion band (<code class="docutils literal notranslate"><span class="pre">|drift.amplitude|</span></code> + 6 × the noise
+sigma, a <code class="docutils literal notranslate"><span class="pre">relative</span></code> sigma taken at the seed’s <code class="docutils literal notranslate"><span class="pre">nominal</span></code>), and on a live or
+stand-in lane within the floor. The floor is <code class="docutils literal notranslate"><span class="pre">bluesky.settle_tolerance</span></code>
+(default <code class="docutils literal notranslate"><span class="pre">1e-9</span></code>), an absolute difference, and the bound is never tighter.
+The move fails, and the plan aborts, when the readback is not inside its bound
+after <code class="docutils literal notranslate"><span class="pre">bluesky.settle_timeout_s</span></code> (default 5.0 seconds). pyAML measurement
+steps wait for their readbacks by the same rule, without the floor.</p>
+<p>The build warns once per live or stand-in lane with the count of setpoints
+that declare no <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, and once per scenario that moves a readback
+beyond its setpoint’s tolerance, since that scenario’s moves time out while it
+is active.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> prints the same warnings.</p>
 <p>A device that physically moves needs a <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> on its setpoint, and a
 slow device needs <code class="docutils literal notranslate"><span class="pre">settle_timeout_s</span></code> raised. Running out of budget always

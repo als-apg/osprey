@@ -665,42 +665,35 @@ under it. Reads then answer from the deployment’s baseline target and every
 write is refused. The first case clears itself as soon as the web terminal has
 written the record; the second is a configuration gap and stays until somebody
 fixes it.</p>
-<p id="notebooks-write-channel">A cell writes through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>. A client library’s own put —
-<code class="docutils literal notranslate"><span class="pre">epics.caput</span></code>, <code class="docutils literal notranslate"><span class="pre">PV.put</span></code>, a caproto <code class="docutils literal notranslate"><span class="pre">PV.write</span></code>, a Tango
-<code class="docutils literal notranslate"><span class="pre">write_attribute</span></code>, an ophyd-async signal set directly — goes around the
-connector, and with it around the write posture, the limits check and the
-audit record, so the kernel refuses it whatever the chip says. It raises
-<code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>, nothing is
-sent, and the cell prints one line above the traceback:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Direct client-library writes are refused. Write through osprey.runtime.write_channel(address, value) instead.
+<p id="notebooks-write-channel">A cell reaches the machine through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>. Importing a
+control-system client library — <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">aioca</span></code>, <code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code>,
+<code class="docutils literal notranslate"><span class="pre">caproto</span></code>, <code class="docutils literal notranslate"><span class="pre">p4p</span></code>, <code class="docutils literal notranslate"><span class="pre">pvaccess</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>, <code class="docutils literal notranslate"><span class="pre">PyTango</span></code> or <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code> —
+or loading one through <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> or <code class="docutils literal notranslate"><span class="pre">cffi</span></code> is refused, for reads as for
+writes, whatever the chip says. It raises <code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError</span></code>,
+nothing is loaded, and the cell prints one line above the traceback:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
 </pre></div>
 </div>
-<p>Turning writes on does not change that answer. Replace the put with the
-runtime’s call, which takes the same address and value:</p>
+<p>Turning writes on does not change that answer. Replace the import with the
+runtime’s calls, which take the same address and value:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Refused:</span>
-<span class="c1">#   from epics import caput</span>
-<span class="c1">#   caput(&quot;DEMO:CORR1:SP&quot;, 1.5)</span>
+<span class="c1">#   from epics import caget, caput</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.runtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_channel</span><span class="p">,</span> <span class="n">write_channels</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.runtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_channel</span><span class="p">,</span> <span class="n">write_channel</span><span class="p">,</span> <span class="n">write_channels</span>
 
+<span class="n">value</span> <span class="o">=</span> <span class="n">read_channel</span><span class="p">(</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">)</span>
 <span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
 <span class="n">write_channels</span><span class="p">({</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span> <span class="s2">&quot;DEMO:CORR2:SP&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">})</span>
 </pre></div>
 </div>
-<p>Reads through a client library are unchanged. So are the rpc calls (p4p’s
-<code class="docutils literal notranslate"><span class="pre">rpc</span></code>, pvaPy’s <code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code>) and Tango commands, which carry no
-channel value and stay allowed in a kernel, and the PVAccess puts (a p4p
-<code class="docutils literal notranslate"><span class="pre">Context.put</span></code>, a pvaPy <code class="docutils literal notranslate"><span class="pre">Channel.put</span></code> on a channel opened on PVAccess): the
-connector does not write PVAccess yet, so <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> has no route to a
-PVAccess channel and a raw put is how one is written. A kernel does not
-limits-check it. A pvaPy channel opened with <code class="docutils literal notranslate"><span class="pre">pvaccess.CA</span></code> is a Channel
-Access channel, and its put is refused like <code class="docutils literal notranslate"><span class="pre">caput</span></code>; so is a pvaPy
-<code class="docutils literal notranslate"><span class="pre">MultiChannel</span></code> write. A
-<code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> driving ophyd or ophyd-async devices inside a cell is refused
-the same way, because its devices end in a raw put; submit the plan to a
-Bluesky lane queue instead, where it runs unchanged. The refusal is filed in
-<code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code> with reason <code class="docutils literal notranslate"><span class="pre">raw_client_write</span></code>. The full list of
-refused entry points is under <a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>.</p>
+<p>ophyd, and ophyd-async’s EPICS modules such as <code class="docutils literal notranslate"><span class="pre">ophyd_async.epics.core</span></code>, are
+refused with them, because they load a client library underneath; <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>
+and <code class="docutils literal notranslate"><span class="pre">ophyd_async.core</span></code> import. Submit a plan that drives devices to a Bluesky
+lane queue instead, where it runs unchanged. Each refusal is filed in
+<code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code> with reason <code class="docutils literal notranslate"><span class="pre">raw_client_import</span></code>.</p>
+<p>The refusal keeps a cell on the connector path; it is not a sandbox. A shell
+escape or a subprocess starts a fresh interpreter without it, and what closes
+that route is the deployment’s network; see <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain"><span class="std std-ref">Safety Chain</span></a>.</p>
 <p>A refusal for any other reason — a write ceiling, a limits violation — carries
 no extra line, because nothing you do in the notebook would change it.</p>
 <p>A page reload keeps the kernel running, but the notebook comes back as it was

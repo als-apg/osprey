@@ -805,20 +805,26 @@ verified. <code class="docutils literal notranslate"><span class="pre">detail</s
 <td><p>The kernel’s refusal record, with <code class="docutils literal notranslate"><span class="pre">channel=</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_user=</span></code></p></td>
 <td><p>None</p></td>
 </tr>
-<tr class="row-odd"><td><p>Python executor write</p></td>
+<tr class="row-odd"><td><p>Refused client-library import</p></td>
+<td><p>None; nothing reached the wire</p></td>
+<td><p>The kernel’s refusal record, reason <code class="docutils literal notranslate"><span class="pre">raw_client_import</span></code>, with
+<code class="docutils literal notranslate"><span class="pre">package=</span></code> or <code class="docutils literal notranslate"><span class="pre">library=</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_user=</span></code></p></td>
+<td><p>None</p></td>
+</tr>
+<tr class="row-even"><td><p>Python executor write</p></td>
 <td><p>The card’s identity</p></td>
 <td><p>The <code class="docutils literal notranslate"><span class="pre">python_execute</span></code> record, with <code class="docutils literal notranslate"><span class="pre">ca_user</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_host</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">channels</span></code> on the tool-call record. A run killed mid-way lists what it
 attempted before it stopped</p></td>
 <td><p>Account, time window, channel when listed</p></td>
 </tr>
-<tr class="row-even"><td><p>Dispatched run</p></td>
+<tr class="row-odd"><td><p>Dispatched run</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code></p></td>
 <td><p>The worker’s tool-call records, with <code class="docutils literal notranslate"><span class="pre">owner</span></code> naming the person the
 run belongs to</p></td>
 <td><p>Worker name, channel, time</p></td>
 </tr>
-<tr class="row-odd"><td><p>Bluesky plan on a lane OSPREY renders</p></td>
+<tr class="row-even"><td><p>Bluesky plan on a lane OSPREY renders</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">osprey-bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey-bluesky-&lt;lane&gt;</span></code></p></td>
 <td><p>The lane’s pre-flight record in <code class="docutils literal notranslate"><span class="pre">preflight.jsonl</span></code>. <code class="docutils literal notranslate"><span class="pre">detail</span></code>
 carries <code class="docutils literal notranslate"><span class="pre">lane=</span></code>, <code class="docutils literal notranslate"><span class="pre">target=</span></code>, <code class="docutils literal notranslate"><span class="pre">owner=</span></code> when the plan was queued for
@@ -827,7 +833,7 @@ digest of the full sorted set (<code class="docutils literal notranslate"><span 
 (<code class="docutils literal notranslate"><span class="pre">channels=</span></code>), and <code class="docutils literal notranslate"><span class="pre">truncated=</span></code> saying whether any were left out</p></td>
 <td><p>Lane name, time window, channel in the plan</p></td>
 </tr>
-<tr class="row-even"><td><p>Bluesky plan on an external-worker lane</p></td>
+<tr class="row-odd"><td><p>Bluesky plan on an external-worker lane</p></td>
 <td><p>The facility worker’s account</p></td>
 <td><p>None in OSPREY; the facility’s RE Manager writes under its own account</p></td>
 <td><p>None</p></td>

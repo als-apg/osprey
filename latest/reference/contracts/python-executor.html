@@ -533,6 +533,13 @@ file), a <code class="docutils literal notranslate"><span class="pre">&quot;Succ
 a structured error (<code class="docutils literal notranslate"><span class="pre">error_type:</span> <span class="pre">&quot;execution_error&quot;</span></code>) whose <code class="docutils literal notranslate"><span class="pre">details</span></code> field
 carries the same information, so the agent receives an explicit error rather
 than a status field it might overlook.</p>
+<p>After <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel()</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.runtime.settle({address:</span>
+<span class="pre">demand})</span></code> waits until each setpoint’s readback is within the bound the
+facility file states for it: its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, else on the simulator its
+readback’s motion band. A setpoint with neither is not waited on. A readback
+that is not inside its bound within 5 seconds raises <code class="docutils literal notranslate"><span class="pre">SettleTimeoutError</span></code>,
+and the run fails. A readback that cannot be read, or answers no value, raises
+<code class="docutils literal notranslate"><span class="pre">SettleReadError</span></code>, which names it, and the run fails.</p>
 </section>
 <section id="measurement-tools">
 <span id="executor-measurement-tools"></span><h2>Measurement Tools<a class="headerlink" href="#measurement-tools" title="Link to this heading">#</a></h2>

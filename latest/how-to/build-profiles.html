@@ -987,6 +987,10 @@ framework’s, never a substitute for one.</p>
 <p>A declaration is refused at build time, with the reason, if it names a hook the
 resolved profile does not ship, a built-in hook whose wiring the framework
 already owns, or anything outside <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>.</p>
+<p>OSPREY’s own helper files ship beside the hooks that need them and are not named
+in <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>. A facility hook that wants a helper ships its own copy under
+<code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, or claims the rendered one with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span>
+<span class="pre">hooks/hook-log</span></code> after a build that rendered it.</p>
 <section id="unwiring-a-hook-in-a-persona">
 <span id="profile-unwire-hook"></span><h3>Unwiring a hook in a persona<a class="headerlink" href="#unwiring-a-hook-in-a-persona" title="Link to this heading">#</a></h3>
 <p>The wiring is a <code class="docutils literal notranslate"><span class="pre">config:</span></code> key, so a persona delta overrides it — but you have

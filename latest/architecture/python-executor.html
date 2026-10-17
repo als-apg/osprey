@@ -707,8 +707,9 @@ client at all, so they are refused in <code class="docutils literal notranslate"
 <code class="docutils literal notranslate"><span class="pre">check_output</span></code>, <code class="docutils literal notranslate"><span class="pre">os.system</span></code>, <code class="docutils literal notranslate"><span class="pre">os.popen</span></code>, and the <code class="docutils literal notranslate"><span class="pre">os.exec*</span></code>,
 <code class="docutils literal notranslate"><span class="pre">os.spawn*</span></code> and <code class="docutils literal notranslate"><span class="pre">posix_spawn</span></code> families. This is what stops a
 shelled-out <code class="docutils literal notranslate"><span class="pre">caput</span></code>.</p></li>
-<li><p>Loading a shared library — <code class="docutils literal notranslate"><span class="pre">ctypes.CDLL</span></code> and every class or loader
-built on it, which could otherwise open <code class="docutils literal notranslate"><span class="pre">libca</span></code> directly.</p></li>
+<li><p>Loading a shared library — every <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> spelling, down to the loader
+underneath them, and cffi’s <code class="docutils literal notranslate"><span class="pre">FFI.dlopen</span></code>, which could otherwise open
+<code class="docutils literal notranslate"><span class="pre">libca</span></code> directly. Every load after the guard is installed refuses.</p></li>
 <li><p>Resolving a Channel Access put symbol (<code class="docutils literal notranslate"><span class="pre">ca_array_put</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ca_array_put_callback</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_sg_array_put</span></code>) on any library handle,
 including the <code class="docutils literal notranslate"><span class="pre">libca</span></code> handle <code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code> loaded before the run, which
@@ -732,8 +733,7 @@ outside the executor.</p>
 <span id="python-executor-armed-block"></span><h3>What a readwrite run refuses<a class="headerlink" href="#what-a-readwrite-run-refuses" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run may write, but only through the connector. The raw-put
 block (layer 8) reads the same table as the list above and splits its client
-rows into four buckets, so the page, the executor and the notebook kernel
-agree on every row:</p>
+rows into four buckets, so the page and the executor agree on every row:</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> — <strong>refused</strong> unless a connector is making the put. The
 refusal does not depend on the value: an in-range <code class="docutils literal notranslate"><span class="pre">caput</span></code> is refused like an
 out-of-range one, because the connector is where a write is checked and
@@ -771,8 +771,8 @@ PVAccess writes away from every deployment. These keep the posture they had
 before the raw-put block: the approval hook asks for the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> or a builder callable carries no value to
-check and is refused). A run with limits off, and a notebook kernel, let them
-through. They move to <code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> once the connector writes PVAccess.</p>
+check and is refused). A run with limits off lets them through. They move to
+<code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> once the connector writes PVAccess.</p>
 <ul class="simple">
 <li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code> for the raw, thread, asyncio and cothread
 clients</p></li>
@@ -785,7 +785,7 @@ Tango’s <code class="docutils literal notranslate"><span class="pre">command_i
 An rpc payload or a Tango command has no channel value a connector write could
 carry, so no <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> call can stand in for one. An executor run with
 the limits database on <strong>refuses</strong> them, because nothing could bound them; a
-run with limits off, and a notebook kernel, <strong>lets them through</strong>.</p>
+run with limits off <strong>lets them through</strong>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_PASSED</span></code> — <strong>let through</strong>, because they write no device: p4p’s
 <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> and pvaPy’s <code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer</span></code>
 <code class="docutils literal notranslate"><span class="pre">update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> serve a PV rather than write one, and
@@ -843,6 +843,18 @@ comment or a message does not count. The hook answers with a <code class="docuti
 <code class="docutils literal notranslate"><span class="pre">.put(</span></code> — which also matches <code class="docutils literal notranslate"><span class="pre">queue.put</span></code> — are still asked about as
 before. <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> carries a path rather than source, so it is asked
 about as before and relies on the runtime block.</p>
+<p><strong>A notebook kernel’s mode.</strong> A notebook kernel installs the same block in its
+<code class="docutils literal notranslate"><span class="pre">no_client</span></code> mode, and never the armed one; <code class="docutils literal notranslate"><span class="pre">no_client</span></code> is never embedded in
+an executor run. It refuses the import of every package in <code class="docutils literal notranslate"><span class="pre">CLIENT_PACKAGES</span></code>
+— the top-level names of the armed block’s client rows — and a client shared
+library (<code class="docutils literal notranslate"><span class="pre">libca</span></code>, the PVAccess libraries) loaded through Python’s two
+loaders, <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> and <code class="docutils literal notranslate"><span class="pre">cffi</span></code>, for reads as for writes, with
+<code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError</span></code> and reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_IMPORT</span></code>. A client
+already loaded when the block is installed cannot be unloaded, so the install
+refuses it and the kernel does not start. Like the armed block it is
+cooperative: it keeps honest cell code on the connector path and is not a
+sandbox (see <a class="reference internal" href="safety-chain.html#architecture-safety-chain"><span class="std std-ref">Safety Chain</span></a>). See
+<a class="reference internal" href="../how-to/web-terminal/notebooks.html#notebooks-write-channel"><span class="std std-ref">what a cell may load</span></a>.</p>
 </section>
 <section id="writing-from-executed-code">
 <span id="python-executor-write-channel"></span><h3>Writing from executed code<a class="headerlink" href="#writing-from-executed-code" title="Link to this heading">#</a></h3>

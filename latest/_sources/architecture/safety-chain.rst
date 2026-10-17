@@ -171,10 +171,11 @@ A cell is run by a person, so no tool call and none of the checks are involved. 
 are the deployment's settings, which the notebook kernel carries. The kernel starts with writes
 off, and before every cell it re-reads which machine the deployment points at and whether it
 may write; a switch made anywhere reaches the next cell, and narrowing the machine reaches a
-cell already running, because the connector checks the narrowing on every write. A cell writes
-through ``osprey.runtime.write_channel``; a client library's own put is refused whatever the
-chip says, so every write a cell makes reaches the connector, PVAccess puts excepted until
-the connector writes PVAccess. A refused
+cell already running, because the connector checks the narrowing on every write. A cell reaches
+the machine through ``osprey.runtime``: importing a control-system client library, or loading
+one through ``ctypes`` or ``cffi``, is refused whatever the chip says, for reads as for writes,
+so a cell written the ordinary way reads and writes through the connector. The block is
+cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the ``notebooks`` and ``artifacts``
 folders under the agent-data root, held there by a file-write guard that protects the host's
@@ -337,15 +338,25 @@ RunEngine and devices: no OSPREY check runs inside it, so neither a person's nar
 lane's ceiling reaches its writes. The name OSPREY puts on such an item is attribution --- it
 says who queued the plan, not what gated it.
 
-The raw-put block that sends Python runs and notebook cells through the connector has gaps of
-the same kind. It refuses a client library's own put, and it tells a connector's put apart by
-the connector's write door, which records who is making the put rather than guarding it. Code
-that goes around the client library altogether is not stopped: a ``libca`` handle loaded
-through ``ctypes``, a raw socket, a user-installed pyepics' callback under
-``PREEMPTIVE_CALLBACK=False`` run inside a connector's waiting put, a connector subclass
-written in the run itself, or a shell escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
+The raw-put block that sends Python runs through the connector has gaps of the same kind. It
+refuses a client library's own put, and it tells a connector's put apart by the connector's
+write door, which records who is making the put rather than guarding it. Code that goes around
+the client library altogether is not stopped: a ``libca`` handle loaded through ``ctypes``, a
+raw socket, a user-installed pyepics' callback under ``PREEMPTIVE_CALLBACK=False`` run inside a
+connector's waiting put, or a connector subclass written in the run itself.
+
+A notebook kernel's block refuses the client library itself: client imports and Python's two
+loaders (``ctypes`` and ``cffi``) are refused. What remains is the OS loader itself (an extension
+module that links a client library, loaded from a copied package), a fresh interpreter with no
+block at all (a shell escape such as ``!python -c …``, or ``subprocess``), an edited
+``sys.meta_path``, and a raw socket.
+
 These are **cooperative bypasses**: the block keeps honest code on the checked path, and it is
-not a sandbox. See :ref:`python-executor-armed-block` and :ref:`connector-write-door`.
+not a sandbox. See :ref:`python-executor-armed-block`, :ref:`connector-write-door` and
+:ref:`what a cell may load <notebooks-write-channel>`. The next layer is **network posture**:
+only connector-host children should reach a gateway. The web tier runs ``network_mode: host``
+today, so a kernel, and anything a cell starts, can reach any gateway a connector-host child
+can.
 
 **The approval prompt attributes a write to a person; it does not contain code already running
 in the container.** The prompt is answered at the terminal, and the terminal's server runs in
@@ -379,8 +390,9 @@ line joins back to them; see :ref:`audit-trail-attribution`.
 on trust. OSPREY authenticates the person at the login wall, and the name repeats that answer
 in a place the control system can read. It is process-wide, so it covers every write route in
 the card --- the connector, the Python executor, notebook kernels and raw client libraries ---
-but it is not a sandbox: a process running as uid 1000 can still reach the client library
-through ``ctypes`` or a raw socket, and what gates a write is the chain above, not the name.
+but it is not a sandbox: a process running as uid 1000 can still reach the control system
+around the blocks above --- through ``ctypes`` in an executor run, the OS loader, a fresh
+interpreter or a raw socket --- and what gates a write is the chain above, not the name.
 
 .. note::
 

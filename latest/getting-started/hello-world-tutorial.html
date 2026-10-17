@@ -515,10 +515,10 @@ covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.</p>
 <p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of named
-artifacts from the OSPREY library — fourteen hooks (three of which form the
+artifacts from the OSPREY library — eleven hooks (three of which form the
 write-safety chain), three rules, and one output style:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">hooks</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hook-log</span><span class="w">       </span><span class="c1"># Append every tool call to a structured JSONL audit log</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error-guidance</span><span class="w"> </span><span class="c1"># Post-error hook that surfaces remediation hints</span>
 <span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 <span class="w">  </span><span class="c1"># The next three are the write-safety chain, and no write reaches the control</span>
 <span class="w">  </span><span class="c1"># system until all three agree. Remove any one of them and `osprey build`</span>

@@ -555,8 +555,8 @@ knowledge tools, and where to read the facts the build generates.</p></td>
 <td><p>Yes</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">control-system-safety.md</span></code></p></td>
-<td><p>Which control protocol the facility runs (EPICS, Tango, OPC-UA, LabVIEW)
-and the required <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> write path.</p></td>
+<td><p>Which control protocol the deployment’s connector speaks (EPICS Channel
+Access, DOOCS, Tango) and the required <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> write path.</p></td>
 <td><p>Yes</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timezone.md</span></code></p></td>
@@ -590,16 +590,16 @@ loads unconditionally at session start.</p>
 <section id="test-ioc-port-isolation">
 <h2>Test IOC port isolation<a class="headerlink" href="#test-ioc-port-isolation" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">test-ioc-safety</span></code> is a packaged rule the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset selects
-by default (it renders only for EPICS-family control systems). For other
-profiles, add it to the <code class="docutils literal notranslate"><span class="pre">rules:</span></code> list when the project runs an EPICS soft IOC
-for testing:</p>
+by default (it renders only where the deployment’s connector speaks Channel
+Access). For other profiles, add it to the <code class="docutils literal notranslate"><span class="pre">rules:</span></code> list when the project runs
+an EPICS soft IOC for testing:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">rules</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test-ioc-safety</span><span class="w">   </span><span class="c1"># mandatory port isolation for a test soft IOC</span>
 </pre></div>
 </div>
-<p>It renders only for EPICS-family control systems (<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> of
-<code class="docutils literal notranslate"><span class="pre">epics</span></code> or <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>); selected under any other protocol it
-renders empty and the build drops the file.</p>
+<p>It renders wherever the deployment’s connector speaks Channel Access: an EPICS
+machine, the served virtual accelerator, the live stand-in. Under any other
+connector it renders empty and the build drops the file.</p>
 <p>The rule exists because EPICS Channel Access broadcasts on UDP by default. A
 <code class="docutils literal notranslate"><span class="pre">softIoc</span></code> started with no port configuration binds to UDP 5064 (server) and
 5065 (beacon) and beacons to the broadcast address — where every real IOC on the

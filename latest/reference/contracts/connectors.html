@@ -686,9 +686,11 @@ substitute for the connector’s mechanical refusal.</p>
 </section>
 <section id="the-write-door">
 <span id="connector-write-door"></span><h3>The write door<a class="headerlink" href="#the-write-door" title="Link to this heading">#</a></h3>
-<p>In a readwrite executor run and in a notebook kernel, a client library’s put
-entry points refuse a put that no connector is making
-(<a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>). A connector marks its own put by
+<p>In a readwrite executor run, a client library’s put entry points refuse a put
+that no connector is making (<a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>). A notebook
+kernel refuses to load a client library at all
+(<a class="reference internal" href="../../how-to/web-terminal/notebooks.html#notebooks-write-channel"><span class="std std-ref">what a cell may load</span></a>), so the door opens
+only in the processes that hold a connector. A connector marks its own put by
 holding the <strong>write door</strong> open around it. The base class does that for every
 connector: it wraps <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> and <code class="docutils literal notranslate"><span class="pre">write_multiple_channels</span></code> — the
 latter is what <code class="docutils literal notranslate"><span class="pre">write_channels</span></code> reaches — and, after the write-posture
