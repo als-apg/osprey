@@ -491,7 +491,8 @@ Virtual Accelerator:
 - **the store** — a MongoDB service (``archiver-mongodb`` on the deployment's
   network, published on host port 27017 by default), holding one collection of
   timestamped samples; every channel the facility declares is recorded under
-  its own address, an EPICS field name (``.RBV``) included;
+  its own address, an EPICS field name (``.RBV``) included, and waveform
+  channels are kept in a sibling collection (see `Waveform channels`_);
 - **the recorder** — a small service that reads the running machine on a fixed
   cadence and writes what answered into that collection.
 
@@ -553,6 +554,37 @@ these defaults.
    code. Changing one is a profile edit and a rebuild; the next
    ``osprey up`` notices the archive no longer describes what the profile
    asks for and reseeds it. See :doc:`../build-profiles`.
+
+Waveform channels
+-----------------
+
+A waveform channel — one whose value is a whole trace, such as a septum's
+current pulse — is archived beside the scalars, not among them:
+
+- **its own collection.** Traces live in a sibling collection named after the
+  scalar one with ``_waveforms`` appended (``<collection>_waveforms``), one
+  document per channel per instant, the trace stored whole as a list of floats.
+- **one trace a minute.** The seed and the recorder both write a waveform at the
+  tail cadence — **every 60 seconds** at the shipped defaults
+  (``tail_cadence_sec``) — never at the 10-second scalar cadence, so the hot
+  span holds no denser waveform history than the rest of the window. The build
+  requires the recorder's waveform cadence (``recorder_tail_cadence_sec``) to
+  equal the seed's, so both write one history on one grid.
+- **raw reads only.** The archiver connector returns a waveform channel's value
+  as ``list[float]``, every stored trace in range, unbinned. Raw is the only
+  processing defined for a waveform; asking for an average, a min/max or any
+  other aggregation of one is refused with an error naming the channel.
+- **a budget per read.** ``archiver_read`` never bins a waveform channel; it
+  returns every trace in range at the channel's stored cadence and counts the
+  points. One read may return at most **32,000** waveform points summed over
+  every trace of every waveform channel requested — an hour of one 500-point
+  trace a minute fits. A read over the budget is refused before anything is
+  built, with a hint to narrow the window or read fewer waveform channels at
+  once. Scalar samples do not count against it.
+
+The EPICS archiver connector does not support arrays: reading a waveform PV
+through it is refused with ``Waveform PVs not supported``. Waveform history is
+only available from the store this stack deploys.
 
 What the archive will not claim
 -------------------------------

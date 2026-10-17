@@ -852,6 +852,43 @@ wires it. It is keyed by address:</p>
 value a weighted sum of other channels. A wired channel starts from its deck
 and needs no seed. The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when a nominal lies
 outside the channel’s limits.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pulse</span></code> gives a waveform channel its trace. It names two other channels:
+<code class="docutils literal notranslate"><span class="pre">driver</span></code>, whose reading scales the trace, and <code class="docutils literal notranslate"><span class="pre">enable</span></code>, which switches it
+on. The trace’s shape is fixed in code, not in the seed; with <code class="docutils literal notranslate"><span class="pre">enable</span></code> off
+the trace is flat zero.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">INJ:SEPTUM:PULSE</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pulse</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SEPTUM:AMPL</span>
+<span class="w">    </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SEPTUM:ENABLE</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">gate</span></code> says what a channel does while an interlock-like input blocks it.
+<code class="docutils literal notranslate"><span class="pre">inputs</span></code> maps each input’s address to its <strong>blocking label</strong>; while any input
+reads its blocking label the channel takes <code class="docutils literal notranslate"><span class="pre">gated</span></code>, and otherwise it behaves
+as its other seed keys say. <code class="docutils literal notranslate"><span class="pre">gated</span></code> is typed by the gated channel: a factor
+greater than zero on a float channel (the value is scaled by it), a label on a
+bool or enum channel, an integer on an int channel.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:BEAM:CURRENT</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+<span class="w">  </span><span class="nt">gate</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">SR:RF:PERMIT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">blocked</span>
+<span class="w">    </span><span class="nt">gated</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+</pre></div>
+</div>
+<p>The build checks both keys and stops with <code class="docutils literal notranslate"><span class="pre">value-invalid</span></code> when:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pulse</span></code> sits on a channel that is not a waveform, or its <code class="docutils literal notranslate"><span class="pre">driver</span></code> is not
+an unwired float channel, or its <code class="docutils literal notranslate"><span class="pre">enable</span></code> is not an unwired bool channel;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gate</span></code> sits on a channel that is not float, int, bool or enum; an input is
+wired, is not a bool or enum channel, or names a label that channel does not
+have; or <code class="docutils literal notranslate"><span class="pre">gated</span></code> does not fit the channel’s type as above;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gate</span></code> inputs form a cycle (<code class="docutils literal notranslate"><span class="pre">a</span></code> gated by <code class="docutils literal notranslate"><span class="pre">b</span></code> gated by <code class="docutils literal notranslate"><span class="pre">a</span></code>).</p></li>
+</ul>
+<p>A <code class="docutils literal notranslate"><span class="pre">pulse</span></code> or <code class="docutils literal notranslate"><span class="pre">gate</span></code> input that names no channel stops the build with
+<code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>. The build only checks a <code class="docutils literal notranslate"><span class="pre">gate</span></code>; the simulator’s
+texture evaluates it on every read, the same way it applies <code class="docutils literal notranslate"><span class="pre">noise</span></code> and
+<code class="docutils literal notranslate"><span class="pre">drift</span></code>.</p>
 </section>
 <section id="models-and-decks">
 <h2>Models and decks<a class="headerlink" href="#models-and-decks" title="Link to this heading">#</a></h2>

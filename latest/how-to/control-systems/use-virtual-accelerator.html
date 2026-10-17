@@ -981,7 +981,8 @@ Virtual Accelerator:</p>
 <li><p><strong>the store</strong> — a MongoDB service (<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> on the deployment’s
 network, published on host port 27017 by default), holding one collection of
 timestamped samples; every channel the facility declares is recorded under
-its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>) included;</p></li>
+its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>) included, and waveform
+channels are kept in a sibling collection (see <a class="reference internal" href="#waveform-channels">Waveform channels</a>);</p></li>
 <li><p><strong>the recorder</strong> — a small service that reads the running machine on a fixed
 cadence and writes what answered into that collection.</p></li>
 </ul>
@@ -1091,6 +1092,36 @@ code. Changing one is a profile edit and a rebuild; the next
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> notices the archive no longer describes what the profile
 asks for and reseeds it. See <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 </div>
+</section>
+<section id="waveform-channels">
+<h3>Waveform channels<a class="headerlink" href="#waveform-channels" title="Link to this heading">#</a></h3>
+<p>A waveform channel — one whose value is a whole trace, such as a septum’s
+current pulse — is archived beside the scalars, not among them:</p>
+<ul class="simple">
+<li><p><strong>its own collection.</strong> Traces live in a sibling collection named after the
+scalar one with <code class="docutils literal notranslate"><span class="pre">_waveforms</span></code> appended (<code class="docutils literal notranslate"><span class="pre">&lt;collection&gt;_waveforms</span></code>), one
+document per channel per instant, the trace stored whole as a list of floats.</p></li>
+<li><p><strong>one trace a minute.</strong> The seed and the recorder both write a waveform at the
+tail cadence — <strong>every 60 seconds</strong> at the shipped defaults
+(<code class="docutils literal notranslate"><span class="pre">tail_cadence_sec</span></code>) — never at the 10-second scalar cadence, so the hot
+span holds no denser waveform history than the rest of the window. The build
+requires the recorder’s waveform cadence (<code class="docutils literal notranslate"><span class="pre">recorder_tail_cadence_sec</span></code>) to
+equal the seed’s, so both write one history on one grid.</p></li>
+<li><p><strong>raw reads only.</strong> The archiver connector returns a waveform channel’s value
+as <code class="docutils literal notranslate"><span class="pre">list[float]</span></code>, every stored trace in range, unbinned. Raw is the only
+processing defined for a waveform; asking for an average, a min/max or any
+other aggregation of one is refused with an error naming the channel.</p></li>
+<li><p><strong>a budget per read.</strong> <code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> never bins a waveform channel; it
+returns every trace in range at the channel’s stored cadence and counts the
+points. One read may return at most <strong>32,000</strong> waveform points summed over
+every trace of every waveform channel requested — an hour of one 500-point
+trace a minute fits. A read over the budget is refused before anything is
+built, with a hint to narrow the window or read fewer waveform channels at
+once. Scalar samples do not count against it.</p></li>
+</ul>
+<p>The EPICS archiver connector does not support arrays: reading a waveform PV
+through it is refused with <code class="docutils literal notranslate"><span class="pre">Waveform</span> <span class="pre">PVs</span> <span class="pre">not</span> <span class="pre">supported</span></code>. Waveform history is
+only available from the store this stack deploys.</p>
 </section>
 <section id="what-the-archive-will-not-claim">
 <h3>What the archive will not claim<a class="headerlink" href="#what-the-archive-will-not-claim" title="Link to this heading">#</a></h3>
@@ -1233,6 +1264,7 @@ reporting the key as merely unset.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-archive">The archive</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-history-is-there">What history is there</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#waveform-channels">Waveform channels</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-archive-will-not-claim">What the archive will not claim</a></li>
 </ul>
 </li>
