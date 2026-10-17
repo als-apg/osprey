@@ -105,12 +105,34 @@ def test_readonly_install_does_not_import_cffi():
 
 
 _HOLDS_A_LOADER = """
-    import _ctypes
+    import importlib.util
+
+    from osprey.runtime import raw_put_block
 
 
-    def holds_a_loader(loader):
-        return any(callable(cell.cell_contents) for cell in loader.__closure__ or ())
+    def report_loader_rows():
+        rows = raw_put_block._CTYPES_LOADER_ROWS | raw_put_block._FFI_LOADER_ROWS
+        for dotted, attr in sorted(rows):
+            if importlib.util.find_spec(dotted.split(".")[0]) is None:
+                continue
+            owner = raw_put_block._resolve(dotted)
+            if owner is None or not hasattr(owner, attr):
+                continue
+            loader = getattr(owner, attr)
+            gated = bool(getattr(loader, "_osprey_loader_gate", False))
+            holds = any(callable(cell.cell_contents) for cell in loader.__closure__ or ())
+            print("ROW", f"{dotted}.{attr}", "GATED", gated, "HOLDS", holds)
 """
+
+
+def _loader_rows(lines: list[str]) -> dict[str, tuple[str, str]]:
+    rows = {}
+    for line in lines:
+        if line.startswith("ROW "):
+            _, row, _, gated, _, holds = line.split()
+            rows[row] = (gated, holds)
+    assert "_ctypes.dlopen" in rows, lines
+    return rows
 
 
 def test_no_client_wraps_the_loader_while_readonly_holds_none():
@@ -133,7 +155,7 @@ def test_no_client_wraps_the_loader_while_readonly_holds_none():
                 + _HOLDS_A_LOADER
                 + f"""
     print("LOADS", ctypes.CDLL({libc!r}).strlen(b"abc") == 3)
-    print("HOLDS", holds_a_loader(_ctypes.dlopen))
+    report_loader_rows()
 """
             ),
         ],
@@ -142,15 +164,21 @@ def test_no_client_wraps_the_loader_while_readonly_holds_none():
         timeout=180,
     )
     assert no_client.returncode == 0, no_client.stderr
-    assert no_client.stdout.split() == ["LOADS", "True", "HOLDS", "True"], no_client.stdout
+    no_client_lines = no_client.stdout.strip().splitlines()
+    assert no_client_lines[0] == "LOADS True", no_client.stdout
+    for row, state in _loader_rows(no_client_lines).items():
+        assert state == ("True", "True"), (row, no_client.stdout)
 
     lines = _run(
         _HOLDS_A_LOADER
         + f"""
+    import _ctypes
+
     attempt("dlopen", lambda: _ctypes.dlopen({libc!r}))
-    print("HOLDS", holds_a_loader(_ctypes.dlopen))
+    report_loader_rows()
     """
     )
 
-    _assert_refused(lines[-2], "dlopen")
-    assert lines[-1] == "HOLDS False", lines
+    _assert_refused(next(line for line in lines if line.startswith("dlopen ")), "dlopen")
+    for row, state in _loader_rows(lines).items():
+        assert state == ("True", "False"), (row, lines)
