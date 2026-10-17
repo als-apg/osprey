@@ -18,6 +18,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -310,13 +311,12 @@ async def seeded_ariel_db(
     logger.info("Cleaning up test entries")
     async with e2e_migrated_pool.connection() as conn:
         # Clean up embeddings first (foreign key)
-        try:
+        # Table may not exist
+        with contextlib.suppress(Exception):
             await conn.execute("""
                 DELETE FROM text_embeddings_nomic_embed_text
                 WHERE entry_id LIKE 'E%'
             """)
-        except Exception:
-            pass  # Table may not exist
 
         # Clean up entries
         await conn.execute("""
@@ -607,13 +607,12 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     yield entry
 
     async with seeded_ariel_db["pool"].connection() as conn:
-        try:
+        # Table may not exist
+        with contextlib.suppress(Exception):
             await conn.execute(
                 "DELETE FROM text_embeddings_nomic_embed_text WHERE entry_id = %s",
                 [VOCAB_ENTRY_ID],
             )
-        except Exception:
-            pass  # Table may not exist
         await conn.execute(
             "DELETE FROM enhanced_entries WHERE entry_id = %s",
             [VOCAB_ENTRY_ID],

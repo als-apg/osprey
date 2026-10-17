@@ -4,24 +4,40 @@
  * Thin POST helpers for the panel visibility / registration endpoints, shared
  * by the tab strip's "×", the "+" add menu, and any other caller. Kept out of
  * panel-manager so that module stays focused on panel lifecycle and rendering.
- * Each issues its request and returns; the server's SSE echo drives the DOM, so
- * a human action and an agent MCP call are indistinguishable downstream.
+ * Each issues its request; the server's SSE echo drives the DOM, so a human
+ * action and an agent MCP call are indistinguishable downstream.
  */
 
 import { withPrefix } from './api.js';
 
 /**
- * Show or hide a panel. Fire-and-forget: the panel_visibility SSE echo updates
- * every connected client's tab strip, so there is nothing to await here.
+ * Show or hide a panel. The panel_visibility SSE echo updates every connected
+ * client's rail, so the DOM never waits on this call and most callers drop the
+ * result. It resolves whether the server accepted the change, for the caller
+ * that offers an Undo: a removal that never happened has nothing to take back.
+ * Never rejects.
+ *
+ * `index` places an ADDED panel at that position among the rail's panel
+ * entries (the SESSION entry not counted) — how an Undo puts a removed entry
+ * back where the operator saw it. Without one an addition goes to the end. The
+ * server ignores it when hiding and when the panel is already on the rail.
  * @param {string} panelId
  * @param {boolean} visible
+ * @param {number} [index]
+ * @returns {Promise<boolean>}
  */
-export function setPanelVisibility(panelId, visible) {
-  fetch(withPrefix('/api/panel-visibility'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ panel: panelId, visible }),
-  }).catch(() => {});
+export async function setPanelVisibility(panelId, visible, index) {
+  const body = index === undefined ? { panel: panelId, visible } : { panel: panelId, visible, index };
+  try {
+    const resp = await fetch(withPrefix('/api/panel-visibility'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**

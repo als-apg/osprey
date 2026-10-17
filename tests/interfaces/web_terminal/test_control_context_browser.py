@@ -45,6 +45,7 @@ has OOM-killed the runner here before.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -89,10 +90,9 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 
-try:
+# without playwright, the chromium_browser fixture skips the suite
+with contextlib.suppress(ImportError):
     from playwright.sync_api import expect
-except ImportError:  # pragma: no cover — the chromium_browser fixture skips the suite
-    pass
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 

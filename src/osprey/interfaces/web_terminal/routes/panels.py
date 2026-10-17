@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import ipaddress
 import logging
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.interfaces.common_middleware import (
     MOUNT_SEGMENT_RE,
@@ -655,9 +656,19 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 
 
 class PanelVisibilityRequest(BaseModel):
+    """A rail-membership change.
+
+    ``index`` places a panel being ADDED at that position of the rail's panel
+    entries (the SESSION entry is not counted), clamped to the list. It is how an
+    operator's Undo puts a removed entry back where it was; without it an added
+    panel goes to the end. It is ignored when hiding and when the panel is
+    already a member, which keeps its place.
+    """
+
     panel: str
     visible: bool
     source: Literal["agent"] | None = None
+    index: int | None = Field(default=None, ge=0)
 
 
 @router.post("/api/panel-visibility")
@@ -669,8 +680,14 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     flag, so a client reading the history can word it the way it words the live
     frame.
 
+    A positioned addition carries its clamped ``index`` on the frame, so every
+    client places the entry at the same position of its own rail rather than
+    only the client that asked; the frame of an addition that changed nothing
+    carries none, so no client moves an entry that was already there.
+
     Args:
-        body: ``panel`` (panel id) and ``visible`` (desired visibility).
+        body: ``panel`` (panel id), ``visible`` (desired visibility) and the
+            optional ``index`` an addition is placed at.
         request: Incoming FastAPI request carrying ``app.state``.
 
     Returns:
@@ -682,13 +699,19 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     if body.panel not in _known_panel_ids(request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     visible_panels: list[str] = list(getattr(request.app.state, "visible_panels", []))
+    index: int | None = None
     if body.visible:
-        if body.panel not in visible_panels:
+        if body.panel not in visible_panels and body.index is not None:
+            index = min(body.index, len(visible_panels))
+            visible_panels.insert(index, body.panel)
+        elif body.panel not in visible_panels:
             visible_panels.append(body.panel)
     else:
         visible_panels = [p for p in visible_panels if p != body.panel]
     request.app.state.visible_panels = visible_panels
     event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
+    if index is not None:
+        event["index"] = index
     if body.source:
         event["source"] = body.source
     if body.source == "agent":
@@ -1488,10 +1511,9 @@ async def restart_terminal(request: Request):
     logger.info("All PTY sessions terminated for restart")
 
     # Terminate all operator sessions if active
-    try:
+    # May not have active operator sessions
+    with contextlib.suppress(Exception):
         await operator_registry.cleanup_all()
-    except Exception:
-        pass  # May not have active operator sessions
 
     return {"status": "ok", "message": "Terminal session terminated — reconnecting"}
 

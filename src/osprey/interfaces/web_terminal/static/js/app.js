@@ -25,7 +25,7 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
-import { initActivityLogButton } from './activity-log-link.js';
+import { initRailMoreMenu } from './rail-more-menu.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
@@ -95,9 +95,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initKeyboardShortcuts();
   initCommandPalette();
   try {
-    initActivityLogButton(getCurrentSessionId);
+    initRailMoreMenu({ getSessionId: getCurrentSessionId });
   } catch (err) {
-    console.error('Failed to init activity log button:', err);
+    console.error('Failed to init the rail More menu:', err);
   }
   initNewSessionButton();
   initLogoutButton();

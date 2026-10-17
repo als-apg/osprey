@@ -1,5 +1,6 @@
 """AskSage Provider Adapter Implementation."""
 
+import contextlib
 import json
 from typing import Any
 
@@ -124,10 +125,9 @@ class AskSageProviderAdapter(BaseProvider):
     ) -> str | Any:
         """Execute AskSage chat completion."""
         # Ensure models list is populated for any UI callers that rely on metadata
-        try:
+        # Best-effort model list refresh; not required for completion
+        with contextlib.suppress(Exception):
             self.get_available_models(api_key=api_key, base_url=base_url)
-        except Exception:
-            pass  # Best-effort model list refresh; not required for completion
 
         # Check for thinking parameters (not supported by AskSage)
         enable_thinking = kwargs.get("enable_thinking", False)

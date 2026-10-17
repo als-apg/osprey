@@ -54,11 +54,11 @@ const BARS_CSS = join(
 let cleanups = [];
 
 /**
- * A layout document. Only the two item lists and the two visibility flags are read by
+ * A layout document. Only the item lists and the visibility flags are read by
  * the host; the schema fields are carried so the fixture is a real document.
  * @param {string[]} header
  * @param {string[]} status
- * @param {{headerVisible?: boolean, statusVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
+ * @param {{headerVisible?: boolean, statusVisible?: boolean, railDocsVisible?: boolean, railFeedbackVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
  * @returns {BarLayout}
  */
 function layoutOf(header, status, extra = {}) {
@@ -71,6 +71,8 @@ function layoutOf(header, status, extra = {}) {
     status: status.map(item),
     header_visible: extra.headerVisible ?? true,
     status_visible: extra.statusVisible ?? true,
+    rail_docs_visible: extra.railDocsVisible ?? true,
+    rail_feedback_visible: extra.railFeedbackVisible ?? true,
   };
 }
 
@@ -336,6 +338,16 @@ describe('order and parking', () => {
 
     reconcile(layoutOf([], [], { headerVisible: true }));
     expect(document.documentElement.dataset.headerBar).toBe('visible');
+  });
+
+  test('the rail Docs and Feedback flags are mirrored, each on its own', () => {
+    reconcile(layoutOf([], [], { railDocsVisible: false }));
+    expect(document.documentElement.dataset.railDocs).toBe('hidden');
+    expect(document.documentElement.dataset.railFeedback).toBe('visible');
+
+    reconcile(layoutOf([], [], { railFeedbackVisible: false }));
+    expect(document.documentElement.dataset.railDocs).toBe('visible');
+    expect(document.documentElement.dataset.railFeedback).toBe('hidden');
   });
 });
 

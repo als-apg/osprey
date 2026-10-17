@@ -233,11 +233,15 @@ class TestGet:
             "status",
             "header_visible",
             "status_visible",
+            "rail_docs_visible",
+            "rail_feedback_visible",
         }
         assert body["version"] == BAR_LAYOUT_VERSION
         assert body["rev"] == 0
         assert body["header_visible"] is True
         assert body["status_visible"] is True
+        assert body["rail_docs_visible"] is True
+        assert body["rail_feedback_visible"] is True
         assert body["header"] and body["status"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), "a read must never create the store"
 

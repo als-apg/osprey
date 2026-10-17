@@ -419,3 +419,70 @@ def test_panel_close_unknown_panel_is_rejected():
         resp = client.post("/api/panel-close", json={"panel": "nope", "source": "agent"})
     assert resp.status_code == 422
     app.state.broadcaster.broadcast.assert_not_called()
+
+
+# ---- Positioned rail additions (the Undo of a removal) ---- #
+
+
+@pytest.mark.parametrize(
+    ("index", "expected_visible", "expected_index"),
+    [
+        pytest.param(0, ["grafana", "ariel", "lattice"], 0, id="head"),
+        pytest.param(1, ["ariel", "grafana", "lattice"], 1, id="middle"),
+        pytest.param(9, ["ariel", "lattice", "grafana"], 2, id="past-the-end-clamps"),
+    ],
+)
+def test_indexed_show_inserts_at_the_position_and_echoes_it(
+    index, expected_visible, expected_index
+):
+    """The restore lands where the entry was, and the frame tells every client
+    the same clamped position."""
+    app = _make_focus_app(visible=["ariel", "lattice"])
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/panel-visibility", json={"panel": "grafana", "visible": True, "index": index}
+        )
+        body = client.get("/api/panels").json()
+    assert resp.status_code == 200
+    assert body["visible"] == expected_visible
+    app.state.broadcaster.broadcast.assert_called_once_with(
+        {"type": "panel_visibility", "panel": "grafana", "visible": True, "index": expected_index}
+    )
+
+
+def test_unindexed_show_appends_and_its_frame_carries_no_index():
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        client.post("/api/panel-visibility", json={"panel": "grafana", "visible": True})
+    assert app.state.visible_panels == ["ariel", "grafana"]
+    assert _frames(app) == [{"type": "panel_visibility", "panel": "grafana", "visible": True}]
+
+
+def test_indexed_show_of_a_member_keeps_its_place():
+    """No client may move an entry that never left — the frame carries no index."""
+    app = _make_focus_app(visible=["ariel", "lattice", "grafana"])
+    with TestClient(app) as client:
+        client.post("/api/panel-visibility", json={"panel": "grafana", "visible": True, "index": 0})
+    assert app.state.visible_panels == ["ariel", "lattice", "grafana"]
+    assert _frames(app) == [{"type": "panel_visibility", "panel": "grafana", "visible": True}]
+
+
+def test_index_is_ignored_when_hiding():
+    app = _make_focus_app(visible=["ariel", "grafana"])
+    with TestClient(app) as client:
+        client.post(
+            "/api/panel-visibility", json={"panel": "grafana", "visible": False, "index": 0}
+        )
+    assert app.state.visible_panels == ["ariel"]
+    assert _frames(app) == [{"type": "panel_visibility", "panel": "grafana", "visible": False}]
+
+
+def test_negative_index_is_rejected():
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/panel-visibility", json={"panel": "grafana", "visible": True, "index": -1}
+        )
+    assert resp.status_code == 422
+    assert app.state.visible_panels == ["ariel"]
+    app.state.broadcaster.broadcast.assert_not_called()

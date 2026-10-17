@@ -107,6 +107,7 @@ Fails open on any error — stays silent and exits 0.  A user prompt is never
 blocked by workspace bookkeeping.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -242,10 +243,8 @@ def _write_snapshot(path, state):
         os.replace(tmp_path, path)
         return True
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             os.remove(tmp_path)
-        except Exception:
-            pass
         return False
 
 

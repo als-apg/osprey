@@ -1,5 +1,6 @@
 """Shared hook logging utility. No external dependencies."""
 
+import contextlib
 import json
 import os
 import re
@@ -840,14 +841,12 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
             fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
         except FileNotFoundError:
             path.parent.mkdir(parents=True, exist_ok=True)
-            try:
+            with contextlib.suppress(OSError):
                 # mkdir's mode is umask-masked and the setgid bit does not
                 # survive it at all, so the chmod is what actually sets the
                 # mode the deploy path provisions host-side. Best-effort: a
                 # narrower directory still beats a dropped record.
                 os.chmod(path.parent, AUDIT_DIR_MODE)
-            except OSError:
-                pass
             fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
 
         try:
@@ -858,10 +857,8 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
                 # appended onto a half-record and lost with it. One torn write
                 # must cost one record, not every record after it. The writer
                 # does exactly this, for exactly this reason.
-                try:
+                with contextlib.suppress(OSError):
                     os.write(fd, b"\n")
-                except OSError:
-                    pass
         finally:
             os.close(fd)
 

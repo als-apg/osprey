@@ -47,6 +47,7 @@ bumped the revision, is safe and requires no cross-thread handoff.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import dataclass
@@ -291,10 +292,9 @@ def _broadcast_locked(frame: dict[str, Any]) -> None:
                     queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            try:
+            # defensive only: the drain above left room for the sentinel
+            with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(_DISCONNECT)
-            except asyncio.QueueFull:  # pragma: no cover - defensive only
-                pass
 
 
 async def _subscribe() -> tuple[asyncio.Queue[Any], dict[str, Any]]:

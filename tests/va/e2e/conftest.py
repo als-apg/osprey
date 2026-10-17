@@ -50,7 +50,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -510,10 +510,9 @@ async def _disconnect_va_connectors() -> Any:
     yield
     while _LIVE_CONNECTORS:
         connector = _LIVE_CONNECTORS.pop()
-        try:
+        # best-effort: teardown must never mask a test result
+        with suppress(Exception):
             await connector.disconnect()
-        except Exception:
-            pass  # best-effort: teardown must never mask a test result
     gc.collect()
 
 

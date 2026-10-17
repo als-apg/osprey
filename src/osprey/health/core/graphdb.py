@@ -44,6 +44,7 @@ an ``error``, and no driver failure escapes.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Mapping
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
@@ -226,10 +227,9 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
             _seed_row(driver, count),
         ]
     finally:
-        try:
+        # closing is best-effort teardown
+        with contextlib.suppress(Exception):
             driver.close()
-        except Exception:  # closing is best-effort teardown
-            pass
 
 
 def _read_resource_count(driver: Any) -> tuple[int | None, str]:

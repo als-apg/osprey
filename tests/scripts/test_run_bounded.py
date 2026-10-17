@@ -8,6 +8,7 @@ module installs no handler.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shlex
@@ -67,10 +68,8 @@ def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
     try:
         assert _pid_is_gone(pid, within=5.0)
     finally:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
 
 def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
@@ -146,10 +145,8 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
         assert _pid_is_gone(pid, within=1.0), "a process that survived SIGTERM was never killed"
     finally:
         if pid_file.exists():
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.kill(int(pid_file.read_text()), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():

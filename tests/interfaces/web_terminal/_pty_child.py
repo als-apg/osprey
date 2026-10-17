@@ -11,6 +11,7 @@ own, and every test that starts one kills them in ``finally``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import select
 import signal
@@ -51,10 +52,9 @@ def read_answer(session: PtySession, command: bytes) -> bytes:
     alone would satisfy proves nothing: split it with empty quotes, as the
     sentinel is, so only execution produces it.
     """
-    try:
+    # A dead child is reported below, with its exit code.
+    with contextlib.suppress(OSError):
         session.write_input(command + b"\n" + _SENTINEL_COMMAND)
-    except OSError:
-        pass  # A dead child is reported below, with its exit code.
 
     output = b""
     ceiling = time.monotonic() + CHILD_HANG_CEILING
@@ -292,7 +292,5 @@ async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
 def kill_quietly(pids: Iterable[int]) -> None:
     """SIGKILL every pid in *pids*, ignoring those already gone."""
     for pid in pids:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass

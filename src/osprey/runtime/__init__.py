@@ -1156,10 +1156,9 @@ async def _close_pool() -> None:
 def _cleanup_on_exit() -> None:
     """Synchronous cleanup for atexit handler."""
     if _runtime_connector is not None or _connector_pool is not None:
-        try:
+        # Best effort cleanup
+        with contextlib.suppress(Exception):
             asyncio.run(cleanup_runtime())
-        except Exception:
-            pass  # Best effort cleanup
 
 
 atexit.register(_cleanup_on_exit)

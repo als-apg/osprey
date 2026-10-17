@@ -117,6 +117,7 @@ approval prompt use, so one deployment cannot be described as pointing at two
 machines.
 """
 
+import contextlib
 import inspect
 import json
 import os
@@ -299,7 +300,8 @@ def main():
 
     # Deny — limits violated
     log_hook("limits", hook_input, status="deny", detail=f"violations={len(violations)}")
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         # Count only. The violation lines carry the offending channel VALUES,
         # and a value is exactly what an audit record never holds.
         emit_audit(
@@ -310,8 +312,6 @@ def main():
             reason="limits_violation",
             detail=f"violations={len(violations)}",
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     violation_text = "\n".join(violations)
     output = {
         "hookSpecificOutput": {

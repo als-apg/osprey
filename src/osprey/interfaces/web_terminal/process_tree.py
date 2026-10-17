@@ -32,6 +32,7 @@ the same on every look while the group lives.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
@@ -404,10 +405,8 @@ def _signal_groups(groups: Sequence[ProcessGroup], signum: int) -> None:
     for group in groups:
         if group.pgid <= 1 or group.pgid == own:
             continue
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(group.pgid, signum)
-        except (ProcessLookupError, PermissionError):
-            pass
 
 
 def _wait_gone(groups: list[ProcessGroup], within: float) -> list[ProcessGroup]:
@@ -470,10 +469,8 @@ def _signal_processes(rows: Sequence[ProcessRow], signum: int) -> None:
     for row in rows:
         if row.pid <= 1 or row.pid == own:
             continue
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(row.pid, signum)
-        except (ProcessLookupError, PermissionError):
-            pass
 
 
 def _wait_processes_gone(rows: list[ProcessRow], within: float) -> list[ProcessRow]:

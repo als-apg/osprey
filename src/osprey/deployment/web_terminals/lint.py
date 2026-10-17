@@ -19,6 +19,7 @@ Two surfaces call in, at different altitudes:
 
 from __future__ import annotations
 
+import contextlib
 import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -871,10 +872,8 @@ def _check_port_overlap(
     # port the stack will bind belongs in the collision set however it was
     # spelled. A value that is not a port binds nothing and joins nothing —
     # render refuses that config outright, and this rule is about collisions.
-    try:
+    with contextlib.suppress(ValueError):
         entries.append((resolve_nginx_port(root), "web_terminals.nginx_port"))
-    except ValueError:
-        pass
 
     # Every host port the deployed services publish.
     services = root.get("services")

@@ -9,6 +9,7 @@ does not support the response_format parameter. Instead, we use a system prompt
 instructing the model to respond with JSON, then parse and validate the response.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -261,10 +262,9 @@ class ArgoProviderAdapter(BaseProvider):
         base_url = self.require_effective_base_url(base_url)
 
         # Ensure models list is populated for any UI callers that rely on metadata
-        try:
+        # Don't block executions on model refresh errors
+        with contextlib.suppress(Exception):
             self.get_available_models(api_key=api_key, base_url=base_url)
-        except Exception:
-            pass  # Don't block executions on model refresh errors
 
         # Handle structured output directly (Argo doesn't support response_format)
         if output_format is not None:

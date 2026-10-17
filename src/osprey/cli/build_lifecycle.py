@@ -17,6 +17,7 @@ logger.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import subprocess
@@ -234,10 +235,9 @@ def _stop_drain(reader: threading.Thread, stop: threading.Event, stdout: IO[str]
         # already silent.
         logger.debug("Lifecycle drain thread outlived its step; left silenced")
         return
-    try:
+    # the pipe is at EOF by this point, so a close error is moot
+    with contextlib.suppress(OSError):
         stdout.close()
-    except OSError:  # pragma: no cover - the pipe is at EOF by this point
-        pass
 
 
 def _run_lifecycle_phase(

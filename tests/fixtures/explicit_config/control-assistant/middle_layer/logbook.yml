@@ -316,6 +316,9 @@ web:
   panels:
     ariel:
       enabled: true
+    system-health:
+      enabled: false
+      hidden: true
   scaffold_gallery:
     write_enabled: false
   theme: light

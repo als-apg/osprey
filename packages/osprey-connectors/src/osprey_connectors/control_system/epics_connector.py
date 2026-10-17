@@ -8,6 +8,7 @@ Refactored from existing EPICS integration code.
 
 import asyncio
 import atexit
+import contextlib
 import fnmatch
 import os
 import sys
@@ -726,10 +727,9 @@ class EPICSConnector(ControlSystemConnector):
         # Disconnect and clear cached PVs
         with self._pv_cache_lock:
             for pv in self._pv_cache.values():
-                try:
+                # Best effort cleanup
+                with contextlib.suppress(Exception):
                     pv.disconnect()
-                except Exception:
-                    pass  # Best effort cleanup
             self._pv_cache.clear()
 
         self._connected = False

@@ -51,6 +51,8 @@ function layoutOf(header, status = []) {
     status: status.map(item),
     header_visible: true,
     status_visible: true,
+    rail_docs_visible: true,
+    rail_feedback_visible: true,
   };
 }
 

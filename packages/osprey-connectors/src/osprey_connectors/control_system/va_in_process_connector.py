@@ -365,10 +365,8 @@ class VAInProcessConnector(ControlSystemConnector):
         """Stop the tick and drop the composite."""
         if self._tick_task is not None:
             self._tick_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._tick_task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._tick_task = None
         self._subscriptions.clear()
         self._last_held.clear()

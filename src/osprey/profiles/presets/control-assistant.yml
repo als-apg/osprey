@@ -994,7 +994,7 @@ config:
   # invites until a browser dismisses it or finishes the tour; `always` invites
   # on every load and offers no permanent dismissal, which is what a shared
   # read-only screen wants; `never` offers nothing and leaves the tour on the
-  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # rail's More menu and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
@@ -1055,6 +1055,10 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
+  # The SYSTEM tab is served but starts off the rail: the status bar's health
+  # dot opens it, and so does ⋯ More on the rail, which can also pin it there.
+  # Delete this line to give it a rail entry from the first load.
+  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy

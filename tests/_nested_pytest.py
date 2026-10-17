@@ -33,6 +33,7 @@ The leading underscore keeps the module out of pytest collection.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import signal
@@ -188,7 +189,5 @@ def run_nested_pytest(
 
 def _signal_group(pgid: int, signum: signal.Signals) -> None:
     """Send ``signum`` to every process left in the run's group, if any."""
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(pgid, signum)
-    except (ProcessLookupError, PermissionError):
-        pass

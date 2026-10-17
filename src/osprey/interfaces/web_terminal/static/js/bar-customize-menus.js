@@ -1,10 +1,17 @@
 /* OSPREY Web Terminal — the item popovers.
  *
  * Two surfaces that hang off a placed item: the OPTIONS popover (click an item
- * while editing) and the CONTEXT MENU (right-click a bar or an item). Both are
- * built here and both decide nothing — every question goes to the controller,
- * so a row offered here and a tile in the sheet refuse the same edits for the
- * same stated reason.
+ * while editing, or pick its options row from the menu in either mode) and the
+ * CONTEXT MENU (right-click a bar or an item). Both are built here and both
+ * decide nothing — every question goes to the controller, so a row offered here
+ * and a tile in the sheet refuse the same edits for the same stated reason.
+ *
+ * AN ITEM'S ROWS ARE OFFERED IN BOTH MODES. Right-clicking an item names it:
+ * what the item itself can do (bar-items.js asks its body), its options, and
+ * Remove — whether or not edit mode is on. A refusal outside edit mode, with no
+ * sheet open to say it in, is answered by the controller at the foot of the
+ * page; a Remove, from the menu or the popover, is answered there too, with the
+ * way back.
  *
  * THE OPTION ROWS COME FROM THE CATALOG'S SPEC. There is no table of option
  * kinds in this file: a type that declares a bounded number gets a number
@@ -39,6 +46,8 @@
 import { BAR_CATALOG, DENSITY_BY_HOST } from './bar-catalog.js';
 import { docOf, isLive, registerBarPopover, shellForKey } from './bar-host.js';
 import { dragJustEnded } from './bar-customize-drag.js';
+import { barItemActions } from './bar-items.js';
+import { showUndoNotice } from './undo-notice.js';
 
 /** @typedef {import('./bar-catalog.js').BarHost} BarHost */
 /** @typedef {import('./bar-catalog.js').BarOptionSpec} BarOptionSpec */
@@ -211,7 +220,7 @@ function optionsFoot(owner, ctrl, place) {
       // or to the one before it when it was last.
       void editThenFocus(
         ctrl,
-        () => ctrl.removeAt(place.host, place.index),
+        () => removeWithUndo(owner, ctrl, place, BAR_CATALOG[place.type].label),
         () => ({
           host: place.host,
           index: Math.min(place.index, ctrl.hostItems(place.host).length - 1),
@@ -460,8 +469,11 @@ export function closeOptions({ restoreFocus = true } = {}) {
  * refused), so a bar offers it before edit mode as well as during it. A hidden
  * bar is not stranded: every tile header's menu offers Show for it
  * (panel-menu-policy.js), as does the command palette's Customize bars, and
- * edit mode shows every bar. An item under the pointer while editing adds its
- * own two rows above: its options, and Remove.
+ * edit mode shows every bar. An item under the pointer adds its own rows above,
+ * in either mode: what the item itself offers, its options, and Remove.
+ * Outside edit mode a type with no options is not offered an options row —
+ * there the popover would only say "No options" over the layout buttons that
+ * the menu's own Remove already covers.
  * @param {Document} owner
  * @param {BarEditController} ctrl
  * @param {number} x
@@ -476,22 +488,30 @@ function openMenu(owner, ctrl, x, y, shell, host) {
   const menu = make(owner, 'div', 'bar-context-menu');
   menu.setAttribute('role', 'menu');
 
-  const place = editing && shell ? ctrl.locate(shell) : null;
+  const place = shell ? ctrl.locate(shell) : null;
   if (place && shell) {
-    const label = BAR_CATALOG[place.type].label;
-    menu.append(
-      // No `enterEditMode()` here: this row only exists when `place` is set,
-      // and `place` is only computed while editing.
-      button(owner, 'bar-context-row', `${label} options…`, 'options', () => {
+    const entry = BAR_CATALOG[place.type];
+    for (const action of barItemActions(shell)) {
+      const row = button(owner, 'bar-context-row', action.label, 'item-action', () => {
         closeMenu();
-        const live = shellForKey(shell.dataset.barKey ?? '');
-        if (live) openOptions(live, ctrl);
-      })
-    );
+        action.run();
+      });
+      row.dataset.barItemAction = action.id;
+      menu.append(row);
+    }
+    if (editing || Object.keys(entry.options).length > 0) {
+      menu.append(
+        button(owner, 'bar-context-row', `${entry.label} options…`, 'options', () => {
+          closeMenu();
+          const live = shellForKey(shell.dataset.barKey ?? '');
+          if (live) openOptions(live, ctrl);
+        })
+      );
+    }
     menu.append(
-      button(owner, 'bar-context-row', `Remove ${label}`, 'remove', () => {
+      button(owner, 'bar-context-row', `Remove ${entry.label}`, 'remove', () => {
         closeMenu();
-        void ctrl.removeAt(place.host, place.index);
+        void removeWithUndo(owner, ctrl, place, entry.label);
       })
     );
     menu.append(make(owner, 'hr', 'bar-context-rule'));
@@ -547,6 +567,30 @@ function openMenu(owner, ctrl, x, y, shell, host) {
   // goes back where it came from when the menu closes.
   menuReturn = /** @type {HTMLElement | null} */ (owner.activeElement);
   menuRows(menu)[0]?.focus();
+}
+
+/**
+ * Remove an item and offer it back — the one way both surfaces here remove, so
+ * a Remove from the menu and one from the options popover read the same. The
+ * Undo puts back what was there — the same type with the same options, at the
+ * same place — through the controller's own write path, so a restore the
+ * layout no longer allows is refused and named like any other edit.
+ * @param {Document} owner
+ * @param {BarEditController} ctrl
+ * @param {BarItemPlace} place
+ * @param {string} label
+ * @returns {Promise<boolean>} whether the item was removed
+ */
+async function removeWithUndo(owner, ctrl, place, label) {
+  const item = ctrl.itemAt(place.host, place.index);
+  if (!item || !(await ctrl.removeAt(place.host, place.index))) return false;
+  const kept = { type: item.type, options: { ...item.options } };
+  showUndoNotice({
+    message: `${label} removed`,
+    undo: () => void ctrl.restoreItem(place.host, place.index, kept),
+    doc: owner,
+  });
+  return true;
 }
 
 /** The focusable rows of a menu. @param {HTMLElement} menu */

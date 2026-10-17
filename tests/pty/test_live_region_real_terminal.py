@@ -52,6 +52,7 @@ POSIX only. ``pty`` is a POSIX module and the whole module skips elsewhere.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import select
@@ -968,10 +969,8 @@ def _kill_recorded_grandchild(pid_file: Path) -> None:
         pid = int(pid_file.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
 
 
 def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(

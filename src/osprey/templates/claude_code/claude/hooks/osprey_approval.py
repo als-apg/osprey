@@ -117,6 +117,7 @@ blocks; the control target still comes only from the record. A single-lane
 deployment has nothing to address and renders exactly what it always did.
 """
 
+import contextlib
 import hashlib
 import io
 import json
@@ -334,7 +335,8 @@ def _record_ask(hook_input):
     Which policy did so is a debug fact and stays on the debug line; the ledger
     answers who was asked to approve what.
     """
-    try:
+    # the audit trail must never cost the prompt
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -342,8 +344,6 @@ def _record_ask(hook_input):
             subject=(hook_input or {}).get("tool_name", ""),
             reason="approval_required",
         )
-    except Exception:
-        pass  # the audit trail must never cost the prompt
 
 
 def _read_record_once(hook_input=None):
@@ -994,10 +994,8 @@ def _record_executed(hook_input) -> None:
             detail=_outcome_detail(stamp),
             tool_use_id=tool_use_id,
         )
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass
     except Exception:
         return
 
@@ -1031,10 +1029,8 @@ def _close_unanswered_asks(hook_input) -> None:
                 detail=_outcome_detail(stamp),
                 tool_use_id=stamp.get("tool_use_id"),
             )
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
     except Exception:
         return
 
@@ -2881,11 +2877,11 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
     log or audit zone costs a record, never the decision.
     """
     detail = f"spelling={spelling}"
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook("approval", hook_input, status="deny", detail=f"raw_client_write {detail}")
-    except Exception:
-        pass  # logging must never cost the deny
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -2894,8 +2890,6 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
             reason=_RAW_CLIENT_WRITE_AUDIT_REASON,
             detail=detail,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -2914,13 +2908,13 @@ def _deny_approval_config_invalid(hook_input, tool_name, reason):
     filesystem touches are wrapped and happen before the exit: an unwritable
     log or audit zone costs a record, never the decision.
     """
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook(
             "approval", hook_input, status="deny", detail=_APPROVAL_CONFIG_INVALID_AUDIT_REASON
         )
-    except Exception:
-        pass  # logging must never cost the deny
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -2929,8 +2923,6 @@ def _deny_approval_config_invalid(hook_input, tool_name, reason):
             reason=_APPROVAL_CONFIG_INVALID_AUDIT_REASON,
             detail=reason,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -3013,11 +3005,11 @@ def _deny_measure(hook_input, tool_name, refusal):
     Filed as ``refused``, like every refusal this hook makes before asking;
     an unwritable log or audit zone costs the record, never the decision.
     """
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook("approval", hook_input, status="deny", detail=refusal.audit_reason)
-    except Exception:
-        pass  # logging must never cost the deny
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -3025,8 +3017,6 @@ def _deny_measure(hook_input, tool_name, refusal):
             subject=tool_name,
             reason=refusal.audit_reason,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -3416,26 +3406,20 @@ def main():
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
     elif short_name in _QUEUE_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _QUEUE_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
     elif short_name in _TARGET_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
     elif short_name in _CALL_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _CALL_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
 
     reason = "\n".join(reason_parts)
     log_hook(

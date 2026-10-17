@@ -114,6 +114,7 @@ files, which legitimately takes minutes, is never mistaken for a hang.
 
 from __future__ import annotations
 
+import contextlib
 import faulthandler
 import json
 import os
@@ -387,10 +388,9 @@ class ContainerSnapshots:
         report = outcome.get_result()
         if not report.failed:
             return
-        try:
+        # a diagnostic must never replace the failure it observes
+        with contextlib.suppress(Exception):
             self.capture(item.nodeid, report.when)
-        except Exception:  # a diagnostic must never replace the failure it observes
-            pass
 
 
 def register_container_snapshots(

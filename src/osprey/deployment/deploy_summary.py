@@ -38,6 +38,7 @@ deploy that otherwise succeeded.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -797,10 +798,8 @@ def endpoint_entries(
         bindings = parse_host_port_bindings(compose_files)
     except Exception:
         bindings = []
-    try:
+    with contextlib.suppress(Exception):
         bindings = bindings + derive_host_network_bindings(config)
-    except Exception:
-        pass
 
     declared_http = _declared_http_services(config)
 

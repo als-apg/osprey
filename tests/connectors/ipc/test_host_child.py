@@ -25,6 +25,7 @@ which the mock deliberately does not.
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import queue
@@ -211,10 +212,8 @@ class Child:
         return "\n".join(self._stderr)
 
     def close(self):
-        try:
+        with contextlib.suppress(OSError, ValueError):
             self.proc.stdin.close()
-        except (OSError, ValueError):
-            pass
         try:
             self.proc.wait(timeout=REPLY_TIMEOUT_S)
         except subprocess.TimeoutExpired:

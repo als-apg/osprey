@@ -1297,11 +1297,13 @@ function menuKey(el) {
  * first tile exists, i.e. past every activation the boot itself performs.
  * `down` names health-polled panels whose /health stops answering; it is read
  * on every poll, so a test adds to it to take a panel dark mid-run.
+ * `restored` names panels whose placeholder tile is already in the grid before
+ * the manager boots — a dock layout restored from a previous page load.
  * @param {{ panels?: string[], visible?: string[], unhealthy?: string[],
- *           mode?: 'simple'|'expert', down?: Set<string> }} [opts]
+ *           mode?: 'simple'|'expert', down?: Set<string>, restored?: string[] }} [opts]
  */
 async function bootWorkspace({
-  panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode, down = new Set(),
+  panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode, down = new Set(), restored = [],
 } = {}) {
   if (mode) document.documentElement.setAttribute('data-ui-mode', mode);
   window.__OSPREY_PREFIX__ = '';
@@ -1347,6 +1349,9 @@ async function bootWorkspace({
 
   const api = makeDockApi();
   api._addTerminal();
+  for (const id of restored) {
+    api.addPanel({ id: `iframe:${id}`, component: 'dock-iframe-placeholder', title: id });
+  }
   dockState.api = api;
 
   const mod = await freshImport();
@@ -2463,6 +2468,238 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
+  });
+});
+
+describe('Undo after a one-click removal — the rail entry comes back where it was', () => {
+  const entry = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`));
+  const railIds = () =>
+    [...document.querySelectorAll('.panel-rail-button')].map((el) => el.getAttribute('data-panel-id'));
+  const notice = () => document.getElementById('undo-notice');
+  const undoButton = () => /** @type {HTMLElement | null} */ (document.querySelector('.undo-notice-btn'));
+  const visibilityBodies = (/** @type {{url: string, opts: any}[]} */ calls) =>
+    calls.filter((c) => c.url === '/api/panel-visibility').map((c) => JSON.parse(c.opts.body));
+  const PANELS3 = ['artifacts', 'ariel', 'lattice'];
+
+  afterEach(() => {
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+  });
+
+  test('"Remove from rail" offers Undo, which re-adds the panel at its old position', async () => {
+    const { calls, emit } = await bootWorkspace({ panels: PANELS3 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
+    await settled(() => expect(notice()?.textContent).toContain('ARIEL removed from the rail'));
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
+
+    /** @type {HTMLElement} */ (undoButton()).click();
+    // The position counts panel entries only — SESSION is not one of them.
+    await settled(() =>
+      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'ariel', visible: true, index: 1 }));
+    expect(notice()).toBeNull();
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+  });
+
+  test('the entry\'s "×" corner offers the same Undo', async () => {
+    const { calls } = await bootWorkspace({ panels: PANELS3 });
+
+    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
+    await settled(() => expect(notice()?.textContent).toContain('WORKSPACE removed from the rail'));
+    /** @type {HTMLElement} */ (undoButton()).click();
+    await settled(() =>
+      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'artifacts', visible: true, index: 0 }));
+  });
+
+  test('a refused removal says so, with no Undo to offer', async () => {
+    const { calls } = await bootWorkspace({ panels: PANELS3 });
+    const ok = /** @type {any} */ (globalThis.fetch).getMockImplementation();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+      if (url === '/api/panel-visibility') {
+        calls.push({ url, opts: o });
+        return { ok: false, status: 422, statusText: 'Unprocessable', json: async () => ({}) };
+      }
+      return ok(url, o);
+    }));
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
+
+    await settled(() => expect(notice()?.textContent).toContain('Could not remove ARIEL from the rail'));
+    expect(undoButton()).toBeNull();
+  });
+
+  test('a removal that arrives as an SSE echo — the agent, another tab — raises no notice', async () => {
+    const { emit } = await bootWorkspace({ panels: PANELS3 });
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false, source: 'agent' });
+    emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
+
+    expect(railIds()).toEqual(['terminal', 'artifacts']);
+    expect(notice()).toBeNull();
+  });
+
+  test('an indexed addition lands at that position on every client; a member keeps its place', async () => {
+    const { emit } = await bootWorkspace({ panels: PANELS3, visible: ['artifacts', 'lattice'] });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
+    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 2 });
+    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+
+    // Past the end clamps to the foot of the rail.
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 9 });
+    expect(railIds()).toEqual(['terminal', 'ariel', 'lattice', 'artifacts']);
+  });
+
+  test('Undo also reopens the tile the removal closed, and only that', async () => {
+    const { api, emit, calls } = await bootWorkspace({ panels: PANELS3 });
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+
+    // artifacts holds a tile; its removal closes it, and Undo brings it back.
+    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
+    await settled(() => expect(undoButton()).not.toBeNull());
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
+    expect(dockedTiles(api)).not.toContain('artifacts');
+    /** @type {HTMLElement} */ (undoButton()).click();
+    await settled(() => expect(dockedTiles(api)).toContain('artifacts'));
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 0 });
+
+    // lattice held no tile, so its Undo restores the rail entry alone.
+    /** @type {HTMLElement} */ (entry('lattice').querySelector('.panel-rail-close')).click();
+    await settled(() => expect(undoButton()).not.toBeNull());
+    emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
+    /** @type {HTMLElement} */ (undoButton()).click();
+    await settled(() =>
+      expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'lattice', visible: true, index: 2 }));
+    emit({ type: 'panel_visibility', panel: 'lattice', visible: true, index: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 0)); // the Undo's tail has run
+    expect(railIds()).toContain('lattice');
+    expect(dockedTiles(api)).not.toContain('lattice');
+  });
+
+  test('"Close terminal tile" offers Undo, which reopens the tile', async () => {
+    await bootWorkspace();
+    closeTerminalPanel.mockReturnValueOnce(true);
+
+    rightClick(entry('terminal'));
+    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+
+    expect(notice()?.textContent).toContain('Terminal tile closed');
+    openTerminalPanel.mockClear();
+    /** @type {HTMLElement} */ (undoButton()).click();
+    expect(openTerminalPanel).toHaveBeenCalledTimes(1);
+  });
+
+  test('no notice when there was no terminal tile to close', async () => {
+    await bootWorkspace();
+    closeTerminalPanel.mockReturnValueOnce(false);
+
+    rightClick(entry('terminal'));
+    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+
+    expect(notice()).toBeNull();
+  });
+});
+
+describe('openPanelOffRail — a tile that opens and leaves the rail unchanged', () => {
+  const POLICY = '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
+  const railIds = () =>
+    [...document.querySelectorAll('.panel-rail-button')].map((el) => el.getAttribute('data-panel-id'));
+  const PANELS3 = ['artifacts', 'ariel', 'system-health'];
+  const OFF_RAIL = { panels: PANELS3, visible: ['artifacts', 'ariel'] };
+
+  /** Open the tile-header menu of `id` on the manager's own module graph. @param {string} id */
+  async function openTileMenu(id) {
+    const policy = await import(POLICY);
+    const anchor = document.createElement('div');
+    document.body.append(anchor);
+    return policy.openTileContextMenu(id, { x: 10, y: 10, anchorEl: anchor });
+  }
+
+  afterEach(() => {
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+  });
+
+  test('opens and focuses the tile with no rail entry and no POST', async () => {
+    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
+
+    mod.openPanelOffRail('system-health');
+
+    expect(dockedTiles(api)).toContain('system-health');
+    expect(mod.getActivePanel()).toBe('system-health');
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel']);
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a member is activated as a rail click would, focus report included', async () => {
+    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
+
+    mod.openPanelOffRail('ariel');
+
+    expect(dockedTiles(api)).toContain('ariel');
+    expect(posts(calls)).toEqual(['/api/panel-focus']);
+  });
+
+  test('its tile header offers "Pin to rail" in place of "Remove from rail"', async () => {
+    const { mod, calls, emit } = await bootWorkspace(OFF_RAIL);
+    mod.openPanelOffRail('system-health');
+
+    expect(await openTileMenu('system-health')).toBe(true);
+    expect(menuLabels()).toEqual([
+      'Focus SYSTEM', 'Open in a new tile', 'Open in a new window', 'Pin to rail',
+    ]);
+    /** @type {HTMLElement} */ (menuRow('Pin to rail')).click();
+
+    await settled(() => expect(posts(calls)).toEqual(['/api/panel-visibility']));
+    expect(JSON.parse(calls[0].opts.body)).toEqual({ panel: 'system-health', visible: true });
+    // The echo appends the entry where any new member goes, and the open tile
+    // it already had carries the active accent onto it.
+    emit({ type: 'panel_visibility', panel: 'system-health', visible: true });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'system-health']);
+    expect(document.querySelector('.panel-rail-button[data-panel-id="system-health"]')
+      ?.classList.contains('active')).toBe(true);
+
+    expect(await openTileMenu('system-health')).toBe(true);
+    expect(menuLabels().at(-1)).toBe('Remove from rail');
+  });
+
+  test('moving it to a new tile and focusing it from its header keep it off the rail', async () => {
+    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
+    mod.openPanelOffRail('system-health');
+
+    await openTileMenu('system-health');
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openTileMenu('system-health');
+    /** @type {HTMLElement} */ (menuRow('Focus SYSTEM')).click();
+
+    expect(dockedTiles(api)).toContain('system-health');
+    expect(railIds()).not.toContain('system-health');
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a hide of a panel that was never on the rail leaves its off-rail tile alone', async () => {
+    const { api, mod, emit } = await bootWorkspace(OFF_RAIL);
+    mod.openPanelOffRail('system-health');
+
+    emit({ type: 'panel_visibility', panel: 'system-health', visible: false, source: 'agent' });
+
+    expect(dockedTiles(api)).toContain('system-health');
+  });
+
+  test('a reload does not bring an off-rail tile back — the rail is the way back', async () => {
+    // ariel's restored tile is the focused one, so the boot's default panel
+    // takes that tile over; system-health's tile is left to the prune alone.
+    const { api } = await bootWorkspace({ ...OFF_RAIL, restored: ['system-health', 'ariel'] });
+
+    expect(dockedTiles(api)).toEqual(['artifacts']);
   });
 });
 

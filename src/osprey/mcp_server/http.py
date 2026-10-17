@@ -1,5 +1,6 @@
 """HTTP/IPC utilities for MCP tool code."""
 
+import contextlib
 import logging
 
 logger = logging.getLogger("osprey.mcp_server.http")
@@ -259,10 +260,8 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
             return resp.status, _json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         body: dict = {}
-        try:
+        with contextlib.suppress(Exception):
             body = _json.loads(exc.read())
-        except Exception:
-            pass
         return exc.code, body
 
 

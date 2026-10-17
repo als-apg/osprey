@@ -12,6 +12,7 @@ Usage in RST files:
 
 """
 
+import contextlib
 import re
 from pathlib import Path
 from typing import Any
@@ -79,10 +80,8 @@ def parse_workflow_file(filepath: Path) -> dict[str, Any]:
 
     if frontmatter_match:
         yaml_content = frontmatter_match.group(1)
-        try:
+        with contextlib.suppress(yaml.YAMLError):
             metadata = yaml.safe_load(yaml_content)
-        except yaml.YAMLError:
-            pass
         remaining_content = content[frontmatter_match.end() :]
 
     # Extract title (first # heading)

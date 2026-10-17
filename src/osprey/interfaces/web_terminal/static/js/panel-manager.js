@@ -53,9 +53,11 @@ import {
 import { initDockSync, withEchoSuppressed, setTileCloseHandler, setTileFocusHandler } from './dock-sync.js';
 import { setTileContextMenuHandler } from './dock-tab.js';
 import { initRailDrag } from './rail-drag.js';
-import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
+import { openTerminalPanel } from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
-import { initMenuPolicy, openTileContextMenu } from './panel-menu-policy.js';
+import {
+  initMenuPolicy, openTileContextMenu, removeFromRail, closeTerminalTile,
+} from './panel-menu-policy.js';
 import { removeEntry, setActive } from './panel-rail.js';
 import {
   initPanelLifecycle, freshPanelState, renderRail, ensureRailMembership,
@@ -98,6 +100,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {string} panel
  * @property {boolean} visible
  * @property {'agent'} [source]
+ * @property {number} [index] - where an addition goes among the rail's panel
+ *   entries (SESSION not counted); absent, it goes to the end
  *
  * @typedef {object} PanelCloseEvent
  * @property {'panel_close'} type
@@ -472,7 +476,8 @@ export async function initPanelManager(panelId) {
   });
 
   // Keyboard close: Delete/Backspace on a focused entry hides that panel (the
-  // "×" is mouse-only/decorative). Delegated — one listener, not one per entry.
+  // "×" is mouse-only/decorative), with the same Undo notice as the "×".
+  // Delegated — one listener, not one per entry.
   railEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (!(e.target instanceof HTMLElement)) return;
@@ -480,8 +485,8 @@ export async function initPanelManager(panelId) {
     if (!id) return;
     e.preventDefault();
     // Terminal entry closes through the dock (no server-side visibility for it).
-    if (id === TERMINAL_RAIL_ID) closeTerminalPanel();
-    else setPanelVisibility(id, false);
+    if (id === TERMINAL_RAIL_ID) closeTerminalTile();
+    else void removeFromRail(id);
   });
 
   // Fetch config and start health polling for all panels
@@ -516,6 +521,7 @@ export async function initPanelManager(panelId) {
   subscribePanelEvents({
     isKnown: isPanelKnown,
     isHealthy: isPanelHealthy,
+    getRailEl,
     memberSet: visiblePanels,
     dropMember: dropRailMember,
     activate: activateTab,
@@ -738,9 +744,9 @@ export function activateTab(panelId, { userInitiated = false, auto = false } = {
 // These back the human add/remove controls. The command POSTs live in
 // panel-commands.js and the server's SSE echo drives the DOM, so a human
 // action and an agent MCP call are indistinguishable downstream. The per-entry
-// "×" calls setPanelVisibility(id, false) directly (the rail's onClose closure,
-// see railOptions); the "+" menu's reveal path needs a local focus too, so it
-// goes through showPanel.
+// "×" goes through removeFromRail (the rail's onClose closure, which adds the
+// Undo notice — see railOptions); the "+" menu's reveal path needs a local
+// focus too, so it goes through showPanel.
 
 /**
  * Reveal a hidden panel and focus it (a "Show panel" menu pick). The visibility
@@ -751,6 +757,26 @@ export function activateTab(panelId, { userInitiated = false, auto = false } = {
 export function showPanel(panelId) {
   setPanelVisibility(panelId, true);
   activateTab(panelId, { userInitiated: true });
+}
+
+/**
+ * Show a panel's tile WITHOUT giving it a rail entry — "opens, rail unchanged",
+ * the open behind ⋯ More's SYSTEM row and the health card's "Open SYSTEM". The
+ * tile takes the default placement a rail click gets; a member is simply
+ * activated as one.
+ *
+ * An off-rail tile is this tab's layout alone: nothing is POSTed, so no other
+ * client moves and rail membership is untouched. Not even the focus report —
+ * the server drops a human focus on a non-member as a straggler, and an
+ * operator can only point at a panel the rail holds. It lasts as long as the
+ * tile: the tile's own "×" just closes it, and a reload does not bring it back
+ * (the restored layout's placeholder is pruned with every other non-member's),
+ * because the rail is the way back and this panel has no entry there. "Pin to
+ * rail" on the tile header makes it a member.
+ * @param {string} panelId
+ */
+export function openPanelOffRail(panelId) {
+  activateTab(panelId, { userInitiated: visiblePanels.has(panelId) });
 }
 
 /**

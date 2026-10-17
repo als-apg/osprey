@@ -8,6 +8,7 @@ the one local-server cache, for adapters that resolve outside their calls.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import time
@@ -118,10 +119,8 @@ def stubs():
 
     yield start
     for stub in started:
-        try:
+        with contextlib.suppress(Exception):
             stub.stop()
-        except Exception:
-            pass
 
 
 class _ProbeRecorder:

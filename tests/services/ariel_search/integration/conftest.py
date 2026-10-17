@@ -25,6 +25,7 @@ The pieces are:
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -406,10 +407,9 @@ def scratch_database(database_url: str):
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     try:
         with psycopg.connect(uri, autocommit=True) as conn:
-            try:
+            # no pgvector on this server; the vector migrations skip
+            with contextlib.suppress(psycopg.Error):
                 conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            except psycopg.Error:
-                pass  # no pgvector on this server; the vector migrations skip
         yield uri
     finally:
         with psycopg.connect(database_url, autocommit=True) as conn:

@@ -283,6 +283,55 @@ describe('steps', () => {
     expect(bodies[7]).toContain('ARIEL');
   });
 
+  /** Walk the whole tour, collecting each card's title and foot line. */
+  function walk() {
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+    const cards = [];
+    for (let i = 0; i < 20 && document.querySelector('.tour-card'); i++) {
+      cards.push({
+        title: cardTitle(),
+        foot: document.querySelector('.tour-foot')?.textContent ?? '',
+      });
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    return cards;
+  }
+
+  describe('when the operator hid the rail Feedback control', () => {
+    afterEach(() => {
+      delete document.documentElement.dataset.railFeedback;
+    });
+
+    // The hidden button stays in the DOM (the bar item clicks it by id), so
+    // presence alone would spotlight a box that is not on screen.
+    test('the feedback step drops out with nothing else to point at', () => {
+      mountFullShell();
+      document.documentElement.dataset.railFeedback = 'hidden';
+
+      expect(walk().map((c) => c.title)).not.toContain('Something wrong? Tell us');
+    });
+
+    test('the feedback step stays when the status bar carries Feedback', () => {
+      mountFullShell();
+      const item = document.createElement('button');
+      item.className = 'bar-feedback';
+      document.body.appendChild(item);
+      document.documentElement.dataset.railFeedback = 'hidden';
+
+      expect(walk().map((c) => c.title)).toContain('Something wrong? Tell us');
+    });
+  });
+
+  test('the last card says where the tour is retaken from', () => {
+    mountFullShell();
+
+    const cards = walk();
+
+    expect(cards[cards.length - 1].foot).toBe('Retake this tour any time from ⋯ More in the rail.');
+  });
+
   test('steps with absent anchors drop out and the count adjusts', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();

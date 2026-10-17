@@ -330,6 +330,31 @@ export function removeEntry(railEl, panelId) {
   entry.remove();
 }
 
+/**
+ * The rail's entry ids, top to bottom — the order the operator sees.
+ * @param {HTMLElement} railEl
+ * @returns {string[]}
+ */
+export function entryIds(railEl) {
+  return [...railEl.querySelectorAll(BUTTON_SELECTOR)].map((el) => el.getAttribute('data-panel-id') ?? '');
+}
+
+/**
+ * Move an entry so it sits directly above `beforeId`'s entry, or at the foot of
+ * the rail when `beforeId` is null or has no entry. Moving keeps the node, so
+ * its live state (active, health, badges) travels with it. No-op for an
+ * unknown `panelId`.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {string | null} beforeId
+ */
+export function placeEntry(railEl, panelId, beforeId) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  const before = beforeId === null ? null : getEntry(railEl, beforeId);
+  railEl.insertBefore(entry, before);
+}
+
 // ---- Mutators ----
 
 /**

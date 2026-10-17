@@ -12,7 +12,7 @@ import logging
 import re
 import threading
 from collections.abc import AsyncIterator, Collection
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -452,19 +452,16 @@ class _SSEBroadcaster:
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
         with self._lock:
-            try:
+            with suppress(ValueError):
                 self._queues.remove(q)
-            except ValueError:
-                pass
 
     def broadcast(self, data: dict) -> None:
         """Push data to all connected SSE clients (called from sync context)."""
         with self._lock:
             for q in self._queues:
-                try:
+                # Drop if client is too slow
+                with suppress(asyncio.QueueFull):
                     q.put_nowait(data)
-                except asyncio.QueueFull:
-                    pass  # Drop if client is too slow
 
 
 #: Used when ``artifact_server.max_timeseries_file_mb`` is unset.

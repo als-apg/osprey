@@ -83,6 +83,8 @@ describe('schema', () => {
       status: [],
       header_visible: true,
       status_visible: true,
+      rail_docs_visible: true,
+      rail_feedback_visible: true,
     });
     expect(Object.isFrozen(layout)).toBe(true);
     expect(Object.isFrozen(layout.header)).toBe(true);
@@ -117,7 +119,27 @@ describe('a clean document', () => {
       ],
       header_visible: true,
       status_visible: false,
+      rail_docs_visible: true,
+      rail_feedback_visible: true,
     });
+  });
+
+  test('a document saved before the rail flags shows both, and is not a change', () => {
+    const result = normalize(clean, BAR_CATALOG, { controlTargetAvailable: true });
+    expect(result.layout.rail_docs_visible).toBe(true);
+    expect(result.layout.rail_feedback_visible).toBe(true);
+    expect(result.changed).toBe(false);
+  });
+
+  test('a hidden rail control stays hidden through normalization', () => {
+    const result = normalize(
+      { ...clean, rail_docs_visible: false, rail_feedback_visible: true },
+      BAR_CATALOG,
+      { controlTargetAvailable: true }
+    );
+    expect(result.layout.rail_docs_visible).toBe(false);
+    expect(result.layout.rail_feedback_visible).toBe(true);
+    expect(result.readonly).toBe(false);
   });
 
   test('keeps the stored order — order IS the layout', () => {

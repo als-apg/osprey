@@ -39,6 +39,7 @@ only ``main`` installs them.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shlex
 import signal
@@ -82,10 +83,8 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 
 def _signal_group(pgid: int, sig: int) -> None:
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def _group_is_gone(pgid: int, wait: Callable[[float | None], object]) -> bool:

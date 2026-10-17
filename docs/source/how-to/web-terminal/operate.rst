@@ -62,9 +62,10 @@ The window has three working areas plus a header:
   lattice dashboard, and so on), opened from the icon rail and arranged as
   dockable tiles. See :doc:`panels`.
 - **Utility controls** — pinned to the far end of the same rail, a
-  **Documentation** link and a **Feedback** button that lets whoever is at the
-  terminal report a problem without leaving it. See
-  :doc:`send-feedback`.
+  **Documentation** link, a **Feedback** button that lets whoever is at the
+  terminal report a problem without leaving it (see :doc:`send-feedback`), and
+  **⋯ More** with SYSTEM, the tour and the activity log. Right-click Docs or
+  Feedback to hide it; More brings it back.
 - **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
   (which machine this deployment writes to, and whether it may), the display menu
   (a small dot holding the light/dark, Expert/Simple, and theme controls — see
@@ -449,6 +450,9 @@ button and the display menu. The status bar starts nearly bare: a space, the
 **System health** dot where the SYSTEM panel is enabled, and a clock at the
 right. The **Docs** link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
 to change.
+
+**Right-click any item** for its options and **Remove**, no customizing
+needed. A removal can be undone for a few seconds.
 
 Rearranging the bars
 ~~~~~~~~~~~~~~~~~~~~

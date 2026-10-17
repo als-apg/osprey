@@ -45,6 +45,7 @@ Spec keys:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from collections.abc import Mapping
@@ -294,10 +295,9 @@ async def _run_ps(ps_cmd: list[str], timeout_s: float) -> tuple[str, int]:
     try:
         stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
-        try:
+        # already exited
+        with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        except ProcessLookupError:
-            pass  # already exited
         await proc.wait()
         raise
     return stdout_b.decode(errors="replace"), proc.returncode or 0

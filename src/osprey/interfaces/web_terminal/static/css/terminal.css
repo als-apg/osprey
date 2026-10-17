@@ -1303,6 +1303,15 @@ html[data-ui-mode="simple"] .session-selector {
   display: none;
 }
 
+/* An operator hid the control (its right-click "Hide", rail-more-menu.js). The
+   flag is the bar layout's, stamped on <html> by the server and kept live by
+   bar-host.js. Withdrawn by display alone and never removed: the status bar's
+   Feedback item and the feedback boot reach the button by id and click it. */
+html[data-rail-docs="hidden"] #panel-docs-link,
+html[data-rail-feedback="hidden"] #panel-feedback-btn {
+  display: none;
+}
+
 .panel-utility-btn:hover,
 .panel-utility-btn:focus-visible {
   color: var(--color-accent-light);

@@ -49,7 +49,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -700,10 +700,8 @@ class _Server:
 
     def stop(self) -> None:
         self.pva.close()
-        try:
+        with suppress(AssertionError, OSError):
             self.ask("stop")
-        except (AssertionError, OSError):
-            pass
         self._proc.join(timeout=10)
         if self._proc.is_alive():
             self._proc.kill()

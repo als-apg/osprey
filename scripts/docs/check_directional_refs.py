@@ -53,6 +53,7 @@ would report every ``:ref:`` pointing into it as a false "unresolved", so
 from __future__ import annotations
 
 import argparse
+import contextlib
 import re
 import sys
 from pathlib import Path
@@ -250,10 +251,8 @@ def check(docs_root: Path) -> tuple[list[str], str]:
         lines = text.splitlines()
         is_prose = prose_lines(text)
         shown = f"{docs_root.name}/{docname}.rst"
-        try:
+        with contextlib.suppress(ValueError):
             shown = (docs_root / f"{docname}.rst").relative_to(REPO_ROOT).as_posix()
-        except ValueError:
-            pass
         seen: set[str] = set()
         for match in ROLE_RE.finditer(text):
             number = text.count("\n", 0, match.start()) + 1

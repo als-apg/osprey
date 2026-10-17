@@ -60,6 +60,7 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import math
@@ -161,10 +162,8 @@ def _run_one(target: str) -> int:
 
 def _kill_session(proc: subprocess.Popen[bytes]) -> None:
     """Kill every process in the session ``proc`` leads, then reap ``proc``."""
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
     proc.wait()
 
 

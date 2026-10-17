@@ -77,6 +77,7 @@ framework judge them under the caller's own registry.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -142,10 +143,8 @@ def _http_get_json(path: str) -> tuple[int, dict | list]:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         body: dict = {}
-        try:
+        with contextlib.suppress(Exception):
             body = json.loads(exc.read())
-        except Exception:
-            pass
         return exc.code, body
 
 
@@ -714,10 +713,8 @@ async def phoebus_snapshot(
         )
     if status != 200:
         msg = f"Phoebus bridge returned HTTP {status}."
-        try:
+        with contextlib.suppress(Exception):
             msg = json.loads(content).get("error", msg)
-        except Exception:
-            pass
         return make_error(
             "phoebus_error",
             msg,

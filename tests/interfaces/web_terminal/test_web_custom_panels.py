@@ -7,7 +7,7 @@ import ipaddress
 import json
 import threading
 import time
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -818,10 +818,8 @@ class TestHiddenPanels:
             assert "ariel" in data["enabled"], "ariel should be in enabled"
             assert "ariel" not in data["visible"], "ariel should not be in visible when hidden:true"
         finally:
-            try:
+            with suppress(StopIteration):
                 next(gen)
-            except StopIteration:
-                pass
 
 
 # ---- POST /api/panel-visibility ----

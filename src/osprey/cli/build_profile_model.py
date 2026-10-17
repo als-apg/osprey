@@ -8,6 +8,7 @@ preset resolution or ``extends`` merging.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import warnings
 from collections.abc import Iterator
@@ -1305,13 +1306,11 @@ class BuildProfile:
 
         seed: dict[str, int] = {}
         wrapped = {"deployment": {"port_base": base}, "modules": {"web_terminals": web_terminals}}
-        try:
+        # A non-port `nginx_port` is the stanza's own fault to report; the
+        # lint names it, and guessing a number for it here would put a
+        # wrong port in a collision report.
+        with contextlib.suppress(ValueError):
             seed["modules.web_terminals.nginx_port"] = resolve_nginx_port(wrapped)
-        except ValueError:
-            # A non-port `nginx_port` is the stanza's own fault to report; the
-            # lint names it, and guessing a number for it here would put a
-            # wrong port in a collision report.
-            pass
 
         # The auth sidecar is a container only under the two methods that put a
         # wall in front of the terminals; `token` and `none` bind nothing on the

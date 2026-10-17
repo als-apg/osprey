@@ -1,6 +1,6 @@
 """Browser tests: where the rail's utility cluster actually lands.
 
-``#panel-utility`` (Documentation + Feedback + Tour) is pinned to the far end of the
+``#panel-utility`` (Documentation + Feedback + ⋯ More) is pinned to the far end of the
 rail by nothing but ``margin-top: auto`` in the left column and
 ``margin-left: auto`` under a top rail — ``.panel-rail`` has no ``flex: 1``, so
 those two declarations are the whole mechanism. A stylesheet edit that drops
@@ -16,6 +16,11 @@ Coverage:
       content edge, and every visible button fits the 40px strip.
   (3) both modes — each control's label fits its cell, rather than being
       quietly ellipsised down to an abbreviation nobody chose.
+  (4) the ⋯ More menu opens back toward the rail's start and stays in the
+      window: beside the column with its foot on the button's, or below the
+      strip right-aligned to the button.
+  (5) Feedback hides from its own right-click menu and returns from ⋯ More,
+      staying in the DOM throughout (the status bar's item clicks it by id).
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_feedback_rail_browser.py -v
@@ -305,7 +310,7 @@ def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
             page = _open_hub_page(chromium_browser, url)
             try:
                 labels = page.locator("#panel-utility .panel-utility-label")
-                assert labels.count() == 4, "the cluster lost a label"
+                assert labels.count() == 3, "the cluster lost a label"
 
                 overflow = page.evaluate(
                     "() => Array.from("
@@ -316,3 +321,102 @@ def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
                 assert overflow == [], f"utility labels are cut off at {url}: {overflow}"
             finally:
                 page.close()
+
+
+def _menu_fits_viewport(page: Page) -> None:
+    """The open ⋯ More menu lies wholly inside the window."""
+    menu = _box(page, "#rail-more-menu")
+    size = page.viewport_size
+    assert size is not None
+    assert menu["x"] >= -_EDGE_TOLERANCE_PX, menu
+    assert menu["y"] >= -_EDGE_TOLERANCE_PX, menu
+    assert menu["right"] <= size["width"] + _EDGE_TOLERANCE_PX, menu
+    assert menu["bottom"] <= size["height"] + _EDGE_TOLERANCE_PX, menu
+
+
+def test_more_menu_opens_beside_the_left_rail_bottom_aligned(tmp_path, chromium_browser):
+    """Left mode: the menu opens right of the column, its foot on the button's.
+
+    The cluster sits at the bottom of the column, so a menu hung from the
+    button's top would run off the bottom of the window.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _hub_server(workspace) as base_url:
+        page = _open_hub_page(chromium_browser, base_url)
+        try:
+            expect(page.locator("html")).to_have_attribute("data-rail-position", "left")
+            page.locator("#rail-more-btn").click()
+            expect(page.locator("#rail-more-menu")).to_be_visible()
+            expect(page.locator("#rail-more-btn")).to_have_attribute("aria-expanded", "true")
+
+            button = _box(page, "#rail-more-btn")
+            menu = _box(page, "#rail-more-menu")
+            region = _box(page, ".panel-rail-region")
+            assert menu["x"] >= region["right"] - _EDGE_TOLERANCE_PX, (menu, region)
+            assert abs(menu["bottom"] - button["bottom"]) <= _EDGE_TOLERANCE_PX, (menu, button)
+            _menu_fits_viewport(page)
+
+            # The rarely used controls are rows here, not rail cells.
+            expect(page.locator("#rail-more-menu .rail-more-label")).to_have_text(
+                ["Take tour", "Activity log"]
+            )
+
+            page.keyboard.press("Escape")
+            expect(page.locator("#rail-more-menu")).to_be_hidden()
+            expect(page.locator("#rail-more-btn")).to_be_focused()
+        finally:
+            page.close()
+
+
+def test_more_menu_drops_below_the_top_rail(tmp_path, chromium_browser):
+    """Top mode: the menu opens downward from the strip, right-aligned to the button."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _hub_server(workspace) as base_url:
+        page = _open_hub_page(chromium_browser, f"{base_url}/?rail=top")
+        try:
+            expect(page.locator("html")).to_have_attribute("data-rail-position", "top")
+            page.locator("#rail-more-btn").click()
+            expect(page.locator("#rail-more-menu")).to_be_visible()
+
+            button = _box(page, "#rail-more-btn")
+            menu = _box(page, "#rail-more-menu")
+            region = _box(page, ".panel-rail-region")
+            assert menu["y"] >= region["bottom"] - _EDGE_TOLERANCE_PX, (menu, region)
+            assert abs(menu["right"] - button["right"]) <= _EDGE_TOLERANCE_PX, (menu, button)
+            _menu_fits_viewport(page)
+        finally:
+            page.close()
+
+
+def test_feedback_hides_from_its_menu_and_returns_from_more(tmp_path, chromium_browser):
+    """Right-click → Hide Feedback withdraws the button; ⋯ More brings it back.
+
+    The hidden button stays in the DOM, because the status bar's Feedback item
+    reaches the dialog by clicking it.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _hub_server(workspace) as base_url:
+        page = _open_hub_page(chromium_browser, base_url)
+        try:
+            feedback = page.locator("#panel-feedback-btn")
+            feedback.click(button="right")
+            page.locator(".rail-context-menu .rail-context-item", has_text="Hide Feedback").click()
+
+            expect(page.locator("html")).to_have_attribute("data-rail-feedback", "hidden")
+            expect(feedback).to_be_hidden()
+            expect(feedback).to_be_attached()
+            expect(page.locator("#undo-notice")).to_contain_text("Feedback hidden")
+
+            page.locator("#rail-more-btn").click()
+            page.locator("#rail-more-menu .rail-more-item", has_text="Show Feedback").click()
+
+            expect(page.locator("html")).to_have_attribute("data-rail-feedback", "visible")
+            expect(feedback).to_be_visible()
+        finally:
+            page.close()

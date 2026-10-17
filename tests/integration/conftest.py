@@ -15,6 +15,7 @@ container and hands each module its own database inside it.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from collections.abc import Callable
 
@@ -88,10 +89,8 @@ def qmd_ariel_database_factory(qmd_ariel_postgres) -> Callable[[str], str]:
 
     def make(name: str) -> str:
         with psycopg.connect(f"{prefix}/{LANE_DATABASE}", autocommit=True) as conn:
-            try:
+            with contextlib.suppress(psycopg.errors.DuplicateDatabase):
                 conn.execute(f'CREATE DATABASE "{name}"')
-            except psycopg.errors.DuplicateDatabase:
-                pass
         return f"{prefix}/{name}"
 
     return make

@@ -104,6 +104,7 @@ fail-open rule above swallowed. Debug-gated like every ``log_hook`` call, so it
 costs a run nothing until someone turns it on.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -270,10 +271,9 @@ def _log(payload, status, detail=""):
     Wrapped the way every other hook wraps it (``osprey_writes_check``'s deny
     path is the precedent): a diagnostic may never cost the block it describes.
     """
-    try:
+    # logging must never cost the emit
+    with contextlib.suppress(Exception):
         log_hook("control_context", payload, status=status, detail=detail)
-    except Exception:
-        pass  # logging must never cost the emit
 
 
 def main():

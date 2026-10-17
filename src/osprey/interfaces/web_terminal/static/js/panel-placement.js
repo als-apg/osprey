@@ -125,12 +125,17 @@ function hasAnyServiceTile() {
  * member panel is focused locally + reported (the activation no-ops while the
  * panel is unhealthy — the placeholder tile still appears and fills on the next
  * health settle); a non-member is revealed through the same visibility-POST path
- * the "+" menu uses.
+ * the "+" menu uses. The exception is a non-member that already held a tile
+ * before the move — an off-rail tile (panel-manager's openPanelOffRail) being
+ * rearranged: moving it is layout, not a request to join the rail, so it is
+ * focused without a POST and stays off it.
  * @param {string} panelId
+ * @param {boolean} wasOnScreen - the panel held a tile before this placement
  */
-function revealOpenedPanel(panelId) {
+function revealOpenedPanel(panelId, wasOnScreen) {
   const c = ctx();
   if (c.isMember(panelId)) c.activate(panelId, { userInitiated: true });
+  else if (wasOnScreen) c.activate(panelId);
   else c.reveal(panelId);
 }
 
@@ -143,8 +148,9 @@ function revealOpenedPanel(panelId) {
  */
 export function openPanelBeside(panelId) {
   if (panelId === TERMINAL_RAIL_ID) { ctx().openTerminal(); return; }
+  const wasOnScreen = hasDockedTile(panelId);
   dockPanelBesideActive(panelId, ctx().label(panelId));
-  revealOpenedPanel(panelId);
+  revealOpenedPanel(panelId, wasOnScreen);
 }
 
 /**
@@ -154,8 +160,9 @@ export function openPanelBeside(panelId) {
  * @param {{referenceGroup?: any, direction: string} | null} position
  */
 export function dropPanelAt(panelId, position) {
+  const wasOnScreen = hasDockedTile(panelId);
   dockPanelAt(panelId, ctx().label(panelId), position);
-  revealOpenedPanel(panelId);
+  revealOpenedPanel(panelId, wasOnScreen);
 }
 
 /**

@@ -703,6 +703,7 @@ select = [
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
+    "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
 ]
 ignore = [
     "E501",  # line too long, handled by formatter

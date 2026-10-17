@@ -96,6 +96,7 @@ is one-way — the posture store below it, never the reverse at module scope.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -573,10 +574,8 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
             json.dump(payload, handle, indent=2)
         os.replace(tmp, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 

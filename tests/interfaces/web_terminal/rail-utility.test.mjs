@@ -1,5 +1,5 @@
 /**
- * OSPREY Web Terminal — rail utility cluster (Documentation, Feedback, Tour, Activity).
+ * OSPREY Web Terminal — rail utility cluster (Documentation, Feedback, ⋯ More).
  *
  * Four things are pinned here, because each of them is a defect the rail has
  * already shipped once before:
@@ -158,14 +158,28 @@ describe('utility cluster markup', () => {
     expect(qs(button, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
   });
 
-  test('exposes an Activity button with an accessible name', () => {
+  test('exposes a More button that announces the menu it opens', () => {
     const cluster = qs(parseRailRegion(), '#panel-utility');
-    const button = qs(cluster, '#panel-activity-btn', HTMLButtonElement);
+    const button = qs(cluster, '#rail-more-btn', HTMLButtonElement);
 
     expect(button.getAttribute('type')).toBe('button');
-    expect(button.getAttribute('aria-label')).toBe('Activity');
-    expect(button.getAttribute('title')).toBe('Open the activity log in a new tab');
+    expect(button.getAttribute('aria-label')).toBe('More');
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.getAttribute('aria-controls')).toBe('rail-more-menu');
     expect(qs(button, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
+    // The menu sits beside the button inside one positioned wrapper, which is
+    // what the stylesheet anchors the popover to.
+    expect(qs(cluster, '#rail-more #rail-more-menu').getAttribute('role')).toBe('menu');
+  });
+
+  test('keeps the rarely used controls out of the cluster', () => {
+    // The tour and the activity log are rows of the More menu; a cell for
+    // either would put them back on the rail beside the menu that holds them.
+    const cluster = qs(parseRailRegion(), '#panel-utility');
+    const labels = Array.from(cluster.querySelectorAll('.panel-utility-label'), (el) => el.textContent);
+
+    expect(labels).toEqual(['Docs', 'Feedback', 'More']);
   });
 
   test('names every control in the cell, not just in the tooltip', () => {
@@ -176,7 +190,7 @@ describe('utility cluster markup', () => {
     for (const [id, label] of [
       ['#panel-docs-link', 'Docs'],
       ['#panel-feedback-btn', 'Feedback'],
-      ['#panel-activity-btn', 'Activity'],
+      ['#rail-more-btn', 'More'],
     ]) {
       expect(qs(cluster, `${id} .panel-utility-label`).textContent).toBe(label);
     }
@@ -188,7 +202,7 @@ describe('utility cluster markup', () => {
     // reading DOCS) makes the control unaddressable by voice.
     const cluster = qs(parseRailRegion(), '#panel-utility');
 
-    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#panel-activity-btn']) {
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#rail-more-btn']) {
       const control = qs(cluster, id);
       const visible = qs(control, '.panel-utility-label').textContent ?? '';
       const name = control.getAttribute('aria-label') ?? '';
@@ -221,6 +235,18 @@ describe('utility cluster styling', () => {
     expect(body).toMatch(/text-transform:\s*uppercase;/);
   });
 
+  test('withdraws a control the operator hid, by display alone', () => {
+    // The flag is stamped on <html>. Display, never removal: the status bar's
+    // Feedback item clicks the rail button by id, so it must stay in the DOM.
+    const body = ruleBody(
+      'html[data-rail-docs="hidden"] #panel-docs-link,\n' +
+        'html[data-rail-feedback="hidden"] #panel-feedback-btn'
+    );
+    expect(body).toMatch(/display:\s*none;/);
+    // ⋯ More is the way back to both, so no flag withdraws it.
+    expect(terminalCss).not.toMatch(/\[data-rail-[a-z]+="hidden"\][^{]*#rail-more/);
+  });
+
   test('lets the hidden attribute win over the button display rule', () => {
     // `[hidden] { display: none }` is a UA rule and loses to any class
     // selector, so a docs anchor hidden by initRailUtility would still paint.
@@ -230,7 +256,7 @@ describe('utility cluster styling', () => {
   test('gives every control a drawn SVG mark, not a font glyph', () => {
     const cluster = qs(parseRailRegion(), '#panel-utility');
 
-    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#panel-activity-btn']) {
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#rail-more-btn']) {
       const svg = qs(cluster, `${id} .panel-utility-icon svg[viewBox="0 0 16 16"]`);
       expect(svg.getAttribute('stroke')).toBe('currentColor');
     }

@@ -54,7 +54,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -982,11 +982,9 @@ def _inject_accent(page, theme: str, accent: str) -> None:
     """Inject the candidate accent override into every frame (hub + panels)."""
     css = _accent_override_css(theme, accent)
     for frame in page.frames:
-        try:
+        # about:blank / not-yet-navigated frames reject injection — harmless.
+        with suppress(Exception):
             frame.add_style_tag(content=css)
-        except Exception:
-            # about:blank / not-yet-navigated frames reject injection — harmless.
-            pass
 
 
 def _effective_variants(accents: bool) -> list[tuple[str, str | None, str | None]]:

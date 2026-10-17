@@ -2923,6 +2923,15 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  web.panels.system-health.hidden:
+    evidence: 'spec\.get\("hidden", False\)'
+    note: >-
+      Serves the panel without a rail entry: it stays enabled (the status bar's
+      health item, the "+" menu, the command palette and the rail's More menu
+      all open it) but is not a rail member until someone adds it. The
+      control-assistant preset ships it true. The same per-panel key works for
+      every panel; this is the one shipped configuration that writes it.
+    default: false
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
     evidence: 'spec\.get\("rewrite_prefixes"\)'
@@ -3965,7 +3974,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 409
+  expected_union_size: 410
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

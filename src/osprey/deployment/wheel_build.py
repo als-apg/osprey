@@ -18,6 +18,7 @@ import and monkeypatch call sites keep resolving against it.
 """
 
 import atexit
+import contextlib
 import os
 import shutil
 from pathlib import Path
@@ -411,10 +412,8 @@ def _copy_local_framework_for_override(out_dir):
             _write_local_requirements_manifest(cached_wheels, out_dir)
         except Exception as manifest_error:
             for dest in dest_wheels:
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(dest)
-                except OSError:
-                    pass
             raise DevModeUnavailableError(
                 f"could not write {LOCAL_REQUIREMENTS_FILENAME} beside the staged "
                 f"wheels ({manifest_error})",

@@ -28,6 +28,7 @@ client (see the poisoning caveat documented in
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 from dataclasses import dataclass, field
@@ -98,10 +99,8 @@ def sweep(
         # in-process caller runs more tests after this returns; the CLI path
         # never noticed because process exit reclaimed everything).
         for pv in pvs.values():
-            try:
+            with contextlib.suppress(Exception):
                 pv.disconnect()
-            except Exception:
-                pass
 
     elapsed = time.monotonic() - start
     return SweepResult(

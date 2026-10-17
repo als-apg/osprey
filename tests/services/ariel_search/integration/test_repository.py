@@ -7,6 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -833,11 +834,9 @@ class TestDatabaseErrorConditions:
 
         # Try to get entry with None ID (should cause error in query building)
         # Note: get_entry handles None gracefully, so we test with invalid type
-        try:
+        # If it raises, the wrapping works
+        with contextlib.suppress(DatabaseQueryError):
             await repository.get_entry("valid-id")  # This should work
-        except DatabaseQueryError:
-            # If it raises, the wrapping works
-            pass
         # Success either way - we're just verifying the mechanism
 
 

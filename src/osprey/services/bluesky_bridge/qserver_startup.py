@@ -62,6 +62,7 @@ resolve fine — so they cannot catch a regression here; the AST pin in
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
@@ -602,10 +603,9 @@ def _json_safe(value: Any) -> Any:
     """
     unwrap = getattr(value, "item", None)
     if callable(unwrap):
-        try:
+        # a non-scalar `.item()`; fall through to repr
+        with contextlib.suppress(Exception):
             value = unwrap()
-        except Exception:  # a non-scalar `.item()`; fall through to repr
-            pass
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     return repr(value)

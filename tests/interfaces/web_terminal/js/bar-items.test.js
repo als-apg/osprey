@@ -103,6 +103,8 @@ function layoutOf(header, status) {
     status: status.map(item),
     header_visible: true,
     status_visible: true,
+    rail_docs_visible: true,
+    rail_feedback_visible: true,
   };
 }
 
@@ -616,7 +618,7 @@ describe('stopwatch item', () => {
     stopwatchChip().click();
 
     expect(vi.getTimerCount()).toBe(0);
-    expect(stopwatchChip().title).toBe('Paused — click to resume, right-click to reset');
+    expect(stopwatchChip().title).toBe('Paused — click to resume; right-click for Reset');
 
     vi.advanceTimersByTime(10 * 60 * 1000);
     expect(stopwatchTime()).toBe('01:05');
@@ -648,18 +650,60 @@ describe('stopwatch item', () => {
     expect(stopwatchTime()).toBe('1:01:05');
   });
 
-  test('right-click resets it to zero and stops the ticker', () => {
+  test('a right-click is left to the bar: it neither resets nor is swallowed', () => {
     freezeAt(AT);
     seedDom('', shellMarkup('stopwatch'));
     host.hydrate();
 
     stopwatchChip().click();
     vi.advanceTimersByTime(65_000);
-    stopwatchChip().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    stopwatchChip().dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(stopwatchTime()).toBe('01:05');
+    expect(stopwatchChip().getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('its Reset action zeroes it and stops the ticker', () => {
+    freezeAt(AT);
+    seedDom('', shellMarkup('stopwatch'));
+    host.hydrate();
+
+    stopwatchChip().click();
+    vi.advanceTimersByTime(65_000);
+    const actions = items.barItemActions(shellOf('stopwatch'));
+    expect(actions.map((action) => action.label)).toEqual(['Reset stopwatch']);
+    actions[0].run();
 
     expect(stopwatchTime()).toBe('00:00');
     expect(stopwatchChip().getAttribute('aria-pressed')).toBe('false');
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('Reset is offered only while there is a reading to throw away', () => {
+    freezeAt(AT);
+    seedDom('', shellMarkup('stopwatch'));
+    host.hydrate();
+    expect(items.barItemActions(shellOf('stopwatch'))).toEqual([]);
+
+    stopwatchChip().click();
+    expect(items.barItemActions(shellOf('stopwatch'))).toHaveLength(1);
+    vi.advanceTimersByTime(5_000);
+    stopwatchChip().click();
+    expect(items.barItemActions(shellOf('stopwatch'))).toHaveLength(1);
+  });
+
+  test('a parked stopwatch offers no actions', () => {
+    freezeAt(AT);
+    seedDom('', shellMarkup('stopwatch'));
+    host.hydrate();
+    stopwatchChip().click();
+    const parked = shellOf('stopwatch');
+
+    host.reconcile(layoutOf([], []));
+
+    expect(items.barItemActions(parked)).toEqual([]);
   });
 
   test('the elapsed time survives a pool round trip', () => {

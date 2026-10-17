@@ -17,6 +17,7 @@ Three pieces every picture path shares:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import weakref
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Literal
@@ -241,10 +242,8 @@ async def _relation_exists(pool: Any, relation: str) -> bool:
         value = row[0]
     if value is None:
         return False
-    try:
+    with contextlib.suppress(TypeError):
         _relations.setdefault(pool, set()).add(relation)
-    except TypeError:
-        pass
     return True
 
 

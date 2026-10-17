@@ -184,10 +184,8 @@ def returns_within(
     thread.join(seconds)
     if thread.is_alive():
         if release is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(os.open(release, os.O_RDWR | os.O_NONBLOCK))
-            except OSError:
-                pass
             thread.join(seconds)
         pytest.fail("the open blocked")
     returned, value = outcome[0]

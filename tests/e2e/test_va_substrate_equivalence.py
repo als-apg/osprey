@@ -1110,10 +1110,8 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     finally:
         if read_proc.returncode is None:
             read_proc.kill()
-            try:
+            with contextlib.suppress(TimeoutError, ProcessLookupError):
                 await asyncio.wait_for(read_proc.wait(), timeout=5.0)
-            except (TimeoutError, ProcessLookupError):
-                pass
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"

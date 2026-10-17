@@ -81,6 +81,7 @@ them is a reason to declare the axis untested.
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import json
 import os
@@ -200,10 +201,8 @@ def _runtime_cli_safe(*args: str, timeout: int = 60) -> None:
     failure with a cleanup failure. Every caller names an exact resource, so a
     swallowed error means "already gone / never created".
     """
-    try:
+    with contextlib.suppress(subprocess.SubprocessError, OSError):
         _runtime_cli(*args, timeout=timeout)
-    except (subprocess.SubprocessError, OSError):
-        pass
 
 
 def _run_osprey(
@@ -681,10 +680,8 @@ def _teardown_shape(osprey_bin: Path, repo: Path) -> None:
     more here than in a single-boot test: under ``host`` these containers hold
     real host ports, and the next shape cannot start until they are released.
     """
-    try:
+    with contextlib.suppress(subprocess.SubprocessError, OSError):
         _run_osprey(osprey_bin, ["down"], repo, timeout=DOWN_TIMEOUT_SEC)
-    except (subprocess.SubprocessError, OSError):
-        pass
     for container in (WORKER_CONTAINER, DISPATCHER_CONTAINER):
         _runtime_cli_safe("rm", "-f", container)
 

@@ -413,6 +413,7 @@ web:
       enabled: true
     system-health:
       enabled: true
+      hidden: true
     trajectory:
       enabled: false
       health_endpoint: /health
