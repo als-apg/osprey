@@ -13,6 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,31 @@ class BuildArtifact:
     template_root: str = "claude_code"
     is_directory: bool = False
     requires: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LoneScript:
+    """A packaged module copied out as one file and run by path, outside any build tree.
+
+    The rows it requires are its closure: they are staged into one directory
+    beside it, so its sibling imports resolve from that directory alone.
+
+    Attributes:
+        name: Stable identifier, e.g. ``"control-identity"``.
+        module: The dotted module whose source file is the script.
+        requires: The canonical names of the rows the script imports or reads
+            beside itself.
+    """
+
+    name: str
+    module: str
+    requires: tuple[str, ...]
+
+
+#: The lone-file scripts the deployment stages, each with its helper rows.
+LONE_SCRIPTS: tuple[LoneScript, ...] = (
+    LoneScript("control-identity", "osprey.deployment.control_identity", ("hooks/safety-file",)),
+)
 
 
 #: The one output path several artifacts render, one per persona. Which of them
@@ -570,8 +599,10 @@ class BuildArtifactCatalog:
         artifacts: list[BuildArtifact],
         *,
         claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE,
+        lone_scripts: Iterable[LoneScript] = (),
     ) -> None:
         self._by_name: dict[str, BuildArtifact] = {a.canonical_name: a for a in artifacts}
+        self._lone_scripts: dict[str, LoneScript] = {s.name: s for s in lone_scripts}
         self._claude_md_template = claude_md_template
         # An output path has exactly one artifact, except CLAUDE.md, which has one
         # per persona and resolves to the persona the catalog was built for.
@@ -604,6 +635,26 @@ class BuildArtifactCatalog:
                     f"Build artifact '{a.canonical_name}' requires "
                     f"{', '.join(repr(name) for name in unknown)}, which no build artifact is named"
                 )
+        for script in self._lone_scripts.values():
+            unknown = [name for name in script.requires if name not in self._by_name]
+            if unknown:
+                raise ValueError(
+                    f"Lone script '{script.name}' requires "
+                    f"{', '.join(repr(name) for name in unknown)}, which no build artifact is named"
+                )
+            # A closure file is copied verbatim beside the script, so a template
+            # anywhere in it would ship unrendered.
+            templates = sorted(
+                name
+                for name in self.closure(script.requires)
+                if self._by_name[name].template_path.endswith(".j2")
+            )
+            if templates:
+                raise ValueError(
+                    f"Lone script '{script.name}' requires "
+                    f"{', '.join(repr(name) for name in templates)} through its closure, "
+                    f"which is a template; a lone script's closure is copied verbatim"
+                )
 
     @classmethod
     def default(
@@ -615,7 +666,11 @@ class BuildArtifactCatalog:
             claude_md_template: The persona template ``CLAUDE.md`` resolves to,
                 as the profile's ``claude_md_template:`` names it.
         """
-        return cls(_get_default_artifacts(), claude_md_template=claude_md_template)
+        return cls(
+            _get_default_artifacts(),
+            claude_md_template=claude_md_template,
+            lone_scripts=LONE_SCRIPTS,
+        )
 
     @property
     def claude_md_template(self) -> str:
@@ -651,6 +706,38 @@ class BuildArtifactCatalog:
             if artifact is not None:
                 pending.extend(artifact.requires)
         return frozenset(seen)
+
+    def files_beside(self, name: str, templates_dir: Path) -> dict[str, Path]:
+        """The files that make up lone script *name*, keyed by the file name each is staged as.
+
+        The script's own source file, located without importing its module, plus
+        the template file of every row in its closure.
+
+        Args:
+            name: The lone script's name.
+            templates_dir: The bundled templates directory; each row's
+                ``template_root`` and ``template_path`` are resolved below it.
+
+        Raises:
+            KeyError: If no lone script is named *name*.
+        """
+        import importlib.util
+        from pathlib import Path
+
+        script = self._lone_scripts[name]
+        spec = importlib.util.find_spec(script.module)
+        if spec is None or spec.origin is None:
+            raise KeyError(
+                f"Lone script '{name}' names module {script.module!r}, which has no file"
+            )
+        origin = Path(spec.origin)
+        files = {origin.name: origin}
+        for row_name in sorted(self.closure(script.requires)):
+            row = self._by_name[row_name]
+            files[Path(row.output_path).name] = (
+                templates_dir / row.template_root / row.template_path
+            )
+        return files
 
     def helpers(self) -> frozenset[str]:
         """The rows some other row requires: they ship as a closure, never selected."""
