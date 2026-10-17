@@ -709,14 +709,22 @@ def _initialize_registry() -> None:
 
 
 def _install_client_block() -> None:
-    """Refuse every control-system client in this process, for reads and writes alike.
+    """Refuse control-system client imports in this process, for reads and writes alike.
 
     A kernel holds no control-system client: its connector is served by a
-    connector-host child, and every client package import and client library
-    load in this process is refused. A client that loaded before this call
-    would stay loaded, so the install refuses to start over one.
+    connector-host child, and a client package import or a client library
+    load through Python's loaders in this process is refused. A client that
+    loaded before this call would stay loaded, so the install refuses to start
+    over one.
 
-    There is no guard: a kernel that cannot install the block does not start.
+    The block is an in-process, cooperative guard: it keeps honest cell code on
+    the connector path and is not a sandbox. A child process a cell starts
+    (``subprocess``, ``os.system``, a shell escape such as ``!python -c ...``)
+    runs without it, and what closes that route is the deployment's network,
+    not OSPREY; see the cooperative bypasses in
+    ``docs/source/architecture/safety-chain.rst``.
+
+    There is no fallback: a kernel that cannot install the block does not start.
     """
     from osprey.runtime import raw_put_block
     from osprey.services.python_executor.execution.wrapper import no_client_contract
