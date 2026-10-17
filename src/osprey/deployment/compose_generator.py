@@ -35,8 +35,8 @@ from osprey.deployment.channel_snapshot import compute_channel_snapshot
 from osprey.deployment.compose_merge import _FILE_MODE as _COMPOSE_FILE_MODE
 from osprey.deployment.compose_merge import ComposeMergeError, _load_compose_document
 from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
-    SAFETY_FILE_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
@@ -1902,13 +1902,14 @@ def _inject_project_metadata(config):
     }
 
     # The control-identity step, in the values a template needs: the fixed
-    # container paths the module and its safety-file helper are mounted at
-    # (the copies `_stage_control_identity_module` puts in the build context),
-    # and the identity each bluesky lane runs as. Both come from the modules that own
-    # them, so a template never spells a path or an identity of its own.
-    # Injected unconditionally, like every other derived key here.
+    # container directory the staged script and its closure are bound at (the
+    # directory `_stage_control_identity_module` puts in the build context), the
+    # script's path inside it, and the identity each bluesky lane runs as. All
+    # come from the modules that own them, so a template never spells a path or
+    # an identity of its own. Injected unconditionally, like every other derived
+    # key here.
     config_with_labels["control_identity_container_path"] = CONTROL_IDENTITY_CONTAINER_PATH
-    config_with_labels["safety_file_container_path"] = SAFETY_FILE_CONTAINER_PATH
+    config_with_labels["control_identity_container_dir"] = CONTROL_IDENTITY_CONTAINER_DIR
     config_with_labels["lane_control_identities"] = {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }

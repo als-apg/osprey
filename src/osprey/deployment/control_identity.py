@@ -8,9 +8,10 @@ behind the card instead of the shared ``osprey`` account.
 This module is a stdlib-only leaf: it is copied byte-for-byte into the build
 directory and run inside containers by path, where the ``osprey`` package may
 not be importable. It must never import anything from ``osprey.*``. It replaces
-files through the safety-file helper, which the build stages beside it as
-``osprey_safety_file.py``; with the helper absent :func:`apply` refuses and
-writes nothing.
+files through the safety-file helper, which ships as this script's catalog
+closure: the build stages both into one directory, bound read-only at
+:data:`CONTROL_IDENTITY_CONTAINER_DIR`. With the helper absent :func:`apply`
+refuses and writes nothing.
 """
 
 from __future__ import annotations
@@ -34,11 +35,10 @@ except ImportError:
 __all__ = [
     "BASE_IMAGE_ACCOUNTS",
     "CANONICAL_NAME",
+    "CONTROL_IDENTITY_CONTAINER_DIR",
     "CONTROL_IDENTITY_CONTAINER_PATH",
     "IDENTITY_RE",
     "RESERVED_RE",
-    "SAFETY_FILE_CONTAINER_PATH",
-    "SAFETY_FILE_FILENAME",
     "SKIPPED_ENV_VAR",
     "append_group_members",
     "apply",
@@ -48,14 +48,14 @@ __all__ = [
     "validate_identity",
 ]
 
-CONTROL_IDENTITY_CONTAINER_PATH = "/opt/osprey/control_identity.py"
-"""Where the staged copy of this module is mounted inside a container."""
+CONTROL_IDENTITY_CONTAINER_DIR = "/opt/osprey/control_identity"
+"""Where the staged directory holding this module and its closure is bound inside a container."""
 
-SAFETY_FILE_FILENAME = "osprey_safety_file.py"
-"""The file name of the safety-file helper staged beside this module."""
+CONTROL_IDENTITY_CONTAINER_PATH = CONTROL_IDENTITY_CONTAINER_DIR + "/control_identity.py"
+"""Where the staged copy of this module sits inside a container."""
 
-SAFETY_FILE_CONTAINER_PATH = "/opt/osprey/" + SAFETY_FILE_FILENAME
-"""Where the staged helper is mounted, beside :data:`CONTROL_IDENTITY_CONTAINER_PATH`."""
+# The file the guarded import above loads when this script runs by path.
+_HELPER_FILENAME = "osprey_safety_file.py"
 
 IDENTITY_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}\Z")
 """A portable POSIX login name: lowercase, at most 32 characters."""
@@ -292,7 +292,7 @@ def apply(
     fails.
     """
     if _safety_file is None:
-        raise RuntimeError(f"{SAFETY_FILE_FILENAME} is not beside this module; nothing was written")
+        raise RuntimeError(f"{_HELPER_FILENAME} is not beside this module; nothing was written")
     passwd_path = os.fspath(passwd)
     group_path = os.fspath(group)
     new_passwd = rewrite(_read(passwd_path), uid, name)

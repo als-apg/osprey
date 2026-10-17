@@ -297,7 +297,7 @@ services:
       - "sh"
       - "-c"
       - >-
-        python /opt/osprey/control_identity.py apply --uid 0 --name osprey-bluesky
+        python /opt/osprey/control_identity/control_identity.py apply --uid 0 --name osprey-bluesky
         || echo "WARNING: control identity osprey-bluesky not applied; this lane writes as root" >&2;
         exec start-re-manager
         --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
@@ -391,12 +391,10 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/bluesky_curve/queueserver:/app/curve:ro
-      # The control-identity module the command runs and the safety-file
-      # helper it writes through, staged into this build context by
-      # compose_generator byte for byte from the packaged sources. Read-only:
-      # they run as root, so nothing inside may edit them.
-      - ./build/services/bluesky/control_identity.py:/opt/osprey/control_identity.py:ro
-      - ./build/services/bluesky/osprey_safety_file.py:/opt/osprey/osprey_safety_file.py:ro
+      # The control-identity script the command runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity:/opt/osprey/control_identity:ro
 
 
 

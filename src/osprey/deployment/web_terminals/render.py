@@ -36,8 +36,8 @@ from osprey.deployment.compose_generator import (
     simulated_target_configured,
 )
 from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
-    SAFETY_FILE_CONTAINER_PATH,
 )
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.telemetry_config import (
@@ -1041,12 +1041,12 @@ def render_web_terminals(
         roster user whose location injects one. The write seam clears that directory
         first (see
         :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
-        cannot survive a re-render. Plus ``control_identity/control_identity.py``
-        and ``control_identity/osprey_safety_file.py`` — the packaged
-        :mod:`osprey.deployment.control_identity` source and the
-        :mod:`osprey_connectors.safety_file` helper it writes through, byte for
-        byte — only when the deployment is walled and some card sets a
-        ``control_identity``, i.e. exactly when the compose file binds them.
+        cannot survive a re-render. Plus one ``control_identity/<file>`` per
+        file of the control-identity script's catalog closure — the packaged
+        :mod:`osprey.deployment.control_identity` source and the helper rows it
+        imports beside itself, byte for byte — only when the deployment is
+        walled and some card sets a ``control_identity``, i.e. exactly when the
+        compose file binds that directory.
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is set to something
@@ -1574,11 +1574,12 @@ def render_web_terminals(
         # a record nothing looks for, and a missing record reads as "nothing
         # narrowed".
         "control_context_dir_env": CONTROL_CONTEXT_DIR_ENV_VAR,
-        # Where the staged identity module sits INSIDE the container, handed
-        # to the template from the module's own constant: the bind target and
-        # the path the entrypoint runs must be one spelling, not two.
+        # Where the staged identity directory is bound INSIDE the container,
+        # and the script's path within it, handed to the template from the
+        # module's own constants: the bind target and the path the entrypoint
+        # runs must agree, so neither is spelled in the template.
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
-        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         # Which CHECKOUT this stack belongs to, baked into every container and
         # volume label the template emits. Derived through the same helper the
         # services stack renders from, so one deployment cannot end up with two

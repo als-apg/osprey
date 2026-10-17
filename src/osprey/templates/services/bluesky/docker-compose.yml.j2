@@ -858,12 +858,10 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
-      # The control-identity module the command runs and the safety-file
-      # helper it writes through, staged into this build context by
-      # compose_generator byte for byte from the packaged sources. Read-only:
-      # they run as root, so nothing inside may edit them.
-      - ./build/services/bluesky/control_identity.py:{{ control_identity_container_path }}:ro
-      - ./build/services/bluesky/osprey_safety_file.py:{{ safety_file_container_path }}:ro
+      # The control-identity script the command runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity:{{ control_identity_container_dir }}:ro
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
       # SOURCE is a literal staged path rather than a computed one: `osprey

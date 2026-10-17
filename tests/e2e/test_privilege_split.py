@@ -64,8 +64,8 @@ root-owned so a session cannot edit the skills the next session reads, while
 the claude-config volume is handed to the runtime uid.
 
 ``TestControlIdentity`` — a card's control identity. A container started with
-``OSPREY_CONTROL_IDENTITY=alice`` and the rewrite module mounted read-only
-resolves uid 1000 to ``alice`` while every file stays owned by number and
+``OSPREY_CONTROL_IDENTITY=alice`` and the rewrite script's staged directory
+bound read-only resolves uid 1000 to ``alice`` while every file stays owned by number and
 ``osprey`` still names uid 1000; both ``gosu`` spellings keep the mounts'
 groups; a restart leaves one identity line; ``BASE_IMAGE_ACCOUNTS`` lists the
 image's accounts. The wire proof runs ``_ca_client_name_sniffer.py`` in the
@@ -1234,15 +1234,17 @@ def _group_volume(tag: str, gid: int) -> str:
 
 
 @pytest.fixture(scope="class")
-def identity_containers(ro_image):
+def identity_containers(ro_image, tmp_path_factory):
     """An identity container (``alice``) and a plain one, from the same image.
 
     The identity container is started by hand with the env/mount contract the
     walled web-terminal compose emits for a card that carries a
     ``control_identity``: ``OSPREY_CONTROL_IDENTITY``, the module path in
-    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the module and its safety-file
-    helper bind-mounted read-only. Both are mounted from THIS tree, so the
-    rewrite under test is the local one whatever the image carries. Two
+    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the script with its catalog
+    closure staged into one directory and bound read-only. The directory is
+    staged from THIS tree, so the rewrite under test is the local one whatever
+    the image carries, and the script's sibling import resolves from that
+    read-only directory alone. Two
     group-shared binds with foreign gids stand in for the audit and
     control-context directories, so the join-then-rewrite order is exercised
     on real memberships.
@@ -1251,17 +1253,22 @@ def identity_containers(ro_image):
     the account database the entrypoint left behind and the name a dropped
     process resolves, and the entrypoint wraps any command identically.
     """
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
     from osprey.deployment import control_identity
-    from osprey_connectors import safety_file
 
     tag, project = ro_image
     root = f"/app/{project}"
     audit_dir = f"{root}/var/audit/{IDENTITY}"
     context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
-    module_host_path = Path(control_identity.__file__).resolve()
+    staged_dir = tmp_path_factory.mktemp("control-identity")
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    for name, source in files.items():
+        (staged_dir / name).write_bytes(source.read_bytes())
     module_path = control_identity.CONTROL_IDENTITY_CONTAINER_PATH
-    helper_host_path = Path(safety_file.__file__).resolve()
-    helper_path = control_identity.SAFETY_FILE_CONTAINER_PATH
+    staged_path = control_identity.CONTROL_IDENTITY_CONTAINER_DIR
 
     volumes: list[str] = []
     names: list[str] = []
@@ -1276,9 +1283,7 @@ def identity_containers(ro_image):
                 "-e",
                 f"OSPREY_CONTROL_IDENTITY_MODULE={module_path}",
                 "-v",
-                f"{module_host_path}:{module_path}:ro",
-                "-v",
-                f"{helper_host_path}:{helper_path}:ro",
+                f"{staged_dir}:{staged_path}:ro",
                 "-v",
                 f"{volumes[0]}:{audit_dir}",
                 "-e",

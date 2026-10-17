@@ -42,8 +42,8 @@ from osprey.bluesky_bridge_connection import (
 )
 from osprey.deployment.compose_generator import repo_relative_mount_source
 from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
-    SAFETY_FILE_CONTAINER_PATH,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey_connectors.workspace import AUDIT_DIR_RELPATH
@@ -230,7 +230,7 @@ def _context(
         # identity, injected unconditionally because the generator injects
         # them unconditionally.
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
-        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
     if any(posture.values()):
@@ -1858,20 +1858,16 @@ def test_the_manager_starts_whether_or_not_the_rename_lands(
 def test_the_queueserver_mounts_the_module_and_carries_the_lane_hostname(
     lane: str, service: str
 ) -> None:
-    """The module the command runs and its safety-file helper are the staged
-    packaged copies, read-only; the hostname names the lane in the audit trail
+    """The script the command runs sits in the staged directory, bound
+    read-only with its closure; the hostname names the lane in the audit trail
     and the shell prompt alike."""
     qserver = _two_lane_identity_doc()["services"][service]
 
     assert qserver["hostname"] == lane_control_identity(lane)
-    assert (
-        f"./build/services/bluesky/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
-        in qserver["volumes"]
-    )
-    assert (
-        f"./build/services/bluesky/osprey_safety_file.py:{SAFETY_FILE_CONTAINER_PATH}:ro"
-        in qserver["volumes"]
-    )
+    assert CONTROL_IDENTITY_CONTAINER_PATH.startswith(CONTROL_IDENTITY_CONTAINER_DIR + "/")
+    assert [v for v in qserver["volumes"] if "control_identity" in v] == [
+        f"./build/services/bluesky/control_identity:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"
+    ]
 
 
 def test_an_external_worker_lane_renders_no_control_identity() -> None:
@@ -1881,8 +1877,7 @@ def test_an_external_worker_lane_renders_no_control_identity() -> None:
     lane["external"] = {"zmq_control_addr": "tcp://facility:60615"}
     text = _render_text(_context(lanes={"bluesky": lane}, deployed_services=["bluesky"]))
 
-    assert "control_identity.py" not in text
-    assert "osprey_safety_file.py" not in text
+    assert "control_identity" not in text
     assert "apply --uid" not in text
     assert f"hostname: {lane_control_identity('bluesky')}" not in text
 

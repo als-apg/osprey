@@ -303,14 +303,13 @@
       system sees this card's writes arrive under, straight off the roster
       entry, validated by render.py's `_check_roster_control_identities`.
       Read only when `walled` is true; it then emits OSPREY_CONTROL_IDENTITY,
-      OSPREY_CONTROL_IDENTITY_MODULE and the read-only binds of the staged
-      module and its helper. Absent, or unwalled, emits nothing, so a roster without the key
+      OSPREY_CONTROL_IDENTITY_MODULE and the read-only bind of the staged
+      identity directory. Absent, or unwalled, emits nothing, so a roster without the key
       renders byte-identically.
     control_identity_container_path: str, required — where the staged identity
-      module sits inside the container; both the bind target and the
-      OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
-    safety_file_container_path: str, required — where the safety-file helper
-      the identity module writes through sits, beside it.
+      module sits inside the container: the OSPREY_CONTROL_IDENTITY_MODULE value.
+    control_identity_container_dir: str, required — where the staged identity
+      directory is bound inside the container; the module path lies inside it.
     services[].oidc_subject_env: str — the env-var name the above is emitted
       under, pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
@@ -1251,7 +1250,7 @@ services:
          (`_check_roster_control_identities`); tojson quotes the WHOLE
          `KEY=value` the same way as OSPREY_WEB_APP_NAME above. The module
          path is render.py's `control_identity_container_path`, the module's
-         own constant, so it is the same string as the bind target below. #}
+         own constant, so it lies inside the directory bound below. #}
       - {{ ("OSPREY_CONTROL_IDENTITY=" ~ svc.control_identity) | tojson }}
       - {{ ("OSPREY_CONTROL_IDENTITY_MODULE=" ~ control_identity_container_path) | tojson }}
 {%- endif %}
@@ -1574,14 +1573,13 @@ services:
       - {{ mount }}
 {%- endfor %}
 {%- if walled and svc.control_identity %}
-      {#- The identity module the entrypoint runs and the safety-file helper
-         it writes through, read-only, under the same guard as its env lines
-         above. Their sources are render output: the render writes both into
-         `build/control_identity/` from the packaged sources whenever a card
-         emits these lines, so a bind never names a missing file (which the
-         runtime would replace with an empty directory). #}
-      - ./build/control_identity/control_identity.py:{{ control_identity_container_path }}:ro
-      - ./build/control_identity/osprey_safety_file.py:{{ safety_file_container_path }}:ro
+      {#- The identity script the entrypoint runs, with its catalog closure
+         beside it, read-only, under the same guard as its env lines above.
+         The directory is render output: the render writes the script and its
+         closure into `build/control_identity/` whenever a card emits this
+         line, so the bind never names a missing source (which the runtime
+         would replace with an empty directory). #}
+      - ./build/control_identity:{{ control_identity_container_dir }}:ro
 {%- endif %}
 {#- Every shared host directory bound above, and the group each was provisioned
     with: the bundle and the mirror, where this service is entitled to them.

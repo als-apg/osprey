@@ -18,8 +18,6 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
     IDENTITY_RE,
     RESERVED_RE,
-    SAFETY_FILE_CONTAINER_PATH,
-    SAFETY_FILE_FILENAME,
     append_group_members,
     apply,
     main,
@@ -55,8 +53,7 @@ class TestValidateLeafModule:
         assert result.returncode != 0
 
     def test_validate_constants(self) -> None:
-        assert CONTROL_IDENTITY_CONTAINER_PATH == "/opt/osprey/control_identity.py"
-        assert SAFETY_FILE_CONTAINER_PATH == "/opt/osprey/osprey_safety_file.py"
+        assert CONTROL_IDENTITY_CONTAINER_PATH == "/opt/osprey/control_identity/control_identity.py"
         assert CANONICAL_NAME == {1000: "osprey", 0: "root"}
         assert IDENTITY_RE.pattern == r"^[a-z_][a-z0-9_-]{0,31}\Z"
         assert RESERVED_RE.pattern == r"^(root|osprey(-[a-z0-9_-]*)?)\Z"
@@ -336,6 +333,9 @@ class TestAppendGroupMembers:
 
 MODULE_PATH = Path(control_identity.__file__ or "")
 
+#: The helper file the refusal names when the script runs without it.
+HELPER_FILENAME = "osprey_safety_file.py"
+
 
 def _write_targets(tmp_path: Path, passwd: str = PASSWD, group: str = GROUP) -> tuple[Path, Path]:
     etc = tmp_path / "etc"
@@ -486,14 +486,19 @@ class TestStagedHelper:
 
     @staticmethod
     def _stage(directory: Path, *, helper: bool) -> Path:
-        from osprey_connectors import safety_file
+        """Stage the script's catalog closure into *directory*, as the build does."""
+        from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+        from osprey.cli.templates.manager import TemplateManager
 
+        files = BuildArtifactCatalog.default().files_beside(
+            "control-identity", TemplateManager().template_root
+        )
+        assert HELPER_FILENAME in files
         directory.mkdir()
-        staged = directory / "control_identity.py"
-        staged.write_bytes(MODULE_PATH.read_bytes())
-        if helper:
-            (directory / SAFETY_FILE_FILENAME).write_bytes(Path(safety_file.__file__).read_bytes())
-        return staged
+        for name, source in files.items():
+            if helper or name != HELPER_FILENAME:
+                (directory / name).write_bytes(source.read_bytes())
+        return directory / "control_identity.py"
 
     @staticmethod
     def _run_staged(staged: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -521,7 +526,7 @@ class TestStagedHelper:
         staged = self._stage(tmp_path / "opt", helper=False)
         result = self._run_staged(staged, tmp_path, *_apply_args(1000, "alice", passwd, group))
         _assert_one_line_failure(result)
-        assert SAFETY_FILE_FILENAME in result.stderr
+        assert HELPER_FILENAME in result.stderr
         assert passwd.read_text(encoding="utf-8") == PASSWD
         assert group.read_text(encoding="utf-8") == GROUP
         assert _leftovers(passwd.parent) == []
@@ -535,7 +540,7 @@ class TestApplyFunction:
     ) -> None:
         passwd, group = _write_targets(tmp_path)
         monkeypatch.setattr(control_identity, "_safety_file", None)
-        with pytest.raises(RuntimeError, match=SAFETY_FILE_FILENAME):
+        with pytest.raises(RuntimeError, match=HELPER_FILENAME):
             apply(1000, "alice", passwd=passwd, group=group)
         assert passwd.read_text(encoding="utf-8") == PASSWD
         assert group.read_text(encoding="utf-8") == GROUP

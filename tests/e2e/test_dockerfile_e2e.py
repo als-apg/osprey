@@ -37,8 +37,8 @@ and the image's size is reported so a provenance change's size delta is on the
 record.
 
 The ``test_whoami_*`` tests cover the entrypoint's control-identity step, with
-this tree's ``control_identity`` module and its safety-file helper
-bind-mounted where compose stages them:
+this tree's ``control_identity`` script and its catalog closure staged into
+one directory and bound read-only where compose binds it:
 an applied identity is what ``whoami`` prints and the only thing on stdout; a
 person identity under ``--user`` refuses to start; an ``osprey-*`` identity
 under ``--user`` starts with a warning; a root start without the module dies,
@@ -91,14 +91,14 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
 from osprey.cli.main import cli
-from osprey.deployment import control_identity
+from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
-    SAFETY_FILE_CONTAINER_PATH,
 )
 from osprey.port_layout import default_port
-from osprey_connectors import safety_file
 from osprey_connectors.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests.e2e._telemetry_sender import sender_env_file_args
@@ -293,49 +293,50 @@ def _identity_env(name: str) -> list[str]:
     ]
 
 
-def _identity_module_mount() -> list[str]:
-    """Bind this tree's module and helper read-only where compose stages them.
+@pytest.fixture(scope="module")
+def identity_mount(tmp_path_factory) -> list[str]:
+    """Stage this tree's identity script with its catalog closure, and bind it read-only.
 
     The image installs OSPREY from PyPI by default, so the files under test are
-    the host copies, mounted exactly the way a deployment mounts its staged
-    copies.
+    this tree's, staged into one directory and bound the way a deployment binds
+    its staged directory: the script's sibling import resolves from that
+    directory alone.
     """
-    source = Path(control_identity.__file__).resolve()
-    helper = Path(safety_file.__file__).resolve()
-    return [
-        "-v",
-        f"{source}:{CONTROL_IDENTITY_CONTAINER_PATH}:ro",
-        "-v",
-        f"{helper}:{SAFETY_FILE_CONTAINER_PATH}:ro",
-    ]
+    staged = tmp_path_factory.mktemp("control-identity")
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    for name, source in files.items():
+        (staged / name).write_bytes(source.read_bytes())
+    return ["-v", f"{staged}:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"]
 
 
 def _streams(proc: subprocess.CompletedProcess) -> str:
     return f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
 
 
-def test_whoami_prints_the_applied_identity(built_image):
+def test_whoami_prints_the_applied_identity(built_image, identity_mount):
     tag = built_image[0]
-    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    run = _docker_run_with(tag, [*_identity_env("alice"), *identity_mount], "whoami")
     assert run.returncode == 0, _streams(run)
     assert run.stdout.strip() == "alice", _streams(run)
     assert "control identity: uid 1000 is 'alice'" in run.stderr, _streams(run)
 
 
-def test_whoami_stdout_carries_only_the_name(built_image):
+def test_whoami_stdout_carries_only_the_name(built_image, identity_mount):
     """Every entrypoint diagnostic, the module's own output included, is on stderr."""
     tag = built_image[0]
-    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    run = _docker_run_with(tag, [*_identity_env("alice"), *identity_mount], "whoami")
     assert run.returncode == 0, _streams(run)
     assert run.stdout == "alice\n", _streams(run)
     assert "[osprey-entrypoint]" in run.stderr, _streams(run)
 
 
-def test_whoami_person_identity_under_user_refuses_to_start(built_image):
+def test_whoami_person_identity_under_user_refuses_to_start(built_image, identity_mount):
     tag = built_image[0]
     run = _docker_run_with(
         tag,
-        ["--user", "1000:1000", *_identity_env("alice"), *_identity_module_mount()],
+        ["--user", "1000:1000", *_identity_env("alice"), *identity_mount],
         "whoami",
     )
     assert run.returncode != 0, _streams(run)
@@ -343,11 +344,11 @@ def test_whoami_person_identity_under_user_refuses_to_start(built_image):
     assert "needs a root start" in run.stderr, _streams(run)
 
 
-def test_whoami_service_identity_under_user_starts_with_a_warning(built_image):
+def test_whoami_service_identity_under_user_starts_with_a_warning(built_image, identity_mount):
     tag = built_image[0]
     run = _docker_run_with(
         tag,
-        ["--user", "1000:1000", *_identity_env("osprey-dispatch-1"), *_identity_module_mount()],
+        ["--user", "1000:1000", *_identity_env("osprey-dispatch-1"), *identity_mount],
         "sh",
         "-c",
         'whoami; printf "%s\\n" "$OSPREY_CONTROL_IDENTITY_SKIPPED"',

@@ -54,8 +54,8 @@ from osprey.deployment.compose_generator import (
     simulator_log_mount_sources,
 )
 from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
-    SAFETY_FILE_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
@@ -368,7 +368,7 @@ def _control_identity_context() -> dict[str, Any]:
     """
     return {
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
-        "safety_file_container_path": SAFETY_FILE_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
 
@@ -9873,20 +9873,18 @@ def test_both_render_paths_carry_the_ca_bundles(
 def test_inject_project_metadata_carries_control_identity_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The container path the module is mounted at and each lane's identity
-    reach every render context, goldens included."""
+    """The container directory the staged script is bound at, the script's path
+    inside it, and each lane's identity reach every render context, goldens
+    included."""
     from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
     from osprey.deployment.compose_generator import _inject_project_metadata
-    from osprey.deployment.control_identity import (
-        CONTROL_IDENTITY_CONTAINER_PATH,
-        SAFETY_FILE_CONTAINER_PATH,
-    )
 
     monkeypatch.chdir(tmp_path)
     context = _inject_project_metadata({})
 
     assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
-    assert context["safety_file_container_path"] == SAFETY_FILE_CONTAINER_PATH
+    assert context["control_identity_container_dir"] == CONTROL_IDENTITY_CONTAINER_DIR
+    assert CONTROL_IDENTITY_CONTAINER_PATH.startswith(CONTROL_IDENTITY_CONTAINER_DIR + "/")
     assert context["lane_control_identities"] == {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
@@ -9912,8 +9910,6 @@ def _dispatch_worker_services(rendered: str) -> dict:
 
 def test_dispatch_worker_control_identity_is_per_worker() -> None:
     """Every worker carries its own ``osprey-dispatch-<i>`` identity."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 3})
 
     services = _dispatch_worker_services(rendered)
@@ -9934,24 +9930,14 @@ def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
         validate_identity(body["environment"]["OSPREY_CONTROL_IDENTITY"], allow_service=True)
 
 
-def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
-    """The staged module is bind-mounted read-only at the path the env names,
-    with the safety-file helper it writes through beside it."""
-    from osprey.deployment.control_identity import (
-        CONTROL_IDENTITY_CONTAINER_PATH,
-        SAFETY_FILE_CONTAINER_PATH,
-    )
-
+def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only() -> None:
+    """The staged directory -- the script the env names and its closure -- is
+    bound read-only, once, and is the worker's only control-identity bind."""
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
 
-    build = "./build/services/dispatch_worker"
-    expected = [
-        f"{build}/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro",
-        f"{build}/osprey_safety_file.py:{SAFETY_FILE_CONTAINER_PATH}:ro",
-    ]
+    mount = f"./build/services/dispatch_worker/control_identity:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"
     for body in _dispatch_worker_services(rendered).values():
-        for mount in expected:
-            assert body["volumes"].count(mount) == 1, body["volumes"]
+        assert [v for v in body["volumes"] if "control_identity" in v] == [mount]
 
 
 # ---------------------------------------------------------------------------

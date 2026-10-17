@@ -6588,14 +6588,14 @@ def test_control_identity_is_independent_of_the_other_svc_fields() -> None:
     assert services["bob"]["control_identity"] == "bob"
 
 
-def test_compose_ctx_hands_the_template_the_control_identity_container_path() -> None:
-    """The staged module's and its helper's container paths reach the compose
-    template from the module's own constants, so the template never spells a
-    path itself."""
+def test_compose_ctx_hands_the_template_the_control_identity_container_paths() -> None:
+    """The staged directory's container path and the script's path inside it
+    reach the compose template from the module's own constants, so the
+    template never spells a path itself."""
     # Arrange
     from osprey.deployment.control_identity import (
+        CONTROL_IDENTITY_CONTAINER_DIR,
         CONTROL_IDENTITY_CONTAINER_PATH,
-        SAFETY_FILE_CONTAINER_PATH,
     )
 
     # Act
@@ -6604,7 +6604,7 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_path() ->
     # Assert
     compose_ctx = contexts["docker-compose.web.yml.j2"]
     assert compose_ctx["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
-    assert compose_ctx["safety_file_container_path"] == SAFETY_FILE_CONTAINER_PATH
+    assert compose_ctx["control_identity_container_dir"] == CONTROL_IDENTITY_CONTAINER_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -6739,15 +6739,9 @@ def _walled_identity_config(method: str) -> dict:
 
 
 def _identity_mount() -> str:
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_DIR
 
-    return f"./build/control_identity/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
-
-
-def _safety_file_mount() -> str:
-    from osprey.deployment.control_identity import SAFETY_FILE_CONTAINER_PATH
-
-    return f"./build/control_identity/osprey_safety_file.py:{SAFETY_FILE_CONTAINER_PATH}:ro"
+    return f"./build/control_identity:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"
 
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
@@ -6773,12 +6767,12 @@ def test_walled_card_with_control_identity_emits_the_identity_and_module_env(met
 
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
-def test_walled_card_with_control_identity_mounts_the_staged_module_read_only(
+def test_walled_card_with_control_identity_mounts_the_staged_directory_read_only(
     method: str,
 ) -> None:
-    """The module the entrypoint runs is bound read-only from the build zone at
-    the path the env names, beside the safety-file helper it writes through,
-    and only into the card that applies an identity."""
+    """The staged directory -- the script the env names and its closure -- is
+    bound read-only from the build zone in one bind, and only into the card
+    that applies an identity."""
     # Arrange
     config = copy.deepcopy(_walled_identity_config(method))
 
@@ -6786,8 +6780,8 @@ def test_walled_card_with_control_identity_mounts_the_staged_module_read_only(
     compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
 
     # Assert
-    assert _identity_mount() in compose["services"]["web-alice"]["volumes"]
-    assert _safety_file_mount() in compose["services"]["web-alice"]["volumes"]
+    alice_volumes = compose["services"]["web-alice"]["volumes"]
+    assert [v for v in alice_volumes if "control_identity" in str(v)] == [_identity_mount()]
     assert not any("control_identity" in str(v) for v in compose["services"]["web-bob"]["volumes"])
 
 
@@ -6859,5 +6853,4 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
     # Assert
     assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
-    assert "control_identity.py" not in artifacts["docker-compose.web.yml"]
-    assert "osprey_safety_file.py" not in artifacts["docker-compose.web.yml"]
+    assert "./build/control_identity" not in artifacts["docker-compose.web.yml"]
