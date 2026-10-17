@@ -33,7 +33,6 @@ import-clean of ophyd.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from collections.abc import Sequence
@@ -43,6 +42,7 @@ from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
 
 from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
+from osprey_connectors.settle import Landing, settle, settle_bound
 
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
@@ -119,10 +119,6 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
     return value
 
 
-_READBACK_POLL_INTERVAL_S = 0.05
-"""Sleep between readback polls in ``ConnectorSettable.set()``."""
-
-
 class ConnectorSettable(StandardReadable):
     """A settable/readable PV pair mediated entirely by the OSPREY connector.
 
@@ -131,16 +127,11 @@ class ConnectorSettable(StandardReadable):
     write can bypass the connector's reference monitor. ``set()`` writes the
     setpoint through ``connector.write_channel_checked`` — which raises on
     any refusal, failure, mismatch, or unconfirmed write, aborting the
-    RunEngine — then polls the (possibly separate) readback channel through
-    ``connector.read_channel`` until it settles within its tolerance of the
-    demanded value, or raises ``TimeoutError`` once the
-    :func:`settle_timeout_s` budget runs out. The tolerance is the larger of
-    :func:`settle_tolerance`, the profile's floor, and the device's own
-    bound: its declared ``settle_tolerance``, else ``settle_relative`` times
-    the demand's magnitude, else, on a ``simulated`` lane only, the
-    ``motion_band`` of its readback's simulated motion. The floor is never a
-    ceiling, a declared tolerance applies on every lane, and a device is never
-    tighter than the floor.
+    RunEngine — then waits in the shared settle step
+    (:func:`osprey_connectors.settle.settle`) for the (possibly separate)
+    readback to come within :func:`osprey_connectors.settle.settle_bound` of
+    the demand, with :func:`settle_tolerance` as the floor and
+    :func:`settle_timeout_s` as the budget.
     ``read()``/``describe()`` are overridden
     to return the *live* readback via the connector on every call — never a
     cached/soft value — so a plan's ``trigger_and_read`` document always
@@ -197,19 +188,9 @@ class ConnectorSettable(StandardReadable):
         self._simulated = simulated
         super().__init__(name=name)
 
-    def _declared(self, value: float) -> float:
-        """The device's own settle bound for a move to ``value``; 0.0 for none."""
-        if self._settle_tolerance is not None:
-            return self._settle_tolerance
-        if self._settle_relative is not None:
-            return self._settle_relative * abs(value)
-        if self._simulated and self._motion_band is not None:
-            return self._motion_band
-        return 0.0
-
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
-        """Write ``value`` through the connector, then wait for readback settle.
+        """Write ``value`` through the connector, then wait for its readback to settle.
 
         Raises:
             ChannelWriteBlockedError: The write was refused and no value was
@@ -227,8 +208,8 @@ class ConnectorSettable(StandardReadable):
             ConnectionError: Propagated unchanged from the connector's
                 Channel Access layer.
             TimeoutError: Either propagated unchanged from the connector's
-                write, or raised directly by this method when ``readback``
-                does not settle within its tolerance of ``value`` within
+                write, or a ``SettleTimeoutError`` when ``readback`` does not
+                settle within its bound of ``value`` within
                 :func:`settle_timeout_s` seconds.
 
             Every one of these propagates uncaught through the
@@ -257,19 +238,28 @@ class ConnectorSettable(StandardReadable):
         # defaults: the facility authors them in its profile and they reach the
         # container as env vars, so the value in force is whatever the process
         # environment says at the moment the move starts.
-        tolerance = max(settle_tolerance(), self._declared(value))
-        timeout_s = settle_timeout_s()
-        deadline = time.monotonic() + timeout_s
-        while True:
-            reading = await self._osprey_connector.read_channel(self._readback_pv)
-            if abs(reading.value - value) <= tolerance:
-                return
-            if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"Readback '{self._readback_pv}' did not settle to {value} "
-                    f"within {timeout_s}s (last read: {reading.value})"
-                )
-            await asyncio.sleep(_READBACK_POLL_INTERVAL_S)
+        bound = settle_bound(
+            self._tolerance_record(),
+            value,
+            motion=self._motion_band or 0.0,
+            simulated=self._simulated,
+            floor=settle_tolerance(),
+        )
+        # The floor is always a number, so the bound always is.
+        assert bound is not None
+        await settle(
+            self._osprey_connector,
+            [Landing(self._setpoint_pv, self._readback_pv, value, bound)],
+            timeout_s=settle_timeout_s(),
+        )
+
+    def _tolerance_record(self) -> dict[str, float] | None:
+        """The device's declared tolerance as the facility states one, or ``None``."""
+        if self._settle_tolerance is not None:
+            return {"absolute": self._settle_tolerance}
+        if self._settle_relative is not None:
+            return {"relative": self._settle_relative}
+        return None
 
     @property
     def has_distinct_readback(self) -> bool:
