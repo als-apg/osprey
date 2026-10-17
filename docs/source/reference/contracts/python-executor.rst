@@ -61,6 +61,13 @@ a structured error (``error_type: "execution_error"``) whose ``details`` field
 carries the same information, so the agent receives an explicit error rather
 than a status field it might overlook.
 
+After ``osprey.runtime.write_channel()``, ``osprey.runtime.settle({address:
+demand})`` waits until each setpoint's readback is within the bound the
+facility file states for it: its ``tolerance``, else on the simulator its
+readback's motion band. A setpoint with neither is not waited on. A readback
+that is not inside its bound within 5 seconds raises ``SettleTimeoutError``,
+and the run fails.
+
 .. _executor-measurement-tools:
 
 Measurement Tools
