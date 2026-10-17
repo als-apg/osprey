@@ -41,6 +41,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     periodic_addresses,
     restorable_state,
 )
+from osprey_connectors.control_system.va_in_process_connector import shot_times
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
@@ -64,7 +65,8 @@ class ModelRunner(Runner):
     publishing pass has run. Every publishing pass's outcome, success or
     failure, is recorded in the surface's health record, which ``status``
     reports and which is rewritten to the health file after every pass when
-    one is named.
+    one is named. A turn series a shot has filled is posted with the time of
+    that shot, on both transports; every other value with the pass's time.
     """
 
     def __init__(
@@ -162,6 +164,26 @@ class ModelRunner(Runner):
         if not self._write_pass:
             return roster
         return [name for name in roster if name not in self._periodic]
+
+    def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
+        """Post the pass's values, each turn series a shot filled at that shot's time.
+
+        Values that share a time are posted together by the base class, so a
+        pass that reads no filled series posts exactly as the base class does.
+        The filled series are posted before the pass's other values, so a
+        client that sees the armed flag the shot cleared reads the series that
+        shot filled. The base class posts each group all or nothing; a group
+        that fails fails the pass after the groups before it were posted.
+        """
+        times = shot_times(self.model)
+        groups: dict[float, dict[str, Any]] = {}
+        for name, value in out_values.items():
+            groups.setdefault(times.get(name, ts), {})[name] = value
+        if not groups:
+            super()._post_outputs(out_values, ts)
+            return
+        for stamp, values in sorted(groups.items(), key=lambda group: group[0] == ts):
+            super()._post_outputs(values, stamp)
 
     def _reset_to_cached_state(self) -> None:
         """Restore the cached state only when the pass failed after ``model.set`` succeeded."""

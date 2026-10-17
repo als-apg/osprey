@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,8 @@ from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
+    shot_time,
+    shot_times,
     simulation_state_dir,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
@@ -509,3 +512,106 @@ async def test_a_journal_naming_a_command_planted_under_a_live_connector_resets_
     assert armed == 0
     _assert_pre_shot(series)
     assert json.loads(path.read_text())["writes"] == []
+
+
+# -- a turn series carries the time of its shot ------------------------------------
+
+
+async def _stamps(connector: VAInProcessConnector) -> dict[str, datetime]:
+    return {address: (await connector.read_channel(address)).timestamp for address in SERIES}
+
+
+async def test_two_shots_read_with_strictly_increasing_series_timestamps(
+    connect: Connect,
+) -> None:
+    connector = await connect()
+
+    await _shoot(connector, 1)
+    first = await _stamps(connector)
+    await _shoot(connector, 2)
+    second = await _stamps(connector)
+
+    for address in SERIES:
+        assert second[address] > first[address], address
+        assert second[address].tzinfo is not None
+
+
+async def test_a_series_read_with_no_shot_between_keeps_the_shot_timestamp(
+    connect: Connect,
+) -> None:
+    connector = await connect()
+    await _shoot(connector, 1)
+    first = await _stamps(connector)
+
+    await _write(connector, CORRECTOR, 1.0)
+    again = await _stamps(connector)
+    many = await connector.read_multiple_channels(list(SERIES))
+    await _write(connector, REQUEST, 2)
+
+    assert again == first
+    assert {address: reading.timestamp for address, reading in many.items()} == first
+    assert await _stamps(connector) == first
+
+
+async def test_every_other_channel_keeps_the_read_timestamp(connect: Connect) -> None:
+    connector = await connect()
+    await _shoot(connector, 1)
+    shot = await _stamps(connector)
+
+    before = datetime.now().astimezone()
+    readings = {address: await connector.read_channel(address) for address in (CORRECTOR, ARMED)}
+    after = datetime.now().astimezone()
+
+    for address, reading in readings.items():
+        assert before <= reading.timestamp <= after, address
+        assert reading.timestamp > shot[SERIES[0]], address
+
+
+async def test_a_series_no_shot_has_filled_carries_the_read_timestamp(
+    connect: Connect,
+) -> None:
+    connector = await connect()
+
+    before = datetime.now().astimezone()
+    stamps = await _stamps(connector)
+    after = datetime.now().astimezone()
+
+    for address, stamp in stamps.items():
+        assert before <= stamp <= after, address
+
+
+async def test_the_shot_timestamp_is_the_models_shot_time(connect: Connect) -> None:
+    connector = await connect()
+    await _shoot(connector, 1)
+    composite = connector._composite
+    assert composite is not None
+
+    times = shot_times(composite)
+    stamps = await _stamps(connector)
+
+    assert set(SERIES) <= set(times)
+    for address in SERIES:
+        assert shot_time(composite, address) == times[address]
+        assert stamps[address].timestamp() == pytest.approx(times[address], abs=1e-6)
+    assert shot_time(composite, CORRECTOR) is None
+
+
+async def test_a_reset_returns_the_series_to_the_read_timestamp_until_the_next_shot(
+    connect: Connect,
+) -> None:
+    connector = await connect()
+    await _shoot(connector, 1)
+    shot = await _stamps(connector)
+
+    await connector.reset()
+    composite = connector._composite
+    assert composite is not None
+
+    assert not set(SERIES) & set(shot_times(composite))
+    await _shoot(connector, 1)
+    assert all(stamp > shot[address] for address, stamp in (await _stamps(connector)).items())
+
+
+def test_shot_times_of_a_model_with_no_physics_children_names_none() -> None:
+    assert shot_times(object()) == {}
+    assert shot_time(object(), SERIES[0]) is None

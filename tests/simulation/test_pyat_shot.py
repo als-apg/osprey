@@ -8,6 +8,7 @@ same particle directly.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -497,6 +498,83 @@ class TestReset:
         assert again.shot_count == 0
         assert again.get(REQUEST) == 0.0
         np.testing.assert_array_equal(again.get(tbt(1, "x")), 0.0)
+
+
+def series_names(model: PyATLatticeModel) -> set[str]:
+    return {
+        name
+        for name, variable in model.supported_variables.items()
+        if isinstance(variable, SeriesVariable)
+    }
+
+
+class TestShotTime:
+    def test_a_model_no_shot_has_filled_names_no_shot_time(self, built: PyATLatticeModel):
+        assert built.shot_times == {}
+        built.set({ARM: 1})
+        built.set({CORRECTOR: 20.0})
+        assert built.shot_times == {}
+
+    def test_an_armed_shot_stamps_every_series_with_the_time_it_was_taken(
+        self, built: PyATLatticeModel
+    ):
+        built.set({ARM: 1})
+        before = time.time()
+        built.set({REQUEST: 1})
+        after = time.time()
+        times = built.shot_times
+        assert set(times) == series_names(built)
+        assert len(set(times.values())) == 1
+        assert before <= next(iter(times.values())) <= after
+
+    def test_each_shot_is_later_than_the_one_before(self, built: PyATLatticeModel):
+        built.set({ARM: 1, REQUEST: 1})
+        first = built.shot_times
+        built.set({ARM: 1, REQUEST: 2})
+        second = built.shot_times
+        assert all(second[name] > first[name] for name in first)
+
+    def test_a_shot_on_a_clock_that_has_not_moved_is_still_later(
+        self, built: PyATLatticeModel, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(pyat_model.time, "time", lambda: 1_760_000_000.0)
+        built.set({ARM: 1, REQUEST: 1})
+        first = built.shot_times[tbt(1, "x")]
+        built.set({ARM: 1, REQUEST: 2})
+        assert built.shot_times[tbt(1, "x")] > first
+
+    def test_a_write_that_takes_no_tracked_shot_keeps_the_shot_time(self, built: PyATLatticeModel):
+        built.set({ARM: 1, REQUEST: 1})
+        held = built.shot_times
+        built.set({CORRECTOR: 20.0})
+        assert built.shot_times == held
+        built.set({REQUEST: 2})
+        assert built.shot_count == 2
+        assert built.shot_times == held
+
+    def test_a_refused_shot_keeps_the_shot_time(
+        self, built: PyATLatticeModel, monkeypatch: pytest.MonkeyPatch
+    ):
+        built.set({ARM: 1, REQUEST: 1})
+        held = built.shot_times
+        built.set({ARM: 1})
+
+        def fail(*_: Any, **__: Any) -> None:
+            raise RuntimeError("no track")
+
+        monkeypatch.setattr(pyat_model.at, "lattice_track", fail)
+        with pytest.raises(RuntimeError, match="no track"):
+            built.set({REQUEST: 2})
+        monkeypatch.undo()
+        assert built.shot_times == held
+
+    def test_reset_and_rebuild_clear_the_shot_time(self, deck: Path, built: PyATLatticeModel):
+        built.set({ARM: 1, REQUEST: 1})
+        assert built.shot_times
+        again = engine.build(MODEL, periodic_wiring(), deck, SETTINGS)
+        assert again.shot_times == {}  # type: ignore[attr-defined]
+        built.reset()
+        assert built.shot_times == {}
 
 
 # -- a line: one pass from its start, never rotated ---------------------------
