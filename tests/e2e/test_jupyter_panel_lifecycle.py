@@ -13,10 +13,8 @@ One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
 roster user (``alice``) on one persona that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
-target, with the live stand-in deployed beside it as the ``standin`` target: a
-switch needs two targets, and the mock connector cannot be one — its baseline
-is ``live``, which a mock deployment cannot resolve, so a kernel on a
-mock deployment would always run fail-closed and never carry a target stamp.
+target, with the live stand-in deployed beside it as the ``standin`` target,
+because a switch needs two targets.
 
 Everything is reached at the per-user web port directly, carrying the operator
 secret as the header nginx injects in the container shape (``token`` posture
@@ -27,7 +25,7 @@ the proxy that re-issues the sidecar's credential.
 
 WHAT IS ASSERTED, IN ORDER
 --------------------------
-The order is load-bearing: the raw-put scenario in 3 needs writes on, so it
+The order is load-bearing: the refusal scenario in 3 needs writes on, so it
 runs before the narrowing in 4; the narrowing in 4 has to be in place before
 the switch in 5 moves off the target it narrowed; and the down/up must come
 last.
@@ -37,15 +35,12 @@ last.
 2. Attaching a terminal yields a session id, and the deployment's
    control-context record — owned by the web terminal — names the target the
    posture route reports.
-3. With writes on, a runtime write lands, while a direct ``epics.caput`` from a
-   cell is refused with ``RAW_CLIENT_WRITE``, the write-through-the-runtime
-   line and one ``raw_client_write`` audit record, and leaves the value where
-   the runtime put it. A client put made from a libca callback thread while a
-   runtime write is in flight is refused too: the connector's write door is
-   open only in the context that opened it, never on a thread libca started.
-   The kernel loads no Channel Access client of its own: the libca check fires
-   before the cell's raw client is made, and the raw client is addressed by
-   the cell.
+3. With writes on, a runtime write lands, while a cell cannot load a
+   control-system client library: ``import epics`` and a ``ctypes`` load of
+   libca are each refused with ``ClientLibraryRefusedError``, the line that
+   names the runtime calls and one ``raw_client_import`` audit record, the
+   setpoint holds where the runtime put it, no client module is loaded, and a
+   runtime write after the refusals still lands.
 4. A cell run while writes are off for that target reads, and refuses a write
    with the connector's text plus the turn-writes-on line and exactly one audit
    record on the ``notebook_kernel`` surface, filed under the KERNEL's own
@@ -164,17 +159,15 @@ HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
 
-#: The hint line the kernel prints before a raw client put's traceback. No
-#: posture lets such a put through, so it names the runtime call rather than
-#: the chip. Re-spelled for the same reason as the line above.
-HINT_RAW_CLIENT_WRITE = (
-    "Direct client-library writes are refused. "
-    "Write through osprey.runtime.write_channel(address, value) instead."
+#: The hint line the kernel prints before a refused client import's traceback.
+#: No posture lets a client into a kernel, so it names the runtime calls rather
+#: than the chip. Re-spelled for the same reason as the line above.
+HINT_RAW_CLIENT_IMPORT = (
+    "Client libraries are not available in a notebook. "
+    "Read and write through osprey.runtime.read_channel / write_channel instead."
 )
-#: The refusal text a raw client put carries, re-spelled for the same reason.
-RAW_CLIENT_WRITE_TEXT = (
-    f"raw client write refused: write to '{WRITE_TARGET}' bypassed the reference monitor."
-)
+#: The text every client refusal carries, re-spelled for the same reason.
+CLIENT_REFUSED_TEXT = "control-system client refused"
 
 #: The audit surface a cell's refusals file under, and the ledger it lands in.
 SURFACE = "notebook_kernel"
@@ -739,8 +732,27 @@ STAMPS_CELL = (
 )
 READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({CHANNEL!r})))\n"
 WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
-#: A client library's own put, straight past the runtime.
-RAW_CAPUT_CELL = f"import epics\nepics.caput({WRITE_TARGET!r}, 2.0)\n"
+#: A client library's import, straight past the runtime.
+CLIENT_IMPORT_CELL = "import epics\n"
+#: A client shared library loaded through ``ctypes``. The path comes from the
+#: distribution's file list: resolving the package's spec would itself be a
+#: refused import.
+LIBCA_LOAD_CELL = (
+    "from importlib.metadata import distribution\n"
+    "from pathlib import Path\n"
+    "dist = distribution('epicscorelibs')\n"
+    "path = next(\n"
+    "    dist.locate_file(f) for f in dist.files if Path(str(f)).name.startswith('libca')\n"
+    ")\n"
+    "import ctypes\n"
+    "ctypes.CDLL(str(path))\n"
+)
+#: Which control-system client modules this kernel has loaded, as a sorted JSON list.
+NO_CLIENT_LOADED_CELL = (
+    "import json, sys\n"
+    "print(json.dumps(sorted(set(sys.modules) & "
+    "{'epics', 'p4p', 'aioca', 'epicscorelibs', 'caproto', 'pvaccess'})))\n"
+)
 #: How long a readback gets to follow its setpoint. The readback follows to
 #: within the motion its seed declares, never to the setpoint exactly.
 READBACK_SETTLE_SEC = 20.0
@@ -760,64 +772,6 @@ def _setpoint_cell(band: float) -> str:
         f"    rb = read_channel({WRITE_READBACK!r})\n"
         "print(json.dumps({'sp': sp, 'rb': rb}))\n"
     )
-
-
-#: The real-libca door proof. A monitor callback runs on a thread libca
-#: started, which never carries the connector's write door; it tries a client
-#: put of its own and records whether the runtime write was in flight at that
-#: moment. The in-flight flag is a plain ``threading.Event`` for the same
-#: reason: a context variable set here would be invisible on that thread. The
-#: callback catches its own refusal, because pyepics swallows what a callback
-#: raises. The initial-value callback is allowed to land before the flag is set,
-#: so the flag marks only callbacks the in-flight write caused. The kernel's
-#: runtime holds no Channel Access client, so nothing in the kernel's
-#: environment addresses a raw one; the cell points its own client at the
-#: server named by the deployment's gateway row, as an operator's raw client
-#: would have to.
-DOOR_PROOF_CELL = (
-    "import json, threading, time\n"
-    "import os\n"
-    "from osprey_connectors.config import get_config_value\n"
-    "from osprey_connectors.control_system.va_connector import fill_gateway_ports\n"
-    "gateway = fill_gateway_ports(\n"
-    "    get_config_value('control_system.connector.virtual_accelerator', {})\n"
-    ")['gateways']['write_access']\n"
-    "import epics\n"
-    "assert epics.ca.libca is None, (\n"
-    "    'a Channel Access client was loaded in the kernel before the cell made one'\n"
-    ")\n"
-    "if gateway.get('use_name_server'):\n"
-    "    os.environ['EPICS_CA_NAME_SERVERS'] = f\"{gateway['address']}:{gateway['port']}\"\n"
-    "    os.environ.pop('EPICS_CA_ADDR_LIST', None)\n"
-    "else:\n"
-    "    os.environ['EPICS_CA_ADDR_LIST'] = str(gateway['address'])\n"
-    "    os.environ['EPICS_CA_SERVER_PORT'] = str(gateway['port'])\n"
-    "os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'\n"
-    "from osprey.runtime import write_channel\n"
-    "in_flight = threading.Event()\n"
-    "seen = []\n"
-    "def on_change(pvname=None, value=None, **kw):\n"
-    "    try:\n"
-    f"        epics.caput({WRITE_TARGET!r}, value)\n"
-    "        refused = None\n"
-    "    except Exception as exc:\n"
-    "        refused = getattr(exc, 'reason', None) or type(exc).__name__\n"
-    "    seen.append({'in_flight': in_flight.is_set(), 'value': value, 'refused': refused})\n"
-    f"pv = epics.PV({WRITE_TARGET!r}, callback=on_change, auto_monitor=True)\n"
-    "assert pv.wait_for_connection(timeout=30), 'the setpoint never connected'\n"
-    "deadline = time.monotonic() + 10\n"
-    "while not seen and time.monotonic() < deadline:\n"
-    "    time.sleep(0.1)\n"
-    "in_flight.set()\n"
-    "try:\n"
-    f"    write_channel({WRITE_TARGET!r}, 3.0, confirm=True)\n"
-    "finally:\n"
-    "    in_flight.clear()\n"
-    "time.sleep(1.0)\n"
-    "pv.clear_callbacks()\n"
-    "pv.disconnect()\n"
-    "print(json.dumps(seen))\n"
-)
 
 
 def _stamps(socket: Any, session_id: str) -> dict[str, str]:
@@ -943,7 +897,7 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 
 
 # ---------------------------------------------------------------------------
-# 3. Writes on: the runtime write lands, a raw client put does not
+# 3. Writes on: the runtime write lands, a client library does not load
 # ---------------------------------------------------------------------------
 
 
@@ -960,22 +914,18 @@ def _assert_held(reading: dict[str, float], value: float, band: float) -> None:
     )
 
 
-def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Terminal) -> None:
-    """The write door is the connector's, and only the connector opens it.
+def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
+    terminal: Terminal,
+) -> None:
+    """A kernel's cells reach the machine through the runtime; a client library does not load.
 
     On a card with writes on, the runtime write is the positive control: it
     lands, so anything refused afterwards is refused for going around the
-    runtime and not for the card's posture. The raw put is refused with its own
-    reason, the line that names the runtime call, and one ``raw_client_write``
-    record, and the setpoint stays where the runtime put it.
-
-    The last scenario is the one only real libca can pose. The door opened by
-    an in-flight runtime write reaches the worker the connector hands the put
-    to, and nothing else: a monitor callback libca delivers on its own thread
-    during that write is outside it, so its client put is refused while the
-    write it was woken by is still going. The kernel loads no Channel Access
-    client of its own: the libca check fires before the cell's raw client is
-    made, and the raw client is addressed by the cell.
+    runtime and not for the card's posture. A client package's import and a
+    client library's ``ctypes`` load are each refused with the line that names
+    the runtime calls and one ``raw_client_import`` record naming what was
+    refused; the setpoint stays where the runtime put it, no client module is
+    left loaded, and a runtime write after the refusals still lands.
     """
     assert terminal.session_id and terminal.first_target
     # The baseline target is the only one whose limits make the setpoint writable.
@@ -986,6 +936,23 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     kernel_id = session["kernel"]["id"]
     channel_session = uuid.uuid4().hex
+
+    def refused_once(code: str, records_before: int) -> dict[str, str]:
+        refused = _run_cell(socket, code, channel_session)
+        assert refused.error_name == "ClientLibraryRefusedError", refused
+        assert CLIENT_REFUSED_TEXT in refused.error_value, refused.error_value
+        assert "osprey.runtime" in refused.error_value, refused.error_value
+        assert HINT_RAW_CLIENT_IMPORT in refused.stdout, refused.stdout
+        new_records = terminal.ledger()[records_before:]
+        raw = [r for r in new_records if r.get("reason") == "raw_client_import"]
+        assert len(raw) == 1, new_records
+        record = raw[0]
+        assert record["surface"] == SURFACE
+        assert record["decision"] == "refused"
+        assert record["session"] == f"kernel:{kernel_id}"
+        assert record["subject"] == "notebook_cell"
+        return dict(token.split("=", 1) for token in record["detail"].split())
+
     try:
         with terminal.kernel_channels(kernel_id, channel_session) as socket:
             stamps = _stamps(socket, channel_session)
@@ -999,28 +966,21 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
             )
             _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
-            records_before = len(terminal.ledger())
-            refused = _run_cell(socket, RAW_CAPUT_CELL, channel_session)
-            assert refused.error_name == "ChannelWriteBlockedError", refused
-            assert RAW_CLIENT_WRITE_TEXT in refused.error_value, refused.error_value
-            assert HINT_RAW_CLIENT_WRITE in refused.stdout, refused.stdout
+            detail = refused_once(CLIENT_IMPORT_CELL, len(terminal.ledger()))
+            assert detail.get("package") == "epics", detail
             _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
-            new_records = terminal.ledger()[records_before:]
-            raw = [r for r in new_records if r.get("reason") == "raw_client_write"]
-            assert len(raw) == 1, new_records
-            record = raw[0]
-            assert record["surface"] == SURFACE
-            assert record["decision"] == "refused"
-            assert record["session"] == f"kernel:{kernel_id}"
-            assert record["subject"] == "notebook_cell"
-            detail = dict(token.split("=", 1) for token in record["detail"].split())
-            assert detail["channel"] == WRITE_TARGET, record
+            detail = refused_once(LIBCA_LOAD_CELL, len(terminal.ledger()))
+            assert detail.get("library", "").startswith("libca"), detail
 
-            seen = json.loads(_run_ok(socket, DOOR_PROOF_CELL, channel_session))
-            during = [call for call in seen if call["in_flight"]]
-            assert any(call["refused"] == "RAW_CLIENT_WRITE" for call in during), seen
-            assert all(call["refused"] is not None for call in seen), seen
+            loaded = json.loads(_run_ok(socket, NO_CLIENT_LOADED_CELL, channel_session))
+            assert loaded == [], loaded
+
+            _run_ok(
+                socket,
+                f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 3.0)\n",
+                channel_session,
+            )
             _assert_held(_setpoint(socket, channel_session, band), 3.0, band)
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
