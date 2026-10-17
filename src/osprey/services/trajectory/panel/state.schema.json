@@ -1,0 +1,1203 @@
+{
+  "$defs": {
+    "ApplyEvent": {
+      "additionalProperties": false,
+      "description": "An apply finished: a step (``step_digest``) or a put-back (``None``).",
+      "properties": {
+        "moved": {
+          "items": {
+            "$ref": "#/$defs/Moved"
+          },
+          "title": "Moved",
+          "type": "array"
+        },
+        "shot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Shot Id"
+        },
+        "step_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Digest"
+        },
+        "type": {
+          "const": "apply",
+          "default": "apply",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_digest",
+        "shot_id",
+        "moved"
+      ],
+      "title": "ApplyEvent",
+      "type": "object"
+    },
+    "ContinuousEndedEvent": {
+      "additionalProperties": false,
+      "description": "A continuous run ended, with the last step's reason and status.",
+      "properties": {
+        "end": {
+          "enum": [
+            "stopped",
+            "lease_expired",
+            "max_shots",
+            "zero_step",
+            "taken_over",
+            "released",
+            "shutdown",
+            "failed"
+          ],
+          "title": "End",
+          "type": "string"
+        },
+        "shots": {
+          "title": "Shots",
+          "type": "integer"
+        },
+        "step_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "NO_BEAM",
+                "NO_INVERSE",
+                "NO_UPSTREAM",
+                "NO_UPSTREAM_H",
+                "NO_UPSTREAM_V",
+                "ON_REFERENCE",
+                "OK"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Reason"
+        },
+        "step_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Status"
+        },
+        "type": {
+          "const": "continuous_ended",
+          "default": "continuous_ended",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "end",
+        "shots"
+      ],
+      "title": "ContinuousEndedEvent",
+      "type": "object"
+    },
+    "ContinuousStatus": {
+      "additionalProperties": false,
+      "description": "A continuous run in progress.\n\nAttributes:\n    shots: Shot actions submitted so far.\n    max_shots: ``continuous_max_shots``.\n    lease_expires_in_s: Seconds until the lease lapses without a heartbeat.",
+      "properties": {
+        "lease_expires_in_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires In S"
+        },
+        "max_shots": {
+          "title": "Max Shots",
+          "type": "integer"
+        },
+        "shots": {
+          "title": "Shots",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shots",
+        "max_shots",
+        "lease_expires_in_s"
+      ],
+      "title": "ContinuousStatus",
+      "type": "object"
+    },
+    "HolderView": {
+      "additionalProperties": false,
+      "description": "A session holder as everyone may see it: the owner and the door.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "panel",
+            "agent"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "owner": {
+          "title": "Owner",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "kind"
+      ],
+      "title": "HolderView",
+      "type": "object"
+    },
+    "LastAction": {
+      "additionalProperties": false,
+      "description": "The last finished writing action and the settings it moved.",
+      "properties": {
+        "moved": {
+          "items": {
+            "$ref": "#/$defs/Moved"
+          },
+          "title": "Moved",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "stopped": {
+          "title": "Stopped",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "stopped",
+        "moved"
+      ],
+      "title": "LastAction",
+      "type": "object"
+    },
+    "Moved": {
+      "additionalProperties": false,
+      "description": "One non-refused setting write, in put-back shape.\n\nAttributes:\n    name: The RM column or declared module-slot address written.\n    before: The value read just before the write; putting it back undoes it.\n    outcome: What the write did, as the connector reported it.",
+      "properties": {
+        "before": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Before"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "before",
+        "outcome"
+      ],
+      "title": "Moved",
+      "type": "object"
+    },
+    "ReferenceLoad": {
+      "additionalProperties": false,
+      "description": "A reference matched by BPM name over the current BPM selection.\n\nAttributes:\n    name: The reference's name.\n    sha256: The sha256 of the reference file's content.\n    matched: BPMs in both the selection and the reference.\n    missing_in_reference: Selected BPMs the reference lacks (they read NaN).\n    unused_in_reference: Reference BPMs outside the selection.\n    nan_count: Readings in the reference that are NaN.",
+      "properties": {
+        "matched": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Matched",
+          "type": "array"
+        },
+        "missing_in_reference": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing In Reference",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "nan_count": {
+          "title": "Nan Count",
+          "type": "integer"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "unused_in_reference": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unused In Reference",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "matched",
+        "missing_in_reference",
+        "unused_in_reference",
+        "nan_count"
+      ],
+      "title": "ReferenceLoad",
+      "type": "object"
+    },
+    "RunLockHolder": {
+      "additionalProperties": false,
+      "description": "Another process holding this target's run lock, as its holder record says.",
+      "properties": {
+        "identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Identity"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner"
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pid"
+        },
+        "started": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "pid",
+        "started",
+        "owner",
+        "target",
+        "identity"
+      ],
+      "title": "RunLockHolder",
+      "type": "object"
+    },
+    "RunningAction": {
+      "additionalProperties": false,
+      "description": "The action in flight.\n\nAttributes:\n    name: The action (``shot``, ``setup``, ``apply``, ``put_back``,\n        ``reference``).\n    stopping: Whether Stop was set; it ends within ``stop_budget_s``.\n    armed_stragglers: BPMs whose ``armed`` flag has not yet answered.",
+      "properties": {
+        "armed_stragglers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Armed Stragglers",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "stopping": {
+          "title": "Stopping",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "stopping"
+      ],
+      "title": "RunningAction",
+      "type": "object"
+    },
+    "ShotEvent": {
+      "additionalProperties": false,
+      "description": "A shot action finished.",
+      "properties": {
+        "shot": {
+          "$ref": "#/$defs/ShotResult"
+        },
+        "type": {
+          "const": "shot",
+          "default": "shot",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shot"
+      ],
+      "title": "ShotEvent",
+      "type": "object"
+    },
+    "ShotFailure": {
+      "additionalProperties": false,
+      "description": "One shot of a shot action that was excluded, never retried.\n\nAttributes:\n    index: The shot's position in the action, from 0.\n    reason: Why it failed (armed never set or cleared, stale buffer, no BPM\n        rose, first-turn sum below the threshold, a blocked command).\n    stragglers: The BPMs whose ``armed`` flag missed the deadline.",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "stragglers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stragglers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "index",
+        "reason"
+      ],
+      "title": "ShotFailure",
+      "type": "object"
+    },
+    "ShotResult": {
+      "additionalProperties": false,
+      "description": "One shot action: its included shots averaged, the failures listed.\n\n``x``, ``y`` and ``sum`` are keyed by the sidecar's RM row names; x and y\nare NaN at every BPM in the lost set. A shot's writes are commands, listed\nin ``commands_fired``; it moves no setting.\n\nAttributes:\n    shot_id: The shot's id; a step carries it.\n    model: The resolved model the shot was read for.\n    x: Horizontal first-turn position by x-row name.\n    y: Vertical first-turn position by y-row name.\n    sum: First-turn sum by sum-row name.\n    bpm_order: The BPMs in rotated s-order.\n    lost: The lost set: the first non-rising BPM and every BPM after it.\n    last_bpm: The last BPM with beam, ``None`` when no shot was included.\n    i0: The first sample with beam, ``None`` when no shot was included.\n    window: The raw window ``[start, stop)`` in samples.\n    per_shot_lost_at: Per included shot, the first lost BPM (``None``: a\n        full turn).\n    shots_included: How many shots were averaged.\n    shots_failed: The excluded shots and why.\n    commands_fired: The command addresses written.\n    timestamp: When the shot was read, seconds since the epoch.",
+      "properties": {
+        "bpm_order": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Bpm Order",
+          "type": "array"
+        },
+        "commands_fired": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands Fired",
+          "type": "array"
+        },
+        "i0": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "I0"
+        },
+        "last_bpm": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Bpm"
+        },
+        "lost": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lost",
+          "type": "array"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "per_shot_lost_at": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Per Shot Lost At",
+          "type": "array"
+        },
+        "shot_id": {
+          "title": "Shot Id",
+          "type": "string"
+        },
+        "shots_failed": {
+          "items": {
+            "$ref": "#/$defs/ShotFailure"
+          },
+          "title": "Shots Failed",
+          "type": "array"
+        },
+        "shots_included": {
+          "title": "Shots Included",
+          "type": "integer"
+        },
+        "sum": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Sum",
+          "type": "object"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Window"
+        },
+        "x": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "X",
+          "type": "object"
+        },
+        "y": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Y",
+          "type": "object"
+        }
+      },
+      "required": [
+        "shot_id",
+        "model",
+        "x",
+        "y",
+        "sum",
+        "bpm_order",
+        "lost",
+        "last_bpm",
+        "i0",
+        "window",
+        "per_shot_lost_at",
+        "shots_included",
+        "shots_failed",
+        "commands_fired"
+      ],
+      "title": "ShotResult",
+      "type": "object"
+    },
+    "ShotSummary": {
+      "additionalProperties": false,
+      "description": "The last shot action, in brief.",
+      "properties": {
+        "armed_stragglers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Armed Stragglers",
+          "type": "array"
+        },
+        "commands_fired": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands Fired",
+          "type": "array"
+        },
+        "last_bpm": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Bpm"
+        },
+        "lost": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lost",
+          "type": "array"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "shot_id": {
+          "title": "Shot Id",
+          "type": "string"
+        },
+        "shots_failed": {
+          "items": {
+            "$ref": "#/$defs/ShotFailure"
+          },
+          "title": "Shots Failed",
+          "type": "array"
+        },
+        "shots_included": {
+          "title": "Shots Included",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shot_id",
+        "model",
+        "shots_included",
+        "shots_failed",
+        "armed_stragglers",
+        "lost",
+        "last_bpm",
+        "commands_fired"
+      ],
+      "title": "ShotSummary",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    run_lock_holder: Another process holding the run lock, else ``None``.\n    plan_running: Whether a Bluesky plan runs; ``None`` when the bridge did\n        not answer.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunningAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action_budget_s": {
+          "title": "Action Budget S",
+          "type": "number"
+        },
+        "action_timeout_s": {
+          "title": "Action Timeout S",
+          "type": "number"
+        },
+        "caller": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Caller"
+        },
+        "continuous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContinuousStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HolderView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_shot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShotSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limits": {
+          "enum": [
+            "off",
+            "optional",
+            "exclusive",
+            "unavailable"
+          ],
+          "title": "Limits",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "idle",
+            "action",
+            "continuous"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        },
+        "model_kind": {
+          "enum": [
+            "none",
+            "single_pass"
+          ],
+          "title": "Model Kind",
+          "type": "string"
+        },
+        "plan_running": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Plan Running"
+        },
+        "posture": {
+          "title": "Posture",
+          "type": "string"
+        },
+        "queue_wait_s": {
+          "title": "Queue Wait S",
+          "type": "number"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReferenceLoad"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_lock_holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunLockHolder"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Step"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_budget_s": {
+          "title": "Stop Budget S",
+          "type": "number"
+        },
+        "taken_over": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TakenOver"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "writes_enabled": {
+          "title": "Writes Enabled",
+          "type": "boolean"
+        },
+        "writing_available": {
+          "title": "Writing Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target",
+        "caller",
+        "writes_enabled",
+        "posture",
+        "limits",
+        "writing_available",
+        "model",
+        "model_kind",
+        "run_lock_holder",
+        "plan_running",
+        "holder",
+        "taken_over",
+        "mode",
+        "action",
+        "queue_wait_s",
+        "action_timeout_s",
+        "action_budget_s",
+        "stop_budget_s",
+        "last_shot",
+        "step",
+        "reference",
+        "last_action",
+        "continuous"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "SnapshotEvent": {
+      "additionalProperties": false,
+      "description": "The whole snapshot, sent on connect and on every change.",
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot"
+        },
+        "type": {
+          "const": "snapshot",
+          "default": "snapshot",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot"
+      ],
+      "title": "SnapshotEvent",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "description": "The pending correction, as ``GET /api/step`` serves it.\n\nThe increment written is ``before + deltas[name]``, with\n``\u03b4 = \u2212factor\u00b7step``. Apply refuses on ``all_zero``, never on ``reason``.\n\nAttributes:\n    digest: The service-minted digest an apply must carry.\n    deltas: The increment by corrector name.\n    factor: The uniform ``max_step`` scale, at most 1.\n    reason: The tool's reason.\n    status: The tool's sentence for the reason.\n    all_zero: Whether every delta is zero.\n    zeroed_h: Horizontal correctors zeroed, in column order.\n    zeroed_v: Vertical correctors zeroed, in column order.\n    no_response_names: Correctors with a zero RM column.\n    unsolved: The sidecar's correctors with no response.\n    rank_discarded: Live singular values the rank guard dropped.\n    singular_values: The spectrum, index-aligned with the two below.\n    inverse_weights: The damped inverse weight of each value.\n    spectrum_kind: The kind of each value.\n    n_discard: The ``n_discard`` the step was solved with.\n    shot_id: The shot the step was computed from.\n    reference: The reference's name, ``None`` when solved to zero.",
+      "properties": {
+        "all_zero": {
+          "title": "All Zero",
+          "type": "boolean"
+        },
+        "deltas": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Deltas",
+          "type": "object"
+        },
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "factor": {
+          "title": "Factor",
+          "type": "number"
+        },
+        "inverse_weights": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Inverse Weights",
+          "type": "array"
+        },
+        "n_discard": {
+          "title": "N Discard",
+          "type": "integer"
+        },
+        "no_response_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "No Response Names",
+          "type": "array"
+        },
+        "rank_discarded": {
+          "title": "Rank Discarded",
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "NO_BEAM",
+            "NO_INVERSE",
+            "NO_UPSTREAM",
+            "NO_UPSTREAM_H",
+            "NO_UPSTREAM_V",
+            "ON_REFERENCE",
+            "OK"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reference"
+        },
+        "shot_id": {
+          "title": "Shot Id",
+          "type": "string"
+        },
+        "singular_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Singular Values",
+          "type": "array"
+        },
+        "spectrum_kind": {
+          "items": {
+            "enum": [
+              "LIVE",
+              "RANK_DISCARDED",
+              "DISCARDED",
+              "STRUCTURAL"
+            ],
+            "type": "string"
+          },
+          "title": "Spectrum Kind",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "unsolved": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsolved",
+          "type": "array"
+        },
+        "zeroed_h": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Zeroed H",
+          "type": "array"
+        },
+        "zeroed_v": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Zeroed V",
+          "type": "array"
+        }
+      },
+      "required": [
+        "digest",
+        "deltas",
+        "factor",
+        "reason",
+        "status",
+        "all_zero",
+        "zeroed_h",
+        "zeroed_v",
+        "no_response_names",
+        "unsolved",
+        "rank_discarded",
+        "singular_values",
+        "inverse_weights",
+        "spectrum_kind",
+        "n_discard",
+        "shot_id",
+        "reference"
+      ],
+      "title": "Step",
+      "type": "object"
+    },
+    "StepEvent": {
+      "additionalProperties": false,
+      "description": "The pending step was computed (``step``) or voided (``None``).",
+      "properties": {
+        "step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Step"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "step",
+          "default": "step",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepEvent",
+      "type": "object"
+    },
+    "StoppedEvent": {
+      "additionalProperties": false,
+      "description": "An action ended on Stop; ``moved`` puts back what it wrote.",
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "moved": {
+          "items": {
+            "$ref": "#/$defs/Moved"
+          },
+          "title": "Moved",
+          "type": "array"
+        },
+        "stopper": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stopper"
+        },
+        "type": {
+          "const": "stopped",
+          "default": "stopped",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "stopper",
+        "moved"
+      ],
+      "title": "StoppedEvent",
+      "type": "object"
+    },
+    "TakenOver": {
+      "additionalProperties": false,
+      "description": "The latest take-over: \"taken over by <kind> of <owner>\".",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/HolderView"
+        },
+        "previous": {
+          "$ref": "#/$defs/HolderView"
+        }
+      },
+      "required": [
+        "previous",
+        "by"
+      ],
+      "title": "TakenOver",
+      "type": "object"
+    },
+    "TakenOverEvent": {
+      "additionalProperties": false,
+      "description": "The session changed hands.",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/HolderView"
+        },
+        "previous": {
+          "$ref": "#/$defs/HolderView"
+        },
+        "type": {
+          "const": "taken_over",
+          "default": "taken_over",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "previous",
+        "by"
+      ],
+      "title": "TakenOverEvent",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "apply": "#/$defs/ApplyEvent",
+      "continuous_ended": "#/$defs/ContinuousEndedEvent",
+      "shot": "#/$defs/ShotEvent",
+      "snapshot": "#/$defs/SnapshotEvent",
+      "step": "#/$defs/StepEvent",
+      "stopped": "#/$defs/StoppedEvent",
+      "taken_over": "#/$defs/TakenOverEvent"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SnapshotEvent"
+    },
+    {
+      "$ref": "#/$defs/ShotEvent"
+    },
+    {
+      "$ref": "#/$defs/StepEvent"
+    },
+    {
+      "$ref": "#/$defs/ApplyEvent"
+    },
+    {
+      "$ref": "#/$defs/StoppedEvent"
+    },
+    {
+      "$ref": "#/$defs/TakenOverEvent"
+    },
+    {
+      "$ref": "#/$defs/ContinuousEndedEvent"
+    }
+  ],
+  "title": "TrajectoryEvent"
+}
