@@ -819,6 +819,20 @@ class TestWriteExactness:
         connector._epics.caput.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("given", "expected"), [(None, "configured"), (7.5, 7.5)])
+    async def test_the_write_waits_for_the_connection_as_long_as_the_call(self, given, expected):
+        """A channel not yet connected gets the write's own timeout to
+        connect, as a read does, never pyepics' 5 s ``get_pv`` default: a
+        busy IOC answers the search late, and the write must not fail first."""
+        connector = _typed_write_connector(TIME_DOUBLE)
+        connector._timeout = 42.0
+        want = connector._timeout if expected == "configured" else expected
+
+        await connector.write_channel("SR:CH", 5.0, confirm=False, timeout=given)
+
+        connector._epics.get_pv.assert_called_once_with("SR:CH", connect=True, timeout=want)
+
+    @pytest.mark.asyncio
     async def test_a_put_pyepics_answers_with_none_fails_with_nothing_sent(self):
         """pyepics returns None only before a put, for a PV not connected."""
         connector = _typed_write_connector(TIME_DOUBLE, caput=None)

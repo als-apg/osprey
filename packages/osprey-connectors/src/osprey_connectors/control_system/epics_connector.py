@@ -1205,8 +1205,9 @@ class EPICSConnector(ControlSystemConnector):
             # The channel's own type decides whether the value can go out
             # exactly. caput looks the PV up in the same pyepics cache, so this
             # adds no second connection; a PV that never connects is answered
-            # here, where nothing has been sent.
-            pv = self._epics.get_pv(channel_address, connect=True)
+            # here, where nothing has been sent. The connection gets the call's
+            # own timeout, as a read's does: a busy IOC answers the search late.
+            pv = self._epics.get_pv(channel_address, connect=True, timeout=timeout)
             if not pv.connected:
                 return ("unreachable", None)
             native_type = _ca_native_type(getattr(pv, "ftype", None))
