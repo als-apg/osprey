@@ -3486,8 +3486,8 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         """The escape again, with the symlink removed.
 
         Inside the store, a regular file, and still not one the store wrote:
-        bodies are always created fresh through ``NamedTemporaryFile`` +
-        ``os.replace``, so a legitimate body has exactly one link. A second link
+        bodies are always replaced whole through ``atomic_replace``, a fresh
+        file each time, so a legitimate body has exactly one link. A second link
         means the same inode is reachable under a name the store does not
         control — and on a shared volume that is the agent's name for it. The
         containment check cannot see this one, because the path really is

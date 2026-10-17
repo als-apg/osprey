@@ -84,11 +84,9 @@ import json
 import logging
 import os
 import secrets
-import tempfile
 import threading
 import time
 import urllib.parse
-from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -96,6 +94,7 @@ from typing import Any
 
 from osprey.utils.identity import TERMINAL_USER_ENV, _usable, acting_identity
 from osprey.utils.sensitive_env import guard_process_memory
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
@@ -463,32 +462,17 @@ class SessionStore:
                 self._warn(f"cannot be written: {exc}")
 
     def _write_atomic(self, payload: dict[str, Any]) -> None:
-        """Write *payload* over :attr:`path`, atomically and at mode ``0600``.
+        """Write *payload* over :attr:`path`, replaced whole and at mode ``0600``.
 
-        The same idiom as
-        :func:`osprey.interfaces.web_terminal._json_store.write_json_atomic`.
-        The explicit ``chmod`` is redundant with :func:`tempfile.mkstemp`, which
-        already creates at ``0600``; it is here so the mode the store must have
-        is stated where the file is created rather than inherited from another
-        module's default. This writer is its own rather than the shared one
-        because it states the store's ``0600`` mode where the file is created
-        and writes with sorted keys.
+        The mode is stated here, where the file is written, rather than
+        inherited from another module's default.
         """
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self._path.parent, prefix=f".{self._path.name}.", suffix=".tmp"
+        atomic_replace(
+            self._path,
+            json.dumps(payload, sort_keys=True).encode("utf-8"),
+            mode=0o600,
+            sync="best_effort",
         )
-        try:
-            with os.fdopen(fd, "w") as handle:
-                json.dump(payload, handle, sort_keys=True)
-                handle.flush()
-                with suppress(OSError):
-                    os.fsync(handle.fileno())
-            os.chmod(tmp_name, 0o600)
-            os.replace(tmp_name, self._path)
-        except BaseException:
-            with suppress(OSError):
-                os.unlink(tmp_name)
-            raise
 
     def _warn(self, reason: str) -> None:
         """Log the first store failure of this process and silence the rest."""
