@@ -57,6 +57,11 @@ def atomic_replace(
     ``sync="required"`` raises when the disk refuses to flush the file;
     ``sync="best_effort"`` carries on without the flush and still replaces
     the file.
+
+    Choose ``sync="required"`` exactly when the caller surfaces the failure to
+    someone who can retry (an operator, a CLI, a build); choose
+    ``sync="best_effort"`` when the caller swallows the error, because then a
+    file replaced without its flush is more durable than the old file kept.
     """
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
