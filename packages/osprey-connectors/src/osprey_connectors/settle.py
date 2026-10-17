@@ -7,10 +7,12 @@ setpoint's ``tolerance`` (``absolute``, or ``relative`` times the demand's
 magnitude); with none stated, on the simulator only, the readback's motion
 band; a caller's floor raises the bound and never lowers it. :func:`settle`
 polls each readback through the connector until it is within its bound, and
-fails closed with :class:`SettleTimeoutError` when the time runs out.
+fails closed with :class:`SettleTimeoutError` when the time runs out. A
+readback read that fails, or answers no value, raises :class:`SettleReadError`.
 
-This module is std-lib only and takes any connector with an awaitable
-``read_channel(address)`` whose result carries ``.value``.
+This module imports only the std-lib and ``osprey_connectors.errors``, and
+takes any connector with an awaitable ``read_channel(address)`` whose result
+carries ``.value``.
 """
 
 from __future__ import annotations
@@ -23,9 +25,12 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from osprey_connectors.errors import ChannelReadFailedError
+
 __all__ = [
     "POLL_INTERVAL_S",
     "Landing",
+    "SettleReadError",
     "SettleTimeoutError",
     "declared_tolerance",
     "settle",
@@ -114,6 +119,26 @@ class SettleTimeoutError(TimeoutError):
         )
 
 
+class SettleReadError(ChannelReadFailedError):
+    """A readback could not be read while settling, or answered no value.
+
+    Attributes:
+        landing: The landing whose readback could not be read.
+        addresses: The readback, the one failed channel.
+        causes: The readback to the exception its read raised; empty when the
+            read answered no value.
+    """
+
+    def __init__(self, landing: Landing, cause: BaseException | None) -> None:
+        self.landing = landing
+        reason = f"{type(cause).__name__}: {cause}" if cause is not None else "no value"
+        super().__init__(
+            [landing.readback],
+            f"readback {landing.readback} of {landing.setpoint} could not be read: {reason}",
+            causes={landing.readback: cause} if cause is not None else None,
+        )
+
+
 async def settle(
     connector: Any,
     landings: Sequence[Landing],
@@ -125,7 +150,8 @@ async def settle(
     """Poll each landing's readback until it is within its bound of its demand.
 
     Every landing is read once per poll until it is inside; a settled landing
-    is not read again. A reading that is not a finite number is never inside.
+    is not read again. A reading with no value is a failed read; any other
+    reading that is not a finite number is never inside.
 
     Args:
         connector: Reads each readback with ``await connector.read_channel(address)``.
@@ -137,14 +163,21 @@ async def settle(
     Raises:
         SettleTimeoutError: A landing was not inside its bound once ``timeout_s``
             had passed, naming the first such landing in ``landings`` order.
+        SettleReadError: A readback read raised or answered no value, naming
+            that readback.
     """
     deadline = clock() + timeout_s
     pending = list(landings)
     while pending:
         unsettled: list[tuple[Landing, Any]] = []
         for landing in pending:
-            reading = await connector.read_channel(landing.readback)
+            try:
+                reading = await connector.read_channel(landing.readback)
+            except Exception as exc:
+                raise SettleReadError(landing, exc) from exc
             value = getattr(reading, "value", None)
+            if value is None:
+                raise SettleReadError(landing, None)
             if not _within(value, landing):
                 unsettled.append((landing, value))
         if not unsettled:

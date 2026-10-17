@@ -242,7 +242,7 @@ class ChannelWriteFailedError(Exception):
 
 
 class ChannelReadFailedError(Exception):
-    """Raised when a batch read could not produce a value for every channel asked.
+    """Raised when a batch read or a settle's readback read could not produce a value.
 
     A channel counts as failed when the connector's result leaves it out (a
     connector drops a channel whose read raised) or reports it with the value

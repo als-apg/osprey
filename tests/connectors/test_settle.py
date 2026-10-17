@@ -14,9 +14,12 @@ from typing import Any
 
 import pytest
 
+import osprey_connectors.settle
+from osprey_connectors.errors import ChannelReadFailedError
 from osprey_connectors.settle import (
     POLL_INTERVAL_S,
     Landing,
+    SettleReadError,
     SettleTimeoutError,
     declared_tolerance,
     settle,
@@ -130,7 +133,7 @@ async def test_a_batch_settles_each_landing_on_its_own(clock: _Clock) -> None:
     )
 
 
-@pytest.mark.parametrize("reading", [None, float("nan"), "2.0"], ids=["none", "nan", "string"])
+@pytest.mark.parametrize("reading", [float("nan"), "2.0"], ids=["nan", "string"])
 async def test_a_reading_that_is_no_finite_number_never_settles(
     clock: _Clock, reading: Any
 ) -> None:
@@ -146,6 +149,48 @@ async def test_a_reading_that_is_no_finite_number_never_settles(
         )
 
     assert f"(last read: {reading})" in str(info.value)
+
+
+async def test_a_readback_that_answers_no_value_is_a_settle_read_error(clock: _Clock) -> None:
+    connector = _Connector({"Q1:RB": None}, {"Q1:RB": None}, lag=0)
+    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+
+    with pytest.raises(SettleReadError) as info:
+        await settle(connector, [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
+
+    error = info.value
+    assert error.landing == landing
+    assert error.addresses == ["Q1:RB"]
+    assert error.causes == {}
+    assert "no value" in str(error)
+    assert clock.pauses == []
+
+
+async def test_a_readback_read_that_raises_is_a_settle_read_error(clock: _Clock) -> None:
+    down = ConnectionError("down")
+
+    class _Dead:
+        async def read_channel(self, address: str) -> _Reading:
+            del address
+            raise down
+
+    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+
+    with pytest.raises(SettleReadError) as info:
+        await settle(_Dead(), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
+
+    error = info.value
+    assert isinstance(error, ChannelReadFailedError)
+    assert error.landing == landing
+    assert error.addresses == ["Q1:RB"]
+    assert error.causes["Q1:RB"] is down
+    assert error.__cause__ is down
+    assert "Q1:RB" in str(error) and "Q1:SP" in str(error)
+    assert clock.pauses == []
+
+
+def test_settle_read_error_is_part_of_the_api() -> None:
+    assert "SettleReadError" in osprey_connectors.settle.__all__
 
 
 async def test_a_timeout_names_the_readback_the_demand_the_bound_and_the_last_reading(
