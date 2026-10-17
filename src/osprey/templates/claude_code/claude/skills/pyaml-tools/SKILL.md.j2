@@ -7,8 +7,9 @@ name: pyaml-tools
 description: >
   Measure an orbit, dispersion, tune or chromaticity response, or the
   chromaticity, on the control target through the pyaml_measure tool, read a
-  served model's orbit response through model_response_matrix, and read the
-  machine or the design lattice through pyAML in the Python executor. Use when
+  served model's orbit or first-turn trajectory response through
+  model_response_matrix, and read the machine or the design lattice through
+  pyAML in the Python executor. Use when
   asked to measure a response matrix or the chromaticity, to compare a measured
   response with the model, or to read magnets, BPMs, the RF or the tunes through
   pyAML.
@@ -68,9 +69,11 @@ configuration the build wrote; nothing else in the deployment edits it.
 
 ## Read the model through `model_response_matrix`
 
-- `mcp__python__model_response_matrix(model, correctors)` solves a served model's orbit response on the model's own deck. It writes nothing and asks for no approval.
+- `mcp__python__model_response_matrix(model, correctors, kind)` solves a served model's response (orbit or first-turn trajectory, by `kind`) on the model's own deck. It writes nothing and asks for no approval.
+- `kind` is `orbit` (the default) for the orbit response of the monitor readbacks, or `trajectory` for the first-turn response of the turn-by-turn readings, the response a first-turn steering correction is computed from.
+- A `trajectory` result names its `kind`; its columns are the horizontal correctors then the vertical ones, and each row and column also carries `plane` (`H` or `V`) and `index`, its element's position along the lattice from where the beam starts. A corrector whose step loses the launched particle has no solve.
 - Each corrector steps by the measurement file's `corrector_delta`, converted to the corrector's hardware unit; each entry is a readback change in its hardware unit per setpoint change in its own.
-- `rows` and `columns` name each monitor readback and each corrector by address and device id.
+- `rows` and `columns` name each reading and each corrector by address and device id.
 - A corrector with no solve has no column; `unsolved` names it with the engine's text. Name those correctors and the text to the operator; never read a missing column as zero response.
 - A solve longer than the executor's timeout is stopped and refused; name fewer correctors.
 

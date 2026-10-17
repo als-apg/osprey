@@ -15,7 +15,7 @@ them from the simulator view under ``build/data/simulator/``. The
 The scenarios the demo ships
 ============================
 
-The control-assistant preset ships six scenarios in
+The control-assistant preset ships seven scenarios in
 ``data/facility/scenarios/``:
 
 .. list-table::
