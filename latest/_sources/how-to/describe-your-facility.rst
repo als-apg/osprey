@@ -389,9 +389,17 @@ The build checks both keys and stops with ``value-invalid`` when:
 - ``gate`` inputs form a cycle (``a`` gated by ``b`` gated by ``a``).
 
 A ``pulse`` or ``gate`` input that names no channel stops the build with
-``reference-missing``. The build only checks a ``gate``; the simulator's
-texture evaluates it on every read, the same way it applies ``noise`` and
-``drift``.
+``reference-missing``.
+
+At run time the simulator applies a ``gate`` on every read, after a ``linear``
+sum and together with ``noise`` and ``drift``. A gated float reads its value
+times the factor, so it keeps a small residual that still moves; a gated bool
+or enum reads the label ``gated``; a gated int reads the integer ``gated``.
+Each input is read as its own current value, its own gate included, so gates
+chain: an input that is itself gated blocks whenever its gate holds it at the
+blocking label. An input the simulator does not serve never
+blocks. Live reads, change notifications and the archive's seeded history all
+see the same gated value.
 
 Models and decks
 ================

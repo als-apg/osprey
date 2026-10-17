@@ -886,9 +886,16 @@ have; or <code class="docutils literal notranslate"><span class="pre">gated</spa
 <li><p><code class="docutils literal notranslate"><span class="pre">gate</span></code> inputs form a cycle (<code class="docutils literal notranslate"><span class="pre">a</span></code> gated by <code class="docutils literal notranslate"><span class="pre">b</span></code> gated by <code class="docutils literal notranslate"><span class="pre">a</span></code>).</p></li>
 </ul>
 <p>A <code class="docutils literal notranslate"><span class="pre">pulse</span></code> or <code class="docutils literal notranslate"><span class="pre">gate</span></code> input that names no channel stops the build with
-<code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>. The build only checks a <code class="docutils literal notranslate"><span class="pre">gate</span></code>; the simulator’s
-texture evaluates it on every read, the same way it applies <code class="docutils literal notranslate"><span class="pre">noise</span></code> and
-<code class="docutils literal notranslate"><span class="pre">drift</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>.</p>
+<p>At run time the simulator applies a <code class="docutils literal notranslate"><span class="pre">gate</span></code> on every read, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
+sum and together with <code class="docutils literal notranslate"><span class="pre">noise</span></code> and <code class="docutils literal notranslate"><span class="pre">drift</span></code>. A gated float reads its value
+times the factor, so it keeps a small residual that still moves; a gated bool
+or enum reads the label <code class="docutils literal notranslate"><span class="pre">gated</span></code>; a gated int reads the integer <code class="docutils literal notranslate"><span class="pre">gated</span></code>.
+Each input is read as its own current value, its own gate included, so gates
+chain: an input that is itself gated blocks whenever its gate holds it at the
+blocking label. An input the simulator does not serve never
+blocks. Live reads, change notifications and the archive’s seeded history all
+see the same gated value.</p>
 </section>
 <section id="models-and-decks">
 <h2>Models and decks<a class="headerlink" href="#models-and-decks" title="Link to this heading">#</a></h2>
