@@ -1831,10 +1831,10 @@ class TestQmdExportModule:
         """A marker that cannot be written is logged; the mirrored file still stands."""
         module = self._module(tmp_path)
 
-        def boom(_path, _text):
+        def boom(_path, _data, *, mode, sync="required"):  # noqa: ARG001
             raise OSError("read-only file system")
 
-        target = "osprey.services.ariel_search.enhancement.qmd_export.exporter._atomic_write_text"
+        target = "osprey.services.ariel_search.enhancement.qmd_export.exporter.atomic_replace"
         with caplog.at_level(logging.WARNING), mock.patch(target, boom):
             await module.enhance(entry, _FakeConnection())
 

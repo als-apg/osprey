@@ -1443,35 +1443,6 @@ def _qmd_mirror_root(config: ARIELConfig) -> Path:
     return resolve_mirror_path(raw)
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Replace ``path`` with ``text`` atomically.
-
-    The content lands in a temp file beside the target, so the rename stays on
-    one filesystem and a reader sees either the old file or the whole new one.
-
-    Args:
-        path: Destination file. Its parent directory must already exist.
-        text: Full file content, UTF-8 encoded.
-
-    Raises:
-        OSError: If the temp file cannot be written or renamed. The temp file
-            is removed first, leaving ``path`` untouched.
-    """
-    import os
-    import tempfile
-
-    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    except BaseException:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
-
-
 def _read_qmd_watermark(mirror_root: Path, *, expansion_key: str | None = None) -> datetime | None:
     """Read the resync watermark stored at the mirror root.
 
@@ -1546,6 +1517,8 @@ def _write_qmd_watermark(
     import json
     from datetime import UTC
 
+    from osprey_connectors.safety_file import atomic_replace
+
     normalized = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
     payload = {
         "format_version": QMD_WATERMARK_FORMAT_VERSION,
@@ -1556,7 +1529,12 @@ def _write_qmd_watermark(
         payload["expansion_key"] = expansion_key
     serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     mirror_root.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{serialized}\n")
+    atomic_replace(
+        mirror_root / QMD_WATERMARK_NAME,
+        f"{serialized}\n".encode(),
+        mode=0o600,
+        sync="required",
+    )
 
 
 def _touch_qmd_marker(mirror_root: Path) -> bool:
@@ -1578,12 +1556,15 @@ def _touch_qmd_marker(mirror_root: Path) -> bool:
 
     from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
     from osprey.utils.logger import get_logger
+    from osprey_connectors.safety_file import atomic_replace
 
     try:
         mirror_root.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(
+        atomic_replace(
             mirror_root / TOUCH_MARKER_NAME,
-            f"{datetime.now(UTC).isoformat()}\n",
+            f"{datetime.now(UTC).isoformat()}\n".encode(),
+            mode=0o600,
+            sync="required",
         )
     except OSError as e:
         get_logger("ariel").warning(

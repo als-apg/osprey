@@ -20,6 +20,7 @@ from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookE
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -172,8 +173,6 @@ class GenericJSONAdapter(FacilityAdapter):
         # Ensure parent directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        tmp_path = path.with_suffix(".tmp")
-
         try:
             if path.exists():
                 with open(path) as f:
@@ -188,21 +187,11 @@ class GenericJSONAdapter(FacilityAdapter):
             data.setdefault("entries", [])
             data["entries"].append(entry_data)
 
-            # Atomic write: write to tmp file, then replace
-            with open(tmp_path, "w") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
-                    json.dump(data, f, indent=2, default=str)
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
-            # os.replace is atomic on POSIX
-            tmp_path.replace(path)
+            # Replaced whole, so a reader never sees half the file.
+            text = json.dumps(data, indent=2, default=str)
+            atomic_replace(path, text.encode("utf-8"), mode=0o644, sync="best_effort")
 
         except (json.JSONDecodeError, OSError) as e:
-            # Clean up tmp file on failure
-            if tmp_path.exists():
-                tmp_path.unlink()
             raise IngestionError(
                 f"Failed to append entry to {self.source_url}: {e}",
                 source_system=self.source_system_name,

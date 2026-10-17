@@ -37,7 +37,6 @@ so that no filename begins with ``.`` and is skipped as a dotfile.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
 from osprey.utils.config import to_facility_iso
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.vocabulary.entry import EntryExpander
@@ -307,15 +307,9 @@ def write_entry(
         return False
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Leading dot keeps a partial write out of qmd's index if it ever scans
-    # mid-write; the pid keeps concurrent writers from sharing a temp file.
-    temp_path = path.parent / f".{path.name}.{os.getpid()}.tmp"
-    try:
-        temp_path.write_bytes(data)
-        os.replace(temp_path, path)
-    except OSError:
-        temp_path.unlink(missing_ok=True)
-        raise
+    # Replaced whole through a hidden temporary, so a partial write never
+    # reaches qmd's index even if it scans mid-write.
+    atomic_replace(path, data, mode=0o644, sync="best_effort")
     return True
 
 
