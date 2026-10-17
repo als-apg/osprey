@@ -85,7 +85,7 @@ from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.base import values_match
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
     from osprey.connectors.control_system.base import ControlSystemConnector
@@ -94,6 +94,7 @@ if TYPE_CHECKING:
         LimitsValidator,
     )
     from osprey_connectors.control_context import ControlContext
+    from osprey_connectors.settle import Landing
 
 logger = get_logger("runtime")
 
@@ -102,6 +103,7 @@ __all__ = [
     "read_channel",
     "read_channels",
     "write_channels",
+    "settle",
     "channel_limits",
     "record_writes",
     "values_match",
@@ -210,6 +212,15 @@ _limits_validator: "LimitsValidator | None" = None
 #: Registered only through :func:`_register_write_observer` and removed through
 #: :func:`_unregister_write_observer`.
 _write_observers: "list[Callable[[str, str], None]]" = []
+
+#: Seconds a written setpoint's readback has to settle when :func:`settle` is
+#: given no ``timeout_s``.
+SETTLE_TIMEOUT_S = 5.0
+
+#: The last facility file :func:`settle` parsed: its path, its ``st_mtime_ns``
+#: and its channel records by ``id``; read and replaced under :data:`_facility_lock`.
+_facility_parsed: "tuple[Path, int, dict[str, Mapping[str, Any]]] | None" = None
+_facility_lock = threading.Lock()
 
 
 def _stamped_target() -> str | None:
@@ -935,6 +946,115 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
         >>> write_channel("MAGNET:FIELD", 2.5, timeout=10.0)
     """
     _run_async(_write_channel_async(channel_address, value, **kwargs))
+
+
+def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) -> None:
+    """Wait until each written setpoint's readback is within its stated bound.
+
+    Synchronous function - no 'await' needed. Call it after
+    :func:`write_channel`. Each setpoint's readback (its ``pair`` in the
+    render's facility file, else the setpoint itself) is read through the
+    same connector until it is within the setpoint's ``tolerance`` of the
+    demand; on the simulator a setpoint that states none settles within its
+    readback's motion band. A setpoint with neither is not waited on.
+
+    Args:
+        demands: Setpoint address to the value written, in the channel's unit.
+        timeout_s: Seconds the readbacks have to settle; :data:`SETTLE_TIMEOUT_S`
+            when omitted.
+
+    Raises:
+        FileNotFoundError: The render has no facility file.
+        ValueError: An address is no setpoint in the facility file; nothing was read.
+        SettleTimeoutError: A readback was not within its bound in time
+            (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
+
+    Examples:
+        >>> from osprey.runtime import settle, write_channel
+        >>> write_channel("MAGNET:H01", 5.0)
+        >>> settle({"MAGNET:H01": 5.0})
+    """
+    landings = _landings(demands)
+    if landings:
+        wait = SETTLE_TIMEOUT_S if timeout_s is None else timeout_s
+        _run_async(_settle_async(landings, wait))
+
+
+async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
+    """Internal async implementation of :func:`settle`."""
+    import osprey_connectors.settle as settle_step
+
+    connector = await _get_connector()
+    await settle_step.settle(connector, landings, timeout_s=timeout_s)
+
+
+def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
+    """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.settle import Landing, settle_bound
+    from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.types import is_simulated, resolve_control_system_type
+
+    path, channels = _facility_channels()
+    simulated: bool | None = None
+    landings: list[Landing] = []
+    for address, demand in demands.items():
+        channel = channels.get(address)
+        if channel is None or channel.get("role") != "setpoint":
+            raise ValueError(f"{address} is no setpoint in {path}")
+        readback = str(channel.get("pair") or address)
+        if simulated is None:
+            section = _target_connector_config() or _control_system_section()
+            simulated = is_simulated(resolve_control_system_type(section))
+        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        bound = settle_bound(
+            channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
+        )
+        if bound is not None:
+            landings.append(Landing(address, readback, float(demand), bound))
+    return landings
+
+
+def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
+    """The render's facility file and its channel records by ``id``.
+
+    Parsed once per path and modification time.
+
+    Raises:
+        FileNotFoundError: The render has no facility file.
+        ValueError: The facility file holds no ``channels`` list.
+    """
+    global _facility_parsed
+
+    from osprey.channel_roster.sources import facility_file_path
+    from osprey_connectors.config import get_full_configuration
+
+    try:
+        config = get_full_configuration()
+    except FileNotFoundError:
+        config = {}
+    path = facility_file_path(config)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{path} does not exist; run `osprey build` to render the facility file"
+        ) from None
+    with _facility_lock:
+        parsed = _facility_parsed
+    if parsed is not None and parsed[0] == path and parsed[1] == mtime_ns:
+        return path, parsed[2]
+    document = json.loads(path.read_text(encoding="utf-8"))
+    records = document.get("channels") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise ValueError(f"{path} holds no 'channels' list")
+    channels: dict[str, Mapping[str, Any]] = {
+        str(record["id"]): record
+        for record in records
+        if isinstance(record, dict) and "id" in record
+    }
+    with _facility_lock:
+        _facility_parsed = (path, mtime_ns, channels)
+    return path, channels
 
 
 def read_channel(channel_address: str, **kwargs) -> Any:
