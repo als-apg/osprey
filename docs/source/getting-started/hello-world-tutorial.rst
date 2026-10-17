@@ -77,13 +77,13 @@ accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
 
 The parts that *are* set are short. The agent's capabilities are lists of named
-artifacts from the OSPREY library — fifteen hooks (three of which form the
+artifacts from the OSPREY library — eleven hooks (three of which form the
 write-safety chain), three rules, and one output style:
 
 .. code-block:: yaml
 
    hooks:
-     - hook-log       # Append every tool call to a structured JSONL audit log
+     - error-guidance # Post-error hook that surfaces remediation hints
      ...
      # The next three are the write-safety chain, and no write reaches the control
      # system until all three agree. Remove any one of them and `osprey build`

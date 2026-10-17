@@ -468,6 +468,11 @@ A declaration is refused at build time, with the reason, if it names a hook the
 resolved profile does not ship, a built-in hook whose wiring the framework
 already owns, or anything outside ``hooks/``.
 
+OSPREY's own helper files ship beside the hooks that need them and are not named
+in ``hooks:``. A facility hook that wants a helper ships its own copy under
+``hooks/``, or claims the rendered one with ``osprey scaffold claim
+hooks/hook-log`` after a build that rendered it.
+
 .. _profile-unwire-hook:
 
 Unwiring a hook in a persona
