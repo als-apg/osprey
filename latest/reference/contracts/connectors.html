@@ -699,27 +699,24 @@ by the posture check never opens it.</p>
 that shares the context that opened it. That makes one rule for a connector’s
 implementation:</p>
 <ul class="simple">
-<li><p><strong>Make the client put in the calling context, or inside</strong>
-<code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code>. <code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code> copies the context into its
-worker thread, and a task created while the door is open inherits it too.</p></li>
+<li><p><strong>Make the client put in the calling context, inside</strong>
+<code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code>, <strong>or in a coroutine handed to another loop with</strong>
+<code class="docutils literal notranslate"><span class="pre">asyncio.run_coroutine_threadsafe</span></code>. Each runs the put in a copy of the
+calling context, and a task created while the door is open inherits it too.
+The EPICS connector uses the last: its Channel Access puts run on the
+process’s CA loop (<code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.ca_loop</span></code>).</p></li>
 <li><p><strong>Not behind</strong> <code class="docutils literal notranslate"><span class="pre">loop.run_in_executor</span></code>, a raw executor <code class="docutils literal notranslate"><span class="pre">submit</span></code> or a bare
 <code class="docutils literal notranslate"><span class="pre">threading.Thread</span></code>. Each starts from a fresh context, sees the door
 closed, and the put is refused with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>.</p></li>
 </ul>
 <p>A put made from a client-library callback thread the library started itself
-— pyepics’ preemptive callbacks, for one — carries no door either, and is
+— libca’s own callback threads, for one — carries no door either, and is
 refused the same way.</p>
 <p>The door records who is making a put; it does not decide whether the put is
-allowed. The connector’s own gates below do that. Two paths hold the door
-open for code that is not a shipped connector’s own put, and are accepted as
-<strong>cooperative bypasses</strong>:</p>
-<ul class="simple">
-<li><p>pyepics with <code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code> runs callbacks while a thread
-polls, including the poll inside a connector’s waiting put, so a put made
-from such a callback runs inside the open door.</p></li>
-<li><p>A connector subclass written by the user is wrapped like a shipped one, so
-its <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> puts inside the open door.</p></li>
-</ul>
+allowed. The connector’s own gates below do that. One path holds the door
+open for code that is not a shipped connector’s own put, and is accepted as a
+<strong>cooperative bypass</strong>: a connector subclass written by the user is wrapped
+like a shipped one, so its <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> puts inside the open door.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> imports nothing from <code class="docutils literal notranslate"><span class="pre">osprey</span></code> for this. The door
 module is standard-library only, because the guard that reads it runs in
 executor subprocesses and kernels where <code class="docutils literal notranslate"><span class="pre">osprey</span></code> may not be importable.</p>

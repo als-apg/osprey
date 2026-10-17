@@ -542,7 +542,9 @@ env chain, through one profile key:
 Each name is passed through to both containers as ``NAME: ${NAME}``, so the
 values live in ``.env`` / ``.env.shared`` and rotate with an edit and a restart.
 The worker gets the same list as the dispatcher: a run acting on what a trigger
-saw has to be able to see it too.
+saw has to be able to see it too. The dispatcher's ``epics_ca`` triggers watch
+through an EPICS connector that takes its gateway from these variables alone,
+not from the ``gateways`` under ``control_system``.
 
 The worker's own reach is a separate question, and it is a network one. A
 dispatched job runs the same OSPREY agent a web terminal runs, so it reaches

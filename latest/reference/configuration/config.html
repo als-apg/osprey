@@ -1323,8 +1323,7 @@ included, refuses every run, so no run is left without a time bound.</p>
 <p>Agent Python — the python executor, the visualization tools and plan
 validation — starts with a fixed set of environment variables from the host:
 paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
-control-system client settings (<code class="docutils literal notranslate"><span class="pre">EPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">PYEPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">TANGO_*</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ENSHOST</span></code>) and the osprey names the run itself reads. Nothing else from the
+control-system client settings (<code class="docutils literal notranslate"><span class="pre">EPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">TANGO_*</span></code>, <code class="docutils literal notranslate"><span class="pre">ENSHOST</span></code>) and the osprey names the run itself reads. Nothing else from the
 host reaches it. <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> adds names to that
 set, for an analysis library that reads its own variable:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>

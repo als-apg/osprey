@@ -66,7 +66,7 @@ warning naming the config file it came from. Any other value is a
 configuration error.
 
 The ``ExecutionWrapper`` wraps user code with runtime guards (e.g. the
-raw-put block, which refuses a direct ``epics.caput()`` so that every write
+raw-put block, which refuses a direct ``aioca.caput()`` so that every write
 goes through the connector), writes the wrapped script to an execution folder,
 and runs it. The subprocess working directory is
 set to the project root so that relative workspace paths (e.g.
@@ -212,9 +212,11 @@ see :ref:`python-executor-armed-block`.
 **Control-system clients**, refused whether they are imported, aliased, or
 resolved dynamically:
 
-- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``
 - **aioca** --- ``caput``. Every OSPREY environment carries it: it is the
-  Channel Access backend of ``ophyd-async[ca]``
+  Channel Access client of OSPREY's own EPICS connector, and the backend of
+  ``ophyd-async[ca]``
+- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``. Not an
+  OSPREY dependency; refused in case a user installs it
 - **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
   ``ca_array_put_callback``, the ctypes binding aioca loads ``libca``
   through
@@ -286,8 +288,8 @@ refusal does not depend on the value: an in-range ``caput`` is refused like an
 out-of-range one, because the connector is where a write is checked and
 recorded.
 
-- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, and ``ca.put`` and
-  ``ca.sg_put`` beneath them
+- **pyepics**, if a user installs it --- ``caput``, ``caput_many``,
+  ``PV.put``, and ``ca.put`` and ``ca.sg_put`` beneath them
 - **aioca** --- ``caput``, under the package name and under
   ``aioca._catools``, the module that defines it
 - **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
@@ -363,8 +365,8 @@ altogether is not stopped by it. These are the **cooperative bypasses**:
 - a put through a ``libca`` handle the code loaded itself with ``ctypes``
   (the ``ca_array_put``, ``ca_array_put_callback`` and ``ca_sg_array_put``
   symbols), or through a raw socket;
-- a put from a pyepics callback under ``PREEMPTIVE_CALLBACK=False``: pyepics
-  then runs callbacks while a thread polls, and the poll inside a connector's
+- a put from a callback of a user-installed pyepics under
+  ``PREEMPTIVE_CALLBACK=False``: pyepics then runs callbacks while a thread polls, and the poll inside a connector's
   own waiting put is inside the open door;
 - a connector subclass written in the run itself, whose ``write_channel`` the
   base class wraps like any other.

@@ -1069,7 +1069,9 @@ env chain, through one profile key:</p>
 <p>Each name is passed through to both containers as <code class="docutils literal notranslate"><span class="pre">NAME:</span> <span class="pre">${NAME}</span></code>, so the
 values live in <code class="docutils literal notranslate"><span class="pre">.env</span></code> / <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and rotate with an edit and a restart.
 The worker gets the same list as the dispatcher: a run acting on what a trigger
-saw has to be able to see it too.</p>
+saw has to be able to see it too. The dispatcher’s <code class="docutils literal notranslate"><span class="pre">epics_ca</span></code> triggers watch
+through an EPICS connector that takes its gateway from these variables alone,
+not from the <code class="docutils literal notranslate"><span class="pre">gateways</span></code> under <code class="docutils literal notranslate"><span class="pre">control_system</span></code>.</p>
 <p>The worker’s own reach is a separate question, and it is a network one. A
 dispatched job runs the same OSPREY agent a web terminal runs, so it reaches
 the control system and the plan queue at whatever addresses your deployment was

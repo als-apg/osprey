@@ -1115,9 +1115,9 @@ says who queued the plan, not what gated it.</p>
 the same kind. It refuses a client library’s own put, and it tells a connector’s put apart by
 the connector’s write door, which records who is making the put rather than guarding it. Code
 that goes around the client library altogether is not stopped: a <code class="docutils literal notranslate"><span class="pre">libca</span></code> handle loaded
-through <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>, a raw socket, a pyepics callback under <code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code> run
-inside a connector’s waiting put, a connector subclass written in the run itself, or a shell
-escape in a notebook (<code class="docutils literal notranslate"><span class="pre">!python</span> <span class="pre">-c</span> <span class="pre">…</span></code>), which starts a fresh interpreter with no block at all.
+through <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>, a raw socket, a user-installed pyepics’ callback under
+<code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code> run inside a connector’s waiting put, a connector subclass
+written in the run itself, or a shell escape in a notebook (<code class="docutils literal notranslate"><span class="pre">!python</span> <span class="pre">-c</span> <span class="pre">…</span></code>), which starts a fresh interpreter with no block at all.
 These are <strong>cooperative bypasses</strong>: the block keeps honest code on the checked path, and it is
 not a sandbox. See <a class="reference internal" href="python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a> and <a class="reference internal" href="../reference/contracts/connectors.html#connector-write-door"><span class="std std-ref">The write door</span></a>.</p>
 <p><strong>The approval prompt attributes a write to a person; it does not contain code already running

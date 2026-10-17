@@ -341,9 +341,9 @@ The raw-put block that sends Python runs and notebook cells through the connecto
 the same kind. It refuses a client library's own put, and it tells a connector's put apart by
 the connector's write door, which records who is making the put rather than guarding it. Code
 that goes around the client library altogether is not stopped: a ``libca`` handle loaded
-through ``ctypes``, a raw socket, a pyepics callback under ``PREEMPTIVE_CALLBACK=False`` run
-inside a connector's waiting put, a connector subclass written in the run itself, or a shell
-escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
+through ``ctypes``, a raw socket, a user-installed pyepics' callback under
+``PREEMPTIVE_CALLBACK=False`` run inside a connector's waiting put, a connector subclass
+written in the run itself, or a shell escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
 These are **cooperative bypasses**: the block keeps honest code on the checked path, and it is
 not a sandbox. See :ref:`python-executor-armed-block` and :ref:`connector-write-door`.
 

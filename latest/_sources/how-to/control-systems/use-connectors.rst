@@ -102,23 +102,11 @@ Pick a control system
 
       .. rubric:: Fresh reads
 
-      An ordinary Channel Access read answers from pyepics' monitor cache,
-      which moves only when the IOC posts an update. An IOC that computes a
-      readback when it is read -- a caproto getter, for example -- posts none,
-      so a cached read of it keeps returning the first value it saw. Set
-      ``fresh_reads: true`` on the connector block and every Channel Access
-      read asks the IOC instead, at one network round trip per read:
-
-      .. code-block:: yaml
-
-         control_system:
-           connector:
-             epics:
-               fresh_reads: true
-
-      The option is per block, so a stand-in simulator can have it while the
-      live machine does not. Write confirmation and the ``max_step`` check
-      already read fresh whatever it says, and pvAccess reads are never cached.
+      Every Channel Access read asks the IOC, at one network round trip per
+      read, so an IOC that computes a readback when it is read -- a caproto
+      getter, for example -- always answers with its current value. The
+      ``fresh_reads`` key that once switched this on is still accepted, so an
+      existing configuration keeps loading, but it no longer changes anything.
 
       .. rubric:: PVAccess channels (PVA)
 
