@@ -47,10 +47,6 @@ channel_finder_mode: graph
 # need; add your own through an overlay.
 
 hooks:
-  - hook-log          # Append every tool call to a structured JSONL audit log
-  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
-  - safety-file       # Stdlib atomic file replace for the hooks that write files (helper, not wired to an event)
-  - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes

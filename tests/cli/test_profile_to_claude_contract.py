@@ -517,7 +517,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
-            "hooks": ["hook-log", "hook-config", "memory-guard"],
+            "hooks": ["memory-guard"],
             "rules": ["safety", "timezone"],
             "skills": ["session-report"],
             "output_styles": ["control-operator"],

@@ -317,29 +317,34 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # hook helper, the atomic file replace the hooks that write files import.
     # A rebuilt project gains the helper in `.claude/hooks/` and no
     # settings.json registration, so the advisory firing is correct.
-    "ariel-standalone": ("sha256:f64fa0888adca7b3c7cb12f25b994df4029f30e879fa312c6960d0d6c0cdd6f0"),
+    # The forty-fourth move, and every preset: each drops its helper lines
+    # (`hook-log`, `target-state`, `safety-file`, `hook-config`) from `hooks:`,
+    # because helpers ship as the closure of the hooks that need them. The
+    # rendered files are identical; the resolved content moved, so the
+    # advisory fires once on already-deployed projects.
+    "ariel-standalone": ("sha256:fa82a97146a3eca6dc1c0d34b4457c574d0a34bfaaf98f72f256ca2a0de62d19"),
     "channel-finder-standalone": (
-        "sha256:b583ba2a4bcb84b0191df6ca60c4932fcc797c36230941a5a565c68b775f635e"
+        "sha256:15fd1f66f9ecbf5028fe7f057f0dae6cfe6e4e02504d5eba2270f74459bb5e3e"
     ),
     "control-assistant": (
-        "sha256:d11bf5ce875409beaebea622dd597b6808638a078a1dd799da9c23f996ef9aad"
+        "sha256:2b770fd997ab9ce6ce3da076c4e99d10d3fe1ecc8857581573fa622b99ac0716"
     ),
     "control-assistant-admin": (
-        "sha256:0623170846fe41db5c1ca0ee51ba8be852c08b64e868e6bed09854d8a641e525"
+        "sha256:3db6a053641e997b3fb42d57c91979c270950d6a16141b54cc6719da0240be12"
     ),
     "control-assistant-knowledge": (
-        "sha256:ae71a6988042862861dc32af93ca5b4806a790f85306f17eb0c0be380b6ed55d"
+        "sha256:1d98c440dd2d9689ad78ab80a1deb0f7ce5eb660ebab1622b776bf27f24e8d7b"
     ),
     "control-assistant-logbook": (
-        "sha256:d5f61bfc607a72e646a30d3318a03ab72a766e612cf80a52c4bfd9f7a67dc0fb"
+        "sha256:4c9eae5905ab76d289fc65ccc00e1f224266270b746f1a71d880eed080e8e6df"
     ),
     "control-assistant-readonly": (
-        "sha256:f0359bc45c5cd060174268c93d4b9f93ac1605f5b96e09d4940ee4fbe3aaef10"
+        "sha256:ebe42cb8d964f2d055909a1f9e92ce066e9de150fdf99f594d705e75ce087ab1"
     ),
     "control-assistant-readwrite": (
-        "sha256:50f2a2a875b4575448d843f97f6ce92d9cf1f06032f601c71fe177c72ebcb661"
+        "sha256:16f53c60c07d87a70ed843617f30feed2b8ad9acbd68800d31d85f5303dcaf6e"
     ),
-    "hello-world": ("sha256:518b2f3ca007fc68cf8304231e2047497c01901e975407a5b70dd32678765bbb"),
+    "hello-world": ("sha256:029244f425e473d9e22635202920f1bb67474520cb5cffa97318a33c80c45240"),
 }
 
 

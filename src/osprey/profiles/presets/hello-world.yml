@@ -1,6 +1,6 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
-# write-safety chain. The simulator, served in this process, fifteen hooks, and
+# write-safety chain. The simulator, served in this process, eleven hooks, and
 # two containers (the telemetry store and its gateway), so `osprey init` → `osprey build` →
 # `osprey web` is the entire first session.
 #
@@ -44,10 +44,6 @@ provider: anthropic
 # need; add your own through an overlay.
 
 hooks:
-  - hook-log       # Append every tool call to a structured JSONL audit log
-  - target-state   # Stdlib reader for the control-target state file (helper, not wired to an event)
-  - safety-file    # Stdlib atomic file replace for the hooks that write files (helper, not wired to an event)
-  - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
   # The next three are the write-safety chain, and no write reaches the control
   # system until all three agree. Remove any one of them and `osprey build`
