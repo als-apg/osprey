@@ -336,6 +336,54 @@ def test_writable_with_limits_checking_disabled_starts_without_db(
         assert resp.status_code == 200
 
 
+def test_writable_optional_with_no_db_path_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """writes enabled + optional limits + no path: legal, nothing to load (q-0001/1, q-0002)."""
+    probe_calls = _spy_on_limits_probe(monkeypatch)
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        limits_enabled=True,
+        db_path=None,
+    )
+
+    with TestClient(app) as client:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+    assert probe_calls == []
+
+
+def test_writable_exclusive_with_no_db_path_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exclusive mode needs the database to know what is writable at all."""
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "exclusive"}},
+        limits_enabled=True,
+        db_path=None,
+    )
+
+    with pytest.raises(RuntimeError, match="database_path is not configured"):
+        with TestClient(app):
+            pass
+
+
+def test_writable_optional_with_missing_db_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A configured path must load whatever the mode."""
+    _patch_config(
+        monkeypatch,
+        section={"writes_enabled": True, "limits_checking": {"mode": "optional"}},
+        limits_enabled=True,
+        db_path=str(tmp_path / "does_not_exist.json"),
+    )
+
+    with pytest.raises(RuntimeError, match="could not be read or parsed"):
+        with TestClient(app):
+            pass
+
+
 def test_writes_disabled_starts_readonly_even_with_missing_db(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

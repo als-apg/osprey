@@ -905,7 +905,27 @@ class TestFromPosture:
         )
 
     def test_missing_database_path_yields_blocking_failsafe(self, monkeypatch):
-        """Enabled with nowhere to read limits from -> block, don't wave writes through."""
+        """Enabled with nowhere to read limits from -> block, don't wave writes through.
+
+        Exclusive mode needs the database to know what is writable at all; the
+        optional/no-path case below legitimately needs none (q-0001/1, q-0002).
+        """
+        _patch_config(
+            monkeypatch,
+            {"control_system.limits_checking.database_path": None},
+        )
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
+
+        validator = LimitsValidator._from_posture(posture)
+
+        assert isinstance(validator, LimitsValidator)
+        assert "database_path" in validator.failsafe_reason
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("ANY:CHANNEL", 1.0)
+        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+
+    def test_optional_with_no_database_path_enforces_over_an_empty_database(self, monkeypatch):
+        """Optional + no path is legal: unlisted channels are written with no limits (q-0002)."""
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": None},
@@ -915,10 +935,10 @@ class TestFromPosture:
         validator = LimitsValidator._from_posture(posture)
 
         assert isinstance(validator, LimitsValidator)
-        assert "database_path" in validator.failsafe_reason
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("ANY:CHANNEL", 1.0)
-        assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
+        assert validator.failsafe_reason is None
+        assert validator.limits == {}
+        assert validator.policy["mode"] == "optional"
+        validator.validate("ANY:CHANNEL", 1.0)
 
     def test_unreadable_database_yields_blocking_failsafe(self, monkeypatch, tmp_path):
         """An unparseable database blocks even a permissive posture."""
