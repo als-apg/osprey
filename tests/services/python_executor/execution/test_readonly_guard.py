@@ -925,6 +925,26 @@ def test_readonly_gates_the_loader_class_itself():
     assert type(lib) is ctypes.CDLL
 
 
+def test_the_refusing_loaders_keep_no_original_loader():
+    """No load is permitted, so no refusing loader holds an original to reach."""
+    import _ctypes
+    import importlib.util
+
+    _run_guard("readonly")
+    loaders = {"ctypes._dlopen": ctypes._dlopen, "_ctypes.dlopen": _ctypes.dlopen}
+    if hasattr(_ctypes, "LoadLibrary"):
+        loaders["_ctypes.LoadLibrary"] = _ctypes.LoadLibrary
+    if importlib.util.find_spec("cffi") is not None:
+        import cffi.api
+
+        loaders["cffi.api.FFI.dlopen"] = cffi.api.FFI.dlopen
+
+    for row, loader in loaders.items():
+        assert getattr(loader, "_osprey_loader_gate", False), row
+        cells = loader.__closure__ or ()
+        assert not [cell for cell in cells if callable(cell.cell_contents)], row
+
+
 def test_readonly_leaves_the_read_symbols_on_the_cadef_libca_handle():
     import ctypes
 

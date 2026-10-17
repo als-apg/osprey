@@ -69,9 +69,11 @@ load refuses, including the one a user-installed pyepics would make.
 
 The gate is the loader every ``ctypes`` spelling funnels into
 (``ctypes._dlopen``, which is ``_ctypes.dlopen``) and cffi's ``FFI.dlopen``
-beside it — the same gate the ``no_client`` mode installs, under the readonly
-policy. No spelling of the loader class (``cdll._dlltype``, ``type(handle)``,
-a subclass, a reference bound before the install) loads around it. Symbol
+beside it. A readonly run replaces each with a refusal that holds no loader,
+because it lets no load through; the ``no_client`` mode wraps the loader
+instead, because it lets every non-client library load. No spelling of the
+loader class (``cdll._dlltype``, ``type(handle)``, a subclass, a reference
+bound before the install) loads around it. Symbol
 lookup is gated at the class: ``CDLL.__getitem__``, which attribute access
 resolves through, refuses the put symbols on every handle. That reaches the
 handles loaded before the gate — ``epicscorelibs.ca.cadef.libca``, which aioca
@@ -113,9 +115,11 @@ import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-#: The rows a readonly run gates rather than refuses, by ``(dotted, attr)``:
-#: the shared-library loaders, each shaped like ``_ctypes.dlopen`` or like
-#: cffi's ``FFI.dlopen``, and the symbol lookup on every ``ctypes`` handle.
+#: The shared-library loader rows, by ``(dotted, attr)``, each shaped like
+#: ``_ctypes.dlopen`` or like cffi's ``FFI.dlopen``, and the symbol lookup on
+#: every ``ctypes`` handle. A readonly run refuses every load through a callable
+#: that holds no loader; the ``no_client`` mode wraps the loader, because it
+#: lets non-client libraries through.
 _CTYPES_LOADER_ROWS = frozenset(
     {("ctypes", "_dlopen"), ("_ctypes", "dlopen"), ("_ctypes", "LoadLibrary")}
 )
@@ -641,8 +645,12 @@ def _install_readonly(
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
 
-    # Every load after install refuses, through ``ctypes`` and cffi alike.
-    loader_policy = _LoaderPolicy(_osprey_readonly_refuse)
+    def _osprey_refused_load(*_args: Any, **_kwargs: Any) -> Any:
+        # Every load after install refuses, through ``ctypes`` and cffi alike,
+        # so the refusal holds no loader it could hand back.
+        raise RuntimeError(refusal)
+
+    setattr(_osprey_refused_load, _LOADER_GATE_ATTR, True)
 
     def _osprey_gated_symbol(self: Any, name_or_ordinal: Any) -> Any:
         # ``CDLL.__getitem__``, restated rather than wrapped so the original is
@@ -660,12 +668,10 @@ def _install_readonly(
             _func.__name__ = name_or_ordinal
         return _func
 
-    def _readonly_replacement(dotted: str, attr: str, original: Any, _owner: Any) -> Any:
+    def _readonly_replacement(dotted: str, attr: str, _original: Any, _owner: Any) -> Any:
         row = (dotted, attr)
-        if row in _CTYPES_LOADER_ROWS:
-            return _gated_load(original, policy=loader_policy)
-        if row in _FFI_LOADER_ROWS:
-            return _gated_ffi_load(original, policy=loader_policy)
+        if row in _CTYPES_LOADER_ROWS or row in _FFI_LOADER_ROWS:
+            return _osprey_refused_load
         if row == _SYMBOL_LOOKUP_ROW:
             return _osprey_gated_symbol
         return _osprey_readonly_refuse
