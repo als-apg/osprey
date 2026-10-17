@@ -20,7 +20,7 @@ file:
 
 .. code-block:: python
 
-   from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+   from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
    register_builtin_connectors()   # registers the built-in names; idempotent
 

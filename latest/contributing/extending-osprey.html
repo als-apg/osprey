@@ -472,7 +472,7 @@ register is reachable.</p>
 <section id="connector">
 <span id="extending-connector"></span><h2>Connector<a class="headerlink" href="#connector" title="Link to this heading">#</a></h2>
 <p>A connector is Osprey’s single interface to one control system. Subclass
-<code class="docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>
+<code class="docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.base</span></code>
 — the source lives in
 <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/src/osprey_connectors/control_system/</span></code> — and
 return the <code class="docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="docutils literal notranslate"><span class="pre">ChannelMetadata</span></code> and <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>
@@ -490,7 +490,7 @@ at yours in <a class="reference internal" href="../how-to/control-systems/use-co
 <section id="archiver">
 <span id="extending-archiver"></span><h2>Archiver<a class="headerlink" href="#archiver" title="Link to this heading">#</a></h2>
 <p>An archiver connector answers questions about the past instead of the present.
-Subclass <code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.archiver.base</span></code>
+Subclass <code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey_connectors.archiver.base</span></code>
 (alongside the control-system connectors in
 <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/src/osprey_connectors/archiver/</span></code>) and register it
 the same two ways, with <code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_archiver</span></code> or a

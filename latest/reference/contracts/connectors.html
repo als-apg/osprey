@@ -540,7 +540,7 @@ sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
 on <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, which every
 <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call returns.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
 
 <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;BEAM:CURRENT&quot;</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">)</span>
 
@@ -880,7 +880,7 @@ for every channel in it and every processing mode. A backend that bins on a
 grid of its own is the documented exception – the Archiver Appliance’s
 operators are epoch-anchored, and the window merely clips them.</p></li>
 </ul>
-<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey.connectors.archiver._timerange</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
+<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey_connectors.archiver._timerange</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
 <code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
 <code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>, <code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code>) implement all of the above –
 every in-tree connector builds on them rather than reimplementing binning.</p>

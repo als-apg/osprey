@@ -541,7 +541,7 @@ process answers for the addresses of the built facility file without hardware
 or network access, which is what makes it the development and R&amp;D default. Run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first; the simulator refuses an address outside the facility
 file:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
 
 <span class="n">register_builtin_connectors</span><span class="p">()</span>   <span class="c1"># registers the built-in names; idempotent</span>
 
