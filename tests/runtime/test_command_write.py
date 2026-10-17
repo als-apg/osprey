@@ -2,11 +2,13 @@
 
 ``command_write`` refuses the whole batch, before anything is written, unless
 this process holds the run lock with a context whose owner is the owner the
-write path reads, the connector drives the context's target and carries an
-enforcing limits validator, and every address is a command of the caller's,
-resolves ``confirm: false`` and passes the validator. Then it makes one
-``write_multiple_channels`` call with ``confirm`` omitted. The validator here
-is the product's own; the connector records what it was asked to write.
+write path reads, the connector drives the context's target, its limits
+validator is not the fail-safe one (and it carries one unless the context says
+limits checking is off), and every address is a command of the caller's and
+passes the validator in the validator's own mode. No limits record need make
+an address a command (q-0001/1, q-0002). Then it makes one
+``write_multiple_channels`` call with ``confirm=False``. The validator here is
+the product's own; the connector records what it was asked to write.
 """
 
 from __future__ import annotations
@@ -15,8 +17,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 import osprey.runtime
+from osprey.facility.views.limits import limits_document
 from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
     ENV_CONTROL_IDENTITY,
@@ -133,14 +137,15 @@ async def _refused(connector: _Connector, addresses: list[str], value: Any = 1) 
     return caught.value.reason
 
 
-async def test_a_batch_of_commands_goes_out_in_one_call_with_confirm_omitted() -> None:
+async def test_a_batch_of_commands_goes_out_in_one_call_with_confirm_false() -> None:
+    # Flipped per q-0001/1: a command holds no setting, so it is fired unconfirmed.
     connector = _Connector()
 
     with lock(None, context=ALICE_LIVE):
         fired = await command_write(connector, [ARM, REQUEST], 1, commands=COMMANDS)
 
     assert fired == [ARM, REQUEST]
-    assert connector.calls == [([(ARM, 1), (REQUEST, 1)], {})]
+    assert connector.calls == [([(ARM, 1), (REQUEST, 1)], {"confirm": False})]
 
 
 async def test_a_command_write_without_a_held_lock_is_refused() -> None:
@@ -210,14 +215,15 @@ async def test_a_batch_naming_one_address_that_is_not_a_command_is_refused_whole
     assert connector.calls == [], "the command before it is not written either"
 
 
-async def test_a_batch_naming_one_command_that_resolves_confirm_true_is_refused_whole() -> None:
+async def test_a_command_whose_limits_record_confirms_is_still_fired_unconfirmed() -> None:
+    # Flipped per q-0001/1: command-ness is the caller's, never a limits record's.
     connector = _Connector()
 
-    with lock(None, context=ALICE_LIVE), pytest.raises(OspreyWriteRefused) as caught:
-        await command_write(connector, [ARM, CONFIRMING], 1, commands=COMMANDS)
+    with lock(None, context=ALICE_LIVE):
+        fired = await command_write(connector, [ARM, CONFIRMING], 1, commands=COMMANDS)
 
-    assert caught.value.channel_address == CONFIRMING
-    assert connector.calls == []
+    assert fired == [ARM, CONFIRMING]
+    assert connector.calls == [([(ARM, 1), (CONFIRMING, 1)], {"confirm": False})]
 
 
 async def test_a_batch_whose_value_one_command_s_limits_refuse_is_refused_whole() -> None:
@@ -292,6 +298,156 @@ async def test_a_command_write_never_reaches_the_sandbox_connector_pin_or_valida
 
     with lock(None, context=ALICE_LIVE):
         assert await command_write(connector, [ARM], 1, commands=COMMANDS) == [ARM]
+
+
+def _mode_validator(mode: str, records: dict[str, dict[str, Any]] | None = None) -> LimitsValidator:
+    """The product's validator in *mode* over *records* (none: an empty database)."""
+    records = records or {}
+    limits = {
+        address: ChannelLimitsConfig(
+            address, record.get("min_value"), record.get("max_value"), writable=True
+        )
+        for address, record in records.items()
+    }
+    return LimitsValidator(limits, {"mode": mode, "on_violation": "error"}, dict(records))
+
+
+async def test_optional_mode_writes_a_command_with_no_limits_record_unchecked() -> None:
+    connector = _Connector(validator=_mode_validator("optional"))
+
+    with lock(None, context=ALICE_LIVE):
+        fired = await command_write(connector, [ARM, REQUEST], 7, commands=COMMANDS)
+
+    assert fired == [ARM, REQUEST]
+    assert connector.calls == [([(ARM, 7), (REQUEST, 7)], {"confirm": False})]
+
+
+async def test_optional_mode_with_no_limits_file_fires_the_commands(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Optional mode and no database path: the product builds an enforcing empty validator."""
+    from osprey_connectors.workspace import reset_config_cache
+
+    (repo / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "control_system": {
+                    "type": "mock",
+                    "limits_checking": {
+                        "enabled": True,
+                        "mode": "optional",
+                        "on_violation": "error",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CONFIG_FILE", str(repo / "config.yml"))
+    reset_config_cache()
+    try:
+        validator = LimitsValidator.from_config()
+    finally:
+        reset_config_cache()
+    assert validator is not None
+    assert validator.failsafe_reason is None
+    connector = _Connector(validator=validator)
+
+    with lock(None, context=ALICE_LIVE):
+        assert await command_write(connector, [ARM, REQUEST], 1, commands=COMMANDS) == [
+            ARM,
+            REQUEST,
+        ]
+    assert connector.calls == [([(ARM, 1), (REQUEST, 1)], {"confirm": False})]
+
+
+async def test_exclusive_mode_refuses_a_command_with_no_limits_record_whole() -> None:
+    connector = _Connector(
+        validator=_mode_validator("exclusive", {ARM: {"min_value": 0, "max_value": 1}})
+    )
+
+    with lock(None, context=ALICE_LIVE), pytest.raises(ChannelLimitsViolationError) as caught:
+        await command_write(connector, [ARM, REQUEST], 1, commands=COMMANDS)
+
+    assert caught.value.channel_address == REQUEST
+    assert connector.calls == [], "the listed command before it is not written either"
+
+
+async def test_optional_mode_applies_a_listed_commands_bounds() -> None:
+    connector = _Connector(
+        validator=_mode_validator("optional", {ARM: {"min_value": 0, "max_value": 1}})
+    )
+
+    with lock(None, context=ALICE_LIVE), pytest.raises(ChannelLimitsViolationError) as caught:
+        # REQUEST is unlisted and would pass; ARM's band refuses 5.
+        await command_write(connector, [REQUEST, ARM], 5, commands=COMMANDS)
+
+    assert caught.value.channel_address == ARM
+    assert connector.calls == []
+
+
+async def test_a_connector_with_no_validator_fires_when_the_run_says_limits_are_off() -> None:
+    connector = _Connector(validator=None)
+    off = ActionContext(target="live", owner="alice", approved_target="live", limits_off=True)
+
+    with lock(None, context=off):
+        assert await command_write(connector, [ARM], 1, commands=COMMANDS) == [ARM]
+    assert connector.calls == [([(ARM, 1)], {"confirm": False})]
+
+
+async def test_the_failsafe_validator_refuses_even_when_the_run_says_limits_are_off() -> None:
+    connector = _Connector(validator=_validator(failsafe_reason="the limits file is unreadable"))
+    off = ActionContext(target="live", owner="alice", approved_target="live", limits_off=True)
+
+    with lock(None, context=off), pytest.raises(OspreyWriteRefused) as caught:
+        await command_write(connector, [ARM], 1, commands=COMMANDS)
+
+    assert "the limits file is unreadable" in caught.value.reason
+    assert connector.calls == []
+
+
+async def test_limits_off_never_admits_an_address_that_is_not_a_command() -> None:
+    connector = _Connector(validator=None)
+    off = ActionContext(target="live", owner="alice", approved_target="live", limits_off=True)
+
+    with lock(None, context=off), pytest.raises(OspreyWriteRefused) as caught:
+        await command_write(connector, [ARM, CORRECTOR], 1, commands=COMMANDS)
+
+    assert caught.value.channel_address == CORRECTOR
+    assert connector.calls == []
+
+
+#: The shipped example facility, whose ``limits.yaml`` lists no shot command.
+EXAMPLE = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+#: The example facility's shot commands: one BPM's arm and the injection request.
+EXAMPLE_SHOT = ("SR:DIAG:BPM:01:TBT:ARM", "SR:DIAG:INJECTION:REQUEST")
+
+
+async def test_a_shots_commands_fire_under_the_shipped_example_limits_in_optional_mode(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    records = yaml.safe_load((EXAMPLE / "limits.yaml").read_text(encoding="utf-8"))
+    models = (EXAMPLE / "models.yaml").read_text(encoding="utf-8")
+    for address in EXAMPLE_SHOT:
+        assert address in models, f"{address} is no longer an example shot command"
+    channels = [{"id": record["address"], "role": "setpoint"} for record in records["records"]]
+    database = limits_document({"channels": channels, "limits": records})
+    assert not set(EXAMPLE_SHOT) & set(database), "the example file lists no shot command"
+    path = tmp_path / "channel_limits.json"
+    path.write_text(json.dumps(database), encoding="utf-8")
+    limits, raw = LimitsValidator._load_limits_database(str(path))
+    validator = LimitsValidator(limits, {"mode": "optional", "on_violation": "error"}, raw)
+    connector = _Connector(validator=validator)
+
+    with lock(None, context=ALICE_LIVE):
+        fired = await command_write(
+            connector, list(EXAMPLE_SHOT), 1, commands=frozenset(EXAMPLE_SHOT)
+        )
+
+    assert fired == list(EXAMPLE_SHOT)
+    assert connector.calls == [([(address, 1) for address in EXAMPLE_SHOT], {"confirm": False})]
 
 
 def test_command_write_is_public_on_the_guarded_run_module() -> None:
