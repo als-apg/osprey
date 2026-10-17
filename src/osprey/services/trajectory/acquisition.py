@@ -385,7 +385,7 @@ def shot_action(
 
         async def read(addresses: list[str]) -> dict[str, Any]:
             checkpoint()
-            values = await guarded_call(
+            values: dict[str, Any] = await guarded_call(
                 lambda: connector.read_multiple_channels(addresses, timeout=call_timeout_s),
                 record=lambda _: None,
             )

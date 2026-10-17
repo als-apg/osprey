@@ -3329,7 +3329,7 @@ def _trajectory_snapshot(config: dict, tool: str, deadline: float) -> dict:
     except Exception as exc:
         raise _trajectory_unreadable(tool, type(exc).__name__) from None
     target = snapshot.get("target") if isinstance(snapshot, dict) else None
-    if not isinstance(target, str) or not target:
+    if not isinstance(snapshot, dict) or not isinstance(target, str) or not target:
         raise _trajectory_unreadable(tool, "the answer names no target")
     return snapshot
 
@@ -3340,7 +3340,7 @@ def _names_line(label: str, names) -> str:
     return f"{label}: {', '.join(listed) if listed else 'none'}"
 
 
-def _trajectory_step_lines(step: dict, step_digest) -> list[str]:
+def _trajectory_step_lines(step: object, step_digest) -> list[str]:
     """The prompt lines of a step apply.
 
     Raises:

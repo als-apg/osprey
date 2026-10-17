@@ -481,7 +481,8 @@ def parse_event(data: str | bytes) -> BaseModel:
     Raises:
         pydantic.ValidationError: *data* is no event of this contract.
     """
-    return _EVENTS.validate_json(data)
+    event: BaseModel = _EVENTS.validate_json(data)
+    return event
 
 
 def state_schema() -> dict[str, Any]:

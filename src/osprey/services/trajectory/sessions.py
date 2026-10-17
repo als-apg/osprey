@@ -167,7 +167,8 @@ class Holder:
     @property
     def stop(self) -> asyncio.Event:
         """The holder stop event: the action layer's current one, read through."""
-        return self.layer.stop_event
+        event: asyncio.Event = self.layer.stop_event
+        return event
 
 
 @dataclass(frozen=True)

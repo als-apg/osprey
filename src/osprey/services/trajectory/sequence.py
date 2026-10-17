@@ -72,7 +72,7 @@ from osprey.services.trajectory.refusal import Refused
 from osprey.services.trajectory.state import Moved
 
 if TYPE_CHECKING:
-    from osprey.services.trajectory.startup import TrajectoryCommands
+    from osprey.services.trajectory.startup import StartupRefused, TrajectoryCommands
 
 __all__ = [
     "ARM_SIGNAL",
@@ -179,7 +179,7 @@ class SequenceModule:
         return self.entry_points.get(name)
 
 
-def _refused(path: Path, problem: str) -> Exception:
+def _refused(path: Path, problem: str) -> StartupRefused:
     from osprey.services.trajectory.startup import StartupRefused
 
     return StartupRefused(f"sequence module {path}: {problem}")

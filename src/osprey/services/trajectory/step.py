@@ -46,10 +46,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from osprey.services.trajectory.refusal import Refused
-from osprey.services.trajectory.state import ShotResult, Step
+from osprey.services.trajectory.state import ShotResult, SpectrumKind, Step, StepReason
 
 if TYPE_CHECKING:
     from osprey.services.trajectory.startup import TrajectoryStartup
@@ -486,7 +486,7 @@ def _plane(
         if extra:
             parts.append(f"carries {plane} rows {', '.join(extra)} the tool does not have")
         raise StepRefused(SHOT_MISMATCH, f"shot {shot_id!r} {' and '.join(parts)}")
-    return [math.nan if readings[name] is None else float(readings[name]) for name in names]
+    return [math.nan if (value := readings[name]) is None else float(value) for name in names]
 
 
 def _reference_rows(
@@ -589,7 +589,7 @@ def compute_step(
         ),
         deltas=deltas,
         factor=factor,
-        reason=str(result.reason.value),
+        reason=cast(StepReason, str(result.reason.value)),
         status=result.status,
         all_zero=bool(result.all_zero) or not any(deltas.values()),
         zeroed_h=list(result.zeroed_h),
@@ -599,7 +599,7 @@ def compute_step(
         rank_discarded=int(inverse.rank_discarded),
         singular_values=[float(v) for v in inverse.singular_values],
         inverse_weights=[float(v) for v in inverse.inverse_weights],
-        spectrum_kind=[str(kind.value) for kind in inverse.spectrum_kind],
+        spectrum_kind=[cast(SpectrumKind, str(kind.value)) for kind in inverse.spectrum_kind],
         n_discard=int(inverse.n_discard),
         shot_id=shot.shot_id,
         reference=None if reference is None else reference.load.name,

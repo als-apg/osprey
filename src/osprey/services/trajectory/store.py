@@ -348,7 +348,8 @@ class TrajectoryStore:
                 if p.suffix == _SUFFIX and not p.name.startswith(".") and p.name != CURRENT_FILE
             )
 
-        return await self._run(names)
+        listing: list[str] = await self._run(names)
+        return listing
 
     async def current(self, model: str) -> str | None:
         """The name of ``model``'s current reference, ``None`` when none is set."""
@@ -357,7 +358,8 @@ class TrajectoryStore:
             payload: bytes = await self._run(path.read_bytes)
         except FileNotFoundError:
             return None
-        return json.loads(payload).get("name")
+        name: str | None = json.loads(payload).get("name")
+        return name
 
     async def set_current(self, model: str, name: str | None) -> None:
         """Make ``name`` ``model``'s current reference; ``None`` clears it.
