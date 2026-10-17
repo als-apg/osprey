@@ -76,6 +76,8 @@ from tests.integration._qmd_ariel_support import (
     qmd_ariel_config_dict,
     qmd_ariel_vocabulary_config,
     qmd_sidecar_image,
+    reindex_settled,
+    sidecar_log_mark,
     start_qmd_sidecar,
     wait_for_indexed,
     write_vocabulary_file,
@@ -354,6 +356,7 @@ class _World:
     config_dict: dict[str, Any]
     mirror_root: Path
     port: int
+    container: Any
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -404,7 +407,7 @@ def sidecar_world(request, tmp_path_factory, qmd_ariel_database_factory) -> _Wor
         encoding="utf-8",
     )
 
-    _, port = start_qmd_sidecar(request, mirror_root, ARIEL_COLLECTION)
+    container, port = start_qmd_sidecar(request, mirror_root, ARIEL_COLLECTION)
 
     from osprey.deployment.qmd_service import QMDServiceConfig
     from osprey.services.qmd import QMDClient
@@ -415,6 +418,7 @@ def sidecar_world(request, tmp_path_factory, qmd_ariel_database_factory) -> _Wor
     client = QMDClient(QMDServiceConfig(port=port))
     wait_for_indexed(
         client,
+        container,
         ARIEL_COLLECTION,
         SAFE_TOKEN,
         lambda hits: len(hits) >= len(SAFE_ROWS),
@@ -425,6 +429,7 @@ def sidecar_world(request, tmp_path_factory, qmd_ariel_database_factory) -> _Wor
         config_dict=config_dict,
         mirror_root=mirror_root,
         port=port,
+        container=container,
         rows={row["entry_id"]: row for row in rows},
     )
 
@@ -538,6 +543,61 @@ class TestSidecarImageSelection:
         monkeypatch.setenv(QMD_IMAGE_ENV, "")
 
         assert qmd_sidecar_image() == DEFAULT_QMD_SIDECAR_IMAGE
+
+
+#: Log lines in the entrypoint's own format, for the settle rule below.
+_STARTED = "2026-01-01T00:00:00Z [qmd-sidecar] ready: serving on port 8181\n"
+_ADVANCED = "2026-01-01T00:00:05Z [qmd-sidecar] marker advanced: /corpus/ariel/.qmd-touch\n"
+_TRIGGERED = "2026-01-01T00:00:05Z [qmd-sidecar] update triggered by corpus marker\n"
+_SWEEP = "2026-01-01T00:00:05Z [qmd-sidecar] update triggered by fallback sweep (3600s)\n"
+_FINISHED = "2026-01-01T00:00:09Z [qmd-sidecar] update finished in 4s\n"
+
+
+class TestReindexSettles:
+    """When the sidecar's log says the index has stopped moving.
+
+    No container: the rule reads log text alone, so it is pinned here on the
+    entrypoint's own lines rather than inferred from a run that happened to pass.
+    """
+
+    @pytest.mark.parametrize(
+        ("log", "since", "settled"),
+        [
+            pytest.param(_STARTED, None, True, id="startup-pass-done"),
+            pytest.param(_STARTED + _TRIGGERED, None, False, id="update-in-flight"),
+            pytest.param(_STARTED + _SWEEP + _FINISHED, None, True, id="sweep-finished"),
+            pytest.param(_STARTED, len(_STARTED), False, id="touch-not-yet-seen"),
+            pytest.param(
+                _STARTED + _ADVANCED + _TRIGGERED, len(_STARTED), False, id="touch-in-flight"
+            ),
+            pytest.param(
+                _STARTED + _ADVANCED + _TRIGGERED + _FINISHED,
+                len(_STARTED),
+                True,
+                id="touch-finished",
+            ),
+            pytest.param(
+                _STARTED + _TRIGGERED + _FINISHED,
+                len(_STARTED + _TRIGGERED + _FINISHED),
+                False,
+                id="finished-before-the-touch",
+            ),
+            pytest.param(
+                _STARTED + _SWEEP + _FINISHED,
+                len(_STARTED),
+                False,
+                id="sweep-is-not-the-touch",
+            ),
+            pytest.param(
+                _STARTED + _TRIGGERED + _FINISHED + _TRIGGERED,
+                len(_STARTED),
+                False,
+                id="second-update-in-flight",
+            ),
+        ],
+    )
+    async def test_settle_rule(self, log, since, settled):
+        assert reindex_settled(log, since) is settled
 
 
 class TestSidecarIsReal:
@@ -1051,6 +1111,7 @@ class TestPostgresIsAuthoritative:
         orphan_file = f"{encode_entry_id(ORPHAN_ID)}.md"
         raw = wait_for_indexed(
             sidecar_client,
+            sidecar_world.container,
             ARIEL_COLLECTION,
             ORPHAN_NEEDLE,
             lambda hits: any(hit.file.endswith(orphan_file) for hit in hits),
@@ -1082,6 +1143,7 @@ class TestPostgresIsAuthoritative:
         row = sidecar_world.rows[AUTHORITY_ID]
         path = mirror_path(sidecar_world.mirror_root, row)
         lie = "the interlock was NEVER reset and the shutter is open"
+        mark = sidecar_log_mark(sidecar_world.container)
         path.write_text(
             f"# Entry {AUTHORITY_ID}\n\nThe {AUTHORITY_TOKEN} record says {lie}.\n",
             encoding="utf-8",
@@ -1090,10 +1152,12 @@ class TestPostgresIsAuthoritative:
 
         wait_for_indexed(
             sidecar_client,
+            sidecar_world.container,
             ARIEL_COLLECTION,
             AUTHORITY_TOKEN,
             lambda hits: any("NEVER" in (hit.snippet or "") for hit in hits),
             what="the drifted mirror file",
+            since=mark,
         )
 
         results = await _search(
