@@ -28,13 +28,13 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
 
 ARTIFACT_TYPES = list(_TYPE_TO_SUBDIR.keys())
 
-# Some files in hooks/ are shared libraries rather than hooks — imported by the
-# hooks beside them, wired to no event (``osprey_hook_log.py``,
-# ``osprey_target_state.py``, ``osprey_safety_file.py``). They are still
-# enumerated here, and profiles name them in their hooks list like any other
-# artifact, because SELECTION is what copies a file into ``.claude/hooks/`` while
-# docstring FRONTMATTER is what wires it to an event. A helper is selected
-# everywhere and wired nowhere.
+# Some files in hooks/ are helpers rather than hooks — imported or read by the
+# hooks beside them and wired to no event (``osprey_hook_log.py``,
+# ``osprey_target_state.py``, ``osprey_safety_file.py``, ``hook_config.json``).
+# They are listed here like any other row, but never selected: they ship as the
+# closure of the hooks that need them (the catalog's ``requires``), and naming
+# one in a profile's ``hooks:`` is refused. A profile may still ship its own copy
+# of a helper under ``hooks/``, and that copy wins.
 
 
 def _claude_code_root() -> Path:
@@ -205,6 +205,11 @@ def list_artifacts(artifact_type: str) -> list[str]:
     return sorted(names)
 
 
+def helper_refusal(canonical_name: str) -> str:
+    """The one line that refuses a helper a profile named, e.g. ``hooks/hook-log``."""
+    return f"{canonical_name}: ships with the hooks that need it. Remove it from hooks:."
+
+
 def validate_artifacts(artifacts: dict[str, list[str]]) -> None:
     """Validate that all requested artifact short names exist in the library.
 
@@ -214,16 +219,23 @@ def validate_artifacts(artifacts: dict[str, list[str]]) -> None:
 
     Raises:
         ValueError: If any short name is unknown, with a helpful message listing
-            the invalid names and the available alternatives.
+            the invalid names and the available alternatives, or names a helper
+            file, which ships with the hooks that need it.
     """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
+    helpers = BuildArtifactCatalog.default().helpers()
     errors: list[str] = []
 
     for artifact_type, names in artifacts.items():
         available = list_artifacts(artifact_type)
         available_set = set(available)
+        subdir = _TYPE_TO_SUBDIR.get(artifact_type, artifact_type)
 
         for name in names:
-            if name not in available_set:
+            if f"{subdir}/{name}" in helpers:
+                errors.append(f"  {helper_refusal(f'{subdir}/{name}')}")
+            elif name not in available_set:
                 # Build a "did you mean" suggestion
                 suggestion = _suggest(name, available)
                 hint = f"did you mean '{suggestion}'? " if suggestion else ""

@@ -1,11 +1,16 @@
 """An emitted profile is menu-complete: every selectable artifact is either
 active in one of the six lists or offered as a commented entry."""
 
+import pytest
+
+from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
 from osprey.cli.build_profile_emit import (
     _MENU_HEADER,
     artifact_menu_catalog,
     emit_standalone_profile_yaml,
 )
+from osprey.cli.build_profile_merge import _apply_exclude
+from osprey_connectors.errors import BuildProfileError
 
 
 def _emit(preset: str) -> str:
@@ -52,3 +57,15 @@ def test_empty_lists_still_offer_the_menu() -> None:
 
 def test_menu_insertion_is_deterministic() -> None:
     assert _emit("control-assistant") == _emit("control-assistant")
+
+
+def test_the_hooks_menu_offers_no_helper() -> None:
+    helpers = {name.removeprefix("hooks/") for name in BuildArtifactCatalog.default().helpers()}
+    offered = {name for name, _ in artifact_menu_catalog()["hooks"]}
+    assert helpers
+    assert not offered & helpers
+
+
+def test_a_bare_helper_under_exclude_hooks_is_refused() -> None:
+    with pytest.raises(BuildProfileError, match="Remove it from hooks:"):
+        _apply_exclude({"hooks": ["approval"]}, {"hooks": ["safety-file"]})

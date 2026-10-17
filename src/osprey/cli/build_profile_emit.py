@@ -565,7 +565,8 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     Names come from the same sources the profile validator trusts — the
     artifact library for the five .claude kinds, the web-panel registry for
     panels — so this menu can never disagree with what a profile may name.
-    Universal panels (always served) are excluded: they are not opt-ins.
+    Universal panels (always served) and hook helpers (shipped with the hooks
+    that need them) are excluded: they are not opt-ins.
     """
     from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
     from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
@@ -573,10 +574,13 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
     catalog = BuildArtifactCatalog.default()
+    helpers = catalog.helpers()
     menu: dict[str, list[tuple[str, str]]] = {}
     for artifact_type, subdir in _TYPE_TO_SUBDIR.items():
         entries: list[tuple[str, str]] = []
         for name in list_artifacts(artifact_type):
+            if f"{subdir}/{name}" in helpers:
+                continue
             artifact = catalog.get(f"{subdir}/{name}")
             entries.append((name, _first_sentence(artifact.description) if artifact else ""))
         menu[artifact_type] = entries

@@ -11,6 +11,7 @@ here leaves :mod:`osprey.cli.build_profile_presets` a leaf.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -250,6 +251,25 @@ def _apply_config_exclude(merged: dict[str, Any], entries: Any) -> None:
         config[key] = [item for item in current if item not in removal]
 
 
+def _refuse_excluded_helpers(names: Iterable[str]) -> None:
+    """Refuse a bare helper under ``exclude: hooks:``.
+
+    A helper is never selected, so there is nothing to subtract: it ships with
+    the hooks that need it. A profile's own copy is omitted by its qualified
+    spelling (``hooks/<name>``), which this leaves alone.
+
+    Raises:
+        BuildProfileError: Naming the first helper among *names*.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+    from osprey.cli.templates.artifact_library import helper_refusal
+
+    helpers = BuildArtifactCatalog.default().helpers()
+    for name in names:
+        if f"hooks/{name}" in helpers:
+            raise BuildProfileError(helper_refusal(f"hooks/{name}"))
+
+
 def _apply_exclude(
     merged: dict[str, Any],
     exclude: Any,
@@ -340,6 +360,8 @@ def _apply_exclude(
                 f"(got {type(entries).__name__})"
             )
         split = [_split_exclude_entry(field_name, source, entry) for entry in entries]
+        if field_name == "hooks":
+            _refuse_excluded_helpers(name for name, qualified in split if not qualified)
         if source is not None:
             for name, qualified in split:
                 # One library probe per entry: list_artifacts() walks a
