@@ -684,21 +684,20 @@ def _initialize_registry() -> None:
         logger.warning("Registry initialization failed", exc_info=True)
 
 
-def _install_raw_put_block() -> None:
-    """Refuse every raw client put in this process that no connector let through.
+def _install_client_block() -> None:
+    """Refuse every control-system client in this process, for reads and writes alike.
 
-    The contract is the executor's own armed contract, so a cell's raw put is
-    refused in the words a sandboxed run's would be. rpc and Tango commands
-    stay allowed, as they always have been in a kernel: nothing here bounds
-    them, so nothing here refuses them.
+    A kernel holds no control-system client: its connector is served by a
+    connector-host child, and every client package import and client library
+    load in this process is refused. A client that loaded before this call
+    would stay loaded, so the install refuses to start over one.
 
-    There is no guard: a kernel that could not arm the block must not start,
-    because every cell it ran would put around the connector unchecked.
+    There is no guard: a kernel that cannot install the block does not start.
     """
     from osprey.runtime import raw_put_block
-    from osprey.services.python_executor.execution.wrapper import armed_contract
+    from osprey.services.python_executor.execution.wrapper import no_client_contract
 
-    raw_put_block.install("armed", **armed_contract(refuse_rpc=False))
+    raw_put_block.install("no_client", **no_client_contract())
 
 
 #: Set on ``SubshellManager`` once :func:`install_shell_stream_rearm` has wrapped
@@ -820,13 +819,13 @@ def main(argv: list[str] | None = None) -> None:
     The environment is prepared before the registry is loaded, because the
     registry is created from the config path the preparation publishes; and
     both happen before the kernel exists, so no cell can run ahead of them.
-    The raw-put block goes on straight after the preparation, before anything
-    else loads a client library, and a failure to install it stops the start.
-    The write observer is registered in the same window, so every write a
-    cell makes files its record, and the runtime is routed through the
-    connector-host pool there too: a kernel outlives every switch made under
-    it, so each stamp it carries is served by a connector-host child of its
-    own rather than by a client this process already bound to another target.
+    The client block goes on straight after the preparation, before anything
+    else could load a client library, and a failure to install it stops the
+    start. The write observer is registered in the same window, so every write
+    a cell makes files its record, and the runtime is routed through the
+    connector-host pool there too: every kernel's connector is served by a
+    connector-host child, one per stamp it carries, and never by a client in
+    this process.
 
     The kernel statements are separate rather than one chained call because
     things go between them: the shell stream re-arm is installed before
@@ -842,7 +841,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     _route_logs_to_process_stderr()
     _prepare_environment(argv if argv is not None else sys.argv[1:])
-    _install_raw_put_block()
+    _install_client_block()
     _initialize_registry()
 
     from osprey.runtime import _register_write_observer, _route_connector_through_pool

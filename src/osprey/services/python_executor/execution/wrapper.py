@@ -139,9 +139,9 @@ def _armed_rows(table: dict[tuple[str, str], str]) -> tuple[tuple[str, tuple[str
 def armed_contract(*, refuse_rpc: bool) -> dict:
     """The keyword arguments of ``raw_put_block.install("armed", ...)``.
 
-    One place computes them, so every process that arms the block — the
-    executor's generated script and the notebook kernel alike — refuses the
-    same client entry points with the same marker.
+    One place computes them, so the executor's generated script — the one
+    process that arms the block — refuses the same client entry points with
+    the same marker.
     """
     return {
         "blocked_targets": _armed_rows(_ARMED_BLOCKED),
