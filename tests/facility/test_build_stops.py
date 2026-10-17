@@ -1227,7 +1227,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
             "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
-            "allows orm alone"
+            "allows only orm and trajectory"
         ),
     ),
     "class_unknown__device_class": (

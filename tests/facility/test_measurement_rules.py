@@ -318,7 +318,7 @@ def test_a_kind_other_than_orm_on_a_single_pass_model_stops(tmp_path: Path) -> N
     assert str(stop.format_message()) == (
         "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
         "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
-        "allows orm alone"
+        "allows only orm and trajectory"
     )
 
 

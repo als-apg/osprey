@@ -1992,7 +1992,8 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
-                    f"remove {kind} from `kinds`; a single_pass model allows orm alone",
+                    f"remove {kind} from `kinds`; a single_pass model allows only "
+                    f"{' and '.join(SINGLE_PASS_KINDS)}",
                 )
                 continue
             for member in KIND_MEMBERS[kind]:
