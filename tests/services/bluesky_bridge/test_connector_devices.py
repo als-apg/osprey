@@ -732,3 +732,67 @@ async def test_set_is_async_status_wrapped() -> None:
     assert isinstance(status, AsyncStatus)
     await status
     assert fake.readbacks["SP"] == 1.0
+
+
+# --- the worker's bound is the shared settle rule ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("device", "floor", "simulated", "record", "expected"),
+    [
+        ({"settle_tolerance": _BAND}, None, False, {"absolute": _BAND}, _BAND),
+        ({"settle_relative": 1e-4}, None, False, {"relative": 1e-4}, 0.02),
+        ({"motion_band": _BAND}, None, True, None, _BAND),
+        ({"motion_band": _BAND}, None, False, None, connector_module.DEFAULT_SETTLE_TOLERANCE),
+        ({"settle_tolerance": _BAND}, "0.1", False, {"absolute": _BAND}, 0.1),
+    ],
+    ids=["absolute", "relative-of-the-demand", "motion-on-the-simulator", "motion-live", "floor"],
+)
+async def test_the_worker_bound_is_the_shared_rule(
+    monkeypatch: pytest.MonkeyPatch,
+    device: dict[str, float],
+    floor: str | None,
+    simulated: bool,
+    record: dict[str, float] | None,
+    expected: float,
+) -> None:
+    from osprey_connectors.settle import settle_bound
+
+    if floor is None:
+        monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, floor)
+    landings: list[Any] = []
+
+    async def record_landings(connector: Any, batch: Any, *, timeout_s: float) -> None:
+        del connector, timeout_s
+        landings.extend(batch)
+
+    monkeypatch.setattr(connector_module, "settle", record_landings)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    settable = ConnectorSettable(
+        fake, "SP", readback_pv="RB", name="m", simulated=simulated, **device
+    )
+
+    await settable.set(-200.0)
+
+    (landing,) = landings
+    assert (landing.setpoint, landing.readback, landing.demand) == ("SP", "RB", -200.0)
+    assert landing.bound == pytest.approx(expected)
+    assert landing.bound == pytest.approx(
+        settle_bound(
+            record,
+            -200.0,
+            motion=device.get("motion_band", 0.0),
+            simulated=simulated,
+            floor=connector_module.settle_tolerance(),
+        )
+    )
+
+
+async def test_the_timeout_names_the_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 1.1 * _BAND, "0.1")
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    with pytest.raises(TimeoutError, match=rf"readback RB did not settle to -3\.0 ± {_BAND:g}"):
+        await device.set(-3.0)
