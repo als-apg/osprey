@@ -851,9 +851,14 @@ class _Stream:
         while True:
             if "\n\n" in self._buffer:
                 frame, self._buffer = self._buffer.split("\n\n", 1)
-                if frame.startswith("data: "):
-                    return parse_event(frame.removeprefix("data: "))
-                continue
+                fields = dict(
+                    line.split(": ", 1) for line in frame.split("\n") if not line.startswith(":")
+                )
+                if "data" not in fields:
+                    continue
+                event = parse_event(fields["data"])
+                assert fields.get("event") == event.type, "the event line names the payload type"
+                return event
             message = await asyncio.wait_for(self.messages.get(), 5)
             if message["type"] == "http.response.start":
                 assert message["status"] == 200

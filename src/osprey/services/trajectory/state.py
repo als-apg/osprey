@@ -43,7 +43,6 @@ __all__ = [
     "ModelKind",
     "Moved",
     "ReferenceLoad",
-    "RunLockHolder",
     "RunningAction",
     "SessionKind",
     "ShotEvent",
@@ -268,16 +267,6 @@ class TakenOver(_Model):
     by: HolderView
 
 
-class RunLockHolder(_Model):
-    """Another process holding this target's run lock, as its holder record says."""
-
-    pid: int | None
-    started: str | None
-    owner: str | None
-    target: str | None
-    identity: str | None
-
-
 class RunningAction(_Model):
     """The action in flight.
 
@@ -357,9 +346,6 @@ class Snapshot(_Model):
             command.
         model: The model carrying the trajectory kind, ``None`` when none does.
         model_kind: ``none`` or ``single_pass``.
-        run_lock_holder: Another process holding the run lock, else ``None``.
-        plan_running: Whether a Bluesky plan runs; ``None`` when the bridge did
-            not answer.
         holder: The session holder, ``None`` when nobody holds it.
         taken_over: The latest take-over, ``None`` when there was none.
         mode: Idle, one action, or a continuous run.
@@ -383,8 +369,6 @@ class Snapshot(_Model):
     writing_available: bool
     model: str | None
     model_kind: ModelKind
-    run_lock_holder: RunLockHolder | None
-    plan_running: bool | None
     holder: HolderView | None
     taken_over: TakenOver | None
     mode: Mode

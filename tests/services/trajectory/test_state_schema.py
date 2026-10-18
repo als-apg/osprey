@@ -25,7 +25,6 @@ from osprey.services.trajectory.state import (
     LastAction,
     Moved,
     ReferenceLoad,
-    RunLockHolder,
     RunningAction,
     ShotEvent,
     ShotFailure,
@@ -115,8 +114,6 @@ def _snapshot(**overrides: Any) -> Snapshot:
         "writing_available": True,
         "model": "sr",
         "model_kind": "single_pass",
-        "run_lock_holder": None,
-        "plan_running": False,
         "holder": _holder(),
         "taken_over": None,
         "mode": "idle",
@@ -139,10 +136,6 @@ def _every_event() -> list[BaseModel]:
     busy = _snapshot(
         mode="continuous",
         action=RunningAction(name="shot", stopping=True, armed_stragglers=["BPM3"]),
-        run_lock_holder=RunLockHolder(
-            pid=4242, started="2026-10-16T10:00:00Z", owner="bob", target="va", identity="sandbox"
-        ),
-        plan_running=None,
         taken_over=TakenOver(previous=_holder("bob", "agent"), by=_holder()),
         last_shot=ShotSummary.of(_shot()),
         step=_step(),
@@ -353,15 +346,16 @@ def test_the_holder_kind_is_a_door() -> None:
 #: Each row of the epic's panel state table, with the snapshot fields it is
 #: drawn from. Omitted on purpose: "service unreachable" and "owner's terminal
 #: on another target" (both client-side: the first is a failed fetch, the second
-#: compares this snapshot's ``target`` with the terminal's own), and "pending
-#: dead run" (voided by e-0003: no journal, no restore-as-action).
+#: compares this snapshot's ``target`` with the terminal's own), "pending dead
+#: run" (voided by e-0003: no journal, no restore-as-action), and "run lock held
+#: by another process" and "a Bluesky plan is running" (both refusal-time: the
+#: write refused with ``run_busy`` names the holder, the one refused with
+#: ``plan_running`` names the lane).
 STATE_TABLE: dict[str, tuple[str, ...]] = {
     "no model carries the trajectory kind": ("writing_available", "model_kind", "model"),
     "single-pass model": ("model_kind", "model"),
     "reached without an operator identity": ("caller",),
     "posture read-only": ("writes_enabled", "posture"),
-    "run lock held by another process": ("run_lock_holder",),
-    "a Bluesky plan is running": ("plan_running",),
     "target": ("target",),
     "another client holds the session": ("holder",),
     "shot running": ("mode", "action"),
@@ -385,7 +379,6 @@ TASK_FIELDS: tuple[str, ...] = (
     "last_shot",
     "step",
     "reference",
-    "plan_running",
     "last_action",
     "continuous",
 )
@@ -409,9 +402,6 @@ def test_the_rows_read_their_answers_from_nested_fields() -> None:
         action=RunningAction(name="shot", stopping=True, armed_stragglers=["BPM3"]),
         step=_step(all_zero=True, reason="NO_BEAM", status="no BPM with beam"),
         reference=_reference(),
-        run_lock_holder=RunLockHolder(
-            pid=1, started=None, owner=None, target="va", identity="sandbox"
-        ),
     )
     # another client holds the session: names the holder's kind and owner
     assert (snap.holder.kind, snap.holder.owner) == ("agent", "bob")
@@ -424,8 +414,6 @@ def test_the_rows_read_their_answers_from_nested_fields() -> None:
     assert snap.step.all_zero is True
     # reference with match counts
     assert len(snap.reference.matched) == 1
-    # run lock held by another process: the banner names the holder
-    assert snap.run_lock_holder.identity == "sandbox"
 
 
 def test_the_snapshot_never_carries_a_client_id() -> None:
