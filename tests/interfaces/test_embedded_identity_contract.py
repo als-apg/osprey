@@ -63,3 +63,28 @@ def test_dispatch_dashboard_hides_own_header_when_embedded() -> None:
         "dispatch/dashboard.html must call applyEmbedded() or the body.embedded "
         "rule above can never match"
     )
+
+
+#: The TRAJECTORY panel bundle ships with the trajectory service and is served
+#: by that service's own ``StaticFiles`` mount, so it lives outside
+#: ``INTERFACES`` too — same contract, different directory.
+TRAJECTORY_PANEL = (
+    Path(__file__).resolve().parents[2] / "src" / "osprey" / "services" / "trajectory" / "panel"
+)
+
+
+def test_trajectory_panel_hides_own_header_when_embedded() -> None:
+    css = " ".join((TRAJECTORY_PANEL / "panel.css").read_text(encoding="utf-8").split())
+    assert "body.embedded .panel-chrome { display: none; }" in css, (
+        "services/trajectory/panel/panel.css must hide its own .panel-chrome when "
+        "embedded (host tile bar owns identity)"
+    )
+    html = " ".join((TRAJECTORY_PANEL / "index.html").read_text(encoding="utf-8").split())
+    assert "applyEmbedded()" in html, (
+        "services/trajectory/panel/index.html must call applyEmbedded() or the "
+        "body.embedded rule above can never match"
+    )
+    assert 'class="panel-chrome"' in html, (
+        "services/trajectory/panel/index.html must render the .panel-chrome header "
+        "that panel.css hides when embedded"
+    )

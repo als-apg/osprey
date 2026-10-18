@@ -1,13 +1,51 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Trajectory</title>
-  </head>
-  <body>
-    <main>
-      <h1>Trajectory</h1>
-      <p>The trajectory panel is not built yet. The service's doors answer under <code>api/</code>.</p>
-    </main>
-  </body>
+<head>
+<meta charset="UTF-8">
+<!--
+  Pre-paint theme boot FIRST: a plain (non-module) script that resolves and
+  applies data-theme before first paint, so the panel never flashes the
+  wrong theme.
+-->
+<script src="/design-system/js/theme-boot.js"></script>
+<!--
+  Pre-paint UI-mode boot: stamps data-ui-mode (expert|simple) from the host's
+  `?mode=` before first paint, the same zero-dep contract as theme-boot above.
+-->
+<script src="/design-system/js/mode-boot.js"></script>
+<!--
+  Design-system assets are root-absolute: the web terminal's /panel/{id}/
+  reverse proxy rewrites the /design-system/ and /static/fonts/ prefixes.
+  Everything that belongs to this bundle is referenced RELATIVELY — a
+  root-absolute /api/ path would be rewritten to the service's agent door,
+  while the relative api/ path reaches the panel door beside this page.
+-->
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="panel.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trajectory</title>
+<script type="module">
+  // Follower role: this panel is never the theme hub (the web terminal is).
+  // It applies its own `?theme=` query param when the host appends one,
+  // otherwise trusts whatever theme-boot.js already set pre-paint, and
+  // thereafter obeys the hub's broadcasts. applyEmbedded() reads
+  // `?embedded=true` and hides the standalone chrome when framed.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+</head>
+<body>
+<div class="panel" id="panel-root">
+  <header class="panel-chrome">
+    <h1>Trajectory</h1>
+    <span class="panel-kicker">OSPREY trajectory correction</span>
+  </header>
+  <main class="panel-body" id="panel-body"></main>
+</div>
+<script type="module" src="panel.js"></script>
+</body>
 </html>
