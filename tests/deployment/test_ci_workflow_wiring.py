@@ -9080,7 +9080,7 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 
 
 # ---------------------------------------------------------------------------
-# Model-spending lanes: `full-ci` on a pull request, on demand on main
+# Model-spending lanes: `full-ci` on a pull request, the revalidation dispatch on main
 # ---------------------------------------------------------------------------
 #
 # Nine jobs drive real Claude sessions through the gateway. Measured on its
@@ -9088,10 +9088,11 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
 # the revalidation dispatch — and on nothing else. Both arms are pinned
-# below, and so is the absence of a third: a schedule arm (or a `schedule`
-# trigger on the workflow) spends model tokens with nobody watching and
-# turns red where nobody reads it. Dropping the label clause is the other
-# regression — the lane is back on every push, and so is the bill.
+# below, and so is the absence of a third: ci.yml has no schedule arm and no
+# `schedule` trigger. Main's nightly run is the revalidation dispatch, started
+# by main-full-ci.yml, which spends nothing itself, dispatches only when main
+# has moved, and turns a red into an issue. Dropping the label clause is the
+# other regression — the lane is back on every push, and so is the bill.
 
 SPENDING_LANES = frozenset(
     {
@@ -9213,11 +9214,11 @@ def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() ->
 
 
 def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
-    """No cron at all: every run of this workflow is one somebody asked for
-    (a push, a pull request, a dispatch), so every red has a reader. A
-    schedule would also be the only trigger that can spend model tokens with
-    nobody in the loop; the lane `if:` checks above pin the arm, this pins
-    the event."""
+    """ci.yml keeps no cron: every run is a push, a pull request or a
+    dispatch. The schedule lives in main-full-ci.yml, which spends nothing
+    itself and dispatches the revalidation run only when main moved, so a
+    cron here would be a second, ungated spender. The lane `if:` checks above
+    pin the arm, this pins the event."""
     assert "schedule" not in workflow[True], "workflow declares a schedule trigger"
 
 
@@ -10921,3 +10922,243 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     )
     with pytest.raises(AssertionError, match="below a top-level test directory"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The revalidation dispatch runs every lane a push skips
+# ---------------------------------------------------------------------------
+#
+# A push to main runs only the jobs with no `if:`. Every other lane is scoped
+# to pull requests, so main's coverage of those lanes comes from one place:
+# the `revalidate_secret_lanes` dispatch. Each such lane carries the dispatch
+# arm beside its pull-request arm, and the set of lanes that must carry it is
+# derived from the workflow, not listed: a new pull-request-only lane without
+# the arm fails here. The benchmark lanes run on their own dispatch input and
+# the roll-up gate runs on every event, so neither is in the set.
+
+REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
+#: e2e-tests runs on every dispatch that is not a benchmark run, which
+#: includes the revalidation dispatch.
+_E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)"
+
+
+def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
+    """Jobs whose `if:` names no push arm, minus the benchmarks and the gate."""
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if "if" in job
+        and "push" not in str(job["if"])
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB}
+    }
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(
+    workflow: dict[str, Any],
+) -> None:
+    lanes = _lanes_a_push_skips(workflow)
+    assert len(lanes) > len(SPENDING_LANES), f"derived set looks empty: {sorted(lanes)}"
+    missing = sorted(
+        name
+        for name in lanes
+        if not any(
+            arm in " ".join(str(_jobs(workflow)[name]["if"]).split())
+            for arm in (REVALIDATION_ARM, _E2E_DISPATCH_ARM)
+        )
+    )
+    assert missing == [], f"lanes with no revalidation arm: {missing}"
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch__mutation_strips_queue() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[QUEUE_JOB]
+    stripped = re.sub(rf"\s*\|\|\s*{re.escape(REVALIDATION_ARM)}", "", str(job["if"]))
+    assert stripped != job["if"], "no revalidation arm on the queue lane — mutation is stale"
+    job["if"] = stripped
+    with pytest.raises(AssertionError, match=QUEUE_JOB):
+        test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(mutated)
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(
+    workflow: dict[str, Any],
+) -> None:
+    """Under a dispatch `github.event.pull_request.head.sha` is empty, so the
+    pip spec falls back to the run's own sha."""
+    spec = json.dumps(_jobs(workflow)[DOCKERFILE_E2E_JOB])
+    assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec
+    assert "@${{ github.event.pull_request.head.sha }}" not in spec
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    raw = json.dumps(_jobs(mutated)[DOCKERFILE_E2E_JOB]).replace(" || github.sha", "")
+    _jobs(mutated)[DOCKERFILE_E2E_JOB] = json.loads(raw)
+    with pytest.raises(AssertionError):
+        test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
+
+
+def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result: str) -> int:
+    """Run the gate's own `check_pr_lane` on one lane result; return its exit code."""
+    run = _gate_run_text(wf)
+    start = run.index("check_pr_lane() {")
+    function = run[start : run.index("\n}\n", start) + 3]
+    env = {**os.environ, "EVENT_NAME": event, "REVALIDATE": revalidate}
+    done = subprocess.run(
+        ["bash", "-ec", f'{function}check_pr_lane "Some lane" "{result}"'],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
+    """A green revalidation run vouches for every lane on its sha, so a lane
+    that skipped there fails the gate. Elsewhere a skip still passes."""
+    env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
+    assert env["REVALIDATE"] == "${{ inputs.revalidate_secret_lanes }}"
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "skipped") != 0, (
+        "a skipped lane passes the gate on a revalidation run"
+    )
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "success") == 0
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "false", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "push", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "failure") != 0
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run__mutation_drops_the_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = re.sub(
+        r'if \[\[ "\$2" == "skipped" && .*?\n  elif ', "if ", original, flags=re.DOTALL
+    )
+    assert step["run"] != original, "no revalidation branch in check_pr_lane — mutation is stale"
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(mutated)
+
+
+# ---------------------------------------------------------------------------
+# main-full-ci.yml: the change-gated nightly revalidation of main
+# ---------------------------------------------------------------------------
+#
+# The nightly spends nothing itself: its only `gh workflow run` dispatches
+# ci.yml's revalidation run against main, and only in a step gated on the
+# lookup's `dispatch` answer. Its red reaches a person through the report job,
+# and the lookup module's lane map is the tag gate's map, so a renamed lane
+# fails here rather than in a nightly that silently finds nothing.
+
+MAIN_FULL_CI_YML = CI_YML.parent / "main-full-ci.yml"
+FULL_CI_ON_MAIN_PY = CI_YML.parents[2] / "scripts" / "ci" / "full_ci_on_main.py"
+_DISPATCH_COMMAND = "gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true"
+
+
+def _load_main_full_ci() -> dict[str, Any]:
+    return yaml.safe_load(MAIN_FULL_CI_YML.read_text(encoding="utf-8"))
+
+
+def _full_ci_on_main_lanes() -> dict[str, str]:
+    spec = importlib.util.spec_from_file_location("full_ci_on_main", FULL_CI_ON_MAIN_PY)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.SPENDING_LANES
+
+
+def test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    dispatching = [
+        (name, step)
+        for name, job in wf["jobs"].items()
+        for step in job["steps"]
+        if "gh workflow run" in step.get("run", "")
+    ]
+    assert len(dispatching) == 1, f"expected one `gh workflow run` step; got {len(dispatching)}"
+    job_name, step = dispatching[0]
+    assert step["run"].strip() == _DISPATCH_COMMAND, f"dispatches {step['run'].strip()!r}"
+    assert step.get("if") == "steps.decide.outputs.decision == 'dispatch'", (
+        "the dispatch is not conditioned on the should-dispatch answer"
+    )
+    decide = next(s for s in wf["jobs"][job_name]["steps"] if s.get("id") == "decide")
+    assert "full_ci_on_main.py should-dispatch" in decide["run"]
+    assert wf["jobs"][job_name]["permissions"]["actions"] == "write"
+    triggers = wf[True]
+    assert len(triggers["schedule"]) == 1, "one cron a day"
+    assert "workflow_dispatch" in triggers
+
+
+def test_the_nightly_dispatch__mutation_drops_the_ref() -> None:
+    mutated = _load_main_full_ci()
+    step = mutated["jobs"]["dispatch"]["steps"][-1]
+    step["run"] = step["run"].replace(" --ref main", "")
+    with pytest.raises(AssertionError, match="dispatches"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_the_nightly_dispatch__mutation_drops_the_condition() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["dispatch"]["steps"][-1]["if"]
+    with pytest.raises(AssertionError, match="not conditioned"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_a_finished_revalidation_run_files_its_verdict(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    """A completed dispatch of CI on main runs `report`, which may write issues."""
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    reporting = [
+        job
+        for job in wf["jobs"].values()
+        if any("full_ci_on_main.py report" in s.get("run", "") for s in job["steps"])
+        and "github.event_name == 'workflow_run'" in " ".join(str(job.get("if", "")).split())
+    ]
+    assert len(reporting) == 1, "no job files the verdict of a finished revalidation run"
+    job = reporting[0]
+    condition = " ".join(str(job["if"]).split())
+    assert "github.event_name == 'workflow_run'" in condition
+    assert "github.event.workflow_run.event == 'workflow_dispatch'" in condition
+    assert job["permissions"]["issues"] == "write"
+    assert wf[True]["workflow_run"] == {
+        "workflows": ["CI"],
+        "types": ["completed"],
+        "branches": ["main"],
+    }
+    assert _load_workflow()["name"] == "CI", "workflow_run names a workflow ci.yml no longer is"
+
+
+def test_a_finished_revalidation_run_files_its_verdict__mutation_drops_the_job() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["report"]
+    with pytest.raises(AssertionError, match="no job files the verdict"):
+        test_a_finished_revalidation_run_files_its_verdict(mutated)
+
+
+def test_the_lookup_lane_map_is_the_spending_lane_set(
+    lanes: dict[str, str] | None = None,
+) -> None:
+    """Same pin as the tag gate's map: every spending lane, each prefix naming
+    its own rendered job and no other."""
+    lanes = lanes if lanes is not None else _full_ci_on_main_lanes()
+    assert set(lanes) == set(SPENDING_LANES), (
+        f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
+        f"{sorted(set(lanes) ^ set(SPENDING_LANES))}"
+    )
+    jobs = _jobs(_load_workflow())
+    for lane, prefix in lanes.items():
+        assert jobs[lane]["name"].startswith(prefix), (
+            f"{lane}: full_ci_on_main.py looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+        )
+        others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
+        assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_lookup_lane_map__mutation_renames_a_key() -> None:
+    lanes = dict(_full_ci_on_main_lanes())
+    lanes["scan-agentic"] = lanes.pop("scan-agentic-e2e")
+    with pytest.raises(AssertionError, match="differ from SPENDING_LANES"):
+        test_the_lookup_lane_map_is_the_spending_lane_set(lanes)
