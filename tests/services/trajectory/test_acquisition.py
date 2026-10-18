@@ -208,9 +208,7 @@ def _layer(module: SequenceModule | None) -> tuple[ActionLayer, _Machine]:
 
 async def _setup(layer: ActionLayer, **kwargs: Any) -> LastAction:
     try:
-        return await layer.submit(
-            OWNER, KIND, setup_action(layer.startup, **kwargs)
-        )
+        return await layer.submit(OWNER, KIND, setup_action(layer.startup, **kwargs))
     finally:
         await layer.close()
 
