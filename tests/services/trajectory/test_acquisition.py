@@ -200,6 +200,7 @@ def _layer(module: SequenceModule | None) -> tuple[ActionLayer, _Machine]:
         connector=machine,
         commands=COMMANDS,
         guarded_run_dir=Path("/unused"),
+        tag_addresses=TAGS,
         sequence=module,
     )
     return ActionLayer(startup, AdmitGate(target=TARGET, section=ARMED)), machine
@@ -208,7 +209,7 @@ def _layer(module: SequenceModule | None) -> tuple[ActionLayer, _Machine]:
 async def _setup(layer: ActionLayer, **kwargs: Any) -> LastAction:
     try:
         return await layer.submit(
-            OWNER, KIND, setup_action(layer.startup, tag_addresses=TAGS, **kwargs)
+            OWNER, KIND, setup_action(layer.startup, **kwargs)
         )
     finally:
         await layer.close()
@@ -520,7 +521,9 @@ def optional_validator(monkeypatch: pytest.MonkeyPatch) -> LimitsValidator:
 
 
 def _shot_layer(
-    settings: TrajectorySettings = FAST, module: SequenceModule | None | str = "fixture"
+    settings: TrajectorySettings = FAST,
+    module: SequenceModule | None | str = "fixture",
+    tag_addresses: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[ActionLayer, _ShotMachine]:
     machine = _ShotMachine()
     startup = TrajectoryStartup(
@@ -530,6 +533,7 @@ def _shot_layer(
         guarded_run_dir=Path("/unused"),
         settings=settings,
         sequence=load_sequence(FIXTURE_DIR, SHOT_COMMANDS) if module == "fixture" else module,
+        tag_addresses=tag_addresses or {},
     )
     return ActionLayer(startup, AdmitGate(target=TARGET, section=ARMED)), machine
 
@@ -576,6 +580,48 @@ async def test_a_shot_arms_every_device_in_one_batch_injects_and_reads_the_fresh
     assert shot.lost == [] and shot.last_bpm == "BPM3"
     assert shot.i0 == ARRIVAL
     assert shot.per_shot_lost_at == [None]
+
+
+#: An inject that reads a per-BPM tag slot before it requests the injection.
+_TAGGED_INJECT = """
+SEQUENCE_METADATA = {
+    "slots": {"acquisition_mode": {"tag": "bpm_acquisition_mode"}},
+    "max_pause_s": 0.5,
+}
+
+
+async def inject(handle):
+    await handle.read("acquisition_mode")
+    await handle.write("injection_request", 1)
+"""
+
+
+@pytest.mark.usefixtures("optional_validator")
+async def test_a_shots_inject_reads_a_per_bpm_tag_slot_at_every_address_of_the_startups_map(
+    store: TrajectoryStore, tmp_path: Path
+) -> None:
+    module = _module(tmp_path, _TAGGED_INJECT)
+    layer, machine = _shot_layer(module=module, tag_addresses=TAGS)
+    for address in MODES:
+        machine._post(address, 1, EPOCH)
+
+    shot = await _shoot(layer, store)
+
+    assert [address for address in machine.reads if address in MODES] == list(MODES)
+    assert shot.commands_fired == [*SHOT_ARM, REQUEST]
+
+
+@pytest.mark.usefixtures("optional_validator")
+async def test_a_shots_inject_reading_a_tag_slot_with_no_tag_map_fails_and_injects_nothing(
+    store: TrajectoryStore, tmp_path: Path
+) -> None:
+    module = _module(tmp_path, _TAGGED_INJECT)
+    layer, machine = _shot_layer(module=module)
+
+    with pytest.raises(Exception, match="no BPM carries that signal"):
+        await _shoot(layer, store)
+
+    assert [ops for ops, _ in machine.commands if (REQUEST, 1) in ops] == []
 
 
 @pytest.mark.usefixtures("optional_validator")

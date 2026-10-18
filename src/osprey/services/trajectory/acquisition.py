@@ -136,7 +136,6 @@ def setup_action(
     startup: TrajectoryStartup,
     *,
     bunch_clean: bool = False,
-    tag_addresses: Mapping[str, Sequence[str]] | None = None,
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
     poll_s: float = CHECKPOINT_POLL_S,
@@ -145,10 +144,9 @@ def setup_action(
     """The setup action for :meth:`~.actions.ActionLayer.submit`.
 
     Args:
-        startup: The started service: connector, command set and module.
+        startup: The started service: connector, command set, module and the
+            tag map the module's per-BPM slots resolve through.
         bunch_clean: Run the module's ``bunch_clean`` after ``bpm_mode``.
-        tag_addresses: Facility signal to its addresses, one per BPM in BPM
-            order, for the module's per-BPM slots.
         sleep: Awaited by the handles to pause.
         clock: Seconds, monotonic; bounds the handles' waits.
         poll_s: Seconds between two reads of a handle's wait.
@@ -196,7 +194,7 @@ def setup_action(
                 metadata=module.metadata,
                 entry_point=name,
                 stop=stop,
-                tag_addresses=tag_addresses,
+                tag_addresses=startup.tag_addresses,
                 sleep=sleep,
                 clock=clock,
                 poll_s=poll_s,
@@ -433,6 +431,7 @@ def shot_action(
                 metadata=module.metadata,
                 entry_point="inject",
                 stop=stop,
+                tag_addresses=startup.tag_addresses,
                 sleep=sleep,
                 clock=clock,
                 poll_s=poll_s,

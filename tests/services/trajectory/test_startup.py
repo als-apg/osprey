@@ -287,6 +287,95 @@ async def test_no_trajectory_model_starts_with_writing_unavailable(
     assert armed == [1]
 
 
+# -- the tag map ----------------------------------------------------------------
+
+SEQUENCES = Path(__file__).parent / "sequences"
+#: Tags ``bpm_tbt_x``, which the built BPM carries.
+TAGGED_DIR = SEQUENCES / "tagged"
+#: Tags ``bpm_acquisition_mode``, which the built BPM does not carry.
+UNTAGGED_DIR = SEQUENCES / "fixture"
+
+
+def _built_tags(repo: Path) -> dict[str, list[str]]:
+    facts = json.loads((repo / "build" / FACTS).read_text(encoding="utf-8"))
+    return facts["trajectory_slots"][MODEL]["tags"]
+
+
+async def test_the_models_tag_map_reaches_the_started_service(repo: Path) -> None:
+    tags = _built_tags(repo)
+    assert {"bpm_tbt_x", "bpm_arm_command", "bpm_armed_status"} <= set(tags)
+
+    started = await _started()
+
+    assert started.tag_addresses == {signal: tuple(found) for signal, found in tags.items()}
+
+
+async def test_a_module_tagging_a_carried_signal_starts(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _deploy(repo, monkeypatch, service={"sequence_dir": str(TAGGED_DIR)})
+
+    started = await _started()
+
+    assert started.sequence is not None
+    assert started.sequence.metadata.slots["turn_by_turn_x"].tag == "bpm_tbt_x"
+    assert started.tag_addresses["bpm_tbt_x"] == tuple(_built_tags(repo)["bpm_tbt_x"])
+    assert started.tag_addresses["bpm_tbt_x"]
+
+
+async def test_a_module_tagging_a_signal_no_bpm_carries_is_refused_naming_both(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, armed: list[int]
+) -> None:
+    _deploy(repo, monkeypatch, service={"sequence_dir": str(UNTAGGED_DIR)})
+
+    with pytest.raises(StartupRefused) as refused:
+        await _start()
+
+    message = str(refused.value)
+    assert "'acquisition_mode'" in message
+    assert "'bpm_acquisition_mode'" in message
+    assert str(UNTAGGED_DIR / "sequence.py") in message
+    assert armed == []
+
+
+async def test_a_model_with_no_tag_map_refuses_any_tagged_slot(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slots = _slots("SR")
+    _write_slots(repo, {MODEL: slots})
+    _deploy(repo, monkeypatch, service={"sequence_dir": str(TAGGED_DIR)})
+
+    with pytest.raises(StartupRefused, match="'turn_by_turn_x'.*'bpm_tbt_x'"):
+        await _start()
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [["bpm_tbt_x"], {"bpm_tbt_x": "SR:BPM1:X"}, {"bpm_tbt_x": [""]}, {"bpm_tbt_x": [3]}],
+    ids=["list", "string", "blank", "number"],
+)
+async def test_a_malformed_tag_map_is_refused_naming_the_model(repo: Path, tags: Any) -> None:
+    _write_slots(repo, {MODEL: {**_slots("SR"), "tags": tags}})
+
+    with pytest.raises(StartupRefused, match=f"model {MODEL!r}.*'tags'"):
+        await _start()
+
+
+async def test_zero_source_facts_keep_the_warning_and_load_any_tagged_module(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _write_slots(repo, {})
+    _deploy(repo, monkeypatch, service={"sequence_dir": str(UNTAGGED_DIR)})
+
+    with caplog.at_level("WARNING", logger=startup.__name__):
+        started = await _started()
+
+    assert not started.writing_available
+    assert started.tag_addresses == {}
+    assert started.sequence is not None
+    assert any("no trajectory model" in record.getMessage() for record in caplog.records)
+
+
 # -- the target -----------------------------------------------------------------
 
 

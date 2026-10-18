@@ -88,6 +88,7 @@ __all__ = [
     "SequenceRefused",
     "SequenceSlot",
     "SequenceStopped",
+    "check_tags",
     "load_sequence",
     "validate_metadata",
 ]
@@ -365,6 +366,27 @@ def load_sequence(
         metadata=metadata,
         entry_points=MappingProxyType(entry_points),
     )
+
+
+def check_tags(sequence: SequenceModule, tag_addresses: Mapping[str, Sequence[str]]) -> None:
+    """Refuse a module whose per-BPM slot tags a signal no BPM carries.
+
+    Args:
+        sequence: The loaded module.
+        tag_addresses: Facility signal to its addresses, one per BPM, as the
+            selected model's ``tags`` states them.
+
+    Raises:
+        StartupRefused: A per-BPM slot tags a signal with no address in
+            *tag_addresses*; the refusal names the slot and the signal.
+    """
+    for slot in sequence.metadata.slots.values():
+        if slot.tag is not None and not tag_addresses.get(slot.tag):
+            raise _refused(
+                sequence.path,
+                f"slot {slot.name!r} tags {slot.tag!r}, and no BPM of the model carries "
+                "that signal",
+            )
 
 
 # -- the handle an entry point runs with ------------------------------------------
