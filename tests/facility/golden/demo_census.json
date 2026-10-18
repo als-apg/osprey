@@ -47,7 +47,7 @@
     {
       "file": "tests/facility/golden/nominal_va.json",
       "pin": "json:len(channels)",
-      "value": 3341
+      "value": 3487
     },
     {
       "file": "tests/facility/golden/cf_standalone_addresses.json",
