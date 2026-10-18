@@ -13,14 +13,14 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
-import os
-import tempfile
 import threading
 from collections.abc import Callable
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
+
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger("osprey.stores.base_store")
 
@@ -196,38 +196,24 @@ class BaseStore(Generic[T]):
                 pass
 
     def _save_index(self) -> None:
-        """Persist the index to disk atomically.
+        """Persist the index to disk, replaced whole through ``atomic_replace``.
 
-        Serializes to a temporary file in the index directory, then
-        ``os.replace``s it over the canonical file. ``os.replace`` is atomic on
-        POSIX (same filesystem), so a concurrent reader — notably the gallery's
-        cross-process ``StoreIndexWatcher``, which reloads without taking the
-        file ``flock`` — always observes either the previous or the new complete
-        index, never a half-written truncation. Writing in place with
-        ``open(path, "w")`` left a window where a reader saw an empty/partial
-        file and logged "Could not load ... index; starting fresh", blanking the
+        A concurrent reader — notably the gallery's cross-process
+        ``StoreIndexWatcher``, which reloads without taking the file ``flock`` —
+        always observes either the previous or the new complete index, never a
+        half-written truncation that it would load as empty, blanking the
         gallery until the next refresh.
         """
         with self._thread_lock:
             self._ensure_dirs()
             index_data = self._build_index_data()
             payload = _sanitize_for_json(index_data)
-            fd, tmp_name = tempfile.mkstemp(
-                dir=self._index_file.parent,
-                prefix=f".{self._index_file.name}.",
-                suffix=".tmp",
+            atomic_replace(
+                self._index_file,
+                json.dumps(payload, indent=2, default=str).encode("utf-8"),
+                mode=0o600,
+                sync="best_effort",
             )
-            try:
-                with os.fdopen(fd, "w") as f:
-                    json.dump(payload, f, indent=2, default=str)
-                    f.flush()
-                    with suppress(OSError):
-                        os.fsync(f.fileno())
-                os.replace(tmp_name, self._index_file)
-            except BaseException:
-                with suppress(OSError):
-                    os.unlink(tmp_name)
-                raise
             self._index_mtime = self._index_file.stat().st_mtime
 
     def _build_index_data(self) -> dict:

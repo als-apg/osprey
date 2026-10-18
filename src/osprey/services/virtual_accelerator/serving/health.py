@@ -20,12 +20,12 @@ process.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from osprey_connectors.safety_file import atomic_replace
 
 #: The states a record is in, in order of what a pass outcome can bring.
 STATE_SERVING = "serving"
@@ -116,22 +116,19 @@ class ServingHealth:
 
 
 def write_document(path: Path, document: dict[str, Any]) -> None:
-    """Write ``document`` to ``path`` as sorted JSON, replacing it atomically.
+    """Write ``document`` to ``path`` as sorted JSON, replaced whole.
 
-    The document is written to a temporary file in ``path``'s directory,
-    which is created if absent, and moved over ``path`` with
-    :func:`os.replace`, so a reader sees the previous record or this one
-    and never a partial file.
+    ``path``'s directory is created if absent, and the file is replaced whole
+    through ``atomic_replace``, so a reader sees the previous record or this
+    one and never a partial file.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(document, handle, sort_keys=True)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    atomic_replace(
+        path,
+        json.dumps(document, sort_keys=True).encode("utf-8"),
+        mode=0o600,
+        sync="best_effort",
+    )
 
 
 __all__ = [

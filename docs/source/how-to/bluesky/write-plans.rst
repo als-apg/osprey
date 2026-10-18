@@ -164,24 +164,23 @@ sample arguments name, so it says nothing about what the worker has. The
 channel finder answers for the whole facility; this file answers for the queue
 worker, and a plan's channels come from here.
 
-When a plan drives a settable, the write is followed by a poll of the readback
-until it reaches the demand. Two profile keys bound that wait:
-``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
-before the move fails and the plan aborts, and ``bluesky.settle_tolerance``
-(default ``1e-9``) is how close the readback must come, as an absolute
-difference. That tolerance is a floor, never a ceiling.
+When a plan drives a settable, the move waits for its readback to come within
+a bound of the demand. The bound is the setpoint's ``tolerance`` in the
+facility file, next to its ``pair``: ``tolerance: {absolute: <x>}`` in the
+channel's unit, or ``tolerance: {relative: <f>}``, a fraction of the demand.
+A setpoint with no ``tolerance`` settles, on a lane that serves the simulator,
+within its readback's motion band (``|drift.amplitude|`` + 6 × the noise
+sigma, a ``relative`` sigma taken at the seed's ``nominal``), and on a live or
+stand-in lane within the floor. The floor is ``bluesky.settle_tolerance``
+(default ``1e-9``), an absolute difference, and the bound is never tighter.
+The move fails, and the plan aborts, when the readback is not inside its bound
+after ``bluesky.settle_timeout_s`` (default 5.0 seconds). pyAML measurement
+steps wait for their readbacks by the same rule, without the floor.
 
-A setpoint states its own bound in the facility file, next to its ``pair``:
-``tolerance: {absolute: <x>}`` in the channel's unit, or ``tolerance:
-{relative: <f>}``, a fraction of the demand. The build writes it into the
-device file, and the device settles within the larger of the floor and that
-tolerance on every lane. A setpoint with no ``tolerance`` settles, on a lane
-that serves the simulator, within its readback's motion band
-(``|drift.amplitude|`` + 6 × the noise sigma, a ``relative`` sigma taken at the
-seed's ``nominal``), and on a live or stand-in lane within the floor. The
-build warns once per such lane with the count of setpoints that declare no
-``tolerance``, and once per scenario that moves a readback beyond its
-setpoint's tolerance, since that scenario's moves time out while it is active.
+The build warns once per live or stand-in lane with the count of setpoints
+that declare no ``tolerance``, and once per scenario that moves a readback
+beyond its setpoint's tolerance, since that scenario's moves time out while it
+is active.
 ``osprey facility validate`` prints the same warnings.
 
 A device that physically moves needs a ``tolerance`` on its setpoint, and a

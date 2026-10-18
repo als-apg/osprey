@@ -28,14 +28,26 @@ def test_a_run_that_keeps_writing_is_not_stopped_by_its_length():
     assert result.stdout.count(".") == 6
 
 
+#: How long the child stays silent between its last line and its exit.
+_SILENCE_S = 2.0
+#: How much of that silence the measurement may miss: the poll that sees the
+#: last line lands up to one poll interval after it, later still when a loaded
+#: host oversleeps the poll.
+_OBSERVATION_LAG_S = 0.5
+
+
 def test_a_finished_run_reports_its_silence_before_exit():
     result = run_nested_pytest(
-        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(1)"],
+        [
+            sys.executable,
+            "-c",
+            f"import time\nprint('done', flush=True)\ntime.sleep({_SILENCE_S})",
+        ],
         cwd=None,
         env=None,
     )
     assert result.returncode == 0
-    assert result.quiet_before_exit >= 0.8
+    assert result.quiet_before_exit >= _SILENCE_S - _OBSERVATION_LAG_S
 
 
 def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():

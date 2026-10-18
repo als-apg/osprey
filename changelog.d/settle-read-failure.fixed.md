@@ -1,0 +1,1 @@
+A settle whose readback cannot be read, or answers no value, raises `SettleReadError` naming the readback; a pyAML settle reports the readback, not the setpoint, as the failed read. `osprey.runtime.settle` with no deployment config gives the config loader's one message.

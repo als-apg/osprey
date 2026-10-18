@@ -86,8 +86,6 @@ only from the host-side deploy/CLI process and from tests.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -106,6 +104,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     SETTLE_TOLERANCE_KEY,
 )
 from osprey_connectors import yaml_loader
+from osprey_connectors.safety_file import atomic_replace
 
 
 def devices_document(
@@ -230,20 +229,11 @@ def write_devices_file(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True
     )
 
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(f"{SCHEMA_KEY}: {schema}\n")
-            handle.write(_GENERATED_HEADER.format(provenance=source.describe()))
-            handle.write(body)
-        # ``mkstemp`` creates the temp file 0600 and ``os.replace`` carries that
-        # mode onto the destination -- unreadable to a container user that is not
-        # the host user who rendered it, which is exactly how this file is
-        # consumed (bind-mounted ``:ro`` into the queueserver worker).
-        os.chmod(tmp_name, _FILE_MODE)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    text = (
+        f"{SCHEMA_KEY}: {schema}\n" + _GENERATED_HEADER.format(provenance=source.describe()) + body
+    )
+    # 0644: the file is bind-mounted ``:ro`` into the queueserver worker, which
+    # reads it as a container user that is not the host user who rendered it.
+    atomic_replace(path, text.encode("utf-8"), mode=_FILE_MODE, sync="best_effort")
 
     return document

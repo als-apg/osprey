@@ -130,14 +130,15 @@ def _write_preflight_marker(body: str) -> None:
 
     from datetime import UTC, datetime
 
+    from osprey_connectors.safety_file import atomic_replace
+
     # `osprey status` reads this file from the host while a supervised container
-    # rewrites it on every restart attempt; swap it in whole so a concurrent
+    # rewrites it on every restart attempt; it is replaced whole so a concurrent
     # reader never sees a truncated timestamp line.
-    staging = marker.with_name(marker.name + ".tmp")
+    text = f"{datetime.now(UTC).isoformat()}\n{body}\n"
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
-        staging.write_text(f"{datetime.now(UTC).isoformat()}\n{body}\n", encoding="utf-8")
-        os.replace(staging, marker)
+        atomic_replace(marker, text.encode("utf-8"), mode=0o644, sync="best_effort")
     except OSError as e:
         _LOGGER.debug("could not write pre-flight refusal marker %s: %s", marker, e)
 

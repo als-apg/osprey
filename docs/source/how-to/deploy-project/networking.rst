@@ -56,6 +56,8 @@ while every health check still passes. Put the pair on the host network and
 the addresses mean what they say. The bundled ``control-assistant`` preset does
 exactly that, and any profile that keeps a control system or a co-deployed
 bridge at a loopback address should too.
+A container on the host network reaches whatever the host reaches;
+:ref:`deploy-write-boundary` covers the access security that limits its writes.
 
 A worker kept on the compose network still reaches a plan queue this project
 deploys: OSPREY hands it the bridge's in-network address instead. The control

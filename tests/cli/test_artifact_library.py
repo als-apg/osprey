@@ -175,6 +175,21 @@ class TestValidateArtifacts:
         # Should list available rules
         assert "safety" in msg or "Available rules:" in msg
 
+    def test_a_helper_named_in_hooks_is_refused(self):
+        with pytest.raises(ValueError, match="Remove it from hooks:") as exc_info:
+            validate_artifacts({"hooks": ["hook-log"]})
+        assert "hooks/hook-log: ships with the hooks that need it." in str(exc_info.value)
+
+    def test_a_hook_that_needs_helpers_passes(self):
+        validate_artifacts({"hooks": ["approval"]})
+
+    def test_an_unknown_name_and_a_helper_are_refused_together(self):
+        with pytest.raises(ValueError) as exc_info:
+            validate_artifacts({"hooks": ["nonexistent_hook", "safety-file"]})
+        msg = str(exc_info.value)
+        assert "hooks/nonexistent_hook: not found." in msg
+        assert "hooks/safety-file: ships with the hooks that need it." in msg
+
     def test_multiple_invalid_names_all_reported(self):
         with pytest.raises(ValueError) as exc_info:
             validate_artifacts({"hooks": ["bad_hook_1", "bad_hook_2"]})

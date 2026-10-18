@@ -559,7 +559,7 @@ class TestTouchMarker:
 
     @pytest.mark.asyncio
     async def test_writes_go_through_atomic_replace(self, fixture_bundle: Path, monkeypatch):
-        """Both the document and the marker land via a same-directory rename."""
+        """Both land through ``safety_file.atomic_replace``'s same-directory rename."""
         from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
 
         renames: list[tuple[Path, Path]] = []
@@ -644,5 +644,4 @@ class TestDraftConceptHasNoAwaitPoints:
     def test_write_helpers_are_synchronous(self):
         import osprey.mcp_server.facility_knowledge.server as srv
 
-        assert not inspect.iscoroutinefunction(srv._atomic_write_text)
         assert not inspect.iscoroutinefunction(srv._touch_bundle_marker)

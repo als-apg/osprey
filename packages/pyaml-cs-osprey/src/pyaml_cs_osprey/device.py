@@ -15,10 +15,17 @@ The recorded value and ``channel_limits`` stay native.
 
 An indexed reference (``ADDR@i``) reads its base address and returns element ``i`` of
 the array value; it is read-only, so every write and range request is refused or open.
+
+A ``set_and_wait``, and every ``set`` inside :func:`settling`, then waits in
+:func:`osprey.runtime.settle` for the setpoint's readback to come within the
+bound the facility states for it; a readback that does not fails the write.
 """
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator, Mapping
+from contextvars import ContextVar
 from typing import Any
 
 import numpy as np
@@ -26,17 +33,64 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
+from osprey_connectors.errors import ChannelReadFailedError
+from osprey_connectors.settle import SettleTimeoutError
 from pyaml_cs_osprey import _run
 from pyaml_cs_osprey._run import OUTSIDE_A_RUN
 from pyaml_cs_osprey.catalog import ChannelReference
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
+    OspreyWriteFailed,
     map_read_error,
     map_write_error,
 )
 from pyaml_cs_osprey.units import UnitError, si_unit, to_native, to_si
 
-__all__ = ["OUTSIDE_A_RUN", "OspreyDevice", "indexed_element", "unknown_unit"]
+__all__ = [
+    "OUTSIDE_A_RUN",
+    "OspreyDevice",
+    "indexed_element",
+    "settling",
+    "unknown_unit",
+]
+
+#: Whether every ``set`` in this context settles, as ``set_and_wait`` does.
+_SETTLING: ContextVar[bool] = ContextVar("pyaml_cs_osprey_settling", default=False)
+
+
+@contextlib.contextmanager
+def settling() -> Iterator[None]:
+    """Make every device ``set`` in this context settle after its write."""
+    token = _SETTLING.set(True)
+    try:
+        yield
+    finally:
+        _SETTLING.reset(token)
+
+
+def _wait_settled(demands: Mapping[str, float]) -> None:
+    """Wait in :func:`osprey.runtime.settle` for each written setpoint's readback.
+
+    Args:
+        demands: Setpoint address to the value written, in its native unit.
+
+    Raises:
+        OspreyWriteFailed: A readback did not come within its bound in time; names
+            the setpoint, and the reason names its readback, the demand, the bound
+            and the last reading.
+        OspreyReadFailed: A readback could not be read, or answered no value; names
+            the readback.
+
+        Refusals (``FileNotFoundError`` for a missing config or facility file,
+        ``ValueError`` for an address that is no setpoint) and a control-target
+        change propagate as raised; nothing was read.
+    """
+    try:
+        osprey.runtime.settle(demands)
+    except SettleTimeoutError as exc:
+        raise OspreyWriteFailed(str(exc), exc.landing.setpoint) from exc
+    except ChannelReadFailedError as exc:
+        raise map_read_error(exc) from exc
 
 
 class OspreyDevice(DeviceAccess):
@@ -103,7 +157,8 @@ class OspreyDevice(DeviceAccess):
         The prior native setpoint is read first and recorded for the call's result
         once the runtime sent or landed the write; a refused write records nothing. Outside
         a ``run_tool`` call the write is refused as :data:`OUTSIDE_A_RUN` and
-        nothing is read.
+        nothing is read. Inside :func:`settling` the write then settles as in
+        :meth:`set_and_wait`.
 
         Args:
             value: The value to write, in SI.
@@ -113,11 +168,30 @@ class OspreyDevice(DeviceAccess):
         Raises:
             PyAMLException: The reference is indexed (read-only), or the suffix has no
                 known SI factor; nothing was recorded or written.
-            OspreyReadFailed: The prior setpoint could not be read; nothing was written.
+            OspreyReadFailed: The prior setpoint could not be read, and nothing was
+                written; or inside :func:`settling` its readback could not be read.
             OspreyWriteRefused: The write was refused, or no ``run_tool`` call is in
                 progress; nothing was written.
-            OspreyWriteFailed: The write was attempted and not confirmed.
+            OspreyWriteFailed: The write was attempted and not confirmed, or inside
+                :func:`settling` its readback did not settle.
         """
+        self._write(value, confirm=confirm, settles=_SETTLING.get())
+
+    def set_and_wait(self, value: Any) -> None:
+        """Write ``value``, confirm the channel holds it, and wait for its readback.
+
+        The write is ``set(value, confirm=True)``; the readback then settles in
+        :func:`osprey.runtime.settle`.
+
+        Raises:
+            OspreyWriteFailed: The write was not confirmed, or the readback did
+                not settle in time; the write stays recorded as moved.
+            OspreyReadFailed: The prior setpoint or the readback could not be read.
+        """
+        self._write(value, confirm=True, settles=True)
+
+    def _write(self, value: Any, *, confirm: bool | None, settles: bool) -> None:
+        """Write the SI ``value`` as :meth:`set` does, settling it when ``settles``."""
         self._require_writable()
         address = self._reference.address
         native = self._to_native(value)
@@ -128,10 +202,8 @@ class OspreyDevice(DeviceAccess):
             map_read=map_read_error,
             confirm=confirm,
         )
-
-    def set_and_wait(self, value: Any) -> None:
-        """Write ``value`` and confirm the channel holds it (``set(value, confirm=True)``)."""
-        self.set(value, confirm=True)
+        if settles:
+            _wait_settled({address: native})
 
     def get_range(self) -> list[float | None]:
         """Return ``[min, max]`` in SI from the channel's limits, ``None`` for an open bound.

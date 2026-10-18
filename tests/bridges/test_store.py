@@ -267,10 +267,10 @@ def test_tmp_file_is_created_in_the_target_directory(tmp_path, monkeypatch):
     real_mkstemp = tempfile.mkstemp
 
     def spy(*args, **kwargs):
-        seen.append(kwargs.get("dir", ""))
+        seen.append(str(kwargs.get("dir", "")))
         return real_mkstemp(*args, **kwargs)
 
-    monkeypatch.setattr("osprey.bridges.core.store.tempfile.mkstemp", spy)
+    monkeypatch.setattr("osprey_connectors.safety_file.tempfile.mkstemp", spy)
     store.put("k", "v")
 
     assert seen == [str(tmp_path / "deep")]

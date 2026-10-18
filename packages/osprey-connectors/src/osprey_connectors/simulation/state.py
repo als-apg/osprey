@@ -18,7 +18,6 @@ The module imports neither numpy nor lume.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +26,7 @@ from typing import Any
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation.envelope import STILL_ALL
 
 __all__ = [
@@ -131,8 +131,8 @@ def write_active_state(
 
     The file holds an ``anchor=<ISO 8601>`` line when ``anchor`` is given, then
     the set's scenarios other than ``nominal``, or ``nominal`` alone. It is
-    written to a sibling ``.tmp`` file and renamed into place, so a reader
-    polling it never reads a half-written set.
+    replaced whole through ``safety_file.atomic_replace``, so a reader polling
+    it never reads a half-written set.
 
     Args:
         path: The state file.
@@ -158,9 +158,7 @@ def write_active_state(
     body = [] if anchor is None else [f"anchor={anchor.isoformat()}"]
     body.extend([name for name in resolved if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO])
     path.parent.mkdir(parents=True, exist_ok=True)
-    staged = path.with_name(f"{path.name}.tmp")
-    staged.write_text("\n".join(body) + "\n", encoding="utf-8")
-    os.replace(staged, path)
+    atomic_replace(path, ("\n".join(body) + "\n").encode("utf-8"), mode=0o644, sync="best_effort")
     return resolved
 
 

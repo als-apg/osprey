@@ -146,11 +146,24 @@ SIDECAR_HEALTH_TIMEOUT = 300.0
 #: chatty sidecar that never answers.
 SIDECAR_HEALTH_CEILING = 1200.0
 
-#: How long to wait for a corpus change to reach the index after a marker touch.
+#: How long a re-index may stay silent before the wait for it is given up on:
+#: the silence budget handed to :func:`~tests._container_support.wait_until_ready`.
 #: The container polls markers every ``OSPREY_QMD_MARKER_POLL_INTERVAL`` seconds
-#: and then re-indexes; on macOS the bind-mount stat() also has to propagate into
-#: the Docker VM.
+#: and then re-embeds on a CPU-bound model, so the time to a settled index follows
+#: the host's load; while the log keeps advancing the wait goes on.
 SIDECAR_REINDEX_TIMEOUT = 180.0
+
+#: Seconds the whole re-index wait may take, however much progress the log shows.
+SIDECAR_REINDEX_CEILING = 1200.0
+
+#: The entrypoint's log line for the update a marker touch causes.
+_MARKER_UPDATE_LINE = "update triggered by corpus marker"
+
+#: The prefix every update's start line carries, whatever caused it.
+_UPDATE_STARTED_LINE = "update triggered by "
+
+#: The line every update ends with, after its embed rounds.
+_UPDATE_FINISHED_LINE = "update finished in "
 
 
 def qmd_ariel_config_dict(database_url: str, mirror_root: Path | str) -> dict[str, Any]:
@@ -318,35 +331,114 @@ def _probe_health(port: int) -> None:
         raise AssertionError(f"HTTP {response.status_code}: {response.text[:200]}")
 
 
-def wait_for_indexed(client, collection: str, query: str, predicate, *, what: str):
-    """Poll ``client.query`` until ``predicate`` accepts the hit list.
+def sidecar_log_mark(container) -> int:
+    """The length of the sidecar's log so far, to pass as ``since``.
+
+    Take it *before* writing the corpus change and touching the marker, so the
+    update that change causes is the first one :func:`reindex_settled` can count.
+    """
+    return len(_sidecar_log_text(container))
+
+
+def reindex_settled(log: str, since: int | None) -> bool:
+    """Whether the sidecar's log shows an index that has stopped moving.
+
+    Settled means no update is in flight: every ``update triggered by`` line has
+    its ``update finished in`` line. Given ``since``, it also means an update
+    caused by a marker touch started after that offset and finished.
+
+    Args:
+        log: The container's log text.
+        since: Offset from :func:`sidecar_log_mark`, or ``None`` when no marker
+            was touched.
+
+    Returns:
+        True when the index is settled.
+    """
+    in_flight = False
+    for line in log.splitlines():
+        if _UPDATE_STARTED_LINE in line:
+            in_flight = True
+        elif _UPDATE_FINISHED_LINE in line:
+            in_flight = False
+    if in_flight:
+        return False
+    if since is None:
+        return True
+    touched = False
+    for line in log[since:].splitlines():
+        if _MARKER_UPDATE_LINE in line:
+            touched = True
+        elif _UPDATE_FINISHED_LINE in line and touched:
+            return True
+    return False
+
+
+def wait_for_indexed(
+    client,
+    container,
+    collection: str,
+    query: str,
+    predicate,
+    *,
+    what: str,
+    since: int | None = None,
+):
+    """Wait for the sidecar's index to settle, then check ``predicate`` once.
 
     The sidecar re-indexes asynchronously — a marker touch is observed by a poll
-    loop inside the container — so every assertion about *new* corpus content has
-    to wait rather than read once.
+    loop inside the container and re-embedded on a CPU-bound model — so the wait
+    is bound to the sidecar's own progress, not to a clock: settled is
+    :func:`reindex_settled` on its log plus no document waiting for vectors. The
+    wait is :func:`~tests._container_support.wait_until_ready` given the
+    container, so it is renewed while the log advances and fails only after
+    :data:`SIDECAR_REINDEX_TIMEOUT` of silence or at :data:`SIDECAR_REINDEX_CEILING`.
 
     Args:
         client: A ``QMDClient`` pointed at the sidecar.
+        container: The started sidecar container.
         collection: Collection to query.
         query: Query text.
         predicate: Callable taking the hit list and returning a bool.
         what: Human description used in the failure message.
+        since: Offset from :func:`sidecar_log_mark` taken before a marker touch,
+            or ``None`` when the content was indexed at startup.
 
     Returns:
-        The first hit list the predicate accepted.
+        The hit list the predicate accepted.
     """
-    deadline = time.monotonic() + SIDECAR_REINDEX_TIMEOUT
-    hits: list[Any] = []
-    while time.monotonic() < deadline:
-        hits = client.query(collection, query, limit=50, rerank=False, candidate_limit=40)
-        if predicate(hits):
-            return hits
-        time.sleep(2.0)
 
-    raise AssertionError(
-        f"the sidecar never reported {what} within {SIDECAR_REINDEX_TIMEOUT:.0f}s; "
-        f"last hit files: {[h.file for h in hits]}"
+    def _settled() -> None:
+        if not reindex_settled(_sidecar_log_text(container), since):
+            raise AssertionError(
+                "the marker update has not finished"
+                if since is not None
+                else "an update is still in flight"
+            )
+        pending = client.status().pending
+        if pending:
+            raise AssertionError(f"{pending} document(s) still have no vectors")
+
+    wait_until_ready(
+        _settled,
+        "qmd re-index",
+        container=container,
+        timeout=SIDECAR_REINDEX_TIMEOUT,
+        interval=1.0,
+        ceiling=SIDECAR_REINDEX_CEILING,
     )
+
+    hits = client.query(collection, query, limit=50, rerank=False, candidate_limit=40)
+    if not predicate(hits):
+        raise AssertionError(
+            f"the settled index does not report {what}; hit files: {[h.file for h in hits]}"
+        )
+    return hits
+
+
+def _sidecar_log_text(container) -> str:
+    """The started sidecar's log, read through the container it wraps."""
+    return _combined_logs(container.get_wrapped_container())
 
 
 def require_mounted_models_image() -> str:

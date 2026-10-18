@@ -107,9 +107,9 @@ class TestScenarioReload:
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
             connector = await e2e_conftest.connect_va()
 
-            # Baseline: nominal is already active (conftest seeds active_scenarios
-            # with it), but re-assert explicitly so this test doesn't depend on
-            # fixture ordering.
+            # Baseline: the session starts in nominal plus the suite scenario, and
+            # applying nominal keeps the suite scenario; re-asserted explicitly so
+            # this test doesn't depend on fixture ordering.
             applied = project.sim_apply("nominal")
             assert applied.returncode == 0, applied.stdout + applied.stderr
             baseline = await _wait_until(

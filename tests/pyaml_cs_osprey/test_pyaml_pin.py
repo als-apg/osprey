@@ -11,7 +11,10 @@ The release's ``MeasurementTool.save`` cannot write a measurement holding numpy
 values as JSON, which is why the measurement script carries its own writer; its
 test fails on the first pinned release that can. The release reads no kick held
 in ``KickAngle``, which is why the pyAT plug-in copies kicks into polynomials;
-its test fails on the first pinned release that reads it.
+its test fails on the first pinned release that reads it. The release drives a
+magnet whose slices mix zero-length and thick elements with one coefficient in
+every slice, which is why the pyAML view leaves such a magnet out; its test
+fails on the first pinned release that refuses or drives it faithfully.
 """
 
 from __future__ import annotations
@@ -117,4 +120,36 @@ def test_pyaml_still_reads_no_kick_angle() -> None:
         "tests/simulation/test_pyat_polynomial_kicks.py, the polynomial-kick tests in "
         "tests/facility/test_pyaml_view_lattice.py and tests/facility/test_pyaml_view.py, this "
         "test and its row in tests/infrastructure/test_stand_in_canaries.py go"
+    )
+
+
+def test_pyaml_still_round_trips_no_mixed_thin_thick_magnet() -> None:
+    import at
+    from pyaml.lattice.abstract_impl import RWStrengthScalar
+    from pyaml.lattice.polynom_info import PolynomInfo
+
+    gone = (
+        "the marker and _mixes_thin_and_thick in osprey/facility/views/pyaml.py, the "
+        "mixed-length note, "
+        "test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note in "
+        "tests/facility/test_pyaml_view_calibration.py, the second note's sentence in "
+        "docs/source/architecture/facility-file.rst, this test and its row in "
+        "tests/infrastructure/test_stand_in_canaries.py go; if pyAML now refuses the group, "
+        "the guard stays as pyAML's rule with a plain comment instead of the marker"
+    )
+    elements = [at.Multipole("thick", 0.1, [0.0], [0.0]), at.ThinMultipole("thin", [0.0], [0.0])]
+    try:
+        strength = RWStrengthScalar(elements, PolynomInfo("PolynomB", 0), None)
+    except Exception as exc:
+        pytest.fail(
+            f"the pinned pyAML refuses a magnet whose slices mix zero-length and thick "
+            f"elements ({exc}): {gone}"
+        )
+    strength.set(1.0e-4)
+    integrated = sum(element.PolynomB[0] * (element.Length or 1.0) for element in elements)
+    if integrated != pytest.approx(1.0e-4):
+        return
+    pytest.fail(
+        "the pinned pyAML drives a magnet whose slices mix zero-length and thick elements "
+        f"with its set strength: {gone}"
     )

@@ -55,18 +55,17 @@ each write carries only unexpired entries.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import logging
 import math
-import os
 import re
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
@@ -250,23 +249,11 @@ class RevocationStore:
         return loaded
 
     def _persist(self, path: Path) -> None:
-        """Replace *path* with the current map, atomically and owner-only."""
-        fd, tmp = tempfile.mkstemp(
-            dir=path.parent, prefix=f"{REVOCATION_FILE_NAME}.", suffix=".tmp"
+        """Replace *path* with the current map, whole and owner-only."""
+        document = {"v": REVOCATION_FILE_VERSION, "revoked": self._revoked}
+        atomic_replace(
+            path,
+            json.dumps(document, sort_keys=True).encode("utf-8"),
+            mode=REVOCATION_FILE_MODE,
+            sync="best_effort",
         )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(
-                    {"v": REVOCATION_FILE_VERSION, "revoked": self._revoked},
-                    handle,
-                    sort_keys=True,
-                )
-                handle.flush()
-                with contextlib.suppress(OSError):
-                    os.fsync(handle.fileno())
-            os.chmod(tmp, REVOCATION_FILE_MODE)
-            os.replace(tmp, path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise

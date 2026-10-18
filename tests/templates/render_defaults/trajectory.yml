@@ -46,7 +46,7 @@ services:
       # renames the image's `osprey` account to this name, using the module
       # mounted read-only below, before it drops privileges.
       OSPREY_CONTROL_IDENTITY: osprey-trajectory
-      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity.py
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity/control_identity.py
       # WHERE the service reads the control-context tree, mounted read-only
       # below: the owner of a request may have been narrowed to another machine
       # by their terminal, and this is the only place that is visible from here.
@@ -80,9 +80,10 @@ services:
       - ./var/guarded_run:/app/golden-project/var/guarded_run
       # The service's state directory, read-write.
       - ./var/trajectory:/app/golden-project/var/trajectory
-      # The control-identity module, staged into this build context byte for
-      # byte from the packaged source. Read-only: the entrypoint runs it as root.
-      - ./build/services/trajectory/control_identity.py:/opt/osprey/control_identity.py:ro
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/trajectory/control_identity:/opt/osprey/control_identity:ro
     networks:
       - osprey-network
     healthcheck:

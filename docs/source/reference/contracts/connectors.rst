@@ -237,9 +237,11 @@ substitute for the connector's mechanical refusal.
 The write door
 ~~~~~~~~~~~~~~
 
-In a readwrite executor run and in a notebook kernel, a client library's put
-entry points refuse a put that no connector is making
-(:ref:`python-executor-armed-block`). A connector marks its own put by
+In a readwrite executor run, a client library's put entry points refuse a put
+that no connector is making (:ref:`python-executor-armed-block`). A notebook
+kernel refuses to load a client library at all
+(:ref:`what a cell may load <notebooks-write-channel>`), so the door opens
+only in the processes that hold a connector. A connector marks its own put by
 holding the **write door** open around it. The base class does that for every
 connector: it wraps ``write_channel`` and ``write_multiple_channels`` --- the
 latter is what ``write_channels`` reaches --- and, after the write-posture

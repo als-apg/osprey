@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.deployment import telemetry_config as tc
+from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
     "ADMIN_FILE",
@@ -395,15 +396,7 @@ def _write_htpasswd(root: Path, identities: Iterable[str]) -> None:
     with contextlib.suppress(OSError, UnicodeDecodeError):
         if path.is_file() and not path.is_symlink() and path.read_text(encoding="utf-8") == content:
             return
-    temporary = path.with_name(f"{path.name}.{secrets.token_hex(6)}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        os.replace(temporary, path)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)
+    atomic_replace(path, content.encode("utf-8"), mode=_FILE_MODE, sync="best_effort")
 
 
 def _service_contents(config: Mapping[str, Any] | None) -> dict[str, Any]:

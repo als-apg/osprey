@@ -175,9 +175,12 @@ def test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note(
 
     configuration = _configuration(tmp_path, tree, "SR")
 
-    assert "view pyaml: SR leaves out 1 setpoint pyAML has no magnet model for: SCOR:H:SP" in (
-        capsys.readouterr().err
-    )
+    err = capsys.readouterr().err
+    assert (
+        "view pyaml: SR leaves out 1 setpoint whose slices mix zero-length and thick elements, "
+        "which pyAML drives with the wrong strength: SCOR:H:SP"
+    ) in err
+    assert "pyAML has no magnet model" not in err
     assert "SCOR:H:SP" not in [device["name"] for device in configuration["devices"]]
     for array in configuration["arrays"]:
         assert "SCOR:H:SP" not in array["elements"]

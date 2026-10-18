@@ -35,9 +35,10 @@ import urllib.error
 import urllib.request
 
 import pytest
+from tests.hooks.conftest import import_hook
 
-import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
-import osprey.templates.claude_code.claude.hooks.osprey_workspace_delta as delta
+panels = import_hook("osprey_panels_context")
+delta = import_hook("osprey_workspace_delta")
 
 TOKEN_ENV = "OSPREY_PANEL_TOKEN"
 

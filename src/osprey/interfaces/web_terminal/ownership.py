@@ -60,7 +60,6 @@ import logging
 import os
 import posixpath
 import stat
-import tempfile
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -75,6 +74,7 @@ except ImportError:  # pragma: no cover - Windows has no flock
     fcntl = None  # type: ignore[assignment]
 
 from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE, record_protected_refusal
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
@@ -489,8 +489,8 @@ class OwnershipStore:
           directory. Nothing to exfiltrate, but nothing this store wrote
           either, and a FIFO specifically is a way to stall the reader.
         * **a hard link** -- inside the store, a regular file, and still not
-          one this store created: bodies are always written fresh through
-          ``NamedTemporaryFile`` + :func:`os.replace`, so a legitimate body has
+          one this store created: bodies are always replaced whole through
+          ``atomic_replace``, a fresh file each time, so a legitimate body has
           exactly one link. More than one means the same inode is reachable
           under a name the store does not control, which is the escape again
           with the symlink removed. (``st_dev`` is deliberately NOT also
@@ -642,9 +642,9 @@ class OwnershipStore:
             entries[name] = OwnershipRecord(name=name, state=RELEASED, updated_at=_now()).to_json()
 
     def write_content(self, output_path: str, content: str) -> bool:
-        """Persist one artifact body atomically. Returns whether it landed.
+        """Persist one artifact body, replaced whole. Returns whether it landed.
 
-        Atomic for the same reason the index is: a body half-written by a
+        Replaced whole through ``atomic_replace`` for the same reason the index is: a body half-written by a
         crash or a full volume still reads back as a body, and
         :func:`rehydrate` would restore that truncation into the project tree
         as the operator's own file. A body either replaces the previous one or
@@ -654,26 +654,11 @@ class OwnershipStore:
         if relative is None:
             return False
         target = self.content_dir / relative
-        staged: Path | None = None
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                "w",
-                dir=target.parent,
-                prefix=f".{target.name}-",
-                suffix=".tmp",
-                delete=False,
-                encoding="utf-8",
-            ) as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-                staged = Path(handle.name)
-            os.replace(staged, target)
+            atomic_replace(target, content.encode("utf-8"), mode=0o600, sync="required")
         except OSError as exc:
             logger.warning("Could not persist %s to the ownership store: %s", output_path, exc)
-            if staged is not None:
-                staged.unlink(missing_ok=True)
             return False
         return True
 
@@ -713,16 +698,14 @@ class OwnershipStore:
             self._write_document(document)
 
     def _write_document(self, document: dict[str, Any]) -> None:
-        """Replace the index atomically, so a reader never sees half a file."""
+        """Replace the index whole, so a reader never sees half a file."""
         document["version"] = SCHEMA_VERSION
-        with tempfile.NamedTemporaryFile(
-            "w", dir=self.root, prefix=".user_owned-", suffix=".tmp", delete=False, encoding="utf-8"
-        ) as handle:
-            json.dump(document, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-            staged = Path(handle.name)
-        os.replace(staged, self.index_path)
+        atomic_replace(
+            self.index_path,
+            json.dumps(document, indent=2).encode("utf-8"),
+            mode=0o600,
+            sync="required",
+        )
 
     def _quarantine(self) -> None:
         """Set a corrupt index aside rather than deleting it.

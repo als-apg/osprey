@@ -206,7 +206,7 @@ class TestApprovalHookGate:
 
     def test_hook_not_selected_requires_neither(self) -> None:
         """A profile with no approval hook has no approval posture to state."""
-        assert missing_posture_errors(_rendered(approval={}), ["hook-log", "limits"]) == []
+        assert missing_posture_errors(_rendered(approval={}), ["error-guidance", "limits"]) == []
 
     def test_one_leaf_stated_still_names_the_other(self) -> None:
         """Half an answer is not one: the missing leaf is named on its own."""
@@ -397,7 +397,7 @@ class TestApprovalHookSelected:
 
     def test_approval_disabled_without_the_hook_passes(self) -> None:
         rendered = _rendered(approval={**_approval(), "enabled": False})
-        check_approval_hook_selected(rendered, ["hook-log"])
+        check_approval_hook_selected(rendered, ["error-guidance"])
 
     def test_every_guarded_tool_skipped_without_the_hook_passes(self) -> None:
         rendered = _rendered(
@@ -405,12 +405,12 @@ class TestApprovalHookSelected:
                 channel_write="skip", execute="skip", execute_file="skip", pyaml_measure="skip"
             )
         )
-        check_approval_hook_selected(rendered, ["hook-log"])
+        check_approval_hook_selected(rendered, ["error-guidance"])
 
     def test_an_asking_tool_without_the_hook_stops(self) -> None:
         rendered = _rendered(approval=_approval(execute="selective"))
         with pytest.raises(FacilityBuildError) as stop:
-            check_approval_hook_selected(rendered, ["hook-log"])
+            check_approval_hook_selected(rendered, ["error-guidance"])
         assert stop.value.kind == "profile-invalid"
         assert stop.value.record_id == "approval.enabled"
         message = stop.value.format_message()

@@ -33,6 +33,11 @@ CANARIES: dict[str, str] = {
     "polynomial_kicks and its EnginePlugin row go with it.": (
         "tests/pyaml_cs_osprey/test_pyaml_pin.py::test_pyaml_still_reads_no_kick_angle"
     ),
+    "pyAML round-trips or refuses a magnet whose slices mix zero-length and thick elements; "
+    "this refusal goes with it.": (
+        "tests/pyaml_cs_osprey/test_pyaml_pin.py::"
+        "test_pyaml_still_round_trips_no_mixed_thin_thick_magnet"
+    ),
 }
 
 _MARKER = re.compile(r"^\s*# Stand-in until (?P<sentence>.*)$", re.MULTILINE)

@@ -190,6 +190,20 @@ def test_every_state_dir_file_is_written_group_readable_mode(tmp_path):
 
 
 @pytest.mark.usefixtures("data_root")
+def test_the_record_lands_group_readable_under_an_owner_only_umask():
+    """The mode is set on the file itself, so umask 077 cannot narrow it."""
+    previous = os.umask(0o077)
+    try:
+        path = control_context.write_record(
+            control_context.ControlContext(target="live", generation=0)
+        )
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@pytest.mark.usefixtures("data_root")
 def test_a_writer_created_state_dir_is_exactly_mode_2770():
     """Setgid group-shared, and never left world-readable by the writer."""
     control_context.write_record(control_context.ControlContext(target="live", generation=0))

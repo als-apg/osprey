@@ -20,7 +20,6 @@ import os
 import re
 import shutil
 import stat
-import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -34,12 +33,12 @@ from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_c
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
-from osprey.deployment.compose_merge import (
-    ComposeMergeError,
-    _atomic_write,
-    _load_compose_document,
+from osprey.deployment.compose_merge import _FILE_MODE as _COMPOSE_FILE_MODE
+from osprey.deployment.compose_merge import ComposeMergeError, _load_compose_document
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
+    CONTROL_IDENTITY_CONTAINER_PATH,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
 from osprey.deployment.runtime_helper import (
@@ -76,6 +75,7 @@ from osprey_connectors.config import ConfigBuilder, load_project_config
 from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("deployment.compose")
 
@@ -489,7 +489,7 @@ def _labels_override_file(root, document):
     text = _LABELS_OVERRIDE_HEADER + "\n" + _dump_override(document)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     subset = override_file.parent / f"osprey-labels.{digest}.override.yml"
-    _atomic_write(subset, text)
+    atomic_replace(subset, text.encode("utf-8"), mode=_COMPOSE_FILE_MODE, sync="best_effort")
     return subset
 
 
@@ -1821,7 +1821,8 @@ def write_labels_override(out_base, compose_files, config):
     labels = generated_label_entries(config)
     document = {"services": {name: {"labels": dict(labels)} for name in names}}
     target.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write(target, _LABELS_OVERRIDE_HEADER + "\n" + _dump_override(document))
+    text = _LABELS_OVERRIDE_HEADER + "\n" + _dump_override(document)
+    atomic_replace(target, text.encode("utf-8"), mode=_COMPOSE_FILE_MODE, sync="best_effort")
     return target
 
 
@@ -2014,13 +2015,15 @@ def _inject_project_metadata(config):
         "target": (container_project_dir / trajectory_state_relpath()).as_posix(),
     }
 
-    # The control-identity step, in the two values a template needs: the fixed
-    # container path the module is mounted at (the copy
-    # `_stage_control_identity_module` puts in the build context), and the
-    # identity each bluesky lane runs as. Both come from the modules that own
-    # them, so a template never spells a path or an identity of its own.
-    # Injected unconditionally, like every other derived key here.
+    # The control-identity step, in the values a template needs: the fixed
+    # container directory the staged script and its closure are bound at (the
+    # directory `_stage_control_identity_module` puts in the build context), the
+    # script's path inside it, and the identity each bluesky lane runs as. All
+    # come from the modules that own them, so a template never spells a path or
+    # an identity of its own. Injected unconditionally, like every other derived
+    # key here.
     config_with_labels["control_identity_container_path"] = CONTROL_IDENTITY_CONTAINER_PATH
+    config_with_labels["control_identity_container_dir"] = CONTROL_IDENTITY_CONTAINER_DIR
     config_with_labels["lane_control_identities"] = {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
@@ -4087,30 +4090,27 @@ def _document_counts(document):
 
 
 def _write_staged_devices(source, staged_path):
-    """Copy ``source`` onto ``staged_path`` atomically, world-readable.
+    """Copy ``source`` onto ``staged_path``, replaced whole and world-readable.
 
     The same discipline as
     :func:`osprey.services.bluesky_bridge.substrate_devices.write_devices_file`,
     for the same reason: a running deployment may have this exact file
-    bind-mounted while a re-render replaces it, so a reader must never observe a
-    half-written device set. The mode is set explicitly because the worker reads
-    the file as a container user that is not the host user who rendered it.
+    bind-mounted while a re-render replaces it, so it is replaced whole through
+    ``atomic_replace`` and a reader never observes a half-written device set.
+    The mode is 0644 because the worker reads the file as a container user that
+    is not the host user who rendered it.
 
     :param source: The render's Bluesky devices view
     :type source: Path
     :param staged_path: Destination inside the build context
     :type staged_path: str
     """
-    destination = Path(staged_path)
-    fd, tmp_name = tempfile.mkstemp(dir=destination.parent, prefix=destination.name, suffix=".tmp")
-    os.close(fd)
-    try:
-        shutil.copyfile(source, tmp_name)
-        os.chmod(tmp_name, _STAGED_DEVICES_MODE)
-        os.replace(tmp_name, destination)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    atomic_replace(
+        Path(staged_path),
+        Path(source).read_bytes(),
+        mode=_STAGED_DEVICES_MODE,
+        sync="best_effort",
+    )
 
 
 def _stage_bluesky_devices(config, source_dir, out_dir):
@@ -4180,62 +4180,86 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
 #: trajectory service.
 _CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky", TRAJECTORY_SERVICE_KEY})
 
-#: The module's file name inside a build context.
-CONTROL_IDENTITY_FILENAME = "control_identity.py"
+#: The directory inside a build context that holds the script and its closure.
+CONTROL_IDENTITY_DIRNAME = "control_identity"
 
 
 def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
-    """Copy the control-identity module into the build contexts that mount it.
+    """Stage the control-identity script and its catalog closure into the contexts that bind it.
+
+    The staged directory, ``<out_dir>/control_identity/``, holds exactly
+    :meth:`~osprey.agent_runner.build_artifacts.catalog.BuildArtifactCatalog.files_beside`
+    for the ``control-identity`` lone script: the packaged
+    :mod:`osprey.deployment.control_identity` source and the helper rows it
+    imports beside itself, byte for byte.
 
     For the contexts in :data:`_CONTROL_IDENTITY_SERVICES` staging is
-    mandatory: their compose fragments bind the module unconditionally, which is
-    only legitimate because this function either lands a byte-for-byte copy of
-    the packaged :mod:`osprey.deployment.control_identity` source or refuses the
-    render. A mount whose source is missing would make the container runtime
-    create an empty directory in its place, and the service would start without
-    the identity step it depends on.
+    mandatory: their compose fragments bind the directory unconditionally,
+    which is only legitimate because this function either lands it or refuses
+    the render. A bind whose source is missing would make the container runtime
+    create an empty directory in its place, and the service would start
+    without the identity step it depends on.
 
-    Every other context mounts nothing, so a copy an earlier build left there is
-    removed and the answer is False. The copy overwrites in place on every call,
-    so an incremental rebuild never keeps a previous release's module.
+    Every other context binds nothing, so the directory and any top-level
+    copies an earlier build left there are removed and the answer is False.
+    The directory is rebuilt on every call, so an incremental rebuild never
+    keeps a previous release's files.
 
-    :param config: Full project configuration dictionary (unused; the module
-        is the same for every configuration)
+    :param config: Full project configuration dictionary (unused; the files
+        are the same for every configuration)
     :type config: dict
     :param source_dir: Service source directory being rendered
     :type source_dir: str
     :param out_dir: The service's build context directory
     :type out_dir: str
-    :return: True iff the module is staged in ``out_dir``
+    :return: True iff the directory is staged in ``out_dir``
     :rtype: bool
     :raises DeploymentPreconditionError: A mandatory context could not receive
-        its copy
+        its copies
     """
-    staged_path = os.path.join(out_dir, CONTROL_IDENTITY_FILENAME)
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
+
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    staged_dir = os.path.join(out_dir, CONTROL_IDENTITY_DIRNAME)
     if os.path.basename(source_dir) not in _CONTROL_IDENTITY_SERVICES:
-        try:
-            os.remove(staged_path)
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove the stale control-identity module {staged_path}: {e}")
+        for filename in sorted(files):
+            stale_path = os.path.join(out_dir, filename)
+            if not os.path.lexists(stale_path):
+                continue
+            try:
+                os.remove(stale_path)
+            except OSError as e:
+                logger.warning(
+                    f"Could not remove the stale control-identity file {stale_path}: {e}"
+                )
+        if os.path.isdir(staged_dir):
+            try:
+                shutil.rmtree(staged_dir)
+            except OSError as e:
+                logger.warning(
+                    f"Could not remove the stale control-identity file {staged_dir}: {e}"
+                )
         return False
 
-    from osprey.deployment import control_identity
-
-    module_source = control_identity.__file__
     try:
-        shutil.copyfile(module_source, staged_path)
+        if os.path.isdir(staged_dir):
+            shutil.rmtree(staged_dir)
+        os.mkdir(staged_dir)
+        for filename, source in sorted(files.items()):
+            shutil.copyfile(source, os.path.join(staged_dir, filename))
     except OSError as e:
         raise DeploymentPreconditionError(
             reason=(
-                f"The {os.path.basename(source_dir)} service mounts {CONTROL_IDENTITY_FILENAME} "
-                f"to set its control identity, and it could not be staged at {staged_path}: {e}"
+                f"The {os.path.basename(source_dir)} service binds {CONTROL_IDENTITY_DIRNAME}/ "
+                f"to set its control identity, and it could not be staged at {staged_dir}: {e}"
             ),
             remedy=(
-                f"Make {out_dir} writable and {module_source} readable, then rebuild. The "
-                f"service cannot start without the module, so the render is refused rather "
-                f"than emitted with a mount that points at nothing."
+                f"Make {out_dir} writable and the packaged OSPREY sources readable, then "
+                f"rebuild. The service cannot start without the directory, so the render is "
+                f"refused rather than emitted with a bind that points at nothing."
             ),
         ) from e
     return True

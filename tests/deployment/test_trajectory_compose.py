@@ -17,7 +17,7 @@ from jinja2 import Environment, FileSystemLoader
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.deployment.compose_generator import (
     _CONTROL_IDENTITY_SERVICES,
-    CONTROL_IDENTITY_FILENAME,
+    CONTROL_IDENTITY_DIRNAME,
     _inject_project_metadata,
     _stage_control_identity_module,
 )
@@ -169,13 +169,14 @@ def test_identities_and_credentials() -> None:
         ("OSPREY_TRAJECTORY_STATE_DIR", "rw"),
     ],
 )
-def test_each_directory_and_module_variable_is_its_bind_target(variable: str, mode: str) -> None:
+def test_each_directory_and_module_variable_lies_under_its_bind(variable: str, mode: str) -> None:
     service = _service(_config({"network": "host"}, EPICS))
     target = service["environment"][variable]
     binds = _binds(service)
+    covering = [bound for bound in binds if target == bound or target.startswith(bound + "/")]
 
-    assert target in binds, f"{variable}={target} names no bind target"
-    assert binds[target].endswith(":ro") == (mode == "ro")
+    assert covering, f"{variable}={target} lies under no bind target"
+    assert binds[max(covering, key=len)].endswith(":ro") == (mode == "ro")
 
 
 def test_the_binds_name_the_service_directories() -> None:
@@ -189,8 +190,8 @@ def test_the_binds_name_the_service_directories() -> None:
     assert binds["/app/proj/build/config.yml"] == (
         "./build/services/trajectory/config.yml:/app/proj/build/config.yml:ro"
     )
-    assert binds["/opt/osprey/control_identity.py"] == (
-        "./build/services/trajectory/control_identity.py:/opt/osprey/control_identity.py:ro"
+    assert binds["/opt/osprey/control_identity"] == (
+        "./build/services/trajectory/control_identity:/opt/osprey/control_identity:ro"
     )
 
 
@@ -242,7 +243,7 @@ def test_the_control_identity_module_is_staged_for_the_service(tmp_path: Path) -
 
     assert "trajectory" in _CONTROL_IDENTITY_SERVICES
     assert _stage_control_identity_module({}, "services/trajectory", str(out_dir))
-    assert (out_dir / CONTROL_IDENTITY_FILENAME).is_file()
+    assert (out_dir / CONTROL_IDENTITY_DIRNAME / "control_identity.py").is_file()
 
 
 def test_the_artifact_catalog_carries_the_template() -> None:

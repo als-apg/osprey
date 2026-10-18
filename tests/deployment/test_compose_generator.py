@@ -53,7 +53,10 @@ from osprey.deployment.compose_generator import (
     resolve_user_volume_names,
     simulator_log_mount_sources,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
+    CONTROL_IDENTITY_CONTAINER_PATH,
+)
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -357,7 +360,7 @@ _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
 
 
 def _control_identity_context() -> dict[str, Any]:
-    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+    """The control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
 
     Every bluesky lane's queueserver renames root to its lane identity before
     ``start-re-manager`` runs, so the template reads both keys with no fallback:
@@ -365,6 +368,7 @@ def _control_identity_context() -> dict[str, Any]:
     """
     return {
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
 
@@ -1314,6 +1318,14 @@ def test_worker_on_the_host_namespace_declares_no_network() -> None:
         "a file whose only service runs on the host namespace must declare no network"
     )
     assert "osprey-network" not in rendered
+
+
+def test_every_worker_runs_with_no_new_privileges() -> None:
+    """The worker runs the agent, so no process in it may gain a privilege."""
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    for index in (1, 2):
+        assert _worker_service(rendered, index)["security_opt"] == ["no-new-privileges:true"]
 
 
 def test_worker_binds_loopback_only_on_the_host_namespace() -> None:
@@ -9602,10 +9614,11 @@ class TestTerminalControlContextBind:
 # ---------------------------------------------------------------------------
 # The control-identity module (``_stage_control_identity_module``)
 #
-# The dispatch worker and every bluesky lane mount ``control_identity.py``
-# unconditionally, so for those two build contexts staging is mandatory: the
-# file is always there, byte-for-byte the packaged module, or the render
-# refuses. Every other context carries no copy at all.
+# The dispatch worker and every bluesky lane bind the staged
+# ``control_identity/`` directory unconditionally, so for those two build
+# contexts staging is mandatory: the directory holds exactly the script and
+# its catalog closure, byte-for-byte, or the render refuses. Every other
+# context carries no copy at all.
 # ---------------------------------------------------------------------------
 
 #: A stand-in service template: what is under test is that the module lands
@@ -9618,10 +9631,22 @@ services:
 """
 
 
-def _control_identity_source_bytes() -> bytes:
-    from osprey.deployment import control_identity
+def _control_identity_files() -> dict[str, Path]:
+    """The script and its closure, as the catalog names them."""
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
 
-    return Path(control_identity.__file__).read_bytes()
+    return BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+
+
+def _assert_staged_closure(staged_dir: Path) -> None:
+    """*staged_dir* holds exactly the script and its closure, byte for byte."""
+    files = _control_identity_files()
+    assert sorted(p.name for p in staged_dir.iterdir()) == sorted(files)
+    for name, source in files.items():
+        assert (staged_dir / name).read_bytes() == source.read_bytes(), name
 
 
 def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
@@ -9631,15 +9656,15 @@ def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
-def test_stage_control_identity_copies_the_module_byte_for_byte(
+def test_stage_control_identity_copies_the_closure_byte_for_byte(
     tmp_path: Path, service: str
 ) -> None:
-    """A mandatory context receives the packaged module, unchanged."""
+    """A mandatory context receives the script and its closure in one directory, unchanged."""
     out_dir = tmp_path / service
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
 
 
 @pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
@@ -9649,17 +9674,20 @@ def test_stage_control_identity_skips_every_other_context(tmp_path: Path, servic
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is False
-    assert not (out_dir / "control_identity.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
-    """A copy an earlier build left in a non-mandatory context is removed."""
+    """The directory, and top-level copies an earlier build left, are removed
+    from a non-mandatory context."""
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    (out_dir / "control_identity").mkdir(parents=True)
+    for name in _control_identity_files():
+        (out_dir / name).write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert not (out_dir / "control_identity.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_stale_removal_failure_only_warns(
@@ -9670,37 +9698,45 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
     from osprey.deployment import compose_generator
 
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
+    (out_dir / "control_identity").mkdir(parents=True)
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
 
-    def refuse(path: str) -> None:
+    def refuse(path: str, *args: object, **kwargs: object) -> None:
         raise PermissionError(errno.EACCES, "denied", path)
 
     monkeypatch.setattr(compose_generator.os, "remove", refuse)
+    monkeypatch.setattr(compose_generator.shutil, "rmtree", refuse)
     with caplog.at_level(logging.WARNING):
         assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert "stale control-identity module" in caplog.text
+    assert "stale control-identity file" in caplog.text
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
 def test_stage_control_identity_raises_when_the_copy_fails(tmp_path: Path, service: str) -> None:
     """A mandatory context whose copy cannot be written refuses the render:
-    its compose file mounts the module unconditionally."""
-    missing_out_dir = tmp_path / "does-not-exist"
+    its compose file binds the directory unconditionally."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+    # A file where the directory goes: nothing can be staged into it.
+    (out_dir / "control_identity").write_text("", encoding="utf-8")
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_control_identity(missing_out_dir, f"services/{service}")
-    assert "control_identity.py" in excinfo.value.reason
+        _stage_control_identity(out_dir, f"services/{service}")
+    assert "control_identity" in excinfo.value.reason
     assert excinfo.value.remedy
 
 
 def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
-    """A re-stage overwrites whatever an earlier build left behind."""
+    """A re-stage leaves exactly the closure, whatever an earlier build left behind."""
     out_dir = tmp_path / "dispatch_worker"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    staged_dir = out_dir / "control_identity"
+    staged_dir.mkdir(parents=True)
+    for name in _control_identity_files():
+        (staged_dir / name).write_text("# stale\n", encoding="utf-8")
+    (staged_dir / "retired_helper.py").write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(staged_dir)
 
 
 def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -9733,11 +9769,12 @@ def test_both_render_paths_stage_the_control_identity_module(
     if entry_point == "full":
         setup_build_dir(template, config, {})
     else:
-        out_dir.mkdir(parents=True)
-        (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity").mkdir(parents=True)
+        for name in _control_identity_files():
+            (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
         _incremental_setup_build_dir(template, config, {}, str(out_dir))
 
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
     assert (out_dir / "docker-compose.yml").is_file()
 
 
@@ -9885,16 +9922,18 @@ def test_both_render_paths_carry_the_ca_bundles(
 def test_inject_project_metadata_carries_control_identity_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The container path the module is mounted at and each lane's identity
-    reach every render context, goldens included."""
+    """The container directory the staged script is bound at, the script's path
+    inside it, and each lane's identity reach every render context, goldens
+    included."""
     from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
     from osprey.deployment.compose_generator import _inject_project_metadata
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 
     monkeypatch.chdir(tmp_path)
     context = _inject_project_metadata({})
 
     assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert context["control_identity_container_dir"] == CONTROL_IDENTITY_CONTAINER_DIR
+    assert CONTROL_IDENTITY_CONTAINER_PATH.startswith(CONTROL_IDENTITY_CONTAINER_DIR + "/")
     assert context["lane_control_identities"] == {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
@@ -9920,8 +9959,6 @@ def _dispatch_worker_services(rendered: str) -> dict:
 
 def test_dispatch_worker_control_identity_is_per_worker() -> None:
     """Every worker carries its own ``osprey-dispatch-<i>`` identity."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 3})
 
     services = _dispatch_worker_services(rendered)
@@ -9942,17 +9979,14 @@ def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
         validate_identity(body["environment"]["OSPREY_CONTROL_IDENTITY"], allow_service=True)
 
 
-def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
-    """The staged module is bind-mounted read-only at the path the env names."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-
+def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only() -> None:
+    """The staged directory -- the script the env names and its closure -- is
+    bound read-only, once, and is the worker's only control-identity bind."""
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
 
-    expected = (
-        f"./build/services/dispatch_worker/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
-    )
+    mount = f"./build/services/dispatch_worker/control_identity:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"
     for body in _dispatch_worker_services(rendered).values():
-        assert body["volumes"].count(expected) == 1, body["volumes"]
+        assert [v for v in body["volumes"] if "control_identity" in v] == [mount]
 
 
 # ---------------------------------------------------------------------------

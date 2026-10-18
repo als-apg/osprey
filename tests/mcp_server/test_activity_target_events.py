@@ -278,7 +278,7 @@ def test_switch_aware_rule_states_the_switchable_reality():
     that the prompt names the active one, that the roster is the authority,
     that one approval-gated tool moves it, and that the deny list does not."""
     content = _render_rule(
-        control_system_type="epics",
+        control_system_transport="ca",
         enabled_servers={"controls"},
         target_switch_enabled=True,
     )
@@ -300,7 +300,7 @@ def test_switch_aware_rule_names_all_three_machines():
     operator approving a write is relying on.
     """
     content = _render_rule(
-        control_system_type="epics",
+        control_system_transport="ca",
         enabled_servers={"controls"},
         target_switch_enabled=True,
     )
@@ -314,14 +314,13 @@ def test_switch_aware_rule_is_absent_without_the_switch():
     """A deployment with one target must not be told it has two. The gate is
     the rendered switch capability, and it is off by default."""
     for context in (
-        {"control_system_type": "epics", "enabled_servers": {"controls"}},
+        {"control_system_transport": "ca", "enabled_servers": {"controls"}},
         {
-            "control_system_type": "epics",
+            "control_system_transport": "ca",
             "enabled_servers": {"controls"},
             "target_switch_enabled": False,
         },
         {
-            "control_system_type": "virtual_accelerator",
             "control_system_transport": "in_process",
             "enabled_servers": {"controls"},
         },
@@ -337,7 +336,7 @@ def test_switch_section_does_not_disturb_the_existing_rule_shape():
     additive and sits outside the tool-routing section, which several tests
     read as a protocol-neutral slice."""
     content = _render_rule_raw(
-        control_system_type="epics",
+        control_system_transport="ca",
         enabled_servers={"controls"},
         target_switch_enabled=True,
     )

@@ -29,7 +29,6 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
@@ -39,15 +38,14 @@ from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
-from osprey.services.python_executor import write_surface
 from osprey.services.python_executor.execution import wrapper
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.errors import (
-    RAW_CLIENT_WRITE_MARKER,
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
-    raw_client_write_message,
+    ClientLibraryRefusedError,
 )
+from osprey_connectors.types import baseline_target
 from tests._control_context_fixtures import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
@@ -93,12 +91,12 @@ def write_observers():
 
 
 @pytest.fixture(autouse=True)
-def armed_installs(monkeypatch):
+def client_block_installs(monkeypatch):
     """Every ``raw_put_block.install`` call ``main()`` makes, recorded, not run.
 
-    The real install patches client libraries process-wide and leaves an import
-    hook behind, so a test that calls ``main()`` would arm the whole test
-    session. A test that wants the real one puts it back and restores after.
+    The real ``no_client`` install gates every shared-library loader and leaves
+    an import hook behind, so a test that calls ``main()`` would refuse client
+    packages for the whole test session. A test that wants the real one puts it back and restores after.
     """
     calls = []
     monkeypatch.setattr(
@@ -381,13 +379,14 @@ REFUSALS = {
     "write_blocked": lambda: ChannelWriteBlockedError("SR:MAG:1", "WRITES_DISABLED"),
     "limits": lambda: ChannelLimitsViolationError("SR:MAG:1", 42.0, "range", "above maximum"),
     "target_changed": lambda: ControlTargetChangedError("the target moved"),
+    "client_import": lambda: ClientLibraryRefusedError(package="epics"),
 }
 
 
 class TestInstallingTheHook:
     """What the shell is asked to trap, and where the asking happens."""
 
-    def test_the_three_refusal_classes_are_registered_as_a_tuple(self, shell):
+    def test_the_four_refusal_classes_are_registered_as_a_tuple(self, shell):
         """``set_custom_exc`` rejects a list, and a subclass check needs a tuple."""
         jupyter_kernel.install_refusal_handler(shell)
 
@@ -397,6 +396,7 @@ class TestInstallingTheHook:
             ChannelWriteBlockedError,
             ChannelLimitsViolationError,
             ControlTargetChangedError,
+            ClientLibraryRefusedError,
         }
         assert handler is jupyter_kernel._refusal_handler
 
@@ -487,7 +487,7 @@ class TestInstallingTheHook:
         assert order == [
             "route_logs",
             "prepare",
-            "install:armed",
+            "install:no_client",
             "initialize_registry",
             "route_connector_through_pool",
             "install_shell_stream_rearm",
@@ -532,11 +532,6 @@ class TestInstallingTheHook:
         assert "Registry initialization failed" in caplog.text
 
 
-def _flatten(rows) -> list[tuple[str, str]]:
-    """``(dotted, attrs)`` rows back to the ``(dotted, attr)`` keys they came from."""
-    return [(dotted, attr) for dotted, attrs in rows for attr in attrs]
-
-
 class _StartRecorder:
     """An ``IPKernelApp`` stand-in that records ``initialize`` and ``start``."""
 
@@ -556,7 +551,7 @@ class _StartRecorder:
 
 
 def _stub_main(monkeypatch) -> list[str]:
-    """Stub every ``main()`` step but the raw-put block; return the start order."""
+    """Stub every ``main()`` step but the client block; return the start order."""
     order: list[str] = []
     app = type("App", (_StartRecorder,), {"order": order})
     monkeypatch.setattr(jupyter_kernel, "_route_logs_to_process_stderr", lambda: None)
@@ -579,83 +574,51 @@ class TestTheConnectorRoute:
         assert runtime._pool_routing is True
 
 
-class TestTheRawPutBlock:
-    """The kernel arms the raw-put block before any cell can run, or does not start."""
+class TestTheClientBlock:
+    """The kernel installs the no_client block before any cell can run, or does not start."""
 
-    def test_armed_install_passes_the_executor_armed_contract(self, monkeypatch, armed_installs):
-        """The rows are the armed write surface; rpc stays allowed; the marker is shared."""
+    def test_install_passes_the_no_client_contract(self, monkeypatch, client_block_installs):
+        """One install: the executor's no_client contract, read from the one table."""
         _stub_main(monkeypatch)
 
         jupyter_kernel.main([])
 
-        ((mode, contract),) = armed_installs
-        assert mode == "armed"
-        assert contract["refuse_rpc"] is False
-        assert contract["marker"] == RAW_CLIENT_WRITE_MARKER
-        assert _flatten(contract["blocked_targets"]) == list(write_surface._ARMED_BLOCKED)
-        assert _flatten(contract["rpc_targets"]) == list(write_surface._ARMED_RPC)
-        assert _flatten(contract["ca_provider_targets"]) == [
-            row
-            for row in write_surface._ARMED_CHECKED
-            if row[0] in write_surface._ARMED_CA_PROVIDER
-        ]
-        blocked_owners = [dotted for dotted, _attrs in contract["blocked_targets"]]
-        assert len(blocked_owners) == len(set(blocked_owners))
-        assert set(contract) == {
-            "blocked_targets",
-            "rpc_targets",
-            "refuse_rpc",
-            "marker",
-            "rpc_refusals",
-            "ca_provider_targets",
-        }
+        ((mode, contract),) = client_block_installs
+        assert mode == "no_client"
+        assert contract == wrapper.no_client_contract()
 
-    def test_armed_install_failure_stops_the_kernel_start(self, monkeypatch):
-        """No fallback: a kernel that could not arm the block never initializes."""
+    def test_install_failure_stops_the_kernel_start(self, monkeypatch):
+        """No fallback: a kernel that could not install the block never initializes."""
         order = _stub_main(monkeypatch)
 
         def failing_install(_mode, **_contract):
-            raise ValueError("armed mode needs a non-empty refusal marker")
+            raise ClientLibraryRefusedError(package="epics")
 
         monkeypatch.setattr(raw_put_block, "install", failing_install)
 
-        with pytest.raises(ValueError, match="non-empty refusal marker"):
+        with pytest.raises(ClientLibraryRefusedError):
             jupyter_kernel.main([])
 
         assert order == []
 
-    def test_armed_install_refuses_a_raw_put_in_the_kernel_process(
+    def test_install_refuses_a_client_import_in_the_kernel_process(
         self,
         monkeypatch,
-        restore_patches,  # noqa: F811
+        restore_patches,  # noqa: ARG002, F811 - restores what the real install patches
     ):
-        """The real install, over a fake client: a raw put is refused, rpc is not."""
+        """The real install, over a fake client package: importing it is refused."""
         name = "osprey_fake_kernel_client"
-        client = ModuleType(name)
-        client.__file__ = f"<{name}>"
-        exec(
-            compile(
-                "def caput(pvname, value):\n    return 'put'\n"
-                "def rpc(payload):\n    return 'rpc'\n",
-                client.__file__,
-                "exec",
-            ),
-            vars(client),
-        )
-        monkeypatch.setitem(sys.modules, name, client)
-        restore_patches(client)
-        monkeypatch.setattr(wrapper, "_ARMED_BLOCKED", {(name, "caput"): "raw put"})
-        monkeypatch.setattr(wrapper, "_ARMED_RPC", {(name, "rpc"): "an rpc"})
+        monkeypatch.delitem(sys.modules, name, raising=False)
+        monkeypatch.setattr(wrapper, "CLIENT_PACKAGES", frozenset({name}))
         monkeypatch.setattr(raw_put_block, "install", _REAL_INSTALL)
         _stub_main(monkeypatch)
 
         jupyter_kernel.main([])
 
-        with pytest.raises(ChannelWriteBlockedError) as raised:
-            client.caput("SR:MAG:1", 1.0)
-        assert raised.value.reason == "RAW_CLIENT_WRITE"
-        assert RAW_CLIENT_WRITE_MARKER in str(raised.value)
-        assert client.rpc({}) == "rpc"
+        with pytest.raises(ClientLibraryRefusedError) as raised:
+            exec(f"import {name}", {})
+        assert raised.value.package == name
+        assert name not in sys.modules
 
 
 class TestTheAuditRecord:
@@ -896,52 +859,44 @@ class TestTheActionLine:
         assert not hasattr(jupyter_kernel, name)
 
 
-def raw_client_write_refusal():
-    """The refusal a direct client-library put raises inside a cell."""
-    return ChannelWriteBlockedError(
-        "SR:MAG:1", "RAW_CLIENT_WRITE", raw_client_write_message("SR:MAG:1")
-    )
-
-
-class TestARawClientWrite:
-    """A put that went around the runtime is answered by its reason, not its class."""
+class TestARawClientImport:
+    """A client a cell tried to load is answered by the runtime calls, not the chip."""
 
     @pytest.mark.usefixtures("audit_records", "unstamped")
-    def test_raw_client_write_hint_names_write_channel(self, shell, capsys):
-        """The line names the call that applies limits and approval."""
-        fire(shell, raw_client_write_refusal())
+    def test_the_hint_names_the_runtime_calls(self, shell, capsys):
+        """No client is ever let into a kernel, so the line names the route that is."""
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
-        assert "osprey.runtime.write_channel" in jupyter_kernel.HINT_RAW_CLIENT_WRITE
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_IMPORT + "\n"
+        assert "osprey.runtime" in jupyter_kernel.HINT_RAW_CLIENT_IMPORT
 
     @pytest.mark.usefixtures("audit_records")
-    def test_raw_client_write_hint_wins_over_writes_off(self, shell, unstamped, capsys):
-        """Turning writes on would not let a raw put through, so the chip is not the answer."""
+    def test_the_hint_wins_over_writes_off(self, shell, unstamped, capsys):
+        """Turning writes on would not load the client, so the chip is not the answer."""
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
-        fire(shell, raw_client_write_refusal())
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
-
-    @pytest.mark.usefixtures("unstamped")
-    def test_raw_client_write_records_raw_client_write_reason(self, shell, audit_records):
-        """The ledger tells a bypass apart from a posture refusal on the same class."""
-        fire(shell, raw_client_write_refusal())
-
-        assert len(audit_records) == 1
-        assert audit_records[0]["reason"] == "raw_client_write"
-        assert audit_records[0]["decision"] == DECISION_REFUSED
-        assert detail_tokens(audit_records[0]["detail"]) == {
-            "channel": "SR:MAG:1",
-            "ca_user": CA_USER,
-        }
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_IMPORT + "\n"
 
     @pytest.mark.usefixtures("unstamped")
-    def test_raw_client_write_leaves_other_reasons_on_the_class_code(self, shell, audit_records):
-        """Only the raw-write reason re-files; a posture refusal keeps its class code."""
-        fire(shell, REFUSALS["write_blocked"]())
+    def test_a_package_refusal_records_its_package(self, shell, audit_records):
+        """The ledger names what the cell tried to load, and as whom."""
+        fire(shell, ClientLibraryRefusedError(package="epics"))
 
-        assert audit_records[0]["reason"] == "channel_write_blocked"
+        (entry,) = audit_records
+        assert entry["reason"] == "raw_client_import"
+        assert entry["decision"] == DECISION_REFUSED
+        assert detail_tokens(entry["detail"]) == {"package": "epics", "ca_user": CA_USER}
+
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_library_refusal_records_its_library(self, shell, audit_records):
+        """A shared library the cell tried to load is named by its basename."""
+        fire(shell, ClientLibraryRefusedError(library="libca.so"))
+
+        (entry,) = audit_records
+        assert entry["reason"] == "raw_client_import"
+        assert detail_tokens(entry["detail"]) == {"library": "libca.so", "ca_user": CA_USER}
 
 
 @pytest.fixture
@@ -1083,6 +1038,37 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "3"
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
+
+    @pytest.mark.usefixtures("kernel_env", "named_kernel")
+    def test_an_unswitched_in_process_deployment_stamps_va(
+        self, monkeypatch, control_context_root, write_control_context
+    ):
+        """A generation-0 record on ``live`` is claimed onto the baseline before a cell reads it.
+
+        On a deployment serving the simulator in process beside a real block,
+        the baseline is ``va``; the record's writers rewrite an unswitched
+        record to it at claim, so the cell is stamped ``va`` and never ``live``.
+        """
+        section = {
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": {"serving": "in_process"},
+                "epics": {"server": "epics-server"},
+            },
+        }
+
+        def get_config_value(path, default=None, _config_path=None):
+            return section if path == "control_system" else default
+
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+        unswitched = control_context.ControlContext(target="live", generation=0)
+        record = control_context.claimed(unswitched, baseline_target(section))
+        write_control_context(control_context_root, target=record.target, generation=0)
+
+        jupyter_kernel.pre_run_cell()
+
+        assert stamped(executor.ENV_CONTROL_TARGET) == "va"
+        assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "0"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_narrowed_target_pins_the_cell_sandboxed_on_it(

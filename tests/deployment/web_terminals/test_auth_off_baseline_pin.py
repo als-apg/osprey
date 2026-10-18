@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly ten
+byte-for-byte what it rendered before this feature, with exactly eleven
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -97,6 +97,10 @@ exceptions:
       reads as a broken deployment. It renders the same under every method,
       reaches no status the app itself returns (``proxy_intercept_errors`` stays
       off), and carries no account, role or claim.
+  11. **no new privileges** — ``security_opt: ["no-new-privileges:true"]`` on
+      nginx and every per-user container, so no process in them gains a
+      privilege through a setuid binary. It renders the same under every
+      method and carries no account, role or claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -483,6 +487,10 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # Count 2 = alice + bob.
         "      - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run": 2,
         "      - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run": 2,
+        # No new privileges — the ELEVENTH exception to SC6. nginx and every
+        # terminal run with it whatever the method, and it carries no account,
+        # role or claim. Count 3 = nginx + alice + bob.
+        '    security_opt: ["no-new-privileges:true"]': 3,
     }
 )
 

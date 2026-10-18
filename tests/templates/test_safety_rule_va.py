@@ -1,24 +1,29 @@
-"""Render tests for control-system-safety.md.j2 covering the
-``virtual_accelerator`` control system type.
+"""Render tests for the EPICS prohibitions of the agent's safety rules.
 
-The Virtual Accelerator connector (``VirtualAcceleratorConnector``) is an
-unmodified ``EPICSConnector`` subclass -- it talks real Channel Access to a
-containerized PyAT soft-IOC, so the same ``caget``/``caput`` bypass hazard
-that applies to ``epics`` applies identically to ``virtual_accelerator``.
-Before this fix, ``virtual_accelerator`` fell into the generic ``else``
-branch and lost those prohibitions exactly when a project first speaks real
-CA. These tests assert the prohibitions render for both ``epics`` and
-``virtual_accelerator``, and that ``mock`` is unaffected.
+Every deployment whose connector speaks Channel Access -- an EPICS machine, the
+served virtual accelerator, the live stand-in -- gets the EPICS prohibitions of
+``control-system-safety.md.j2`` and the test-IOC rule ``test-ioc-safety.md.j2``,
+because the same ``caget``/``caput`` bypass reaches each of them. The simulator
+in process speaks no wire and gets neither.
 """
 
 from pathlib import Path
 
+import pytest
 import yaml
+from jinja2 import TemplateRuntimeError
 from tests._control_system import IN_PROCESS, section_for
 from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey_connectors.types import connector_transport
+
+#: The section words whose connector speaks Channel Access.
+CA_TYPES = ("epics", "virtual_accelerator", "live_standin")
+
+#: A connector type no transport row names: a facility's own dotted connector.
+CUSTOM_TYPE = "my_facility.connectors.Custom"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -139,20 +144,50 @@ def _rendered_rules_dir(tmp_path, project_name: str, control_system_type: str | 
     return tmp_path / project_name / ".claude" / "rules"
 
 
-def test_test_ioc_rule_renders_for_epics_family(tmp_path):
-    """test-ioc-safety.md must materialize for both EPICS-family types."""
-    for cs_type in ("epics", "virtual_accelerator"):
-        rules_dir = _rendered_rules_dir(tmp_path / cs_type, f"ioc-{cs_type[:8]}", cs_type)
-        rule = rules_dir / "test-ioc-safety.md"
-        assert rule.exists(), f"test-ioc-safety.md missing for {cs_type}"
-        assert rule.read_text().strip()
+@pytest.mark.parametrize("cs_type", CA_TYPES)
+def test_test_ioc_rule_renders_for_channel_access(tmp_path, cs_type):
+    """test-ioc-safety.md materializes wherever the connector speaks Channel Access."""
+    rules_dir = _rendered_rules_dir(tmp_path, f"ioc-{cs_type[:8]}", cs_type)
+    rule = rules_dir / "test-ioc-safety.md"
+    assert rule.exists(), f"test-ioc-safety.md missing for {cs_type}"
+    assert rule.read_text().strip()
 
 
-def test_test_ioc_rule_absent_for_the_simulator_in_process(tmp_path):
-    """The template's Channel Access gate renders empty in process, and the
-    empty-file cleanup must remove it rather than leave a blank rule."""
-    rules_dir = _rendered_rules_dir(tmp_path, "ioc-in-process", IN_PROCESS)
+@pytest.mark.parametrize("cs_type", [IN_PROCESS, "doocs", "tango"])
+def test_test_ioc_rule_absent_off_channel_access(tmp_path, cs_type):
+    """The template's Channel Access gate renders empty under any other
+    connector, and the empty-file cleanup removes it rather than leave a blank
+    rule."""
+    rules_dir = _rendered_rules_dir(tmp_path, f"ioc-{cs_type[:8]}", cs_type)
     assert not (rules_dir / "test-ioc-safety.md").exists()
+
+
+def _render_test_ioc_rule(**context) -> str:
+    template = TemplateManager().jinja_env.get_template(
+        "claude_code/claude/rules/test-ioc-safety.md.j2"
+    )
+    return template.render(**context)
+
+
+@pytest.mark.parametrize("cs_type", [*CA_TYPES, IN_PROCESS, "doocs", "tango", CUSTOM_TYPE])
+def test_test_ioc_rule_renders_wherever_channel_access_is_spoken(cs_type):
+    """The rule is decided by the wire alone: present on every Channel Access
+    connector, empty on every other one."""
+    content = _render_test_ioc_rule(
+        control_system_transport=connector_transport(section_for(cs_type))
+    )
+
+    if cs_type in CA_TYPES:
+        assert "# Test IOC Safety" in content, f"{cs_type}: test-IOC rule missing"
+    else:
+        assert not content.strip(), f"{cs_type}: test-IOC rule rendered off Channel Access"
+
+
+def test_test_ioc_rule_without_the_wire_stops():
+    """A context that does not say which wire the connector speaks stops the
+    render rather than dropping the rule."""
+    with pytest.raises(TemplateRuntimeError, match="control_system_transport"):
+        _render_test_ioc_rule()
 
 
 def test_control_assistant_preset_selects_test_ioc_rule():

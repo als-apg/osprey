@@ -43,7 +43,7 @@ to hold the actual procedures, and nothing here restates them.
 
 So a plan reaches the machine along exactly one path: `set_draft` → the human
 reviews it in the plan panel → `queue_add(draft_revision)` → `queue_start` →
-read the result back. There is no shortcut through that sequence, and stepping
+read the result back with `get_run_data`. There is no shortcut through that sequence, and stepping
 a setpoint by hand is not a substitute for it.
 
 ---

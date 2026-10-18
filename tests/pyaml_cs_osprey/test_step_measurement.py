@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
+import pyaml.external.pySC_interface as pysc_interface_mod
 import pytest
 from pyaml.accelerator import Accelerator
 from pyaml.common.constants import Action
@@ -24,9 +26,10 @@ from pyaml.common.constants import Action
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_mod
 from pyaml_cs_osprey import _run
+from pyaml_cs_osprey.errors import OspreyWriteFailed
 from pyaml_cs_osprey.measure import RESPONSE_MATRIX_DATA, StepMeasurement
 from pyaml_cs_osprey.run_tool import run_tool
-from tests.pyaml_cs_osprey.conftest import DictConnector
+from tests.pyaml_cs_osprey.conftest import Clock, DictConnector, plant_facility
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -188,12 +191,22 @@ def sr() -> Accelerator:
     return _accelerator()
 
 
+def _readback(setpoint: str) -> str:
+    """The readback the model pairs with a setpoint; the RF frequency is its own."""
+    return setpoint.replace(":sp", ":rb") if setpoint.endswith(":sp") else setpoint
+
+
+#: Every setpoint the configuration can write, paired as the model pairs it, with no
+#: stated tolerance: on a live machine none of them is read back after a write.
+UNTOLERANCED: dict[str, tuple[str, float | None]] = {
+    address: (_readback(address), None) for address in SETPOINTS
+}
+
+
 @pytest.fixture
-def connector(
-    monkeypatch: pytest.MonkeyPatch,
-    guarded_repo: Path,  # noqa: ARG001 - the run needs its repo
-) -> Iterator[ModelConnector]:
-    """The model machine, served to ``osprey.runtime`` for the test."""
+def connector(monkeypatch: pytest.MonkeyPatch, guarded_repo: Path) -> Iterator[ModelConnector]:
+    """The model machine, served to ``osprey.runtime`` for the test, its setpoints planted."""
+    plant_facility(guarded_repo, UNTOLERANCED)
     monkeypatch.setattr(osprey.runtime, "_limits_validator", None)
     machine = ModelConnector()
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
@@ -423,6 +436,173 @@ class TestCalls:
         assert recorded == {"measure_ORM": [], "measure_dispersion": []}
         assert sleeps == [0.5, 0.5]
         assert connector.setpoints() == _home()
+
+
+#: The readback the facility pairs with the RF frequency in the settle cases.
+RF_READBACK = "RF:freq:rb"
+
+#: The tolerance the facility states for each setpoint the settle cases step.
+TOLERANCES: dict[str, tuple[str, float | None]] = {
+    **{f"{name}:sp": (f"{name}:rb", 1e-6) for name in ("HCM_001", "VCM_001", *QUADS, *SEXTS)},
+    "RF:freq": (RF_READBACK, 1e-3),
+}
+
+
+class LaggingConnector(ModelConnector):
+    """The model machine, whose readbacks follow a write only after ``lag`` reads each.
+
+    Each setpoint's readback is the one :data:`TOLERANCES` pairs it with. ``stuck``
+    names readbacks that never follow. Every event a test orders is appended to
+    ``events``: ``("put", address)`` before a value lands and ``("poll", address)``
+    for each readback read.
+    """
+
+    def __init__(self, lag: int, stuck: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self.lag = lag
+        self.stuck = set(stuck)
+        self.pairs = {setpoint: pair for setpoint, (pair, _) in TOLERANCES.items()}
+        for setpoint, pair in self.pairs.items():
+            self._state.setdefault(pair, self._state[setpoint])
+        self.pending: dict[str, tuple[Any, int]] = {}
+        self.events: list[tuple[str, Any]] = []
+        self.on_put = lambda address: self.events.append(("put", address))
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None):
+        if channel_address in self.pairs.values():
+            self.events.append(("poll", channel_address))
+            if channel_address in self.pending:
+                value, remaining = self.pending[channel_address]
+                if remaining > 0:
+                    self.pending[channel_address] = (value, remaining - 1)
+                else:
+                    del self.pending[channel_address]
+                    self._state[channel_address] = value
+        return await super().read_channel(channel_address, timeout)
+
+    def _put(self, channel_address: str, value: Any) -> None:
+        readback = self.pairs.get(channel_address)
+        before = self._state.get(readback) if readback is not None else None
+        super()._put(channel_address, value)
+        if readback is not None:
+            self._state[readback] = before
+            if readback not in self.stuck:
+                self.pending[readback] = (value, self.lag)
+
+
+#: Each stepped path the settle cases run: kind -> (builder, the readbacks it settles).
+SETTLED_PATHS: dict[str, tuple[Callable[[Any], StepMeasurement], tuple[str, ...]]] = {
+    "trm": (
+        lambda holder: StepMeasurement.trm(
+            holder, groups=["QF"], delta=0.01, tune_monitor="TUNE", set_wait_time=0.5
+        ),
+        tuple(f"{name}:rb" for name in QUADS),
+    ),
+    "orm": (
+        lambda holder: StepMeasurement.orm(
+            holder, bpm_array="BPM", correctors=["HCM_001"], deltas=[1e-4], set_wait_time=0.5
+        ),
+        ("HCM_001:rb",),
+    ),
+    "dispersion": (
+        lambda holder: StepMeasurement.dispersion(
+            holder, bpm_array="BPM", rf_plant="RF", delta=50.0, set_wait_time=0.5
+        ),
+        (RF_READBACK,),
+    ),
+}
+
+
+class TestSettle:
+    """A measurement step whose setpoint states a tolerance waits for its readback."""
+
+    @pytest.fixture
+    def lagging(
+        self, monkeypatch: pytest.MonkeyPatch, guarded_repo: Path
+    ) -> Iterator[Callable[..., LaggingConnector]]:
+        """Serve a lagging machine, with the tolerances planted beside the render."""
+        plant_facility(guarded_repo, {**UNTOLERANCED, **TOLERANCES})
+        monkeypatch.setattr(osprey.runtime, "_limits_validator", None)
+        clock = Clock.install(monkeypatch)
+        served: list[LaggingConnector] = []
+
+        def serve(lag: int, stuck: tuple[str, ...] = ()) -> LaggingConnector:
+            machine = LaggingConnector(lag, stuck)
+            machine.clock = clock  # type: ignore[attr-defined]
+            served.append(machine)
+            return machine
+
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
+            get.side_effect = lambda *_a, **_k: served[-1]
+            yield serve
+        assert _run.moved() == {}
+
+    @pytest.mark.parametrize("kind", list(SETTLED_PATHS))
+    def test_each_step_settles_before_its_wait(
+        self,
+        kind: str,
+        sr: Accelerator,
+        lagging: Callable[..., LaggingConnector],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        machine = lagging(lag=2)
+
+        def wait(seconds: float) -> None:
+            machine.events.append(("wait", seconds))
+
+        monkeypatch.setattr(measure_mod, "_sleep", wait)
+        monkeypatch.setattr(pysc_interface_mod, "time", SimpleNamespace(sleep=wait))
+        build, readbacks = SETTLED_PATHS[kind]
+
+        run = run_tool(build(sr.live).measure)
+
+        assert run.completed is True
+        waits = [i for i, event in enumerate(machine.events) if event == ("wait", 0.5)]
+        assert len(waits) == 2, "one wait after the step out, one after the step back"
+        start = 0
+        for wait_at in waits:
+            step = machine.events[start:wait_at]
+            puts = [i for i, event in enumerate(step) if event[0] == "put"]
+            polls = [i for i, event in enumerate(step) if event[0] == "poll"]
+            assert puts and polls, step
+            assert max(puts) < min(polls), "every put precedes the readback polls"
+            assert [step[i] for i in polls] == [
+                ("poll", readback) for _ in range(3) for readback in readbacks
+            ], "two lagging polls of each readback, then the settled one, before the wait"
+            start = wait_at + 1
+        assert machine.pending == {}
+        assert machine.clock.pauses == [pytest.approx(0.05)] * 4  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("kind", "stuck", "stepped"),
+        [
+            ("trm", "QF_002:rb", ("QF_001:sp", "QF_002:sp")),
+            ("orm", "HCM_001:rb", ("HCM_001:sp",)),
+            ("dispersion", RF_READBACK, ("RF:freq",)),
+        ],
+    )
+    def test_an_unsettled_step_ends_the_run_reporting_what_moved(
+        self,
+        kind: str,
+        stuck: str,
+        stepped: tuple[str, ...],
+        sr: Accelerator,
+        lagging: Callable[..., LaggingConnector],
+    ) -> None:
+        machine = lagging(lag=0, stuck=(stuck,))
+        failing = next(setpoint for setpoint in stepped if TOLERANCES[setpoint][0] == stuck)
+
+        with pytest.raises(OspreyWriteFailed) as info:
+            run_tool(SETTLED_PATHS[kind][0](sr.live).measure)
+
+        assert info.value.channel_address == failing
+        assert stuck in info.value.reason
+        moved = info.value.moved_setpoints  # type: ignore[attr-defined]
+        assert set(moved) == set(stepped), "the failure lists what moved"
+        assert moved[failing] == pytest.approx(SETPOINTS[failing])
+        assert [address for address, _ in machine.puts] == list(stepped), (
+            "the step out only: nothing is written back"
+        )
 
 
 class TestArguments:

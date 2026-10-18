@@ -353,8 +353,9 @@ def _rpc(port: int, verb: str, **fields: Any) -> Any:
 def _unchanged(before: Any, after: Any) -> bool:
     """Whether a value read after a refused put is the one read before it.
 
-    Every name is held exact: the demo view this module serves renders its
-    monitors without their declared motion, so nothing moves between reads.
+    Every name is held exact: the container serves the demo view in the suite
+    scenario, which serves its monitors without their declared motion, so
+    nothing moves between reads.
     """
     if isinstance(before, float) and isinstance(after, float):
         return after == pytest.approx(before, rel=1e-9, abs=1e-12)

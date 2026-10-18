@@ -109,7 +109,7 @@ def test_the_file_is_replaced_atomically_and_parses(
         replaced.append((str(src), str(dst)))
         real_replace(src, dst)
 
-    monkeypatch.setattr(health.os, "replace", spy)
+    monkeypatch.setattr(os, "replace", spy)
     record = _record()
     record.record_pass(None)
     health.write_document(path, record.document())

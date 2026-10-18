@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 import yaml
 
 import osprey.runtime
+import osprey_connectors.settle as settle_step
 from osprey.runtime import (
     ENV_CONTROL_TARGET,
     ENV_CONTROL_TARGET_GENERATION,
@@ -79,6 +81,8 @@ class FakeRuntime:
         self.batch_timeouts: list[float | None] = []
         self.writes: list[tuple[str, Any, dict[str, Any]]] = []
         self.batch_writes: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        self.polls: list[str] = []
+        self.on_poll: Callable[[str], None] | None = None
 
     def read_channel(self, channel_address: str, **kwargs: Any) -> Any:
         if self.batch_only:
@@ -148,10 +152,43 @@ class FakeRuntime:
     def install(
         self, monkeypatch: pytest.MonkeyPatch, names: Sequence[str] = RUNTIME_FUNCTIONS
     ) -> FakeRuntime:
-        """Replace the named ``osprey.runtime`` functions with this fake's methods."""
+        """Replace the named ``osprey.runtime`` functions with this fake's methods.
+
+        The runtime's connector is replaced too, so ``osprey.runtime.settle`` reads
+        its readbacks from this fake: each such read is ``"poll"`` in ``calls`` and
+        its address in ``polls``.
+        """
         for name in names:
             monkeypatch.setattr(osprey.runtime, name, getattr(self, name))
+
+        async def connector() -> _Readbacks:
+            return _Readbacks(self)
+
+        monkeypatch.setattr(osprey.runtime, "_get_connector", connector)
         return self
+
+    async def poll(self, channel_address: str) -> ChannelValue:
+        """The runtime connector's read, as ``osprey.runtime.settle`` makes it."""
+        self.calls.append("poll")
+        self.polls.append(channel_address)
+        if self.on_poll is not None:
+            self.on_poll(channel_address)
+        return ChannelValue(
+            value=self.values.get(channel_address),
+            timestamp=datetime.now(UTC),
+            metadata=ChannelMetadata(),
+        )
+
+
+class _Readbacks:
+    """The runtime connector a :class:`FakeRuntime` serves: its reads are the fake's polls."""
+
+    def __init__(self, runtime: FakeRuntime) -> None:
+        self._runtime = runtime
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:
+        del timeout
+        return await self._runtime.poll(channel_address)
 
 
 def _report_phases(
@@ -262,7 +299,8 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
 
     The repo holds its ``profile.yml`` and a render naming a real machine's
     control system, so an unstamped run is on ``live`` and its lock lives under
-    ``<tmp>/repo/var/guarded_run/live/``. The config
+    ``<tmp>/repo/var/guarded_run/live/``; ``CONFIG_FILE`` names the render's
+    config, as the executor sets it for a sandbox. The config
     caches are empty going in and coming out, so the render read is this repo's
     and no later test is answered from it.
     """
@@ -273,6 +311,7 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
         yaml.safe_dump({"control_system": LIVE_CONTROL_SYSTEM}), encoding="utf-8"
     )
     monkeypatch.chdir(root)
+    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
     monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
     monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -304,3 +343,49 @@ def in_run() -> Iterator[RunRecord]:
     with _run.opened("live"):
         yield RunRecord()
     assert _run.moved() == {}, "the run ends with the test"
+
+
+def plant_facility(root: Path, channels: dict[str, tuple[str, float | None]]) -> Path:
+    """Write ``build/facility.json`` stating ``setpoint -> (readback, absolute tolerance)``.
+
+    A ``None`` tolerance plants the setpoint with its pair and no tolerance.
+    """
+    path = root / "build" / "facility.json"
+    records = [
+        {
+            "id": setpoint,
+            "role": "setpoint",
+            "pair": pair,
+            **({} if bound is None else {"tolerance": {"absolute": bound}}),
+        }
+        for setpoint, (pair, bound) in channels.items()
+    ]
+    path.write_text(json.dumps({"channels": records}), encoding="utf-8")
+    return path
+
+
+class Clock:
+    """The settle step's clock, moved only by its pauses; every pause is recorded."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.pauses: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.pauses.append(seconds)
+        self.now += seconds
+
+    @classmethod
+    def install(cls, monkeypatch: pytest.MonkeyPatch) -> Clock:
+        """A fresh clock serving every settle the runtime runs in the test."""
+        fake = cls()
+        real = settle_step.settle
+
+        async def timed(connector: Any, landings: Any, *, timeout_s: float) -> None:
+            await real(connector, landings, timeout_s=timeout_s, clock=fake, sleep=fake.sleep)
+
+        monkeypatch.setattr(settle_step, "settle", timed)
+        return fake

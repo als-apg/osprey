@@ -442,10 +442,9 @@ _REFUSAL_REASONS = {
 }
 
 #: ``reason`` codes keyed by the refusal's own ``reason`` attribute, consulted
-#: before the class table: one class carries refusals with different remedies,
-#: and the ledger has to tell a raw client put apart from a posture refusal.
+#: before the class table.
 _REFUSAL_REASONS_BY_CODE = {
-    "RAW_CLIENT_WRITE": "raw_client_write",
+    "RAW_CLIENT_IMPORT": "raw_client_import",
 }
 
 #: ``reason`` codes for a write a cell made, keyed by the phase the runtime
@@ -467,12 +466,11 @@ HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
 
-#: A client library's own put was refused because it went around the runtime.
-#: Turning writes on would not let it through; the runtime's write call is
-#: what applies limits and approval, so that is the call the line names.
-HINT_RAW_CLIENT_WRITE = (
-    "Direct client-library writes are refused. "
-    "Write through osprey.runtime.write_channel(address, value) instead."
+#: A cell tried to load a control-system client. No posture lets a client into
+#: a kernel, so the line names the runtime calls, not the chip.
+HINT_RAW_CLIENT_IMPORT = (
+    "Client libraries are not available in a notebook. "
+    "Read and write through osprey.runtime.read_channel / write_channel instead."
 )
 
 
@@ -484,22 +482,31 @@ def _refusal_classes() -> tuple[type[BaseException], ...]:
     in behind it.
     """
     from osprey.runtime import ControlTargetChangedError
-    from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+    from osprey_connectors.errors import (
+        ChannelLimitsViolationError,
+        ChannelWriteBlockedError,
+        ClientLibraryRefusedError,
+    )
 
-    return (ChannelWriteBlockedError, ChannelLimitsViolationError, ControlTargetChangedError)
+    return (
+        ChannelWriteBlockedError,
+        ChannelLimitsViolationError,
+        ControlTargetChangedError,
+        ClientLibraryRefusedError,
+    )
 
 
 def _hint_for(value: BaseException) -> str | None:
     """The one action line for *value*, or ``None`` when there is no action.
 
-    A raw client put is answered by its reason code alone: no posture lets it
-    through, so the chip is not its remedy. Every other branch is read from
-    the stamp this cell was given, so the hint and the connector's own refusal
-    text answer from one state rather than from a flag the kernel would have
-    to keep in step. A live-store refusal, a limits
-    violation and a switch in flight get no line: their own message already
-    names what to do, and a second line would either repeat it or send the
-    operator somewhere the message did not.
+    A refused client import or library load is answered by its class alone: no
+    posture lets a client in, so the chip is not its remedy. Every other branch
+    is read from the stamp this cell was given, so the hint and the connector's
+    own refusal text answer from one state rather than from a flag the kernel
+    would have to keep in step. A live-store refusal, a limits violation and a
+    switch in flight get no line: their own message already names what to do,
+    and a second line would either repeat it or send the operator somewhere the
+    message did not.
 
     Args:
         value: The refusal that reached the hook.
@@ -510,33 +517,40 @@ def _hint_for(value: BaseException) -> str | None:
     from osprey.mcp_server.python_executor import executor
     from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
     from osprey_connectors import posture_store
-    from osprey_connectors.errors import ChannelWriteBlockedError
+    from osprey_connectors.errors import ChannelWriteBlockedError, ClientLibraryRefusedError
 
     if isinstance(value, SwitchInProgressError):
         return None
     if isinstance(value, ControlTargetChangedError):
         return HINT_TARGET_CHANGED
+    if isinstance(value, ClientLibraryRefusedError):
+        return HINT_RAW_CLIENT_IMPORT
     if not isinstance(value, ChannelWriteBlockedError):
         return None
-    if getattr(value, "reason", None) == "RAW_CLIENT_WRITE":
-        return HINT_RAW_CLIENT_WRITE
     target = (os.environ.get(executor.ENV_CONTROL_TARGET) or "").strip() or None
     if posture_store.launch_permits(target):
         return None
     return HINT_WRITES_OFF
 
 
-def _detail_tokens(channel: object, *, with_host: bool) -> str | None:
+def _channel_token(channel: object) -> str | None:
+    """The ``channel=`` subject token for *channel*; ``None`` unless a non-empty string."""
+    return f"channel={channel}" if isinstance(channel, str) and channel else None
+
+
+def _detail_tokens(*, subject_token: str | None, with_host: bool) -> str | None:
     """The ``detail`` of a kernel record: space-separated ``key=value`` tokens.
 
-    The envelope's field set is closed, so the channel and the account and host
-    the control system sees this process as travel here. ``ca_user`` and
-    ``ca_host`` are read in this process, because this process is the one that
-    writes; a stamp that cannot be read is left out rather than guessed.
+    The grammar is ``[<subject>] ca_user=<account> [ca_host=<host>]``: the
+    subject names what the cell touched (``channel=``, ``package=`` or
+    ``library=``), followed by the account and host the control system sees
+    this process as. The envelope's field set is closed, so all of them travel
+    here. ``ca_user`` and ``ca_host`` are read in this process, because this
+    process is the one that writes; a stamp that cannot be read is left out
+    rather than guessed.
 
     Args:
-        channel: The channel the write named; anything but a non-empty string
-            contributes no token.
+        subject_token: The subject's ``key=value`` token, or ``None`` for none.
         with_host: Whether ``ca_host`` is one of the tokens.
 
     Returns:
@@ -547,9 +561,20 @@ def _detail_tokens(channel: object, *, with_host: bool) -> str | None:
     stamps = write_stamps()
     if not with_host:
         stamps.pop("ca_host", None)
-    tokens = [f"channel={channel}"] if isinstance(channel, str) and channel else []
+    tokens = [subject_token] if subject_token else []
     tokens.extend(f"{key}={value}" for key, value in stamps.items())
     return " ".join(tokens) or None
+
+
+def _refusal_subject_token(value: BaseException) -> str | None:
+    """The subject token of a refusal: what it refused to load, else its channel."""
+    from osprey_connectors.errors import ClientLibraryRefusedError
+
+    if isinstance(value, ClientLibraryRefusedError):
+        if value.library is not None:
+            return f"library={value.library}"
+        return f"package={value.package}" if value.package else None
+    return _channel_token(getattr(value, "channel_address", None))
 
 
 def _record_write(address: str, phase: str) -> None:
@@ -580,7 +605,7 @@ def _record_write(address: str, phase: str) -> None:
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             subject=REFUSAL_SUBJECT,
-            detail=_detail_tokens(address, with_host=True),
+            detail=_detail_tokens(subject_token=_channel_token(address), with_host=True),
         )
     except Exception:  # the audit trail degrades; the write does not
         logger.warning("Could not record the notebook write for audit", exc_info=True)
@@ -607,7 +632,6 @@ def _record_refusal(value: BaseException) -> None:
         from osprey.audit.envelope import DECISION_REFUSED
         from osprey.audit.writer import record
 
-        channel = getattr(value, "channel_address", None)
         record(
             decision=DECISION_REFUSED,
             reason=_refusal_reason(value),
@@ -616,7 +640,7 @@ def _record_refusal(value: BaseException) -> None:
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             subject=REFUSAL_SUBJECT,
-            detail=_detail_tokens(channel, with_host=False),
+            detail=_detail_tokens(subject_token=_refusal_subject_token(value), with_host=False),
         )
     except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the notebook refusal for audit", exc_info=True)
@@ -684,21 +708,28 @@ def _initialize_registry() -> None:
         logger.warning("Registry initialization failed", exc_info=True)
 
 
-def _install_raw_put_block() -> None:
-    """Refuse every raw client put in this process that no connector let through.
+def _install_client_block() -> None:
+    """Refuse control-system client imports in this process, for reads and writes alike.
 
-    The contract is the executor's own armed contract, so a cell's raw put is
-    refused in the words a sandboxed run's would be. rpc and Tango commands
-    stay allowed, as they always have been in a kernel: nothing here bounds
-    them, so nothing here refuses them.
+    A kernel holds no control-system client: its connector is served by a
+    connector-host child, and a client package import or a client library
+    load through Python's loaders in this process is refused. A client that
+    loaded before this call would stay loaded, so the install refuses to start
+    over one.
 
-    There is no guard: a kernel that could not arm the block must not start,
-    because every cell it ran would put around the connector unchecked.
+    The block is an in-process, cooperative guard: it keeps honest cell code on
+    the connector path and is not a sandbox. A child process a cell starts
+    (``subprocess``, ``os.system``, a shell escape such as ``!python -c ...``)
+    runs without it, and what closes that route is the deployment's network,
+    not OSPREY; see the cooperative bypasses in
+    ``docs/source/architecture/safety-chain.rst``.
+
+    There is no fallback: a kernel that cannot install the block does not start.
     """
     from osprey.runtime import raw_put_block
-    from osprey.services.python_executor.execution.wrapper import armed_contract
+    from osprey.services.python_executor.execution.wrapper import no_client_contract
 
-    raw_put_block.install("armed", **armed_contract(refuse_rpc=False))
+    raw_put_block.install("no_client", **no_client_contract())
 
 
 #: Set on ``SubshellManager`` once :func:`install_shell_stream_rearm` has wrapped
@@ -820,13 +851,13 @@ def main(argv: list[str] | None = None) -> None:
     The environment is prepared before the registry is loaded, because the
     registry is created from the config path the preparation publishes; and
     both happen before the kernel exists, so no cell can run ahead of them.
-    The raw-put block goes on straight after the preparation, before anything
-    else loads a client library, and a failure to install it stops the start.
-    The write observer is registered in the same window, so every write a
-    cell makes files its record, and the runtime is routed through the
-    connector-host pool there too: a kernel outlives every switch made under
-    it, so each stamp it carries is served by a connector-host child of its
-    own rather than by a client this process already bound to another target.
+    The client block goes on straight after the preparation, before anything
+    else could load a client library, and a failure to install it stops the
+    start. The write observer is registered in the same window, so every write
+    a cell makes files its record, and the runtime is routed through the
+    connector-host pool there too: every kernel's connector is served by a
+    connector-host child, one per stamp it carries, and never by a client in
+    this process.
 
     The kernel statements are separate rather than one chained call because
     things go between them: the shell stream re-arm is installed before
@@ -842,7 +873,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     _route_logs_to_process_stderr()
     _prepare_environment(argv if argv is not None else sys.argv[1:])
-    _install_raw_put_block()
+    _install_client_block()
     _initialize_registry()
 
     from osprey.runtime import _register_write_observer, _route_connector_through_pool

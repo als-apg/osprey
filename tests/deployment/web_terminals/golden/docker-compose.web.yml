@@ -6,6 +6,7 @@ services:
     container_name: dls_controls-nginx
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
     environment:
@@ -34,6 +35,7 @@ services:
     container_name: dls_controls-web-alice
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
     env_file: .env.users
@@ -99,6 +101,7 @@ services:
     container_name: dls_controls-web-bob
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
     env_file: .env.users
