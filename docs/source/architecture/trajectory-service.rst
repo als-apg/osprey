@@ -22,62 +22,7 @@ loop is driven is in :doc:`/how-to/thread-the-first-turn`; the model the
 service drives is in :ref:`reference-trajectory-model`.
 
 .. raw:: html
-
-   <div class="osprey-diagram">
-   <svg viewBox="0 0 1000 320" role="img" aria-labelledby="trajectory-service-title trajectory-service-desc">
-     <title id="trajectory-service-title">The trajectory service and its two doors</title>
-     <desc id="trajectory-service-desc">The operator's browser and the agent both reach the trajectory service through the web terminal's panel proxy. The proxy drops any owner a request claims and adds the terminal's secret, and on the agent's hop the service's launch token as well. The service's shared web gate admits on the secret and names its account as the owner. The panel door and the agent door, which also checks the launch token, both hand the owner to one admission check and one worker, which takes the target's guarded-run lock before it acts.</desc>
-     <defs>
-       <marker id="trajectory-service-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-         <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
-       </marker>
-     </defs>
-
-     <line class="e" x1="180" y1="68" x2="246" y2="140" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="180" y1="252" x2="246" y2="180" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="430" y1="160" x2="486" y2="160" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="650" y1="140" x2="696" y2="78" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="650" y1="180" x2="696" y2="242" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="830" y1="78" x2="866" y2="140" marker-end="url(#trajectory-service-arr)"/>
-     <line class="e" x1="830" y1="242" x2="866" y2="180" marker-end="url(#trajectory-service-arr)"/>
-
-     <rect class="mask" x="150" y="94" width="120" height="12" rx="2"/>
-     <text class="ta" x="210" y="103" text-anchor="middle">…/trajectory/panel/api</text>
-     <rect class="mask" x="150" y="214" width="120" height="12" rx="2"/>
-     <text class="ta" x="210" y="223" text-anchor="middle">…/trajectory/api</text>
-
-     <rect class="nb-in" x="20" y="40" width="160" height="56" rx="6"/>
-     <text class="tn" x="100" y="64" text-anchor="middle">operator's browser</text>
-     <text class="ts" x="100" y="80" text-anchor="middle">operator credential</text>
-
-     <rect class="nb-in" x="20" y="224" width="160" height="56" rx="6"/>
-     <text class="tn" x="100" y="248" text-anchor="middle">the agent</text>
-     <text class="ts" x="100" y="264" text-anchor="middle">panel token only</text>
-
-     <rect class="nb" x="250" y="120" width="180" height="80" rx="6"/>
-     <text class="tn" x="340" y="146" text-anchor="middle">terminal panel proxy</text>
-     <text class="ts" x="340" y="164" text-anchor="middle">drops a claimed owner</text>
-     <text class="ts" x="340" y="180" text-anchor="middle">adds secret · launch token</text>
-
-     <rect class="nb-foc" x="490" y="120" width="160" height="80" rx="6"/>
-     <text class="tn" x="570" y="146" text-anchor="middle">shared web gate</text>
-     <text class="ts" x="570" y="164" text-anchor="middle">admits on the secret</text>
-     <text class="ts" x="570" y="180" text-anchor="middle">owner = its account</text>
-
-     <rect class="nb-foc" x="700" y="50" width="130" height="56" rx="6"/>
-     <text class="tn" x="765" y="74" text-anchor="middle">panel door</text>
-     <text class="ts" x="765" y="90" text-anchor="middle">/panel/api/*</text>
-
-     <rect class="nb-foc" x="700" y="214" width="130" height="56" rx="6"/>
-     <text class="tn" x="765" y="238" text-anchor="middle">agent door</text>
-     <text class="ts" x="765" y="254" text-anchor="middle">/api/* · launch token</text>
-
-     <rect class="nb-st" x="870" y="120" width="110" height="80" rx="6"/>
-     <text class="tn" x="925" y="146" text-anchor="middle">admit</text>
-     <text class="ts" x="925" y="164" text-anchor="middle">one worker</text>
-     <text class="ts" x="925" y="180" text-anchor="middle">run lock</text>
-   </svg>
-   </div>
+   :file: ../_diagrams/trajectory-service.html
 
 One app, two doors
 ==================
@@ -104,13 +49,28 @@ credential: the panel token the agent holds cannot reach the panel door
 through the terminal's proxy. ``agent`` says only that the request took the
 agent door.
 
-Every request arrives through the calling terminal's panel proxy. On that hop
-the proxy adds the terminal's own secret and, for this service, its launch
-token, and drops any owner the request arrives with. It adds them only for a
-backend the deployment's config declares that answers on the loopback
-address. The agent never holds the launch token or the secret: the terminal
-takes the token out of its own environment before it starts the agent, and
-keeps it only for the proxy.
+Every request arrives through the calling terminal's panel proxy, on one of
+two hops. The operator's browser loads the panel from the terminal and calls
+the panel door at ``…/trajectory/panel/api``. The agent calls the
+``trajectory`` MCP server's tools, and that server calls the agent door at
+``…/trajectory/api`` with the panel token. On either hop the proxy adds the
+terminal's own secret, on the agent's hop the service's launch token as well,
+and drops any owner the request arrives with. It adds them only for a backend
+the deployment's config declares that answers on the loopback address. The
+agent never holds the launch token or the secret: the terminal takes the token
+out of its own environment before it starts the agent, and keeps it only for
+the proxy.
+
+The proxy bounds how long it waits to connect to either door, and sets no
+bound on how long it waits for the answer. A shot, an apply or a setup answers
+only when the action ends, which can take minutes; a read bound on the hop
+would cut the answer off while the service still works on the action, and the
+caller would see a failure for an action that went on to finish. Each caller
+bounds the wait itself instead. The MCP server bounds a tool's call by the
+action's own timeout, the time a Stop of it may take and the wait behind the
+actions already queued, all read from the service's state. The operator has Stop, which the service answers at once on
+either door. The panel's page and its static files keep the proxy's ordinary
+bounds.
 
 Whose action it is
 ==================

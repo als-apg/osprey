@@ -183,7 +183,8 @@ The operator's panel door
 =========================
 
 The operator reaches the service through the trajectory tab, the **panel
-door**. It serves everything the agent's tools reach, and these besides:
+door**; :ref:`web-terminal-trajectory-panel` walks through the tab's controls.
+The door serves everything the agent's tools reach, and these besides:
 
 - **Setup** runs the sequence module's ``bpm_mode`` and, when asked,
   ``bunch_clean``, under the run lock and outside any shot. It never arms and
@@ -226,3 +227,6 @@ what moved. See :ref:`reference-audit-trail`.
 
    :ref:`architecture-trajectory-service`
       How the doors fit, whose action an action is, and what it passes.
+
+   :ref:`web-terminal-trajectory-panel`
+      The TRAJECTORY tab: opening a session, the loop controls and Stop.

@@ -407,12 +407,26 @@ service has no state directory.
 State stream
 ------------
 
-``GET /panel/api/events`` is a server-sent event stream. Its first event is
-a ``snapshot``; every change sends its events and then a fresh
-``snapshot``. The event types are ``snapshot``, ``shot``, ``step``,
-``apply``, ``stopped``, ``taken_over`` and ``continuous_ended``. An idle
-stream sends a keep-alive comment every 15 seconds. A stream ends only when
-the service shuts down.
+``GET /panel/api/events`` is a server-sent event stream
+(``text/event-stream``). Each event is one frame: an ``event:`` line naming
+its type, a ``data:`` line carrying its JSON, and a blank line. The JSON
+carries the same name in its ``type`` field:
+
+.. code-block:: text
+
+   event: snapshot
+   data: {"type": "snapshot", "snapshot": {"target": "va", …}}
+
+The event types are ``snapshot``, ``shot``, ``step``, ``apply``,
+``stopped``, ``taken_over`` and ``continuous_ended``. A browser client
+listens for each type by name; a frame with an ``event:`` line never reaches
+a generic message handler.
+
+The first frame of every stream is a ``snapshot``, so a client that connects
+or reconnects starts from the whole state. Every change sends its events and
+then a fresh ``snapshot``. An idle stream sends a keep-alive comment
+(``: keep-alive``) every 15 seconds, which a client ignores. A stream ends
+only when the service shuts down.
 
 Health
 ------
