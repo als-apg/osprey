@@ -10,12 +10,30 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
 | `gate.sh` | The merge gate: every CI step that needs no secret or Docker; `full [--base <ref>]`, or `fast [--base <ref>] <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
+| `_gate_env.sh` | Gate environment: the pinned Claude Code first on PATH, `npm ci` when the lockfile moved | < 2s when current | Sourced by every script above; never run directly |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
+
+## Gate environment
+
+`quick_check.sh`, `ci_check.sh`, `premerge_check.sh` and `gate.sh` each source
+`_gate_env.sh` before their first check, so they run on the tree's pins:
+
+- **Claude Code**: `pinned_claude.py` finds a `claude` that reports the pinned
+  version, on `PATH` or as the native installer's
+  `~/.local/share/claude/versions/<pin>` (reached through a link in
+  `${XDG_CACHE_HOME:-~/.cache}/osprey/claude/<pin>/`), and puts its directory
+  first on `PATH`. `pinned_claude.py --pin` prints the pin.
+- **JS dependencies**: `npm ci` runs only when `js_deps_current.py` finds
+  `node_modules` differs from `package-lock.json`. Without npm it is skipped.
+
+When no `claude` reports the pin, the script stops and prints the install
+command, for example `npm install -g @anthropic-ai/claude-code@<pin>`. The CI
+action that installs Claude Code uses the same resolver.
 
 ## Scripts
 
@@ -45,10 +63,11 @@ This directory contains testing and validation scripts for the Osprey Framework 
 **Purpose**: Replicate the entire GitHub Actions CI workflow locally.
 
 **What it does**:
-1. **Linting**: Runs ruff (linting + formatting check) and mypy
-2. **Testing**: Runs pytest with coverage reporting
-3. **Documentation**: Builds Sphinx docs and checks links
-4. **Package**: Builds Python package and validates with twine
+1. **Gate environment**: Puts the pinned Claude Code first on PATH and runs `npm ci` only when the lockfile moved; then, when node and npm are present, runs the frontend JS typecheck, lint and tests
+2. **Linting**: Runs ruff (linting + formatting check) and mypy
+3. **Testing**: Runs pytest with coverage reporting
+4. **Documentation**: Builds Sphinx docs and checks links
+5. **Package**: Builds Python package and validates with twine
 
 **Usage**:
 ```bash

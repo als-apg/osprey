@@ -44,7 +44,9 @@ Making Changes
 
 **3. Test locally.** ``scripts/gate.sh`` is the one local spelling of the merge gate. Run
 ``./scripts/gate.sh full`` before you open a PR, and ``./scripts/gate.sh fast <test paths>``
-over the tests you touched while you work. The helper scripts serve the loops around it:
+over the tests you touched while you work. Every script first provisions the tree's pins
+(the pinned Claude Code on ``PATH``, ``node_modules`` matching the lockfile), or names what to
+install. The helper scripts serve the loops around it:
 
 .. code-block:: bash
 
