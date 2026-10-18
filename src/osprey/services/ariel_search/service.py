@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import (
@@ -37,6 +38,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     SyncStatus,
 )
+from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -154,6 +156,13 @@ class ARIELSearchService:
         self.repository = repository
         self._embedder: BaseProvider | None = None
         self._validated_search_model = False
+        # Search-time provider calls (query embedding, reachability) run here,
+        # never on the event loop or its default executor. Threads start on
+        # the first call; aclose() ends them.
+        self._search_calls = ThreadPoolExecutor(
+            max_workers=SEARCH_CALL_WORKERS, thread_name_prefix="ariel-search-call"
+        )
+        self._closed = False
 
     def _get_embedder(self) -> BaseProvider:
         """Return the provider adapter that embeds semantic-search queries.
@@ -672,6 +681,8 @@ class ARIELSearchService:
             kwargs["query_expansion"] = expansion
         if include_images is not None:
             kwargs["include_images"] = include_images
+        if descriptor.needs_search_calls:
+            kwargs["search_calls"] = self._search_calls
 
         parse_diagnostics = parsed.diagnostics if parsed is not None else ()
 
@@ -1022,10 +1033,35 @@ class ARIELSearchService:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit async context and cleanup."""
-        if self.readonly_pool is not None:
-            await self.readonly_pool.close()
-        await self.pool.close()
+        """Exit async context: :meth:`aclose` the service."""
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        """Release everything the service holds; every shutdown path calls this.
+
+        In order: the search-call pool (idle workers end, queued calls are
+        cancelled), then the read-only pool when there is one, then the
+        ingestion pool. Each step runs even when an earlier one raised; the
+        first error propagates. A second call does nothing.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        first_error: BaseException | None = None
+        try:
+            self._search_calls.shutdown(wait=False, cancel_futures=True)
+        except BaseException as exc:
+            first_error = exc
+        for pool in (self.readonly_pool, self.pool):
+            if pool is None:
+                continue
+            try:
+                await pool.close()
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 async def create_ariel_service(

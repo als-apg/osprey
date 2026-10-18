@@ -41,6 +41,8 @@ from osprey.services.ariel_search.search._offload import run_search_call
 from osprey.services.ariel_search.search.fusion import ImageHit
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
 
@@ -285,7 +287,12 @@ async def _nearest_pictures(
 
 
 async def search_images(
-    query: str, repository: Any, config: ARIELConfig, *, fetch_limit: int
+    query: str,
+    repository: Any,
+    config: ARIELConfig,
+    *,
+    fetch_limit: int,
+    search_calls: Executor,
 ) -> dict[str, ImageHit] | None:
     """The entries whose pictures lie nearest ``query``, or None on a lane failure.
 
@@ -299,6 +306,8 @@ async def search_images(
         fetch_limit: Text candidates the caller fetches; the lane fetches
             :data:`PICTURE_FACTOR` times as many pictures, at most
             :data:`MAX_PICTURES`.
+        search_calls: The search service's pool for search-time provider
+            calls; the query is embedded on it.
 
     Returns:
         ``{entry_id: ImageHit}`` (possibly empty) on success; None when the
@@ -313,7 +322,12 @@ async def search_images(
     try:
         settings = _settings_for(config)
         vector = await run_search_call(
-            _embed_query, settings, query, generation, timeout_s=IMAGE_QUERY_TIMEOUT_S + 1
+            search_calls,
+            _embed_query,
+            settings,
+            query,
+            generation,
+            timeout_s=IMAGE_QUERY_TIMEOUT_S + 1,
         )
         sql_budget = min(
             deadline - loop.time(), IMAGE_LANE_SQL_TIMEOUT_S + STATEMENT_TIMEOUT_MS / 1000

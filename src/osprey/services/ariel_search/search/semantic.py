@@ -26,6 +26,8 @@ from osprey.services.ariel_search.search.base import (
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -201,6 +203,7 @@ async def semantic_search(
     author: str | None = None,
     source_system: str | None = None,
     query_expansion: QueryExpansion | None = None,
+    search_calls: Executor,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float]] | ModuleOutput:
     """Execute semantic similarity search.
@@ -229,6 +232,8 @@ async def semantic_search(
             the service only when one was actually resolved. When present, its
             `flattened_text` is embedded in place of `query` -- the whole query
             is the matching text for semantic search, and it is never truncated.
+        search_calls: The search service's pool for search-time provider
+            calls; the query is embedded on it, never on the event loop.
 
     Returns:
         Without `query_expansion`: the list of (entry, similarity_score) tuples
@@ -285,7 +290,14 @@ async def semantic_search(
 
     try:
         embeddings = await run_search_call(
-            _embed_query, embedder, embed_text, model_name, base_url, api_key, embed_kwargs
+            search_calls,
+            _embed_query,
+            embedder,
+            embed_text,
+            model_name,
+            base_url,
+            api_key,
+            embed_kwargs,
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")
@@ -438,5 +450,6 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=semantic_search,
         format_result=format_semantic_result,
         needs_embedder=True,
+        needs_search_calls=True,
         accepts_expansion=True,
     )

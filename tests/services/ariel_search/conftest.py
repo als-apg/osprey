@@ -906,6 +906,23 @@ def seed_entry_factory():
 
 
 @pytest.fixture
+def search_calls() -> Iterator[ThreadPoolExecutor]:
+    """A search-call pool shaped like the service's, for tests that call a search module directly.
+
+    Shut down at teardown, so no ``ariel-search-call`` worker outlives the test.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS
+
+    executor = ThreadPoolExecutor(
+        max_workers=SEARCH_CALL_WORKERS, thread_name_prefix="ariel-search-call"
+    )
+    yield executor
+    executor.shutdown(wait=False, cancel_futures=True)
+
+
+@pytest.fixture
 def litellm_callback_pool() -> Iterator[ThreadPoolExecutor]:
     """Run litellm's success handlers on a pool this test owns, shut down after it.
 

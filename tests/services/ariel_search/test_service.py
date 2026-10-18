@@ -11,6 +11,7 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.models import ARIELSearchResult
+from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS, run_search_call
 from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
     format_keyword_result,
@@ -194,6 +195,69 @@ class TestARIELSearchService:
         async with service:
             pass
         service.pool.close.assert_called_once()
+
+    def test_the_service_owns_a_bounded_search_call_pool(self):
+        """Search-time provider calls run on the service's own small pool."""
+        service = self._create_mock_service()
+        try:
+            assert service._search_calls._max_workers == SEARCH_CALL_WORKERS
+            assert service._search_calls._thread_name_prefix == "ariel-search-call"
+        finally:
+            service._search_calls.shutdown(wait=False, cancel_futures=True)
+
+    @pytest.mark.asyncio
+    async def test_aclose_releases_the_search_calls_then_both_pools_and_a_second_call_does_nothing(
+        self,
+    ):
+        """One close, in order: search-call pool, read-only pool, ingestion pool."""
+        service = self._create_mock_service()
+        order: list[str] = []
+        real_shutdown = service._search_calls.shutdown
+
+        def _shutdown(*args, **kwargs):
+            order.append("search_calls")
+            real_shutdown(*args, **kwargs)
+
+        service._search_calls.shutdown = _shutdown  # type: ignore[method-assign]
+        service.readonly_pool = MagicMock()
+        service.readonly_pool.close = AsyncMock(side_effect=lambda: order.append("readonly"))
+        service.pool.close = AsyncMock(side_effect=lambda: order.append("pool"))
+
+        await service.aclose()
+        await service.aclose()
+
+        assert order == ["search_calls", "readonly", "pool"]
+        service.pool.close.assert_awaited_once()
+        service.readonly_pool.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failing_readonly_close_still_closes_the_ingestion_pool(self):
+        """A close that raises does not leave the next resource open; its error surfaces."""
+        service = self._create_mock_service()
+        service.readonly_pool = MagicMock()
+        service.readonly_pool.close = AsyncMock(side_effect=RuntimeError("readonly close failed"))
+
+        with pytest.raises(RuntimeError, match="readonly close failed"):
+            await service.aclose()
+
+        service.pool.close.assert_awaited_once()
+        assert service._search_calls._shutdown is True
+
+    @pytest.mark.asyncio
+    async def test_a_closed_service_leaves_no_search_call_thread(self):
+        """After ``aclose()`` the exit report names no search-call worker."""
+        import io
+
+        from tests._live_threads import report_live_threads
+
+        service = self._create_mock_service()
+        assert await run_search_call(service._search_calls, lambda: 42) == 42
+
+        await service.aclose()
+
+        report = io.StringIO()
+        report_live_threads(report, grace=2.0)
+        assert "ariel-search-call" not in report.getvalue()
 
     @pytest.mark.asyncio
     async def test_health_check_healthy(self):
