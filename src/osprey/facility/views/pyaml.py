@@ -1266,7 +1266,7 @@ def _measurement_value(measurement: Mapping[str, Any], key: str) -> float | int:
 
 def _configuration(
     inputs: ViewInputs, model: str
-) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
     """One model's pyAML configuration, the extra files it references and what it leaves out.
 
     A setpoint whose calibration pyAML cannot represent has no magnet and is in
