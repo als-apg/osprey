@@ -582,8 +582,8 @@ def _record_write(address: str, phase: str) -> None:
 
     Registered as a runtime write observer, so it hears every phase of every
     channel; only the phases after the connector answered are recorded, one
-    record per channel. ``attempt`` precedes the send and a refused write gets
-    no later phase, so neither files anything here.
+    record per channel. ``attempt`` precedes the send and files nothing here;
+    ``refused`` files nothing either.
 
     Args:
         address: The channel written.
