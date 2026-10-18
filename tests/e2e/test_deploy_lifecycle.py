@@ -89,6 +89,8 @@ from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
+from tests._container_support import RuntimeContainer, wait_until_ready
+from tests.integration._qmd_ariel_support import SIDECAR_HEALTH_CEILING
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -1594,8 +1596,10 @@ QMD_TOUCH_MARKER = ".qmd-touch"
 #: larger corpus buys nothing but embedding time.
 BUNDLE_SEED_DIR = FIXTURES_DIR / "facility_bundle"
 
-#: How long the sidecar gets to build its first index and open the port. Two
-#: documents index in seconds, but the embedder loads on CPU on first use.
+#: Seconds the sidecar may go without writing to its log before the wait for
+#: its port gives up. Two documents index in seconds, but the embedder loads on
+#: CPU on first use; while the log keeps growing the wait goes on, up to
+#: ``SIDECAR_HEALTH_CEILING``.
 QMD_READY_TIMEOUT_SEC = 300.0
 
 #: How long a marker-triggered re-index gets to make a new document findable.
@@ -1737,28 +1741,25 @@ def _wait_for_qmd_health(timeout: float) -> None:
     """Block until the sidecar opens its port, or fail naming what went wrong.
 
     The entrypoint runs its whole startup index pass BEFORE it opens the port,
-    so this covers indexing the seed corpus, not just process start. A sidecar
-    that never opens the port has almost always died in that pass; the last
-    lines of its log say why, so they are carried into the failure.
+    so this covers indexing the seed corpus, not just process start. *timeout*
+    is the silence the sidecar is allowed; a sidecar that exits ends the wait
+    at once, and the failure carries the last lines of its log.
     """
-    deadline = time.monotonic() + timeout
-    last_err = "(no attempt yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(  # loopback only
-                f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
-            ) as resp:
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(2.0)
-    logs = _runtime_cli("logs", "--tail", "40", QMD_CONTAINER, timeout=30)
-    raise AssertionError(
-        f"qmd sidecar did not answer /health on :{QMD_PORT} within {timeout:.0f}s "
-        f"(last: {last_err})\n--- {QMD_CONTAINER} logs (tail) ---\n"
-        f"{logs.stdout}\n{logs.stderr}"
+
+    def probe() -> None:
+        with urllib.request.urlopen(  # loopback only
+            f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
+        ) as resp:
+            if resp.status != 200:
+                raise AssertionError(f"/health answered HTTP {resp.status}")
+
+    wait_until_ready(
+        probe,
+        "qmd sidecar",
+        container=RuntimeContainer(QMD_CONTAINER, RUNTIME),
+        timeout=timeout,
+        interval=2.0,
+        ceiling=SIDECAR_HEALTH_CEILING,
     )
 
 
