@@ -6199,7 +6199,11 @@ jobs:
       #     -phase runs and passes the gate; any OTHER non-success result
       #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
       #     -gated lanes don't run at all — the gate can't vouch for them
-      #     there, same as before.
+      #     there.
+      #   * A revalidation dispatch (`revalidate_secret_lanes`) runs every
+      #     conditionally-run lane, so there a "skipped" lane FAILS the gate:
+      #     a green revalidation run vouches for every lane on its sha, and
+      #     the last green main sha is read off these runs.
       #
       # Dependabot PRs are a third case that looks like the second: the lanes
       # skip legitimately (no secrets are issued to them), so the gate passes —
@@ -6213,6 +6217,7 @@ jobs:
         ACTOR: ${{ github.actor }}
         HEAD_BRANCH: ${{ github.head_ref }}
         EVENT_NAME: ${{ github.event_name }}
+        REVALIDATE: ${{ inputs.revalidate_secret_lanes }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
       run: |
@@ -6261,7 +6266,10 @@ jobs:
         fi
         check_pr_lane() {
           # $1 = human-readable lane name, $2 = needs.<job>.result
-          if [[ "$2" == "skipped" ]]; then
+          if [[ "$2" == "skipped" && "$EVENT_NAME" == "workflow_dispatch" && "$REVALIDATE" == "true" ]]; then
+            echo "❌ $1 skipped on a revalidation run, which must run every lane"
+            exit 1
+          elif [[ "$2" == "skipped" ]]; then
             echo "⏭️  $1 skipped (lane's if: condition not met on this event)"
           elif [[ "$2" != "success" ]]; then
             echo "❌ $1 failed (result: $2)"
