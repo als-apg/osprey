@@ -191,3 +191,63 @@ def test_js_deps_current_is_stale_without_the_hidden_lockfile(tmp_path: Path) ->
     completed = _js_current(_js_tree(tmp_path, hidden=None))
     assert completed.returncode == 1
     assert "node_modules/.package-lock.json" in completed.stdout
+
+
+def _env_tree(tmp_path: Path, *, hidden: dict | None, resolves: bool = True) -> tuple[Path, Path]:
+    """A repository copy with the env step, and a stub bin dir whose ``uv`` and
+    ``npm`` log their argv to ``calls.log``."""
+    root = _js_tree(tmp_path / "repo", hidden=hidden)
+    shutil.copy2(SCRIPTS / "_gate_env.sh", root / "scripts")
+    bin_dir = tmp_path / "bin"
+    log = tmp_path / "calls.log"
+    resolved = tmp_path / "pinned-bin"
+    uv_tail = (
+        f'case " $* " in *" --pin "*) echo {PIN} ;; *) echo {resolved} ;; esac'
+        if resolves
+        else 'echo "no claude reports the pin" >&2; exit 1'
+    )
+    _stub(bin_dir / "uv", f'echo "uv $*" >> {log}\n{uv_tail}')
+    _stub(bin_dir / "npm", f'echo "npm $*" >> {log}')
+    (bin_dir / "python3").symlink_to(sys.executable)
+    return root, bin_dir
+
+
+def _source_env(root: Path, bin_dir: Path, tail: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["/bin/bash", "-c", f"set -euo pipefail; source scripts/_gate_env.sh; {tail}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin", "HOME": str(root)},
+        timeout=60,
+        check=False,
+    )
+
+
+def _calls(tmp_path: Path, program: str) -> list[str]:
+    log = tmp_path / "calls.log"
+    lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return [line for line in lines if line.startswith(f"{program} ")]
+
+
+@pytest.mark.parametrize("stale", [True, False], ids=["stale", "current"])
+def test_gate_env_runs_npm_ci_only_when_stale(tmp_path: Path, stale: bool) -> None:
+    hidden = _hidden(version={"node_modules/a": "0.9.0"}) if stale else _hidden()
+    root, bin_dir = _env_tree(tmp_path, hidden=hidden)
+    completed = _source_env(root, bin_dir, 'echo "cwd=$PWD"; echo "path=$PATH"')
+    assert completed.returncode == 0, completed.stderr
+    expected = [f"npm ci --prefix {root}"] if stale else []
+    assert _calls(tmp_path, "npm") == expected
+    state = "installed" if stale else "current"
+    resolved = tmp_path / "pinned-bin"
+    assert f"gate env: claude {PIN} ({resolved}); node_modules {state}" in completed.stdout
+    assert f"cwd={root}" in completed.stdout
+    assert f"path={resolved}{os.pathsep}{bin_dir}" in completed.stdout
+
+
+def test_gate_env_fails_when_no_claude_reports_the_pin(tmp_path: Path) -> None:
+    root, bin_dir = _env_tree(tmp_path, hidden=_hidden(), resolves=False)
+    completed = _source_env(root, bin_dir, "echo reached")
+    assert completed.returncode != 0
+    assert "reached" not in completed.stdout
+    assert "no claude reports the pin" in completed.stderr
