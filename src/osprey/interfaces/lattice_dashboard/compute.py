@@ -180,9 +180,10 @@ class ComputeManager:
             self._fail(name, key, f"Worker timed out after {WORKER_DEADLINE_S:.0f} s")
             return
         if exit_.cause is not ExitCause.COMPLETED:
-            self._fail(
-                name, key, f"Worker exited with code {exit_.returncode}: {exit_.stderr_tail}"
-            )
+            error = f"Worker exited with code {exit_.returncode}"
+            if exit_.stderr_tail.strip():
+                error += f": {exit_.stderr_tail}"
+            self._fail(name, key, error)
             return
         if not output_path.is_file():
             self._fail(name, key, "Worker completed but no output file produced")
