@@ -423,6 +423,20 @@ def test_a_running_container_that_never_answers_is_not_reported_as_exited():
     assert not isinstance(caught.value, ContainerExitedError)
 
 
+def test_a_running_container_that_never_answers_names_its_log_tail():
+    """Its own last words are where a reader looks next, whether it exited or not."""
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([b"loading embedder on cpu"])
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "qmd sidecar", timeout=0.05, interval=0.0, container=container)
+
+    message = str(caught.value)
+    assert "without visible progress" in message
+    assert "last log lines:\nloading embedder on cpu" in message
+    assert "exit code" not in message
+
+
 def test_a_chatty_container_that_never_answers_still_hits_the_ceiling():
     """Progress may extend the wait, never remove its end."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
