@@ -15,6 +15,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import (
     MISSING_KEY,
+    RECOVERY_KEY,
     NothingAnsweredError,
     make_error,
     refuse_nothing_answered,
@@ -317,10 +318,11 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
 
     A ``ConnectionError`` drops the connector it came from, and a timed-out call
     into the connector-host child pings that child, before the envelope is
-    built; each runs once per rendered envelope.
+    built; each runs once per rendered envelope and is reported under
+    ``details.recovery``.
     """
     if isinstance(exc, ConnectionError):
-        await invalidate_active_connector(connector_name)
+        dropped = await _drop_connector(connector_name)
         identity = describe_active_target() if connector_name == "control_system" else None
         if identity:
             where = f" at {identity['endpoint']}" if identity.get("endpoint") else ""
@@ -331,13 +333,13 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
         return (
             error_type,
             f"Failed to connect to the {connector_name.replace('_', ' ')}"
-            f"{_target_clause(identity)}: {exc}",
+            f"{_target_clause(identity)}: {exc}. {dropped['text']}",
             [
                 reach_suggestion,
                 f"If the {connector_name} settings are wrong, fix them in the build profile "
                 "(profile.yml on the host), then rebuild and redeploy.",
             ],
-            {"active_target": identity} if identity else None,
+            {**({"active_target": identity} if identity else {}), RECOVERY_KEY: [dropped]},
         )
     if isinstance(exc, ChildUnresponsiveError):
         outcome = await _answer_unresponsive_child(connector_name)
@@ -348,7 +350,11 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
             f"{tool_name} timed out{_target_clause(identity)}: {exc}"
             + (f". {outcome['text']}" if outcome else ""),
             ["Check network connectivity.", "Try a smaller request."],
-            {"active_target": identity} if identity else None,
+            {
+                **({"active_target": identity} if identity else {}),
+                **({RECOVERY_KEY: [outcome]} if outcome else {}),
+            }
+            or None,
         )
     if isinstance(exc, TimeoutError):
         identity = describe_active_target() if connector_name == "control_system" else None

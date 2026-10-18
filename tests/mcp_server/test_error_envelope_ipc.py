@@ -481,6 +481,7 @@ async def test_a_slow_child_that_still_answers_a_ping_is_kept(served_from_a_chil
     envelope = await _timed_out_read(manager, "SLOW:X")
 
     assert "still answers a ping, so it was kept" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_kept"
     assert manager.status()["child_pid"] == pid
     value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
     assert value is not None
@@ -496,6 +497,7 @@ async def test_a_wedged_child_that_answers_no_ping_is_replaced_on_the_same_targe
     envelope = await _timed_out_read(manager, "WEDGE:X")
 
     assert "did not answer a ping and was replaced" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_replaced"
     assert manager.status()["child_pid"] != pid
     assert manager.active_generation() == generation
     assert manager.active_target() == "live"
