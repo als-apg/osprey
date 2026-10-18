@@ -600,11 +600,13 @@ def _assert_target_pin() -> None:
 #: Phase names an observer receives. ``attempt`` fires once the target pin and
 #: the local limits net have passed, immediately before the connector call.
 #: After the call, a write whose value reached the control system is reported
-#: ``landed`` when a re-read verified it and ``sent`` otherwise. A write that
-#: reached no control system (refused, or a transport error) gets no second call.
+#: ``landed`` when a re-read verified it and ``sent`` otherwise; a channel the
+#: connector or the control system refused, with nothing sent, is reported
+#: ``refused``. An ``attempt`` with no later phase means the outcome is unknown.
 _WRITE_PHASE_ATTEMPT = "attempt"
 _WRITE_PHASE_LANDED = "landed"
 _WRITE_PHASE_SENT = "sent"
+_WRITE_PHASE_REFUSED = "refused"
 
 
 def _register_write_observer(fn: "Callable[[str, str], None]") -> None:
@@ -636,16 +638,16 @@ def record_writes() -> "Iterator[list[tuple[str, str]]]":
     * ``"landed"``: the value reached the control system and a re-read
       verified it.
     * ``"sent"``: the value reached the control system, unverified.
+    * ``"refused"``: the connector or the control system refused the channel;
+      nothing was sent.
 
-    A write refused before the connector call records nothing. A write that
-    reached no control system (the connector refused it, or the transport
-    failed) records its ``attempt`` and no second phase. A multi-channel write
-    reports every channel's ``attempt`` before the connector call. When the
-    connector returns its results, every channel's outcome is reported before
-    the write raises for any of them. When the connector itself raises partway
-    (a limits violation, a transport error), no outcome is reported: an
-    ``attempt`` with no later phase then means the outcome is unknown, and the
-    value may have gone out.
+    A write refused before the connector call records nothing. A
+    multi-channel write reports every channel's ``attempt`` before the
+    connector call. When the connector returns its results, every channel's
+    outcome is reported before the write raises for any of them. When the
+    connector itself raises a refusal partway, the channel the refusal names is
+    reported ``refused`` and no other outcome is reported. An ``attempt`` with
+    no later phase means the outcome is unknown; the value may have gone out.
 
     Each block records into its own list, so nested and concurrent blocks
     never share records, and nothing is recorded once the block has closed.
@@ -681,12 +683,15 @@ def _phase_for_outcome(outcome: Any) -> str | None:
     Classified by :class:`WriteOutcome`, never by the exception a caller sees:
     ``confirmed`` is the only verified outcome (``landed``); ``mismatch``,
     ``unconfirmed``, ``failed`` and ``unrequested`` all put the value on the
-    wire without verifying it held (``sent``); ``refused`` sent nothing.
+    wire without verifying it held (``sent``); ``refused`` sent nothing
+    (``refused``).
     """
     from osprey_connectors.control_system import WriteOutcome
 
-    if outcome is None or outcome == WriteOutcome.REFUSED:
+    if outcome is None:
         return None
+    if outcome == WriteOutcome.REFUSED:
+        return _WRITE_PHASE_REFUSED
     if outcome == WriteOutcome.CONFIRMED:
         return _WRITE_PHASE_LANDED
     return _WRITE_PHASE_SENT
@@ -735,11 +740,15 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    from osprey_connectors.errors import ChannelWriteFailedError
+    from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 
     _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
     try:
         result = await connector.write_channel_checked(channel_address, value, **kwargs)
+    except ChannelWriteBlockedError:
+        # write_channel_checked raises it only for this channel's refusal.
+        _notify_write(channel_address, _WRITE_PHASE_REFUSED)
+        raise
     except ChannelWriteFailedError as exc:
         # The value reached the control system but did not come back verified.
         # ``outcome`` is unset only when a connector raised this itself rather
@@ -824,6 +833,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         _assert_target_pin()
 
         from osprey_connectors.control_system import raise_for_write_result
+        from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 
         connector = await _get_connector()
 
@@ -837,7 +847,16 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         for channel_address in channel_values:
             _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
 
-        results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
+        try:
+            results = await connector.write_multiple_channels(
+                list(channel_values.items()), **kwargs
+            )
+        except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
+            # A refusal raised partway names the one channel it refused; every
+            # other channel's outcome stays unknown.
+            if exc.channel_address in channel_values:
+                _notify_write(exc.channel_address, _WRITE_PHASE_REFUSED)
+            raise
         # Every channel's outcome is reported before any raise: a failure on one
         # channel must not hide that the others already went out.
         for result in results:

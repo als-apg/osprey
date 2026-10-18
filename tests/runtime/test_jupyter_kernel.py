@@ -689,8 +689,16 @@ class TestTheWriteRecord:
 
     @pytest.mark.usefixtures("observed", "unstamped")
     def test_kernel_write_record_an_attempt_alone_files_nothing(self, _isolate_audit_zone):
-        """A refused write gets only ``attempt``, and its record is the refusal's."""
+        """``attempt`` precedes the send; the record comes with the outcome."""
         runtime._notify_write("SR:MAG:1", "attempt")
+
+        assert kernel_ledger(_isolate_audit_zone) == []
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_a_refused_phase_files_no_record(self, _isolate_audit_zone):
+        """A refused write sent nothing; its record is the refusal's."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+        runtime._notify_write("SR:MAG:1", "refused")
 
         assert kernel_ledger(_isolate_audit_zone) == []
 
