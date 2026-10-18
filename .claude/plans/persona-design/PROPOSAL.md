@@ -74,7 +74,7 @@ and never with the host agent's tool switches or write posture.
   (graph on, `safety` rule in, `claude_md_template: CLAUDE.logbook.md.j2`), `knowledge.yml`,
   `channel-finder.yml`, each listing only what the app is; `control-assistant.yml` roster
   rewritten (`tier`, `shared`, `landing.groups` with a users and an apps group, `dispatch.tier:
-  readonly`); `ariel.demo_narrative` shipped commented beside the commented ingestion guidance.
+  readonly`).
 - **Deletion, widened to what it strands.** `ariel-standalone.yml`,
   `channel-finder-standalone.yml`, `control-assistant-{logbook,knowledge,readonly,readwrite,admin}.yml`,
   `templates/apps/{ariel_standalone,channel_finder_standalone}/`, `scripts`/`docs`/`tests`/
@@ -83,7 +83,23 @@ and never with the host agent's tool switches or write posture.
   docs build, `use-facility-graph.rst:185,419-423`, `_static/resources/ariel_standalone.png`,
   `test_picture_search_docs._PRESETS`, the postgresql template comments and their rendered
   golden, `cf_standalone_addresses.json`, `demo_census.json`, `plugins/osprey/skills/setup/**`
-  with a plugin version bump, e2e fixtures, `.pre-commit-config.yaml:69`, `reach.py:546`).
+  with a plugin version bump, e2e fixtures, `.pre-commit-config.yaml:69`, `reach.py:546`,
+  and the unreleased `changelog.d` fragments that describe the standalones:
+  `ariel-standalone-narrative.changed.md`, `standalones-name-the-facility.changed.md`).
+- **`ariel.demo_narrative` deleted** (owner, 2026-10-17). The key existed only so the
+  standalone demo could narrate every scenario; `osprey up` keeps seeding the *active*
+  scenarios' logbook entries into an empty logbook as today. Complete sweep: `simulation/apply.py`
+  (`DEMO_NARRATIVE_KEY`, `DEMO_NARRATIVE_ALL`, `demo_narrative_scenarios`,
+  `demo_narrative_logbook`, `_demo_narrative`, the branch in `seed_active_logbook`, docstrings),
+  `ariel_search/cli_operations.py` (`_quickstart_narrative` and its branch at 3142-3145; the
+  quickstart's enhancement pass now runs over whatever the logbook already holds when no
+  ingestion source is configured, instead of being gated on the key), `ariel_search/config.py`
+  docstring, `ingestion/adapters/generic.py:243` comment, `config_key_manifest.yml` row,
+  `docs/source/reference/configuration/config.rst` §`ariel.demo_narrative`, `cli.rst:1171`,
+  tests `test_active_logbook_seed.py`, `test_cli_operations_maintenance.py`, `test_build_preset.py`,
+  `test_apply_seed.py`, `test_preset_hash_pin.py`, `test_build_profile_ariel_sync.py`, the
+  `explicit_config/ariel-standalone/unset/root.yml` cell (deleted with its directory). The
+  config-key guard then has five phantom keys to resolve through `render_contexts.apps`, not six.
 - **Resolver.** `resolve_profile_root` and `resolve_profile_document` return a kind
   `{root, tier, app}` from location on both sides; one merge; the app underlay rule; structural
   write pins on app renders; attachment set from kind and refused when spelled; a known-key set
@@ -111,7 +127,8 @@ and never with the host agent's tool switches or write posture.
 - **dispatch.tier.** Own last code phase: reference semantics, one image producer, one build
   step on both deploy paths, baked tier config, one container project dir, `OSPREY_WORKER_IMAGE`
   refused when a tier is set, deployment-editing tiers refused.
-- **Config-key guard.** `render_contexts.apps` composed over the host; governed claims
+- **Config-key guard.** `render_contexts.apps` composed over the host (the five remaining
+  standalone-only keys get honest writers there); governed claims
   `logbook` and `channel-finder`; empty claims fail; same-value marks on
   `approval.tools.entry_create/entry_publish` dropped; panel-port markers removed;
   `expected_union_size` re-recorded.
@@ -330,6 +347,7 @@ and never with the host agent's tool switches or write posture.
 | 129 test files read the old keys | exemplar authored first as the spec; fixtures follow it; the rewrite function's tests keep old-key repos green |
 | Internal vocabulary phase is large | mechanical, last before docs, its own phase; `git grep -i persona` is the gate |
 | Docs section cited by templates disappears | SQL read-only-role section relocated before the page is deleted; `-W` docs build is a gate |
+| Quickstart loses its only enhancement path when the narrative key goes | the quickstart enhances what the logbook holds whenever no ingestion source is configured; a test seeds the active narrative via `osprey up`'s path and asserts quickstart adds embeddings |
 
 ## Stakeholders
 

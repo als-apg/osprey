@@ -127,8 +127,9 @@ Corrections to the Consequences list (plan-time, from the round):
   superseded).
 - The picture's `dispatch: tier: readonly` is now emitted by `osprey init --preset control-assistant`
   (the flagship preset sets it); unset still means the deployment's own posture.
-- `ariel.demo_narrative` ships commented in `control-assistant.yml`, not live: live, it would seed
-  simulator scenarios into a real facility's logbook on first `osprey up`.
+- `ariel.demo_narrative` is **deleted** (owner, 2026-10-17, "complete sweep"): an unreleased
+  two-week-old key whose only user was the standalone demo. `osprey up` keeps seeding the active
+  scenarios' logbook as today; the quickstart's enhancement pass no longer depends on the key.
 
 New public names composed from approved words, listed here for the owner's veto at the plan gate
 (standing rule: public names need explicit approval):

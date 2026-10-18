@@ -45,6 +45,18 @@
     {
       "question": "Replacement for osprey scaffold personas",
       "answer": "Both `osprey scaffold tiers` and `osprey scaffold apps`; the lint remedy for a missing apps/<n>.yml names the verb. Owner, 2026-10-17."
+    },
+    {
+      "question": "dispatch.tier default in the flagship preset",
+      "answer": "Yes: control-assistant emits dispatch.tier: readonly; unset still means the deployment's own posture. Owner, 2026-10-17."
+    },
+    {
+      "question": "New public names renders / type: apps ('Apps') / list_tiers(), list_apps()",
+      "answer": "All three stand. Owner, 2026-10-17."
+    },
+    {
+      "question": "ariel.demo_narrative",
+      "answer": "Delete it, complete sweep, nothing forgotten. Owner, 2026-10-17. The feature was unreleased (two changelog.d fragments still pending) and served only the deleted standalone demo."
     }
   ],
   "codebase_findings": {
@@ -500,8 +512,8 @@
     {
       "point": "4-da",
       "question": "IA-2 demo_narrative live in control-assistant",
-      "decision": "ship commented; demo repos set it with --set; tests re-aimed",
-      "justification": "\u00a71 safe default; follow-up 5 was planner-resolved, not ruled; skeptic found the deploy-path effect too",
+      "decision": "DELETED outright (owner, discussion 2026-10-17; supersedes the round's 'ship commented'): key, functions, quickstart branch, manifest row, docs, tests, fixture cell, and the two unreleased changelog.d fragments; quickstart enhances what the logbook holds",
+      "justification": "\u00a71 safe default; follow-up 5 was planner-resolved, not ruled; skeptic found the deploy-path effect too; owner did not recognise the feature and ruled complete deletion \u2014 deletion widens with the standalone it served",
       "confidence": "high",
       "source": "design-principle"
     },
