@@ -235,6 +235,7 @@ async def test_the_mcp_context_shutdown_closes_both_pools():
 
     assert ingest.closed
     assert readonly.closed
+    assert service._search_calls._shutdown is True
 
 
 @pytest.mark.asyncio
@@ -267,6 +268,7 @@ async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
 
     assert ingest.closed
     assert readonly.closed
+    assert service._search_calls._shutdown is True
     assert capability._ariel_service_instance is None
 
 
@@ -292,3 +294,4 @@ async def test_a_single_pool_service_still_closes_cleanly(monkeypatch):
             monkeypatch.setattr(capability, "_ariel_service_instance", service)
             await capability.close_ariel_service()
         assert pool.closed
+        assert service._search_calls._shutdown is True
