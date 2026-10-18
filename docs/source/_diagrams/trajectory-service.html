@@ -1,0 +1,64 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1120 330" role="img" aria-labelledby="trajectory-service-title trajectory-service-desc">
+  <title id="trajectory-service-title">The trajectory service and its two doors</title>
+  <desc id="trajectory-service-desc">Two hops reach the trajectory service, both through the web terminal's panel proxy. The operator's browser calls the proxy at the panel's API path, which leads to the panel door. The agent calls the trajectory MCP server, which bounds each call by the service's own budgets and calls the proxy at the agent's API path with the panel token, which leads to the agent door, the door that also checks the launch token. The proxy drops any owner a request claims, adds the terminal's secret, and on the agent's hop the service's launch token as well; it sets no read bound on either hop. The service's shared web gate admits on the secret and names its account as the owner. Both doors hand the owner to one admission check and one worker, which takes the target's guarded-run lock before it acts.</desc>
+  <defs>
+    <marker id="trajectory-service-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- the operator's hop -->
+  <line class="e" x1="180" y1="68" x2="396" y2="148" marker-end="url(#trajectory-service-arr)"/>
+  <!-- the agent's hop -->
+  <line class="e" x1="140" y1="272" x2="176" y2="272" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="350" y1="262" x2="396" y2="204" marker-end="url(#trajectory-service-arr)"/>
+  <!-- proxy to gate to doors to admit -->
+  <line class="e" x1="590" y1="175" x2="636" y2="175" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="790" y1="158" x2="836" y2="90" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="790" y1="192" x2="836" y2="260" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="980" y1="90" x2="1006" y2="148" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="980" y1="260" x2="1006" y2="202" marker-end="url(#trajectory-service-arr)"/>
+
+  <rect class="mask" x="228" y="98" width="120" height="12" rx="2"/>
+  <text class="ta" x="288" y="107" text-anchor="middle">…/trajectory/panel/api</text>
+  <rect class="mask" x="330" y="230" width="96" height="12" rx="2"/>
+  <text class="ta" x="378" y="239" text-anchor="middle">…/trajectory/api</text>
+
+  <rect class="nb-in" x="20" y="40" width="160" height="56" rx="6"/>
+  <text class="tn" x="100" y="64" text-anchor="middle">operator's browser</text>
+  <text class="ts" x="100" y="80" text-anchor="middle">operator credential</text>
+
+  <rect class="nb-in" x="20" y="244" width="120" height="56" rx="6"/>
+  <text class="tn" x="80" y="268" text-anchor="middle">the agent</text>
+  <text class="ts" x="80" y="284" text-anchor="middle">a tool call</text>
+
+  <rect class="nb" x="180" y="244" width="170" height="56" rx="6"/>
+  <text class="tn" x="265" y="268" text-anchor="middle">trajectory MCP server</text>
+  <text class="ts" x="265" y="284" text-anchor="middle">panel token · call bound</text>
+
+  <rect class="nb" x="400" y="128" width="190" height="94" rx="6"/>
+  <text class="tn" x="495" y="152" text-anchor="middle">terminal panel proxy</text>
+  <text class="ts" x="495" y="170" text-anchor="middle">drops a claimed owner</text>
+  <text class="ts" x="495" y="186" text-anchor="middle">adds secret · launch token</text>
+  <text class="ts" x="495" y="202" text-anchor="middle">no read bound to a door</text>
+
+  <rect class="nb-foc" x="640" y="135" width="150" height="80" rx="6"/>
+  <text class="tn" x="715" y="161" text-anchor="middle">shared web gate</text>
+  <text class="ts" x="715" y="179" text-anchor="middle">admits on the secret</text>
+  <text class="ts" x="715" y="195" text-anchor="middle">owner = its account</text>
+
+  <rect class="nb-foc" x="840" y="50" width="140" height="56" rx="6"/>
+  <text class="tn" x="910" y="74" text-anchor="middle">panel door</text>
+  <text class="ts" x="910" y="90" text-anchor="middle">/panel/api/*</text>
+
+  <rect class="nb-foc" x="840" y="244" width="140" height="56" rx="6"/>
+  <text class="tn" x="910" y="268" text-anchor="middle">agent door</text>
+  <text class="ts" x="910" y="284" text-anchor="middle">/api/* · launch token</text>
+
+  <rect class="nb-st" x="1010" y="135" width="100" height="80" rx="6"/>
+  <text class="tn" x="1060" y="161" text-anchor="middle">admit</text>
+  <text class="ts" x="1060" y="179" text-anchor="middle">one worker</text>
+  <text class="ts" x="1060" y="195" text-anchor="middle">run lock</text>
+</svg>
+</div>

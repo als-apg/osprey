@@ -226,25 +226,28 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
 #: ``web_terminal.app.TRAJECTORY_PANEL_ID``, which this module cannot import.
 _TRAJECTORY_PANEL_ID = "trajectory"
 
-#: The bounds of the hop to the trajectory service's agent door: a connect
+#: The bounds of the hop to either of the trajectory service's doors: a connect
 #: bound and no read bound. A shot or an apply answers only when its action
-#: ends, which can be minutes; the agent's MCP client bounds the call by the
-#: service's own budgets, and the shared client's 30 s read bound would cut a
+#: ends, which can be minutes; the shared client's 30 s read bound would cut a
 #: running action's answer off while the service still works on it.
-_TRAJECTORY_AGENT_HOP_TIMEOUT = httpx.Timeout(None, connect=5.0)
+_TRAJECTORY_DOOR_HOP_TIMEOUT = httpx.Timeout(None, connect=5.0)
 
 
-def _is_trajectory_agent_hop(panel_id: str, path: str) -> bool:
-    """Whether this request is the hop to the trajectory service's agent door.
+def _is_trajectory_door_hop(panel_id: str, path: str) -> bool:
+    """Whether this request is the hop to one of the trajectory service's doors.
 
-    The agent door is the service's ``/api/*`` tree; the panel door
-    (``panel/api/*``) and the panel's page are ordinary panel traffic.
+    Both doors run actions that answer only when they end: the agent door
+    (``api/*``) for the agent's MCP client, which bounds the call by the
+    service's own budgets, and the panel door (``panel/api/*``) for the
+    operator's buttons. Either may outlast the shared client's read bound, so
+    both go without one. The panel's page and its static files are ordinary
+    panel traffic and keep the shared client's bounds.
 
     Args:
         panel_id: The panel id from the proxied URL.
         path: The path segment below the panel id, without a leading slash.
     """
-    return panel_id == _TRAJECTORY_PANEL_ID and path.startswith("api/")
+    return panel_id == _TRAJECTORY_PANEL_ID and path.startswith(("api/", "panel/api/"))
 
 
 #: Request headers that are never forwarded to a panel backend.
@@ -1577,8 +1580,8 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             url=target,
             headers=fwd_headers,
             content=body if body else None,
-            timeout=_TRAJECTORY_AGENT_HOP_TIMEOUT
-            if _is_trajectory_agent_hop(panel_id, path)
+            timeout=_TRAJECTORY_DOOR_HOP_TIMEOUT
+            if _is_trajectory_door_hop(panel_id, path)
             else None,
         )
         if _is_redirect(resp):

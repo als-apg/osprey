@@ -5,8 +5,9 @@ the armed flag of each device of the group ``groups.bpm`` names, one address
 per device in the group's ``(s, id)`` order; ``injection_request`` and
 ``injection_busy``, the two instruments the kind always names; and
 ``bunch_clean_enable``, ``beam_current`` and ``rf_status`` only when the
-measurement file names them. A model whose file does not list the kind has no
-slots. The agent facts carry the same answer per model under
+measurement file names them; then ``tags``, every signal the group's devices
+carry mapped to its addresses in the same device order. A model whose file does
+not list the kind has no slots. The agent facts carry the same answer per model under
 ``trajectory_slots``, apart from the pyAML view records.
 
 The example facility's ``SR`` measures the kind: the devices behind its
@@ -43,12 +44,29 @@ if TYPE_CHECKING:
 REQUIRED = ("arm", "armed", "injection_request", "injection_busy")
 OPTIONAL = ("bunch_clean_enable", "beam_current", "rf_status")
 
+#: The key of the signal-to-addresses map, after every slot.
+TAGS = "tags"
+
+
+def _tags(*stems: str) -> dict[str, list[str]]:
+    """The tags of monitor devices whose five channels sit under ``stems``, in that order."""
+    suffixes = {
+        "bpm_arm_command": "ARM",
+        "bpm_armed_status": "ARMED",
+        "bpm_tbt_sum": "TBT:SUM",
+        "bpm_tbt_x": "TBT:X",
+        "bpm_tbt_y": "TBT:Y",
+    }
+    return {signal: [f"{stem}:{suffix}" for stem in stems] for signal, suffix in suffixes.items()}
+
+
 #: The slots of the periodic tree as ``with_trajectory`` leaves it.
 SR_SLOTS = {
     "arm": ["SR:BPM:ARM"],
     "armed": ["SR:BPM:ARMED"],
     "injection_request": "SR:INJ:REQ",
     "injection_busy": "SR:INJ:BUSY",
+    TAGS: _tags("SR:BPM"),
 }
 
 
@@ -124,7 +142,7 @@ def test_a_file_naming_no_optional_instrument_has_the_four_required_slots(
     document, _ = built_document(tmp_path, periodic_tree())
     slots = trajectory_slots(document, "SR")
     assert slots == SR_SLOTS
-    assert tuple(slots) == REQUIRED
+    assert tuple(slots) == (*REQUIRED, TAGS)
 
 
 def test_a_single_pass_model_has_the_same_four_slots(tmp_path: Path) -> None:
@@ -134,6 +152,7 @@ def test_a_single_pass_model_has_the_same_four_slots(tmp_path: Path) -> None:
         "armed": ["LINE:BPM:ARMED"],
         "injection_request": "LINE:INJ:REQ",
         "injection_busy": "LINE:INJ:BUSY",
+        TAGS: _tags("LINE:BPM"),
     }
 
 
@@ -143,7 +162,7 @@ def test_an_optional_slot_is_there_only_when_the_file_names_it(tmp_path: Path, s
     document, _ = built_document(tmp_path, tree)
     slots = trajectory_slots(document, "SR")
     assert slots == {**SR_SLOTS, slot: "SR:EXTRA"}
-    assert tuple(slots) == (*REQUIRED, slot)
+    assert tuple(slots) == (*REQUIRED, slot, TAGS)
 
 
 def test_every_optional_slot_named_comes_after_the_required_ones_in_one_order(
@@ -154,7 +173,7 @@ def test_every_optional_slot_named_comes_after_the_required_ones_in_one_order(
         _with_instrument(tree, slot, f"SR:{slot.upper()}")
     document, _ = built_document(tmp_path, tree)
     slots = trajectory_slots(document, "SR")
-    assert tuple(slots) == (*REQUIRED, *OPTIONAL)
+    assert tuple(slots) == (*REQUIRED, *OPTIONAL, TAGS)
     assert [slots[slot] for slot in OPTIONAL] == [f"SR:{slot.upper()}" for slot in OPTIONAL]
 
 
@@ -177,6 +196,21 @@ def test_arm_and_armed_follow_the_group_in_s_then_id_order(tmp_path: Path) -> No
         "SR:BPMA:ARMED",
         "SR:BPMU:ARMED",
     ]
+    assert slots[TAGS] == _tags("SR:BPMZ", "SR:BPM", "SR:BPMA", "SR:BPMU")
+
+
+def test_the_tags_map_holds_every_signal_the_group_devices_carry(tmp_path: Path) -> None:
+    document, _ = built_document(tmp_path, _with_monitors(periodic_tree(), "SR/BPM0"))
+    document["channels"] += [
+        {"id": "SR:BPM0:STATUS", "signal": "bpm_tbt_x", "on": {"device": "SR/BPM0"}},
+        {"id": "SR:BPM0:NOTE", "on": {"device": "SR/BPM0"}},
+    ]
+    _place(document, {"SR/BPM0": 0.5, "SR/BPM1": 1.5})
+    tags = trajectory_slots(document, "SR")[TAGS]
+    assert list(tags) == sorted(tags)
+    assert tags["bpm_tbt_x"] == ["SR:BPM0:STATUS", "SR:BPM0:TBT:X", "SR:BPM:TBT:X"]
+    assert "SR:BPM0:NOTE" not in {address for addresses in tags.values() for address in addresses}
+    assert tags["bpm_arm_command"] == trajectory_slots(document, "SR")["arm"]
 
 
 def test_arm_and_armed_hold_one_address_per_device_whatever_the_model_wires(
@@ -255,7 +289,7 @@ def test_the_zero_source_facts_carry_the_key_and_the_schema_number() -> None:
     zero = zero_source_facts({})
     assert zero["trajectory_slots"] == {}
     assert "trajectory_slots" in FACTS_KEYS
-    assert FACTS_SCHEMA == "osprey.facility.facility_facts/3"
+    assert FACTS_SCHEMA == "osprey.facility.facility_facts/4"
 
 
 def test_the_facts_and_the_zero_source_facts_carry_the_same_keys(tmp_path: Path) -> None:
@@ -284,7 +318,9 @@ def test_the_example_arms_the_devices_its_response_matrix_rows_read(
     assert len(slots["arm"]) == len(slots["armed"]) == len(rows)
     assert {device[address] for address in slots["arm"]} == rows
     assert {device[address] for address in slots["armed"]} == rows
-    assert tuple(slots) == REQUIRED
+    assert tuple(slots) == (*REQUIRED, TAGS)
+    assert slots[TAGS]["bpm_arm_command"] == slots["arm"]
+    assert slots[TAGS]["bpm_armed_status"] == slots["armed"]
 
 
 @pytest.mark.slow

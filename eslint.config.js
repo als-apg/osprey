@@ -17,9 +17,13 @@ export default [
   // deliberate change, not a side effect of a toolchain bump.
   { rules: { 'no-useless-assignment': 'off' } },
 
-  // (3) Interface + test JS: browser + vendor globals, house-style rules at error.
+  // (3) Interface + panel + test JS: browser + vendor globals, house-style rules at error.
   {
-    files: ['src/osprey/interfaces/**/*.js', 'tests/**/*.{js,mjs}'],
+    files: [
+      'src/osprey/interfaces/**/*.js',
+      'src/osprey/services/trajectory/panel/**/*.js',
+      'tests/**/*.{js,mjs}',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -41,9 +45,9 @@ export default [
     },
   },
 
-  // (4) max-lines on PRODUCTION interface JS only (exclude test files).
+  // (4) max-lines on PRODUCTION interface and panel JS only (exclude test files).
   {
-    files: ['src/osprey/interfaces/**/*.js'],
+    files: ['src/osprey/interfaces/**/*.js', 'src/osprey/services/trajectory/panel/**/*.js'],
     ignores: ['**/*.test.*'],
     rules: {
       'max-lines': ['error', { max: 450, skipComments: true, skipBlankLines: true }],
@@ -71,7 +75,7 @@ export default [
     },
   },
 
-  // (6) Ban `// @ts-nocheck` across interface + test JS. Under checkJs a
+  // (6) Ban `// @ts-nocheck` across interface, panel and test JS. Under checkJs a
   //     `// @ts-check` header is a redundant no-op, but a leading `// @ts-nocheck`
   //     opts a file out of tsc entirely; this rule keeps a new one from landing
   //     silently. See tools/eslint/no-ts-nocheck.js and CONTRIBUTING.md.
@@ -81,6 +85,7 @@ export default [
     files: [
       'src/osprey/interfaces/**/static/js/**/*.js',
       'src/osprey/interfaces/bluesky_web/panels/**/*.js',
+      'src/osprey/services/trajectory/panel/**/*.js',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

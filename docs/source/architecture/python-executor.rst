@@ -39,8 +39,9 @@ A render that carries a pyAML view adds two tools to the same server, and a
 render without one registers neither: ``pyaml_measure`` measures a response
 matrix or the chromaticity on the control target through a generated script,
 every write of one measurement under the control target's run lock, and
-``model_response_matrix`` solves a served model's orbit response on its deck
-in a sandbox child (see :doc:`/how-to/measure-with-pyaml`).
+``model_response_matrix`` solves a served model's response on its deck in a
+sandbox child — its closed-orbit response, or for a ``trajectory`` kind the
+first-turn trajectory response (see :doc:`/how-to/measure-with-pyaml`).
 
 The ``execute``, ``execute_file``, ``pyaml_measure`` and
 ``model_response_matrix`` tool parameters and the JSON they return are

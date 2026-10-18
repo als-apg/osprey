@@ -2221,6 +2221,21 @@ def _inject_project_metadata(config):
         )
         config_with_labels["services"] = services
 
+        # How long a container stop waits for the service before killing it,
+        # derived from the call timeout of the connector its target selects —
+        # the target resolved as the block above resolves it (:func:`_lane_target`).
+        from osprey.services.trajectory.constants import (
+            connector_call_timeout_s,
+            stop_grace_period_s,
+        )
+
+        target = _lane_target(
+            services[TRAJECTORY_SERVICE_KEY], config_with_labels.get("control_system")
+        )
+        config_with_labels["osprey_trajectory_stop_grace_period"] = (
+            f"{stop_grace_period_s(connector_call_timeout_s(config_with_labels, target))}s"
+        )
+
     # The channel-limits bind as a PROJECT-image container needs it. The
     # `limits_mount` key anchors its target on the service images' config root
     # (`/app/project`); a project image reads its config at

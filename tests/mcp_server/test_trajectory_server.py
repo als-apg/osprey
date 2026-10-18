@@ -605,20 +605,24 @@ class TestProxyHop:
         [
             ("trajectory", "api/shot", True),
             ("trajectory", "api/state", True),
-            ("trajectory", "panel/api/state", False),
+            ("trajectory", "panel/api/state", True),
+            ("trajectory", "panel/api/apply", True),
+            ("trajectory", "panel/", False),
+            ("trajectory", "panel/static/panel.js", False),
             ("trajectory", "", False),
             ("events", "api/shot", False),
+            ("events", "panel/api/state", False),
         ],
     )
-    def test_only_the_agent_door_is_the_trajectory_hop(self, panel_id, path, expected):
+    def test_both_doors_are_the_trajectory_hop(self, panel_id, path, expected):
         from osprey.interfaces.web_terminal.routes import proxy
 
-        assert proxy._is_trajectory_agent_hop(panel_id, path) is expected
+        assert proxy._is_trajectory_door_hop(panel_id, path) is expected
 
     def test_the_hop_has_a_connect_bound_and_no_read_bound(self):
         from osprey.interfaces.web_terminal.routes import proxy
 
-        bounds = proxy._TRAJECTORY_AGENT_HOP_TIMEOUT
+        bounds = proxy._TRAJECTORY_DOOR_HOP_TIMEOUT
         assert bounds.read is None
         assert bounds.connect == 5.0
 
@@ -638,8 +642,8 @@ class TestProxyHop:
             url="http://svc/api/shot",
             headers={},
             content=None,
-            timeout=proxy._TRAJECTORY_AGENT_HOP_TIMEOUT,
+            timeout=proxy._TRAJECTORY_DOOR_HOP_TIMEOUT,
         )
 
-        assert seen["timeout"] is proxy._TRAJECTORY_AGENT_HOP_TIMEOUT
+        assert seen["timeout"] is proxy._TRAJECTORY_DOOR_HOP_TIMEOUT
         assert seen["follow_redirects"] is False

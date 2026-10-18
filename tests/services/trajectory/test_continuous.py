@@ -237,6 +237,7 @@ def _sessions(*, max_shots: int = 100, sequence: Any = None) -> tuple[Sessions, 
         commands=SimpleNamespace(model=MODEL),
         tool=_tool(fake),
         sequence=sequence,
+        tag_addresses={},
         settings=SimpleNamespace(continuous_max_shots=max_shots, action_timeout_s=60.0),
     )
     return Sessions(_Layer(startup)), fake  # type: ignore[arg-type]

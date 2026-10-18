@@ -1,0 +1,69 @@
+/*
+ * TRAJECTORY panel — token-only styling. Every color/spacing value below
+ * resolves through a var(--…) design token from tokens.css; no raw hex
+ * literals anywhere in this file.
+ *
+ * Layout, outside in: the panel chrome (the standalone header), then the
+ * panel body the views render into.
+ */
+
+/* Containers that carry `display: flex/grid` would otherwise win over the
+ * `hidden` attribute's default `display: none`; this guard keeps the
+ * attribute authoritative regardless of layout display. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  padding: 14px;
+  font-family: var(--font-display);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* `height`, not `min-height`: the column stays at the viewport and hands any
+ * overflow to `.panel-body`, which scrolls. The `- 28px` is `body`'s 14px
+ * padding, top and bottom; embedded, that padding is dropped (the host frame
+ * supplies its own gutter), so the column is a full viewport. The two rules
+ * have to agree. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 28px);
+}
+body.embedded { padding: 0; }
+body.embedded .panel { height: 100vh; }
+
+/* The host tile bar is the one header a framed tile has, so the panel's own
+ * header exists only standalone. */
+.panel-chrome {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-default);
+}
+body.embedded .panel-chrome { display: none; }
+
+.panel-chrome h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.panel-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}

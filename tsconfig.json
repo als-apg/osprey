@@ -17,6 +17,7 @@
     "src/osprey/interfaces/vendor-globals.d.ts",
     "src/osprey/interfaces/**/static/js/**/*.js",
     "src/osprey/interfaces/bluesky_web/panels/**/*.js",
+    "src/osprey/services/trajectory/panel/**/*.js",
     "tests/**/*.js",
     "tests/**/*.mjs"
   ],

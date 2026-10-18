@@ -2,7 +2,9 @@
 
 It also spells the service's wire names a client needs (its doors and its
 session header), so the agent's MCP client and the service share one
-definition; this module imports nothing beyond the standard library.
+definition; this module imports nothing beyond the standard library at load
+time, and :func:`connector_call_timeout_s` imports the connector package only
+when it is called.
 
 Every ``services.trajectory.*`` key the service reads beside its target and
 model is spelled here once, with the value a deployment gets when it states
@@ -24,7 +26,9 @@ Units:
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 __all__ = [
     "ACTION_TIMEOUT_KEY",
@@ -52,6 +56,7 @@ __all__ = [
     "VA_SEQUENCE_DIR",
     "Budgets",
     "budgets",
+    "connector_call_timeout_s",
     "stop_grace_period_s",
 ]
 
@@ -160,3 +165,36 @@ def stop_grace_period_s(call_timeout_s: float) -> int:
     """
     stop = budgets(max_pause_s=MAX_PAUSE_CEILING_S, call_timeout_s=call_timeout_s).stop_budget_s
     return math.ceil(2 * stop + call_timeout_s + SHUTDOWN_MARGIN_S)
+
+
+def connector_call_timeout_s(config: Mapping[str, Any], target: str) -> float:
+    """The call timeout the service connector's own block declares.
+
+    The service runs under this bound and the compose render derives the
+    container's stop grace period from it, so both read it here.
+
+    Args:
+        config: The deployment's ``config.yml`` contents.
+        target: The service's control target.
+
+    Returns:
+        The block's ``timeout_s`` in seconds, or the connector default when
+        the config has no ``control_system`` section, the target does not
+        resolve to a connector type, or that type's block declares none.
+
+    Raises:
+        ValueError: If the resolved block's ``timeout_s`` is invalid.
+    """
+    from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+    from osprey_connectors.types import resolve_target
+
+    section = config.get("control_system")
+    if not isinstance(section, Mapping):
+        return DEFAULT_TIMEOUT_S
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return DEFAULT_TIMEOUT_S
+    blocks = section.get("connector")
+    block = blocks.get(connector_type) if isinstance(blocks, Mapping) else None
+    return call_timeout_s(block if isinstance(block, Mapping) else {}, connector_type)
