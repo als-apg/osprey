@@ -144,12 +144,14 @@ saved is the one the run left in its own execution folder under the script's
 fixed name; a run that names any other file saves nothing, answers
 ``data_file`` as ``null`` and says why in ``data_file_refused``. Every result
 carries ``moved``, each setpoint the call moved as ``{address, device, before}``
-with its value before the call; a stopped run also carries its ``remainder``
-and, when an error stopped it, ``error``; a killed run's failure names
-``written_channels``. A refusal means no
-setpoint moved; a completed run whose result cannot be read answers
-``execution_error`` with the saved measurement named in ``details.data_file``,
-never a refusal.
+with its value before the call, and ``missing``: ``{}`` for a completed run;
+for a stopped run each setpoint address not measured, or the kind when none is
+left, mapped to the first line of what stopped the run, or ``null`` when
+nothing raised (see
+:doc:`partial-answers`); a killed run's failure names ``written_channels``. A
+refusal means no setpoint moved; a completed run whose result cannot be read
+answers ``execution_error`` with the saved measurement named in
+``details.data_file``, never a refusal.
 
 ``model_response_matrix``
 -------------------------
