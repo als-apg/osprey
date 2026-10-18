@@ -21,6 +21,7 @@ from osprey.mcp_server.control_system.error_handling import (
 from osprey.mcp_server.errors import (
     MISSING_KEY,
     NOTHING_ANSWERED,
+    RECOVERY_KEY,
     NothingAnsweredError,
     refuse_nothing_answered,
 )
@@ -40,6 +41,7 @@ def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
 
 def test_the_contract_names():
     assert MISSING_KEY == "missing"
+    assert RECOVERY_KEY == "recovery"
     assert NOTHING_ANSWERED == "nothing_answered"
 
 
@@ -54,6 +56,22 @@ def test_nothing_answered_carries_the_map():
         "suggestions": ["Name each entry of details.missing and its text to the operator."],
         "details": {"missing": {"x": "Gone: no x", "y": None}},
     }
+
+
+def test_nothing_answered_carries_the_recovery():
+    recovery = [
+        {"action": "connector_dropped", "text": "The archiver connector was dropped."},
+        {"action": "child_kept", "text": "The child was kept."},
+    ]
+    with pytest.raises(ToolError) as excinfo:
+        refuse_nothing_answered("a_tool", "things", {"x": None}, recovery=recovery)
+
+    envelope = _envelope(excinfo)
+    assert envelope["error_message"] == (
+        "a_tool: none of the 1 requested things answered. "
+        "The archiver connector was dropped. The child was kept."
+    )
+    assert envelope["details"] == {"missing": {"x": None}, RECOVERY_KEY: recovery}
 
 
 def test_nothing_answered_keeps_further_details():
