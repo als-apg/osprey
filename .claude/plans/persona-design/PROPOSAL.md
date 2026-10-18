@@ -20,13 +20,17 @@ word. An access level becomes a **tier**; an offered agent becomes an **app** wi
 definition; the standalone app deployments are deleted; shared cards stop being fake users; the
 dispatcher's workers run a tier; the profile card lists every MCP server the render ships.
 
-The design has one rule throughout: **location is the type**, on both sides. An operator's repo
+The design has two rules throughout. **Location is the type**, on both sides: an operator's repo
 has `tiers/` and `apps/` beside `profile.yml`; the package ships `presets/tiers/` and
 `presets/apps/` beside the two deployment presets. A tier or app file is attached, adds by name
-and never excludes, because of where it lives, never because of what it spells. One merge rule
-(`_deep_merge`, lists union) serves roots, tiers and apps; the only app-specific step is that an
-app's config is underlaid with the host's *deployment facts* and never with the host agent's
-tool switches or write posture.
+and never excludes, because of where it lives, never because of what it spells. **The
+materialized repo is explicit**: `osprey init` writes `profile.yml`, every `tiers/<n>.yml` and
+every `apps/<n>.yml` as complete, commented files with a provenance block, and the build reads
+only the repo (amendment A4). No file in the repo carries `extends:` or any other pointer into the
+package; drift against the bundled preset is what `osprey validate` reports. One merge rule
+(`_deep_merge`, lists union) serves roots and tiers; an app file is a complete definition, and
+the only app-specific step is that its config is underlaid with the host's *deployment facts*
+and never with the host agent's tool switches or write posture.
 
 ## Goals and Objectives
 
@@ -34,10 +38,11 @@ tool switches or write posture.
 1. One word per axis in profile, package and docs: `tier` (`tiers/`, `presets/tiers/`) and
    `app` (`apps/`, `presets/apps/`). `list_presets()` keeps its contract (deployments only);
    `list_tiers()` and `list_apps()` stand beside it.
-2. One definition per app: `presets/apps/{logbook,knowledge,channel-finder}.yml`. An operator's
-   `apps/<name>.yml` is `extends: <app>` plus additive edits. A card built from an app takes
-   lists and brief from the app, deployment facts from the host, and writes are pinned off
-   structurally. No `exclude:` in any tier or app file.
+2. One definition per app in the package: `presets/apps/{logbook,knowledge,channel-finder}.yml`.
+   An operator's `apps/<name>.yml` is that definition materialized, explicit and commented,
+   with a provenance block, like `profile.yml` and the tier files. A card built from an app
+   takes lists and brief from the app file, deployment facts from the host, and writes are
+   pinned off structurally. No `exclude:` and no `extends:` in any tier or app file.
 3. The roster lists people (`users[].tier`); `modules.web_terminals.shared: [apps]` lists the
    shared cards. Derived card entries exist in memory only and are never written back.
 4. `dispatch.tier` is one more reference to a tier: the dispatcher's workers run that tier's
@@ -61,6 +66,9 @@ tool switches or write posture.
   `presets/tiers/` and `presets/apps/`; listings `list_presets()` (deployments),
   `list_tiers()`, `list_apps()`; one kind-keyed refusal shared by `osprey init`, `osprey build
   --preset`, `osprey validate <file>` and `osprey set`.
+- **Materialization.** `osprey init` emits `tiers/<n>.yml` and `apps/<n>.yml` through the same
+  explicit-emission pipeline as `profile.yml` (resolved content, preset comments, provenance
+  block, no `extends:`); `osprey validate` holds each against its bundled source.
 - **Presets.** `presets/tiers/{readonly,readwrite,admin}.yml` shrunk to their real content
   (writes pins, `web.ui_mode`, panels/skills/privilege lifts); `presets/apps/logbook.yml`
   (graph on, `safety` rule in, `claude_md_template: CLAUDE.logbook.md.j2`), `knowledge.yml`,
@@ -148,10 +156,12 @@ tool switches or write posture.
    profile.yml instead". Attachment is a fact of the kind: the resolver sets
    `deploy_services=False`, `services={}`, `modules.web_terminals.enabled: false` for both
    kinds and refuses those keys when spelled in such a file.
-3. An app file spells `extends: <app preset>` plus additive edits; `extends` naming a
-   deployment or a tier is refused. Its render is `_deep_merge(resolve_extends(app_file),
-   layer)` for lists, brief, `default_panel`, `claude_md_template`, `channel_finder_mode`; its
-   config is `_deep_merge(_deep_merge(host_facts, app_preset.config), app_file.config)` where
+3. An app file is a complete app definition (lists, `name`, `claude_md_template`,
+   `default_panel`, `channel_finder_mode`, `config`, `provenance`), materialized from a bundled
+   app preset by `osprey init` and edited in place by the operator; the build resolves nothing
+   from the package for it. Its render takes lists, brief, `default_panel`,
+   `claude_md_template` and `channel_finder_mode` from the file; its config is
+   `_deep_merge(host_facts, app_file.config)` where
    `host_facts` is the host's `config:` minus `claude_code.servers.*` and minus every
    `control_system.*writes_enabled` key (`claude_code.permissions.*` is kept and unioned, so
    the host floor deny survives); the composer then pins `control_system.writes_enabled: false`
@@ -163,10 +173,10 @@ tool switches or write posture.
 4. Known keys are a function of the kind: root → today's set; tier → root minus
    `{extends, data, project_name, deploy, deploy_services, services, lifecycle, env,
    environment, dependencies, exclude}` plus `{extra_mounts, seed_base, image}`; app →
-   `{extends, name, hooks, rules, skills, agents, output_styles, web_panels, default_panel,
+   `{name, hooks, rules, skills, agents, output_styles, web_panels, default_panel,
    claude_md_template, channel_finder_mode, config, mcp_servers, extra_mounts, seed_base,
-   image}`. The loader, `osprey set` and `osprey validate <file>` use the kind's set and name
-   the keys legal in that file.
+   image, provenance}`. `extends` is legal in a root profile only. The loader, `osprey set` and
+   `osprey validate <file>` use the kind's set and name the keys legal in that file.
 5. App presets carry no `extends`, `services`, `deployed_services`, `provider`; they state which
    host servers they switch off (`osprey_facility_knowledge` included for logbook) as a decision.
    `osprey build --preset <tier|app>` and `osprey init --preset <tier|app>` refuse with
@@ -211,9 +221,10 @@ tool switches or write posture.
 10. `_enabled_mcp_servers` builds its registry context with `graphdb_configured =
     _graphdb_configured(effective config)` and `event_dispatcher_wired =
     config_needs_dispatcher_token(effective config)` by importing those two functions.
-11. `osprey init --preset control-assistant` writes `tiers/{readonly,readwrite,admin}.yml` as
-    verbatim copies of `presets/tiers/`, `apps/{logbook,knowledge,channel-finder}.yml` as header
-    + `extends: <app>`, and a `profile.yml` whose roster uses `tier`, `shared` and
+11. `osprey init --preset control-assistant` writes `tiers/{readonly,readwrite,admin}.yml` and
+    `apps/{logbook,knowledge,channel-finder}.yml` as explicit materializations of their bundled
+    sources (content, comments, provenance; no `extends:`), and a `profile.yml` whose roster
+    uses `tier`, `shared` and
     `dispatch.tier: readonly`. `_off_chain_problem` and the bundle comparison are deleted; the
     privilege tally at init runs over `roster_entries`. `osprey scaffold tiers [--from PRESET]
     [--force]` writes the tier files of a named deployment preset into an existing repo.
@@ -222,8 +233,8 @@ tool switches or write posture.
     personas/ tiers/`; the four key spellings in `profile.yml` and every variant overlay;
     `personas.<n>.{extra_mounts,seed_base,image}` into `tiers/<n>.yml`; a `tiers/<n>.yml` whose
     provenance names `control-assistant-logbook`/`-knowledge` and whose content hash equals the
-    retired preset's is deleted, `apps/<n>.yml` written, and the users that pinned it moved into
-    `shared:`; a deviating delta stays a tier and the manual step is printed; the schema floor
+    retired preset's is deleted, `apps/<n>.yml` materialized from the bundled app, and the
+    users that pinned it moved into `shared:`; a deviating delta stays a tier and the manual step is printed; the schema floor
     is restamped; the diff is printed. `RETIRED_ROSTER_KEYS_REFUSED_FROM` names the next release
     and a test asserts the current version is below it.
 
@@ -233,8 +244,8 @@ tool switches or write posture.
   (`staleness.py:421-431`), `KNOWN_ROOT_ENTRIES`, `MATERIALIZED_SOURCE_ENTRIES` and init's
   `_entry_list` use it.
 - `_persona_pairs` in `build_profile_drift.py` becomes `_layer_pairs` over the derived
-  `renders` catalog: `tiers/<n>.yml` pairs with `presets/tiers/<n>.yml`, `apps/<n>.yml` with an
-  empty layer over the preset its `extends` names.
+  `renders` catalog: each `tiers/<n>.yml` and `apps/<n>.yml` pairs with the bundled source its
+  provenance block names, exactly as `profile.yml` pairs with its preset today.
 - `_check_persona_project_collisions` loses its shared-path exemption; `persona_project_shadows_
   worker_image` keeps its logic (ariel_sync and archive still run the project image) and its
   message says "the project image".
@@ -263,7 +274,7 @@ tool switches or write posture.
 - [ ] `list_presets() == [control-assistant, hello-world]`; `list_apps() == [channel-finder, knowledge, logbook]`; `list_tiers() == [admin, readonly, readwrite]`.
 - [ ] `osprey build --preset logbook` and `osprey build --preset readonly` refuse with the kind message; so does `osprey init --preset logbook`.
 - [ ] In a repo from `osprey init --preset control-assistant`, `build/<p>-logbook/.mcp.json` names exactly `osprey_workspace, ariel, graph`; its agents include `facility-knowledge-graph`, its rules include `safety`, its `config.yml` has every `writes_enabled` false and no bluesky/health/controls/python server; the composed knowledge render denies both `mcp__osprey_workspace__setup_patch` and `mcp__osprey_facility_knowledge__draft_concept`.
-- [ ] No bundled preset or emitted repo file contains an `exclude:` block; a tier or app file spelling `exclude:`, `deploy_services:` or `provider:` is refused; a root profile with `exclude:` still resolves (golden test).
+- [ ] No emitted repo file contains an `exclude:` or `extends:` line; a tier or app file spelling `exclude:`, `extends:`, `deploy_services:` or `provider:` is refused; a root profile with `exclude:` still resolves (golden test); `osprey validate` in the init repo reports no drift, and one edited key in `apps/logbook.yml` reports one.
 - [ ] A control-assistant build renders `build/<p>-{readonly,readwrite,admin,logbook,knowledge,channel-finder}`; `/u/logbook/` serves `<p>-logbook:local`.
 - [ ] The rendered landing HTML has a Users group with alice, bob, carol and an Apps group with "Logbook Research", "Facility Knowledge", "Channel Finder"; the sidecar chooser lists the same three titles; the sidecar env lists the three shared cards.
 - [ ] `osprey users remove logbook` refuses with the shared-card message and touches nothing.
@@ -300,7 +311,7 @@ tool switches or write posture.
   trees, `config_key_manifest.yml`, `check_config_keys.py`, `config_key_parity.md`.
 - Fixtures: `lifecycle_repo.py` (the spec), `goldens/exemplar-profile`, `explicit_config`
   (recorded baseline `241443d5d`, re-frozen), `tests/scripts/test_config_key_guard.py`.
-- Rulings: `RULINGS.md` (binding, with amendments A1–A3); AT re-cuts its plan from this card's
+- Rulings: `RULINGS.md` (binding, with amendments A1–A4); AT re-cuts its plan from this card's
   R5′/R12′ afterwards.
 
 ## Risks and Considerations
@@ -318,4 +329,4 @@ tool switches or write posture.
 
 ## Stakeholders
 
-- **Project Owner:** Thorsten Hellert (rulings 2026-10-17, amendments A1–A3 the same day)
+- **Project Owner:** Thorsten Hellert (rulings 2026-10-17, amendments A1–A4 the same day)

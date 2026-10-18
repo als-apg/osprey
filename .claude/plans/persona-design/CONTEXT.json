@@ -29,6 +29,10 @@
     {
       "question": "SQL read-only-role docs section in ariel/standalone-deployment.rst cited by postgres templates",
       "answer": "Resolved from research: relocate the section to the ARIEL search how-to before deleting the page; update the three citations."
+    },
+    {
+      "question": "App file: pointer (`preset:`/`extends:`) or materialized copy?",
+      "answer": "Materialized explicit copy with provenance, like profile.yml and tiers/<n>.yml; no pointer into the package; osprey validate reports drift. Owner, 2026-10-17 (amendment A4). The owner confirmed the standing rule: materialized repos never carry extends:."
     }
   ],
   "codebase_findings": {
@@ -412,8 +416,8 @@
     {
       "point": "4-da",
       "question": "CF-2 app composition (host underlay, preset: vs extends:, replace vs union, attachment, unassigned keys, data bundle)",
-      "decision": "one _deep_merge over a kind-chosen base; app file spells `extends:`; underlay = host config minus claude_code.servers.* and *writes_enabled, permissions KEPT and unioned; structural writes-off pins + writes-check hook + lint; attachment from kind for both; closed key set per kind; other keys and data bundle from the host",
-      "justification": "design-philosophy \u00a71 (safe default) and \u00a76 (one rule); `extends` is the existing key for 'builds on preset X' so no new public key; R-app-file fixed the shape not the spelling; skeptic confirmed setup_patch is `ask` without the floor deny",
+      "decision": "one _deep_merge over a kind-chosen base; app file is a materialized explicit copy (A4; supersedes the round's `extends:` choice); underlay = host config minus claude_code.servers.* and *writes_enabled, permissions KEPT and unioned; structural writes-off pins + writes-check hook + lint; attachment from kind for both; closed key set per kind; other keys and data bundle from the host",
+      "justification": "design-philosophy \u00a71 (safe default) and \u00a76 (one rule); `extends` is the existing key for 'builds on preset X' so no new public key; R-app-file fixed the shape not the spelling; skeptic confirmed setup_patch is `ask` without the floor deny; the `extends:` choice was overturned by the owner in discussion: the materialized repo is explicit and never points into the package (build_profile_emit docstring), so apps/<n>.yml is emitted like profile.yml and the tier files (A4)",
       "confidence": "high",
       "source": "design-principle"
     },

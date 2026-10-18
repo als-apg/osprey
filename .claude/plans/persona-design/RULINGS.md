@@ -116,14 +116,15 @@ else the round changed is a plan-time decision logged in `CONTEXT.json` (`auto_d
 | A1 | R-tier-home names `<bridge>.tier` | **Retired.** A bridge never runs the agent (the bridges hold only dispatcher/worker URLs, tokens and a trigger); its tier IS `dispatch.tier`. | owner's interview answer, 2026-10-17 (CONTEXT follow-up 3) |
 | A2 | `exclude:` after R5′ | **Tiers and apps refuse `exclude:`. Root profiles and variant overlays keep it**, with one golden test (it is the only way an overlay subtracts, e.g. one host deploying fewer services). | owner, DA round, 2026-10-17 |
 | A3 | Consequences bullet "derived port slots after the people's block, stable by app name" | **Slot = `INDEX_MAX - position` in `shared:` order** (people count up from 0). Removing or reordering an app may move later apps' internal ports; nothing on a card is keyed by port. | owner's interview answer, 2026-10-17 (CONTEXT follow-up 1) |
+| A4 | R-app-file "one line naming the preset plus local edits" | **The operator's `apps/<name>.yml` is a materialized explicit copy** of the bundled app, with comments and a provenance block, like `profile.yml` and the tier files; no `preset:`/`extends:` pointer into the package; `osprey validate` reports drift. "One definition per app" means one definition in the package. The materialized repo never carries `extends:` (the standing rule `build_profile_emit` already states for `profile.yml`). | owner, DA discussion, 2026-10-17 |
 
 Corrections to the Consequences list (plan-time, from the round):
 
 - "Lint codes `web_terminals.*persona*` (24) are renamed with the old codes as aliases" → renamed
   outright, no aliases: nothing in OSPREY lets an operator reference a lint code.
-- The end-state picture's `apps/logbook.yml` line reads `extends: logbook`, not `preset: logbook`:
-  R-app-file fixed the shape (one line naming the preset); `extends` is the existing key for that
-  relation, so no new public key is needed.
+- The end-state picture's `apps/logbook.yml` is no longer one line: per A4 it is the full,
+  commented app definition with a provenance block (the "whole file" comment in the picture is
+  superseded).
 - The picture's `dispatch: tier: readonly` is now emitted by `osprey init --preset control-assistant`
   (the flagship preset sets it); unset still means the deployment's own posture.
 - `ariel.demo_narrative` ships commented in `control-assistant.yml`, not live: live, it would seed
