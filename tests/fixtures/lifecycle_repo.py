@@ -246,8 +246,9 @@ web_panels:
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
-  # The events and bluesky panels are declared by the write-armed personas
-  # (readwrite and admin) instead, so the read-only login is built without them.
+  # The events, bluesky and trajectory panels are declared by the write-armed
+  # personas (readwrite and admin) instead, so the read-only login is built
+  # without them.
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -1942,9 +1943,9 @@ config:
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
   # pins `expert`), same rationale as writes_enabled.
   #
-  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
-  # because their declarations live in the readwrite persona delta and never
-  # reach this build (see the note in the base's config: block).
+  # This persona also has no EVENTS/BLUESKY/TRAJECTORY panels — not by any key
+  # here, but because their declarations live in the readwrite persona delta and
+  # never reach this build (see the note in the base's config: block).
   web.ui_mode: simple
   # The hosting deployment owns the web-terminal tier (nginx, landing,
   # per-user containers). Without this override the inherited roster would
@@ -2020,10 +2021,10 @@ config:
   modules.web_terminals.enabled: false
   # Nothing here says where the hosting deployment's services are — the graph
   # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
-  # in, the telemetry store, the bluesky bridge, the EVENTS and BLUESKY tabs'
-  # URLs. This persona is an attached render (`services: {}` of its own) built
-  # beside that deployment, and the build copies every such fact from the
-  # deployment's own render into it (the Reach Contract,
+  # in, the telemetry store, the bluesky bridge, the EVENTS, BLUESKY and
+  # TRAJECTORY tabs' URLs. This persona is an attached render (`services: {}`
+  # of its own) built beside that deployment, and the build copies every such
+  # fact from the deployment's own render into it (the Reach Contract,
   # `osprey.deployment.reach`). Per-user web-terminal containers run
   # `network_mode: host`, so container `localhost` IS the deployment host and
   # the copied ports are dialed there. Move a port on the hosting profile and

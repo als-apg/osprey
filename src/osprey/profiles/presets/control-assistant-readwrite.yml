@@ -60,9 +60,9 @@ config:
   # Nothing here says where the hosting deployment's services are — the graph
   # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
   # in, the telemetry store, the bluesky bridge, the EVENTS, BLUESKY and
-  # TRAJECTORY tabs' URLs. This persona is an attached render (`services: {}` of its own) built
-  # beside that deployment, and the build copies every such fact from the
-  # deployment's own render into it (the Reach Contract,
+  # TRAJECTORY tabs' URLs. This persona is an attached render (`services: {}`
+  # of its own) built beside that deployment, and the build copies every such
+  # fact from the deployment's own render into it (the Reach Contract,
   # `osprey.deployment.reach`). Per-user web-terminal containers run
   # `network_mode: host`, so container `localhost` IS the deployment host and
   # the copied ports are dialed there. Move a port on the hosting profile and
