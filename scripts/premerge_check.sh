@@ -23,6 +23,7 @@ else
 fi
 ERRORS=0
 WARNINGS=0
+source "$(dirname "${BASH_SOURCE[0]}")/_gate_env.sh"
 
 echo "🔍 Pre-merge scan against $BASE"
 echo "========================================"

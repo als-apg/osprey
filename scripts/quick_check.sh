@@ -3,6 +3,7 @@
 # This catches most common issues without running the full test suite
 
 set -e
+source "$(dirname "${BASH_SOURCE[0]}")/_gate_env.sh"
 
 echo "🚀 Quick pre-commit checks..."
 echo "================================"
