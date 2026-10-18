@@ -79,6 +79,12 @@ The tools
    * - ``entries_by_ids``
      - An entry id
      - ``null``: the logbook does not hold the id and gives no text
+   * - ``model_response_matrix``
+     - A corrector setpoint address
+     - The engine's text
+   * - ``pyaml_measure``
+     - A stepped setpoint address, or the measurement kind when none is left
+     - The first line of what stopped the run; ``null`` when nothing raised
 
 Two exceptions
 ==============
