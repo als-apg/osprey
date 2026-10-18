@@ -4805,7 +4805,8 @@ def test_cli_dependent_lane_installs_the_pinned_claude__mutation_other_action(
 
 
 def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() -> None:
-    """The action installs exactly the framework's pin and fails unless PATH yields it."""
+    """The action installs the pin the gate resolver reads and puts on PATH the
+    directory that resolver finds, so CI and a local gate verify it one way."""
     action = _pinned_cli_action()
     assert action["runs"]["using"] == "composite"
     steps = action["runs"]["steps"]
@@ -4813,13 +4814,12 @@ def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() ->
     (install,) = [s for s in steps if "npm install" in (s.get("run") or "")]
     run = install["run"]
     assert "set -euo pipefail" in run
-    # The pin is read from the one constant that names it, never spelled here.
-    assert "_DEFAULT_CLAUDE_CLI_VERSION" in run
     assert not re.search(r"claude-code@[0-9]", run), "the action spells a version of its own"
     assert 'npm install -g "@anthropic-ai/claude-code@$pin"' in run
-    # Verified, so a registry or PATH surprise fails here and not in a test.
-    assert "claude --version" in run
-    assert "exit 1" in run
+    assert "scripts/pinned_claude.py --pin" in run
+    # The resolver is the verification: it fails the step when nothing reports the pin.
+    assert re.search(r"scripts/pinned_claude\.py\)", run), "the action never resolves the CLI"
+    assert '>> "$GITHUB_PATH"' in run
 
 
 def test_no_lane_reaches_for_the_agent_sdks_bundled_cli() -> None:
