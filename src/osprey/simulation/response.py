@@ -52,11 +52,12 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     engine answers no matrix: ``cause`` is ``request`` for one of the
     engine's ``REFUSAL_ERRORS``, ``facility`` for a ``FacilityBuildError``,
     ``solve`` for one of its ``SOLVE_ERRORS``. Otherwise prints ``{"rows",
-    "columns", "matrix", "unsolved"}``: ``columns`` the solved correctors,
-    possibly none, ``matrix`` one column each, ``unsolved`` each corrector
-    whose step has no solve mapped to the engine's text; the tool decides
-    that a line with no column is a refusal. Any other exception raises, and
-    no result line is printed.
+    "columns", "matrix", "missing"}``: ``columns`` the solved correctors,
+    possibly none, ``matrix`` one column each, ``missing`` each corrector
+    whose step has no solve mapped to the engine's text; a line with no
+    column carries the map of every corrector asked, and the tool answers it
+    as ``nothing_answered``. Any other exception raises, and no result line
+    is printed.
 
     Args:
         payload: ``render_root``, ``model``, ``engine_module``, ``correctors``
@@ -88,6 +89,6 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
         "rows": [str(row) for row in result.rows],
         "columns": [str(column) for column in result.columns],
         "matrix": [[float(value) for value in row] for row in result.matrix],
-        "unsolved": {str(address): str(text) for address, text in result.unsolved.items()},
+        "missing": {str(address): str(text) for address, text in result.unsolved.items()},
     }
     print(RESULT_TAG, json.dumps(line), flush=True)
