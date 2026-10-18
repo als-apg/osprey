@@ -783,12 +783,13 @@ watcher that can go blind without saying so.
 
 .. _config-dangerously-allow-bash:
 
-``dangerously_allow_bash`` — waiving the Bash/launch-token refusal
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``dangerously_allow_bash`` — waiving the shell/launch-token refusal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``osprey up`` refuses to deploy a persona that is entitled to a Bluesky launch
-token while its ``.claude/settings.json`` does not deny ``Bash``: a shell could
-read the token out of its own environment and arm a queue with no approval.
+``osprey up`` refuses to deploy a persona that is entitled to any lane's
+Bluesky launch token while its ``.claude/settings.json`` does not deny both
+``Bash`` and ``Monitor``: either one is a shell, and a shell could read the
+token out of its own environment and arm that lane's queue with no approval.
 One root-level key waives that refusal, for a development box with a single
 trusted operator and no live machine behind it:
 
@@ -802,6 +803,13 @@ error. Absent, the refusal stands exactly as before. When set, every
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
 set it. A build profile sets it from its ``config:`` block.
+
+The key waives the launch-token refusal only. ``osprey up`` also refuses a
+persona that declares the trajectory tab while its settings leave a shell
+open — the tab puts the trajectory service's panel token in the agent's
+environment, and the door that token opens commands the machine — and that
+refusal has no waiver: deny ``Bash`` and ``Monitor`` for the persona, or drop
+``trajectory`` from its ``web_panels``.
 
 .. _config-artifact-server:
 

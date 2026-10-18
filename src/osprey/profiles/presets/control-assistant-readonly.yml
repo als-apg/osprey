@@ -41,7 +41,7 @@ config:
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
   # pins `expert`), same rationale as writes_enabled.
   #
-  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
+  # This persona also has no EVENTS/BLUESKY/TRAJECTORY panels — not by any key here, but
   # because their declarations live in the readwrite persona delta and never
   # reach this build (see the note in the base's config: block).
   web.ui_mode: simple

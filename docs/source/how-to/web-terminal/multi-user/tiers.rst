@@ -97,6 +97,7 @@ are genuinely different agents, not one agent with a UI toggle.
      - No. The ``setup_patch`` tool is denied, the Config panel is off, and
        the scaffold gallery is readable but not writable
      - Chat-first ``simple`` layout, without the EVENTS and BLUESKY panels
+       or the TRAJECTORY panel
    * - **readwrite** (alice)
      - On for the virtual accelerator, off for both hardware-shaped targets —
        the live machine and its stand-in. A write refuses the moment the
@@ -105,15 +106,16 @@ are genuinely different agents, not one agent with a UI toggle.
        writes-check hook, the per-channel limits, and a human approval prompt
        before it executes
      - No — the same floor as readonly
-     - Full ``expert`` workspace with the EVENTS and BLUESKY panels
+     - Full ``expert`` workspace with the EVENTS and BLUESKY panels and
+       the TRAJECTORY panel
    * - **admin** (carol)
      - On for the virtual accelerator, off for both hardware-shaped targets,
        on exactly the supervised terms above
      - Yes, and only here: the ``setup-mode`` skill, the ``setup_patch``
        tool, the web Config panel, and the gallery's edit, create and delete
        surfaces
-     - Full ``expert`` workspace with the EVENTS and BLUESKY panels, plus
-       the Config panel
+     - Full ``expert`` workspace with the EVENTS and BLUESKY panels and
+       the TRAJECTORY panel, plus the Config panel
    * - **ariel**
      - No control system behind it at all, so there is no write posture to
        compare
@@ -126,11 +128,11 @@ person holding it: which teammates get a write-capable login is your roster's
 call, and the point is that the framework provisions genuinely different
 postures out of one deployment.
 
-Only the read-only login is built without the EVENTS and BLUESKY panels. The
-base profile declares neither, and the two write-capable deltas,
-``personas/readwrite.yml`` and ``personas/admin.yml``, each add both:
-queueing a plan and watching its results belong on a card that can arm a
-write. The admin card is the read-write operator desk plus deployment editing.
+Only the read-only login is built without the EVENTS, BLUESKY and TRAJECTORY
+panels. The base profile declares none of them, and the two write-capable
+deltas, ``personas/readwrite.yml`` and ``personas/admin.yml``, each add all
+three: queueing a plan, watching its results and commanding the simulator's
+trajectory belong on a card that can arm a write. The admin card is the read-write operator desk plus deployment editing.
 
 **The default stays on the safe side.** ``default_persona`` is ``readonly``,
 so a roster entry added in a hurry with no ``persona`` of its own gets the
@@ -352,7 +354,7 @@ Both agents carry the *same* tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose
 write path is switched off in its own project, which is exactly what you want
 to demonstrate to a control room: the boundary holds at the enforcement layer,
-not at the menu. (The readonly terminal's leaner look — no EVENTS/BLUESKY
+not at the menu. (The readonly terminal's leaner look — no EVENTS/BLUESKY/TRAJECTORY
 tabs, chat-first layout — is presentation for the viewer tier, not the
 boundary itself: the refusal above fires with or without it.)
 
