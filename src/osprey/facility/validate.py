@@ -51,6 +51,7 @@ from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_error
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES, STILL_ALL
+from osprey_connectors.simulation.values import is_waveform
 
 __all__ = [
     "FACILITY_HEADER",
@@ -1081,7 +1082,7 @@ class _Records:
         elif options is not None:
             problem = f"a {value_type} channel carries `options`"
         if problem is None:
-            if value_type == "waveform":
+            if is_waveform(value_type):
                 if not shape or any(n <= 0 for n in shape):
                     problem = "a waveform channel needs `shape`, a list of positive ints"
             elif shape is not None:
@@ -1302,7 +1303,7 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         """A ``pulse`` traces a waveform from an unwired float driver and bool enable."""
         value_type = self._type(address)
-        if value_type != "waveform":
+        if not is_waveform(value_type):
             yield self._error(
                 "value-invalid",
                 "channel",
