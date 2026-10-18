@@ -13,10 +13,14 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["RESULT_TAG", "solve_and_print"]
+__all__ = ["CAUSES", "RESULT_TAG", "solve_and_print"]
 
 #: The tag of the child's one result line.
 RESULT_TAG = "OSPREY_MODEL_RESPONSE_MATRIX"
+
+#: Why the engine answered no matrix: the request is one it does not answer,
+#: the facility file is defective, or the whole request has no solve.
+CAUSES: tuple[str, ...] = ("request", "facility", "solve")
 
 
 def _thaw(value: Any) -> Any:
@@ -28,23 +32,31 @@ def _thaw(value: Any) -> Any:
     return value
 
 
-def _refusal(exc: Exception, engine: Any) -> bool:
-    """Whether *exc* is *engine* saying the request has no solve, or a request the engine refuses."""
+def _cause(exc: Exception, engine: Any) -> str | None:
+    """The :data:`CAUSES` entry *exc* states for *engine*, or ``None`` for a failure."""
     from osprey.facility.errors import FacilityBuildError
 
-    return isinstance(exc, (*getattr(engine, "SOLVE_ERRORS", ()), FacilityBuildError, ValueError))
+    if isinstance(exc, getattr(engine, "REFUSAL_ERRORS", ())):
+        return "request"
+    if isinstance(exc, FacilityBuildError):
+        return "facility"
+    if isinstance(exc, getattr(engine, "SOLVE_ERRORS", ())):
+        return "solve"
+    return None
 
 
 def solve_and_print(payload: Mapping[str, Any]) -> None:
     """Solve one request and print its :data:`RESULT_TAG` line.
 
-    Prints ``{"refused"}`` with the engine's own text when the engine refuses
-    the request. Otherwise prints ``{"rows", "columns", "matrix",
-    "unsolved"}``: ``columns`` the solved correctors, possibly none,
-    ``matrix`` one column each, ``unsolved`` each corrector whose step has no
-    solve mapped to the engine's text; the tool decides that a line with no
-    column is a refusal. Any other failure raises, and no result line is
-    printed.
+    Prints ``{"refused", "cause"}`` with the engine's own text when the
+    engine answers no matrix: ``cause`` is ``request`` for one of the
+    engine's ``REFUSAL_ERRORS``, ``facility`` for a ``FacilityBuildError``,
+    ``solve`` for one of its ``SOLVE_ERRORS``. Otherwise prints ``{"rows",
+    "columns", "matrix", "unsolved"}``: ``columns`` the solved correctors,
+    possibly none, ``matrix`` one column each, ``unsolved`` each corrector
+    whose step has no solve mapped to the engine's text; the tool decides
+    that a line with no column is a refusal. Any other exception raises, and
+    no result line is printed.
 
     Args:
         payload: ``render_root``, ``model``, ``engine_module``, ``correctors``
@@ -67,9 +79,10 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
             dict(payload["steps"]),
         )
     except Exception as exc:
-        if not _refusal(exc, engine):
+        cause = _cause(exc, engine)
+        if cause is None:
             raise
-        print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)
+        print(RESULT_TAG, json.dumps({"refused": str(exc), "cause": cause}), flush=True)
         return
     line = {
         "rows": [str(row) for row in result.rows],

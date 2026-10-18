@@ -183,7 +183,10 @@ has no column; ``unsolved`` maps it to the engine's text. When no corrector
 solves, the call is refused as an ``execution_error`` with every unsolved text,
 and ``details.unsolved`` holds the same map as the result's ``unsolved``. When
 the engine refuses the request itself, the call is refused as a
-``validation_error`` with the engine's text.
+``validation_error`` with the engine's text; a defective facility file is
+refused the same way with the remedy to rebuild. When the whole request has no
+solve, the call fails as an ``execution_error`` with the engine's text. Any
+other engine error is an ``execution_error`` carrying the solve's stderr.
 
 Installation
 ============

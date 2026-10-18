@@ -313,8 +313,23 @@ class TestSolve:
         assert len(request.correctors) == 144
 
 
-#: A plug-in whose solve raises an exception it declares as meaning "no solve".
+#: A plug-in whose solve raises an exception it declares as a request refusal.
 REFUSING_ENGINE = textwrap.dedent(
+    """
+    class NoOptics(Exception):
+        pass
+
+
+    REFUSAL_ERRORS = (NoOptics,)
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise NoOptics("no optics for this deck")
+    """
+)
+
+#: A plug-in whose solve raises an exception it declares as meaning "no solve".
+NO_SOLVE_ENGINE = textwrap.dedent(
     """
     class NoOptics(Exception):
         pass
@@ -325,6 +340,32 @@ REFUSING_ENGINE = textwrap.dedent(
 
     def response_matrix(deck, wiring, settings, correctors, step):
         raise NoOptics("no optics for this deck")
+    """
+)
+
+#: A plug-in whose solve fails inside itself with a builtin ``ValueError``.
+INTERNAL_ENGINE = textwrap.dedent(
+    """
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise ValueError("operands could not be broadcast")
+    """
+)
+
+#: A plug-in whose solve stops on a defect of the facility file.
+BROKEN_FACILITY_ENGINE = textwrap.dedent(
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise FacilityBuildError(
+            "engine-invalid",
+            "SR:BPM:01",
+            ["facility.yaml"],
+            "wire the monitor to one element",
+            record_kind="channel",
+            detail="the monitor names no element",
+        )
     """
 )
 
@@ -435,6 +476,57 @@ class TestSolveErrors:
         assert envelope["suggestions"] == []
         assert envelope["details"] == {"model": LINE}
 
+    def test_a_declared_solve_error_out_of_the_request_has_no_solve_with_its_text(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"no_solve_engine.py": NO_SOLVE_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "no_solve_engine")
+
+        with pytest.raises(ToolError) as raised:
+            _call(model=LINE)
+
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_message"] == (
+            f"the response of {LINE} has no solve: no optics for this deck"
+        )
+        assert envelope["suggestions"] == []
+        assert envelope["details"] == {"model": LINE}
+
+    def test_an_internal_value_error_is_a_failure_with_its_stderr(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"internal_engine.py": INTERNAL_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "internal_engine")
+
+        with pytest.raises(ToolError) as raised:
+            _call(model=LINE)
+
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_message"] == f"the solve of {LINE} ended without a result"
+        assert "operands could not be broadcast" in envelope["details"]["stderr"]
+        assert "refused" not in envelope["error_message"]
+
+    def test_a_facility_build_error_is_refused_with_the_rebuild_remedy(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"broken_facility_engine.py": BROKEN_FACILITY_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "broken_facility_engine")
+
+        with pytest.raises(ToolError) as raised:
+            _call(model=LINE)
+
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "validation_error"
+        assert envelope["error_message"].startswith(f"the response of {LINE} was refused: ")
+        assert "the monitor names no element" in envelope["error_message"]
+        assert envelope["suggestions"] == ["Fix the facility file and run `osprey build`."]
+        assert envelope["details"] == {"model": LINE}
+
     def test_a_solve_error_the_plug_in_does_not_declare_ends_without_a_result(
         self, sandbox, tmp_path, monkeypatch
     ):
@@ -449,8 +541,18 @@ class TestSolveErrors:
 
     @pytest.mark.parametrize(
         "printed",
-        [{"rows": ["SR:BPM:01:X:RB"]}, {"error": "x"}],
-        ids=["without-a-matrix", "retired-error-key"],
+        [
+            {"rows": ["SR:BPM:01:X:RB"]},
+            {"error": "x"},
+            {"refused": "x", "cause": "other"},
+            {"refused": "x"},
+        ],
+        ids=[
+            "without-a-matrix",
+            "retired-error-key",
+            "refused-with-an-unknown-cause",
+            "refused-with-no-cause",
+        ],
     )
     def test_a_result_line_without_a_matrix_ends_without_a_result(
         self, sr_render, monkeypatch, printed
