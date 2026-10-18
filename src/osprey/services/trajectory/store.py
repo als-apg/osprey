@@ -33,7 +33,6 @@ import json
 import math
 import os
 import re
-import tempfile
 import time
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
@@ -42,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.trajectory.state import ReferenceLoad, ShotResult
+from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
     "CURRENT_FILE",
@@ -144,23 +144,12 @@ def _from_json_reading(value: Any) -> float:
 
 
 def _write_atomic(path: Path, payload: bytes) -> None:
-    """Write ``payload`` to ``path`` at :data:`FILE_MODE`, through a temporary file and :func:`os.replace`."""
+    """Replace ``path`` with ``payload`` at :data:`FILE_MODE`, whole or not at all.
+
+    A failed flush raises: every write here reaches the operator, who can retry.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        # mkstemp creates the file 0600, and fchmod, unlike a mode handed to
-        # open, is not narrowed by the umask.
-        os.fchmod(fd, FILE_MODE)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            with suppress(OSError):
-                os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        with suppress(OSError):
-            os.unlink(tmp_name)
-        raise
+    atomic_replace(path, payload, mode=FILE_MODE, sync="required")
 
 
 def _dumps(data: Any) -> bytes:
