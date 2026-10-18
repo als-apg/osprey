@@ -14,6 +14,7 @@ here distinguishes "the loader broke" from "the fixture is unrealistic".
 
 from __future__ import annotations
 
+import gc
 import logging
 import shutil
 import warnings
@@ -111,6 +112,8 @@ def test_load_zero_errors_zero_warnings(caplog):
     """A config full of retired keys loads cleanly and silently."""
     caplog.set_level(logging.DEBUG, logger="osprey")
 
+    # The window records only what the loader raises: earlier garbage is finalized before it opens.
+    gc.collect()
     with warnings.catch_warnings(record=True) as python_warnings:
         warnings.simplefilter("always")
         config = load_osprey_config()
