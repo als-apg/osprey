@@ -3,10 +3,11 @@
 Every read and write goes through :mod:`osprey.runtime`, so limits, write gates and
 the control-target check apply exactly as they do to any other OSPREY write. A write
 runs only while a :func:`pyaml_cs_osprey.run_tool.run_tool` call is in progress in
-the process, and the prior native setpoint is read first and recorded for the call's
-result once the runtime sent or landed the write; outside a ``run_tool`` call, ``execute`` included, it is refused as
-:data:`OUTSIDE_A_RUN` and nothing is read or written. Connector exceptions surface as
-the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. The write-only reference
+the process, and the prior native setpoint is read first and listed in the call's
+result unless the runtime showed the write never went out; outside a ``run_tool``
+call, ``execute`` included, it is refused as :data:`OUTSIDE_A_RUN` and nothing is read
+or written. Connector exceptions surface as the pyAML exceptions of
+:mod:`pyaml_cs_osprey.errors`. The write-only reference
 refuses reads; every other reference is read and written.
 
 Values cross this device in SI: reads and ranges are scaled from the reference's unit
@@ -154,8 +155,8 @@ class OspreyDevice(DeviceAccess):
     def set(self, value: Any, *, confirm: bool | None = None) -> None:
         """Write the SI ``value`` to the setpoint address in the reference's native unit.
 
-        The prior native setpoint is read first and recorded for the call's result
-        once the runtime sent or landed the write; a refused write records nothing. Outside
+        The prior native setpoint is read first and listed in the call's result
+        unless the runtime showed the write never went out. Outside
         a ``run_tool`` call the write is refused as :data:`OUTSIDE_A_RUN` and
         nothing is read. Inside :func:`settling` the write then settles as in
         :meth:`set_and_wait`.
