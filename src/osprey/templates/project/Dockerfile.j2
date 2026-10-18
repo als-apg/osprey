@@ -1,12 +1,11 @@
 # syntax=docker/dockerfile:1
 # Reference container image for {{ project_name }} — rendered by `osprey build`.
 #
-# `osprey up` builds this for you. To build it by hand, do it from the container
-# repo the build renders for exactly this purpose, one directory above the render
-# this file sits in:
-#   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
-# Run from the deployment repo root (secrets at runtime — no .env ever enters
-# the image):
+# `osprey up` builds this for you. To build it by hand: the build context is the
+# container repo the build renders for exactly this purpose, one directory above
+# the render this file sits in. From the deployment repo root:
+#   docker build -t {{ project_name }} -f build/.image/{{ project_name }}/build/Dockerfile build/.image/{{ project_name }}
+# Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env \
 #     --env-file .env.telemetry-sender.<deployment.host_identity> {{ project_name }}
 # The second --env-file is the sender login `osprey build` minted for
