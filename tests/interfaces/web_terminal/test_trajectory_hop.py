@@ -1,4 +1,4 @@
-"""The terminal's hop to the trajectory service's agent door.
+"""The terminal's hop to the trajectory service's doors.
 
 The trajectory MCP server reaches the service only through its own terminal's
 panel proxy (``/panel/trajectory/api/...``). The terminal is the one process
@@ -232,10 +232,14 @@ class TestTheHop:
         ("path", "bounded"),
         [
             pytest.param("api/shot", True, id="agent-door"),
-            pytest.param("panel/api/state", False, id="panel-door"),
+            pytest.param("panel/api/state", True, id="panel-door"),
+            pytest.param("panel/api/apply", True, id="panel-door-action"),
+            pytest.param("panel/", False, id="panel-page"),
+            pytest.param("panel/static/panel.js", False, id="panel-static"),
+            pytest.param("panel/panel.css", False, id="panel-bundle-file"),
         ],
     )
-    def test_the_agent_door_hop_has_a_connect_bound_and_no_read_bound(self, booted, path, bounded):
+    def test_both_doors_have_a_connect_bound_and_no_read_bound(self, booted, path, bounded):
         app, client = booted
         timeouts: list[object] = []
 
@@ -250,12 +254,14 @@ class TestTheHop:
         assert resp.status_code == 200
         (timeout,) = timeouts
         if bounded:
-            # A shot answers when its action ends; the shared 30 s read bound
-            # would cut it off while the service still works on it.
+            # A shot or an apply answers when its action ends, from either
+            # door; the shared 30 s read bound would cut it off while the
+            # service still works on it.
             assert isinstance(timeout, httpx.Timeout)
             assert timeout.read is None
             assert timeout.connect == 5.0
         else:
+            # The bundle's page and static files keep the shared client.
             assert timeout == "shared"
 
 
