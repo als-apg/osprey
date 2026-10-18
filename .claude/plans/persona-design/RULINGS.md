@@ -104,3 +104,38 @@ the app's keys on top; services are the host's (Reach Contract, as today for att
 - AT (agent tree) inherits: `apps/<name>/agent/` as a complete tree per app, no shadow and no
   `exclude.agent` for tiers, and the R12′ write-through target and gate. `claude_md_template`
   on an app preset is the interim pointer until AT emits `apps/<name>/agent/CLAUDE.md`.
+
+## Amendments (2026-10-17, after the robust devil's-advocate round)
+
+The rulings above are unchanged. The round found three places where the record and the
+owner's later answers disagreed, and one new fork; the owner answered the fork. Everything
+else the round changed is a plan-time decision logged in `CONTEXT.json` (`auto_decisions`).
+
+| # | What | Amendment | Source |
+|---|---|---|---|
+| A1 | R-tier-home names `<bridge>.tier` | **Retired.** A bridge never runs the agent (the bridges hold only dispatcher/worker URLs, tokens and a trigger); its tier IS `dispatch.tier`. | owner's interview answer, 2026-10-17 (CONTEXT follow-up 3) |
+| A2 | `exclude:` after R5′ | **Tiers and apps refuse `exclude:`. Root profiles and variant overlays keep it**, with one golden test (it is the only way an overlay subtracts, e.g. one host deploying fewer services). | owner, DA round, 2026-10-17 |
+| A3 | Consequences bullet "derived port slots after the people's block, stable by app name" | **Slot = `INDEX_MAX - position` in `shared:` order** (people count up from 0). Removing or reordering an app may move later apps' internal ports; nothing on a card is keyed by port. | owner's interview answer, 2026-10-17 (CONTEXT follow-up 1) |
+
+Corrections to the Consequences list (plan-time, from the round):
+
+- "Lint codes `web_terminals.*persona*` (24) are renamed with the old codes as aliases" → renamed
+  outright, no aliases: nothing in OSPREY lets an operator reference a lint code.
+- The end-state picture's `apps/logbook.yml` line reads `extends: logbook`, not `preset: logbook`:
+  R-app-file fixed the shape (one line naming the preset); `extends` is the existing key for that
+  relation, so no new public key is needed.
+- The picture's `dispatch: tier: readonly` is now emitted by `osprey init --preset control-assistant`
+  (the flagship preset sets it); unset still means the deployment's own posture.
+- `ariel.demo_narrative` ships commented in `control-assistant.yml`, not live: live, it would seed
+  simulator scenarios into a real facility's logbook on first `osprey up`.
+
+New public names composed from approved words, listed here for the owner's veto at the plan gate
+(standing rule: public names need explicit approval):
+
+| Name | Where | Composed from |
+|---|---|---|
+| `modules.web_terminals.renders.<name>` | rendered `build/config.yml` only — the build's projection of every render (`{kind, project, project_path, extra_mounts?, seed_base?, image?}`); replaces the `personas:` catalog | "render" (unit table above) |
+| `osprey scaffold tiers [--from PRESET]` | CLI verb replacing `osprey scaffold personas` | "tiers" |
+| `landing.groups: [{type: apps, label: …}]` | profile key, third landing group type beside `users` and `links`; default heading "Apps" | "app" |
+| `list_tiers()`, `list_apps()` | Python API beside `list_presets()` | "tier", "app" |
+| `osprey init --revalidate` | ruled by R-deprecation; now built (FR12) | — |

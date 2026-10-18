@@ -1,0 +1,140 @@
+{
+ "results": [
+  {
+   "id": "CF-1",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "list_presets() flat iterdir (build_profile_presets.py:142-148) is the one writer behind profile presets/init --list-presets (profile_cmd.py:74-94); card has no --preset (139-147); preset branch has no kind refusal (build_profile_resolve.py:493-516); _renders_graphdb_block reads own config only (build_profile_model.py:876-894); _off_chain_problem/_preset_data_names refuse extends-less presets at init (profile_cmd.py:1077-1099, 1321-1343)."
+  },
+  {
+   "id": "CF-2",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "setup_patch sits in permissions_ask for osprey_workspace (registry/mcp.py:420-430), so a replacing permissions list drops the floor deny (control-assistant.yml:758-759) onto an access:any card; writes_enabled true at 238, bluesky/health on at 449-450; resolve_servers enables unless enabled:false (1429-1449); `preset` not in _KNOWN_PROFILE_KEYS (build_profile_load.py:174-224); preset_data_bundle falls to DEFAULT (build_profile_presets.py:208-225)."
+  },
+  {
+   "id": "CF-3",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "merge_persona_delta applies exclude (build_profile_merge.py:479-514); ^exclude: only in the two deleted presets; FR2 contradicts R5'. Correction: the 450-line span includes _resolve_extends and merge_persona_delta, so the exclude-only count is smaller."
+  },
+  {
+   "id": "CF-4",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "resolve_profile_document has seven callers incl. the hash (build_profile_merge.py:1102-1105 digests document.raw), drift (build_profile_drift.py:258), staleness (469), scaffold, manifest, loader; _normalize_empty_collections already runs per document (build_profile_document.py:49-73, 89-99); overlays merged over raw before resolution (build_profile_resolve.py:524-527)."
+  },
+  {
+   "id": "CF-5",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "init options have no revalidate (init_cmd.py:1225-1280); MATERIALIZED_SOURCE_ENTRIES includes personas/ (profile_cmd.py:264-272); _PROFILE_SCHEMA_MIN_OSPREY='2026.9.0' pinned by test_profile_unknown_keys.py:208, enforced build_cmd.py:3640-3658; nothing names the release that drops the shim."
+  },
+  {
+   "id": "CF-6",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "persona_project yields <project>-<name> for every kind (persona_naming.py:35-36); _check_persona_project_collisions errors only on DIFFERENT project_paths (lint.py:2472); resolve_personas reads knobs from the catalog (personas.py:2764-2812); _referenced_personas reads it raw (persona_images.py:224-234); FR7 names no carrier."
+  },
+  {
+   "id": "CF-7",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "exactly 17 external normalize_users(web_terminals.get('users')) sites plus roster_user_names:2604, roster_role_by_name:2642, freeze_user_indices:1789; effective_persona role\u2192pin\u2192default (personas.py:146-161); decommission_user writes freeze output back (lifecycle.py:236-245)."
+  },
+  {
+   "id": "CF-8",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "build_persona_images gated on image_source=='local' (persona_images.py:700-725; default registry personas.py:2657), sole caller provision.py:1640 inside deploy_up_web_terminals; _project_image_build_target None when no service resolves to <project>:local (container_lifecycle.py:2409-2417, 2585-2590); _service_image_target reads OSPREY_WORKER_IMAGE first (2365); worker template bind-mounts staged config (299) and keys paths on project_name (146, 221); approval hook emits no decision under dispatch (osprey_approval.py:397-398, 944); control-assistant.yml:238 writes true, dispatch block 1287-1299 has no tier. Caveat: preset-mode builds anchor at the package dir (build_profile_resolve.py:493-504) so the tier refusal must also resolve presets/tiers/."
+  },
+  {
+   "id": "CF-9",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "render_contexts.presets four roots (manifest 3897-3901), claims only the standalones (3970-3978); six keys live only in the standalones (ariel-standalone.yml:414,228; channel-finder-standalone.yml:149,152; control_target_picker commented in hello-world.yml:305, control-assistant.yml:992); same-value marks 995-996 fail on <2 presets (check_config_keys.py:1055-1065); empty claims record nothing (1338-1356); render_one KeyError outside contexts (645-646); EXPECTED_PANEL_PORT_MARKERS 146-158."
+  },
+  {
+   "id": "IA-1",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "RULINGS R-tier-home names <bridge>.tier; CONTEXT follow-up 3 records the owner's answer that bridges need no key; bridge blocks hold trigger/mentions only (build_profile_schema.py:956-1064); no agent runner under src/osprey/bridges."
+  },
+  {
+   "id": "IA-2",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "Direction right, detail corrected: cli_operations.py:3142-3145 is `ariel quickstart`; the deploy path is seed_active_logbook (container_lifecycle.py:5183 \u2192 apply.py:630-661) which narrates ACTIVE scenarios when demo_narrative is unset (656); a live `all` swaps that and _demo_narrative raises on a render with no simulator view (585-590); follow-up 5 was planner-resolved. Commented-key fix sound."
+  },
+  {
+   "id": "IA-3",
+   "upheld": true,
+   "altitude": "code",
+   "reason": "meta.json:3 baseline 241443d5d; 246198f1c is freeze.py:122 DEFAULT_BASELINE; docstring allows only CELL_DELTAS or re-freeze (test_explicit_config_equivalence.py:25-33); RULINGS says re-frozen."
+  },
+  {
+   "id": "IA-4",
+   "upheld": true,
+   "altitude": "code",
+   "reason": "card(as_json, repo) has no --preset (profile_cmd.py:139-147); _enabled_mcp_servers passes only channel_finder_pipeline (profile_card.py:377-398); _graphdb_configured at cli/templates/claude_code.py:189. Correction: config_needs_dispatcher_token lives at web_terminals/personas.py:282-292."
+  },
+  {
+   "id": "IA-5",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "env-chain.rst:178 links the deleted page and ci.yml:772 builds with -W; use-facility-graph.rst:419-424 contradicts R-graph; persona in 33 docs files; catalog.py:65-66 ships claude-md-ariel; scaffold personas is a public catalog-driven verb (scaffold_cmd.py:862-941)."
+  },
+  {
+   "id": "IA-6",
+   "upheld": true,
+   "altitude": "code",
+   "reason": "lifecycle_repo.py:97-104 + test_init_verb.py:164-169 make the exemplar the spec; goldens at tests/deployment/goldens/exemplar-profile/. Corrections: _persona_pairs at build_profile_drift.py:306; KNOWN_ROOT_ENTRIES (profile_conventions.py:307) composed from _SOURCE_ZONE_ENTRIES (275); _entry_list init_cmd.py:1799."
+  },
+  {
+   "id": "CC-1",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "allocate_ports base+index (ports.py:186-194), INDEX_MAX 99; follow-up 1 vs RULINGS bullet 4 are two rules; nothing keyed by port verified (render.py:1132-1157, 1101; health/core/web_terminals.py:176; host_ports.py:810; deploy_scaffold_templates.py:971); _check_bare_list_port_drift_risk returns [] when any entry is a dict (lint.py:757-758)."
+  },
+  {
+   "id": "CC-2",
+   "upheld": true,
+   "altitude": "design",
+   "reason": "_user_card label = name (render.py:2427-2432); display_name only to OSPREY_WEB_APP_NAME (1159-1164); enter.html:73 prints card.name, OpenedCard has name/own (routes/entry.py:109-119); _build_groups dispatches users and links only (2504-2527), default heading Terminals (2567); control-assistant.yml:1164-1167 landing.groups, 1228/1231 landing_group."
+  },
+  {
+   "id": "OC-1",
+   "upheld": true,
+   "altitude": "code",
+   "reason": "Finding has one code: str, no alias field (lint.py:132-139); consumers are provision.py's two sets (282-311) and the console. Count correction: 24 distinct codes, not 28 \u2014 RULINGS' 24 is right."
+  },
+  {
+   "id": "OC-2",
+   "upheld": true,
+   "altitude": "code",
+   "reason": "Rule errors when a render's project equals resolve_project_name(root) (lint.py:2489-2502) guarding <project>:local that _PROJECT_IMAGE_SERVICES (container_lifecycle.py:2328-2332) fall back to; only the message noun is stale."
+  }
+ ],
+ "missedIssues": [
+  {
+   "summary": "Preset-mode builds have no repo tiers/: the preset branch anchors at the package dir, so 'unknown tier is refused' and dispatch.tier in control-assistant.yml would refuse `osprey build --preset control-assistant` and every pin table unless dispatch.tier also resolves against presets/tiers/",
+   "evidence": "src/osprey/cli/build_profile_resolve.py:493-504",
+   "altitude": "design"
+  },
+  {
+   "summary": "setup_patch posture is also a filesystem fact: Dockerfile.j2 chowns build/config.yml to the agent user whenever the render's permissions leave setup_patch outside deny (is_setup_patch_capable via build_cmd.py:4009); the app composer needs a test on _profile_setup_patch_capable, not only on the permission list",
+   "evidence": "src/osprey/templates/project/Dockerfile.j2:346-353",
+   "altitude": "code"
+  },
+  {
+   "summary": "An 18th roster reader outside the list: scaffolded liveness probes enumerate web.get('users') directly and emit one probe per entry, so derived app cards get no probe unless this site uses the roster helper",
+   "evidence": "src/osprey/cli/deploy_scaffold_templates.py:965-983",
+   "altitude": "code"
+  },
+  {
+   "summary": "A live ariel.demo_narrative in the flagship preset changes `osprey up` seeding, not only quickstart: seed_active_logbook swaps the active-scenario narrative for demo_narrative_logbook when the key is set, and _demo_narrative raises on a render with no simulator view",
+   "evidence": "src/osprey/simulation/apply.py:656-661",
+   "altitude": "design"
+  }
+ ]
+}

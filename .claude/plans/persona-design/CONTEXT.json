@@ -1,83 +1,360 @@
 {
   "feature_name": "persona-design",
-  "initial_prompt": "Roadmap card P1. Seeded from .claude/plans/persona-design/BRIEF.md (§1–§2 measurement at d026bb7f7; §3–§7 superseded) and RULINGS.md (owner rulings 2026-10-17). Retire the word 'persona': an access level of the deployment's own agent is a TIER (readonly/readwrite/admin; tiers/ folder, top-level, named by users[].tier, default_tier, authorization.roles.<r>.tier and dispatch.tier); another agent a deployment offers is an APP (apps/ folder; logbook, knowledge, channel-finder), attached only, opened from a shared card listed in modules.web_terminals.shared. One definition per app: lists and brief from the app preset, config from the host, no exclude list on any card. Standalone app deployments (ariel-standalone, channel-finder-standalone) are deleted with their bundles, fixtures and docs. Old keys load for one minor release with a deprecation line. The profile card lists the conditional MCP servers (graph, event_dispatcher). Agent-tree R5'/R12' are recorded for card AT, not built here.",
+  "initial_prompt": "Roadmap card P1. Seeded from .claude/plans/persona-design/BRIEF.md (\u00a71\u2013\u00a72 measurement at d026bb7f7; \u00a73\u2013\u00a77 superseded) and RULINGS.md (owner rulings 2026-10-17). Retire the word 'persona': an access level of the deployment's own agent is a TIER (readonly/readwrite/admin; tiers/ folder, top-level, named by users[].tier, default_tier, authorization.roles.<r>.tier and dispatch.tier); another agent a deployment offers is an APP (apps/ folder; logbook, knowledge, channel-finder), attached only, opened from a shared card listed in modules.web_terminals.shared. One definition per app: lists and brief from the app preset, config from the host, no exclude list on any card. Standalone app deployments (ariel-standalone, channel-finder-standalone) are deleted with their bundles, fixtures and docs. Old keys load for one minor release with a deprecation line. The profile card lists the conditional MCP servers (graph, event_dispatcher). Agent-tree R5'/R12' are recorded for card AT, not built here.",
   "followup_responses": [
-    {"question": "Shared app card port slot", "answer": "Count down from INDEX_MAX (99) in `shared:` list order; people count up from 0. Removing a shared app may shift later shared slots (harmless: no per-person state, URL is /u/<name>/). Lint includes derived slots in collision and family-allocatable checks."},
-    {"question": "Landing card title for a shared app", "answer": "The app preset's `name:` (e.g. 'Logbook Research'), also the browser tab title. People's cards keep printing the roster name."},
-    {"question": "dispatch.tier scope", "answer": "In P1 as its own, last phase: the dispatcher's workers run the named tier's render (image <project>-<tier>:local, CONFIG_FILE and paths under /app/<project>-<tier>, the tier's flattened config staged for the worker, image built before the worker starts). Unset keeps today's behaviour. Bridges need no key: they go through the dispatcher."},
-    {"question": "Acceptance verification", "answer": "Automated: the built-stack fixture renders the control-assistant preset with tiers and apps; tests assert the rendered compose, nginx, sidecar env, landing HTML and old-key loading. Manual: the owner reviews the rendered landing page and docs on localhost before merge (standing rule)."},
-    {"question": "ariel.demo_narrative (only in ariel-standalone today)", "answer": "Resolved from research: move the key to control-assistant.yml so the demo logbook narrative survives the deletion; re-aim its test."},
-    {"question": "CLAUDE.channel-finder.md.j2 orphaned by deleting channel-finder-standalone", "answer": "Resolved from research: kept, because the channel-finder app preset uses it (ruling R-cf)."},
-    {"question": "SQL read-only-role docs section in ariel/standalone-deployment.rst cited by postgres templates", "answer": "Resolved from research: relocate the section to the ARIEL search how-to before deleting the page; update the three citations."}
+    {
+      "question": "Shared app card port slot",
+      "answer": "Count down from INDEX_MAX (99) in `shared:` list order; people count up from 0. Removing a shared app may shift later shared slots (harmless: no per-person state, URL is /u/<name>/). Lint includes derived slots in collision and family-allocatable checks."
+    },
+    {
+      "question": "Landing card title for a shared app",
+      "answer": "The app preset's `name:` (e.g. 'Logbook Research'), also the browser tab title. People's cards keep printing the roster name."
+    },
+    {
+      "question": "dispatch.tier scope",
+      "answer": "In P1 as its own, last phase: the dispatcher's workers run the named tier's render (image <project>-<tier>:local, CONFIG_FILE and paths under /app/<project>-<tier>, the tier's flattened config staged for the worker, image built before the worker starts). Unset keeps today's behaviour. Bridges need no key: they go through the dispatcher."
+    },
+    {
+      "question": "Acceptance verification",
+      "answer": "Automated: the built-stack fixture renders the control-assistant preset with tiers and apps; tests assert the rendered compose, nginx, sidecar env, landing HTML and old-key loading. Manual: the owner reviews the rendered landing page and docs on localhost before merge (standing rule)."
+    },
+    {
+      "question": "ariel.demo_narrative (only in ariel-standalone today)",
+      "answer": "Resolved from research: move the key to control-assistant.yml so the demo logbook narrative survives the deletion; re-aim its test."
+    },
+    {
+      "question": "CLAUDE.channel-finder.md.j2 orphaned by deleting channel-finder-standalone",
+      "answer": "Resolved from research: kept, because the channel-finder app preset uses it (ruling R-cf)."
+    },
+    {
+      "question": "SQL read-only-role docs section in ariel/standalone-deployment.rst cited by postgres templates",
+      "answer": "Resolved from research: relocate the section to the ARIEL search how-to before deleting the page; update the three citations."
+    }
   ],
   "codebase_findings": {
     "relevantFiles": [
-      {"path": "src/osprey/cli/profile_root.py", "why": "resolve_profile_root: 'location is the type' — a file is a persona delta only because its parent dir is personas/ beside profile.yml. Classification point for tiers/ and apps/", "lines": "31-73, 96-130"},
-      {"path": "src/osprey/cli/build_profile_merge.py", "why": "resolve_profile_document (non-delta branch 764-774, delta branch 776-826); merge_persona_delta = _deep_merge (lists UNION) + exclude; hash fold enumerates personas/ at 1030-1040", "lines": "38-93, 479-514, 701-826, 1030-1040"},
-      {"path": "src/osprey/cli/build_profile_resolve.py", "why": "resolve_build_document: overlays deep-merged 528-531, resolve_profile_document 534, then _parse_profile/validate — the one load-time spot for the deprecation shim; preset-mode resolution 493-496 is what an apps/<n>.yml `preset:` reuses", "lines": "445-560"},
-      {"path": "src/osprey/cli/build_cmd.py", "why": "_persona_deltas lists personas/ (2542-2607); _render_persona_projects renders build/<project>-<name> (2610-2668); image contexts 3077-3131; orchestration 3510-3516; attached-render services drop 2185-2189", "lines": "2163-2170, 2185-2210, 2542-2668, 3077-3131, 3510-3516"},
-      {"path": "src/osprey/deployment/staleness.py", "why": "_material_input_digests folds personas/<name> (421-431) — must list apps/ and tiers/ in lockstep with the build loop and the hash fold", "lines": "345-434"},
-      {"path": "src/osprey/cli/build_profile_emit.py", "why": "effective_web_terminals, emits_persona_profiles, persona_catalog (776-819); emit_persona_delta_yaml (1087); persona_catalog_layer writes build_profile: personas/<n>.yml (1221)", "lines": "776-819, 1087-1248"},
-      {"path": "src/osprey/cli/profile_cmd.py", "why": "_persona_profile_texts (1237-1371): name hygiene, bundle check 1321-1334, _off_chain_problem 1077, privilege tally, _privileged_persona_problems 1164; writes at 1907-1918; read_persona_deltas 711", "lines": "711-772, 1077-1113, 1164-1371, 1907-1918"},
-      {"path": "src/osprey/cli/scaffold_personas.py", "why": "osprey scaffold personas: emit_persona_files, repoint_persona_catalog", "lines": "63-216"},
-      {"path": "src/osprey/deployment/web_terminals/personas.py", "why": "effective_persona (role → persona → default) 146-260; normalize_users 1170-1370 (drops entries without int index); access parser/entry_is_shared 1525-1730; freeze_user_indices 1733; resolve_personas 2743 (attaches landing_group 2972)", "lines": "146-260, 701-745, 1170-1370, 1525-1800, 2743-3009"},
-      {"path": "src/osprey/deployment/web_terminals/ports.py", "why": "FAMILY_BASE_FIELDS, base_ports_from_config, allocate_ports(base, index) = base + index", "lines": "33-109, 175-210"},
-      {"path": "src/osprey/port_layout.py", "why": "INDEX_MAX = 99; per-user bands; fixed banded indices precedent", "lines": "90-116, 152-260"},
-      {"path": "src/osprey/deployment/web_terminals/render.py", "why": "per-entry services dict + allocate_ports 1087-1258; display_name → OSPREY_WEB_APP_NAME 1159-1164; _build_groups/_user_groups/_user_card 2393-2586 (label = roster name); _authorization_context parses roles.<r>.persona 2843-2950; dispatcher_personas → wants_dispatcher 814-866", "lines": "814-866, 1087-1258, 2393-2586, 2843-2950"},
-      {"path": "src/osprey/deployment/web_terminals/lint.py", "why": "24 web_terminals.*persona* codes; index/duplicate/port-overlap/family checks 634-943 (port_overlap loops range(len(users)), misses sparse indices); default_persona and shared-card rules 1015-1495; persona_project_shadows_worker_image 2470-2500", "lines": "504-943, 960-1495, 2470-2500, 3653-4164"},
-      {"path": "src/osprey/deployment/web_terminals/persona_images.py", "why": "_referenced_personas reads raw personas 225; persona_build_profile_shape_problem hard-codes personas/ 292-344; verify_persona_renders 611; build_persona_images 700 (tags <project>-<persona>:local)", "lines": "191-355, 611-800"},
-      {"path": "src/osprey/deployment/web_terminals/persona_naming.py", "why": "persona_project → (<project>-<name>, build/<project>-<name>); derived_persona_catalog", "lines": "23-80"},
-      {"path": "src/osprey/deployment/web_terminals/env_production.py", "why": "reads default_persona and raw catalog for telemetry/secret vars", "lines": "310-425"},
-      {"path": "src/osprey/deployment/deploy_summary.py", "why": "_families_by_user reads default_persona, effective_persona(strict=False)", "lines": "542-655"},
-      {"path": "src/osprey/cli/build_profile_deploy.py", "why": "relocated-key messages for personas/default_persona 65-66; build_lint_view overlays derived catalog 327-360", "lines": "65-66, 327-450"},
-      {"path": "src/osprey/cli/build_profile_model.py", "why": "persona_render_key_errors 290-320; _runs_the_channel_finder special case 858-875; _renders_graphdb_block 876 (the card's graphdb_configured predicate)", "lines": "290-320, 858-905"},
-      {"path": "src/osprey/cli/profile_card.py", "why": "_enabled_mcp_servers passes only channel_finder_pipeline to resolve_servers (P1.3); _web_terminal_group reads default_persona 299-307", "lines": "91-140, 251-398"},
-      {"path": "src/osprey/cli/templates/claude_code.py", "why": "config_derived_context: graphdb_configured 301, event_dispatcher_wired 310 — the render's gates the card must mirror", "lines": "189-331"},
-      {"path": "src/osprey/registry/mcp.py", "why": "graph server condition graphdb_configured 671; event_dispatcher condition 701; resolve_servers 1380; agents dropped when their server is off 1010-1014, 1988-1992", "lines": "640-720, 1380-1470, 1964-2040"},
-      {"path": "src/osprey/templates/modules/web_terminals/landing.html.j2", "why": "renders groups[{label, items, variant}]; tray variant for shared sections; empty groups suppressed", "lines": "32-82, 392-460"},
-      {"path": "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2", "why": "consumes svc.display_name (OSPREY_WEB_APP_NAME) and access env", "lines": "30-101, 336-353, 928-957, 1217-1224"},
-      {"path": "src/osprey/services/auth_sidecar/app.py", "why": "ENV_ROSTER_ACCESS_PREFIX → AuthSettings.access/shared", "lines": "215, 384, 633, 815-831"},
-      {"path": "src/osprey/services/auth_sidecar/routes/entry.py", "why": "password_cards lists own cards then shared ones, by roster name", "lines": "105-200"},
-      {"path": "src/osprey/templates/services/dispatch_worker/docker-compose.yml.j2", "why": "worker image, OSPREY_PROJECT_DIR, CONFIG_FILE and config mount all keyed on project_name — the places dispatch.tier must redirect", "lines": "24-28, 62, 77-78, 146, 221, 296-299"},
-      {"path": "src/osprey/deployment/compose_generator.py", "why": "_inject_project_metadata sets dispatch_worker.image = <project>:local (2066-2085); setup_build_dir stages build/services/dispatch_worker/config.yml from the deployment's config (4221-4260)", "lines": "1730-1750, 2066-2085, 4221-4260"},
-      {"path": "src/osprey/cli/build_profile_schema.py", "why": "DispatchConfig (478-560) — where `tier` lands; bridge configs have trigger/mentions only", "lines": "478-560, 956-1070"},
-      {"path": "src/osprey/cli/build_injectors.py", "why": "_inject_dispatch writes dispatcher/worker service blocks", "lines": "604-705"},
-      {"path": "src/osprey/deployment/container_lifecycle.py", "why": "_worker_image_target / _project_image_build_target: image build order for the worker", "lines": "2375-2400"},
-      {"path": "src/osprey/mcp_server/dispatch_worker/sdk_runner.py", "why": "agent cwd = deployed_render_dir() = parent of CONFIG_FILE", "lines": "367-400"},
-      {"path": "src/osprey/profiles/presets/", "why": "control-assistant.yml roster 1110-1232 and floor 742-762; control-assistant-{readonly,readwrite,admin,logbook,knowledge}.yml; ariel-standalone.yml (demo_narrative 228); channel-finder-standalone.yml (CLAUDE.channel-finder.md.j2 46); hello-world.yml", "lines": ""},
-      {"path": "src/osprey/profiles/config_key_manifest.yml", "why": "web_terminals keys 3180-3215; render_contexts.presets 3899-3907; expected_union_size 3929; governed_sets.claims 3970-3982 (only the two standalones); same-value marks 995-996; phantom keys ariel.demo_narrative, servers.osprey_facility_knowledge.enabled, servers.python.enabled, web.control_target_picker", "lines": "325, 408, 964, 995-996, 1027, 2107, 2842, 2935, 2959, 3180-3215, 3522, 3899-3929, 3970-3982, 4017-4025"},
-      {"path": "scripts/check_config_keys.py", "why": "EXPECTED_PANEL_PORT_MARKERS 139-157; phantom-key 706-736; same-value 1033; governed sets 1338-1365 (empty set passes silently)", "lines": "139-157, 706-736, 1020-1060, 1338-1365"},
-      {"path": "scripts/config_key_parity.md", "why": "four-root-preset parity doc", "lines": "25-26, 85, 90, 112, 137-157, 234"},
-      {"path": "src/osprey/agent_runner/build_artifacts/catalog.py", "why": "claude_md_template variants (CLAUDE.ariel/knowledge/channel-finder) 46-78", "lines": "46-78"},
-      {"path": "docs/source/how-to/ariel/standalone-deployment.rst", "why": "delete; relocate SQL read-only-role section 218-258 (cited by postgresql/10-readonly-role.sh.j2:7, postgresql/docker-compose.yml.j2:96, env-chain.rst:178)", "lines": "1-258"},
-      {"path": "docs/", "why": "multi-user/index.rst 97-262, 535-552; tiers.rst; login.rst 380-470, 557-595; build-profiles.rst 37, 516-560 (stale ariel.yml 533); profile.rst; config.rst 744-746, 935; ariel/index.rst 91-95, 217-222, 271; ariel/picture-search 56, search-modes 161, search-sidecar 42; use-channel-finder 194; notebooks 20; event-dispatch.rst 66-94, 185-216", "lines": ""},
-      {"path": "tests/", "why": "test_persona_presets.py (548 notebook, 688-1240 personas, 1317 posture matrix); test_preset_hash_pin.py 316-330; test_hook_selection_pins.py 45-52; test_preset_dependency_pin.py 40-54; tests/fixtures/lifecycle_repo.py 1634-2144, 3138-3142; tests/fixtures/explicit_config (cells.json 32-64, meta.json 11-45, freeze.py 131-136, 29 frozen yml); test_persona_profile_emission.py; test_init_verb.py; test_scaffold_personas.py; test_profile_root.py; test_implicit_delta.py; test_profile_hash_folding.py; tests/deployment/test_persona_render_e2e.py; tests/deployment/web_terminals/{test_persona_images,test_personas,test_persona_rejection_messages,test_role_roster_regressions,test_lint,test_provision,test_golden_render}.py; tests/deployment/goldens/exemplar-profile/personas/; test_graph_agent_surface.py 137-290; test_build_preset.py 180-240, 1499-1530; test_deployed_services_injection.py 205-240; test_explicit_config_equivalence.py 222-224, 655; tests/scripts/test_config_key_guard.py 105, 516, 563, 629-650, 932; plus ~30 parametrized preset lists", "lines": ""}
+      {
+        "path": "src/osprey/cli/profile_root.py",
+        "why": "resolve_profile_root: 'location is the type' \u2014 a file is a persona delta only because its parent dir is personas/ beside profile.yml. Classification point for tiers/ and apps/",
+        "lines": "31-73, 96-130"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_merge.py",
+        "why": "resolve_profile_document (non-delta branch 764-774, delta branch 776-826); merge_persona_delta = _deep_merge (lists UNION) + exclude; hash fold enumerates personas/ at 1030-1040",
+        "lines": "38-93, 479-514, 701-826, 1030-1040"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_resolve.py",
+        "why": "resolve_build_document: overlays deep-merged 528-531, resolve_profile_document 534, then _parse_profile/validate \u2014 the one load-time spot for the deprecation shim; preset-mode resolution 493-496 is what an apps/<n>.yml `preset:` reuses",
+        "lines": "445-560"
+      },
+      {
+        "path": "src/osprey/cli/build_cmd.py",
+        "why": "_persona_deltas lists personas/ (2542-2607); _render_persona_projects renders build/<project>-<name> (2610-2668); image contexts 3077-3131; orchestration 3510-3516; attached-render services drop 2185-2189",
+        "lines": "2163-2170, 2185-2210, 2542-2668, 3077-3131, 3510-3516"
+      },
+      {
+        "path": "src/osprey/deployment/staleness.py",
+        "why": "_material_input_digests folds personas/<name> (421-431) \u2014 must list apps/ and tiers/ in lockstep with the build loop and the hash fold",
+        "lines": "345-434"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_emit.py",
+        "why": "effective_web_terminals, emits_persona_profiles, persona_catalog (776-819); emit_persona_delta_yaml (1087); persona_catalog_layer writes build_profile: personas/<n>.yml (1221)",
+        "lines": "776-819, 1087-1248"
+      },
+      {
+        "path": "src/osprey/cli/profile_cmd.py",
+        "why": "_persona_profile_texts (1237-1371): name hygiene, bundle check 1321-1334, _off_chain_problem 1077, privilege tally, _privileged_persona_problems 1164; writes at 1907-1918; read_persona_deltas 711",
+        "lines": "711-772, 1077-1113, 1164-1371, 1907-1918"
+      },
+      {
+        "path": "src/osprey/cli/scaffold_personas.py",
+        "why": "osprey scaffold personas: emit_persona_files, repoint_persona_catalog",
+        "lines": "63-216"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/personas.py",
+        "why": "effective_persona (role \u2192 persona \u2192 default) 146-260; normalize_users 1170-1370 (drops entries without int index); access parser/entry_is_shared 1525-1730; freeze_user_indices 1733; resolve_personas 2743 (attaches landing_group 2972)",
+        "lines": "146-260, 701-745, 1170-1370, 1525-1800, 2743-3009"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/ports.py",
+        "why": "FAMILY_BASE_FIELDS, base_ports_from_config, allocate_ports(base, index) = base + index",
+        "lines": "33-109, 175-210"
+      },
+      {
+        "path": "src/osprey/port_layout.py",
+        "why": "INDEX_MAX = 99; per-user bands; fixed banded indices precedent",
+        "lines": "90-116, 152-260"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/render.py",
+        "why": "per-entry services dict + allocate_ports 1087-1258; display_name \u2192 OSPREY_WEB_APP_NAME 1159-1164; _build_groups/_user_groups/_user_card 2393-2586 (label = roster name); _authorization_context parses roles.<r>.persona 2843-2950; dispatcher_personas \u2192 wants_dispatcher 814-866",
+        "lines": "814-866, 1087-1258, 2393-2586, 2843-2950"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/lint.py",
+        "why": "24 web_terminals.*persona* codes; index/duplicate/port-overlap/family checks 634-943 (port_overlap loops range(len(users)), misses sparse indices); default_persona and shared-card rules 1015-1495; persona_project_shadows_worker_image 2470-2500",
+        "lines": "504-943, 960-1495, 2470-2500, 3653-4164"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/persona_images.py",
+        "why": "_referenced_personas reads raw personas 225; persona_build_profile_shape_problem hard-codes personas/ 292-344; verify_persona_renders 611; build_persona_images 700 (tags <project>-<persona>:local)",
+        "lines": "191-355, 611-800"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/persona_naming.py",
+        "why": "persona_project \u2192 (<project>-<name>, build/<project>-<name>); derived_persona_catalog",
+        "lines": "23-80"
+      },
+      {
+        "path": "src/osprey/deployment/web_terminals/env_production.py",
+        "why": "reads default_persona and raw catalog for telemetry/secret vars",
+        "lines": "310-425"
+      },
+      {
+        "path": "src/osprey/deployment/deploy_summary.py",
+        "why": "_families_by_user reads default_persona, effective_persona(strict=False)",
+        "lines": "542-655"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_deploy.py",
+        "why": "relocated-key messages for personas/default_persona 65-66; build_lint_view overlays derived catalog 327-360",
+        "lines": "65-66, 327-450"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_model.py",
+        "why": "persona_render_key_errors 290-320; _runs_the_channel_finder special case 858-875; _renders_graphdb_block 876 (the card's graphdb_configured predicate)",
+        "lines": "290-320, 858-905"
+      },
+      {
+        "path": "src/osprey/cli/profile_card.py",
+        "why": "_enabled_mcp_servers passes only channel_finder_pipeline to resolve_servers (P1.3); _web_terminal_group reads default_persona 299-307",
+        "lines": "91-140, 251-398"
+      },
+      {
+        "path": "src/osprey/cli/templates/claude_code.py",
+        "why": "config_derived_context: graphdb_configured 301, event_dispatcher_wired 310 \u2014 the render's gates the card must mirror",
+        "lines": "189-331"
+      },
+      {
+        "path": "src/osprey/registry/mcp.py",
+        "why": "graph server condition graphdb_configured 671; event_dispatcher condition 701; resolve_servers 1380; agents dropped when their server is off 1010-1014, 1988-1992",
+        "lines": "640-720, 1380-1470, 1964-2040"
+      },
+      {
+        "path": "src/osprey/templates/modules/web_terminals/landing.html.j2",
+        "why": "renders groups[{label, items, variant}]; tray variant for shared sections; empty groups suppressed",
+        "lines": "32-82, 392-460"
+      },
+      {
+        "path": "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
+        "why": "consumes svc.display_name (OSPREY_WEB_APP_NAME) and access env",
+        "lines": "30-101, 336-353, 928-957, 1217-1224"
+      },
+      {
+        "path": "src/osprey/services/auth_sidecar/app.py",
+        "why": "ENV_ROSTER_ACCESS_PREFIX \u2192 AuthSettings.access/shared",
+        "lines": "215, 384, 633, 815-831"
+      },
+      {
+        "path": "src/osprey/services/auth_sidecar/routes/entry.py",
+        "why": "password_cards lists own cards then shared ones, by roster name",
+        "lines": "105-200"
+      },
+      {
+        "path": "src/osprey/templates/services/dispatch_worker/docker-compose.yml.j2",
+        "why": "worker image, OSPREY_PROJECT_DIR, CONFIG_FILE and config mount all keyed on project_name \u2014 the places dispatch.tier must redirect",
+        "lines": "24-28, 62, 77-78, 146, 221, 296-299"
+      },
+      {
+        "path": "src/osprey/deployment/compose_generator.py",
+        "why": "_inject_project_metadata sets dispatch_worker.image = <project>:local (2066-2085); setup_build_dir stages build/services/dispatch_worker/config.yml from the deployment's config (4221-4260)",
+        "lines": "1730-1750, 2066-2085, 4221-4260"
+      },
+      {
+        "path": "src/osprey/cli/build_profile_schema.py",
+        "why": "DispatchConfig (478-560) \u2014 where `tier` lands; bridge configs have trigger/mentions only",
+        "lines": "478-560, 956-1070"
+      },
+      {
+        "path": "src/osprey/cli/build_injectors.py",
+        "why": "_inject_dispatch writes dispatcher/worker service blocks",
+        "lines": "604-705"
+      },
+      {
+        "path": "src/osprey/deployment/container_lifecycle.py",
+        "why": "_worker_image_target / _project_image_build_target: image build order for the worker",
+        "lines": "2375-2400"
+      },
+      {
+        "path": "src/osprey/mcp_server/dispatch_worker/sdk_runner.py",
+        "why": "agent cwd = deployed_render_dir() = parent of CONFIG_FILE",
+        "lines": "367-400"
+      },
+      {
+        "path": "src/osprey/profiles/presets/",
+        "why": "control-assistant.yml roster 1110-1232 and floor 742-762; control-assistant-{readonly,readwrite,admin,logbook,knowledge}.yml; ariel-standalone.yml (demo_narrative 228); channel-finder-standalone.yml (CLAUDE.channel-finder.md.j2 46); hello-world.yml",
+        "lines": ""
+      },
+      {
+        "path": "src/osprey/profiles/config_key_manifest.yml",
+        "why": "web_terminals keys 3180-3215; render_contexts.presets 3899-3907; expected_union_size 3929; governed_sets.claims 3970-3982 (only the two standalones); same-value marks 995-996; phantom keys ariel.demo_narrative, servers.osprey_facility_knowledge.enabled, servers.python.enabled, web.control_target_picker",
+        "lines": "325, 408, 964, 995-996, 1027, 2107, 2842, 2935, 2959, 3180-3215, 3522, 3899-3929, 3970-3982, 4017-4025"
+      },
+      {
+        "path": "scripts/check_config_keys.py",
+        "why": "EXPECTED_PANEL_PORT_MARKERS 139-157; phantom-key 706-736; same-value 1033; governed sets 1338-1365 (empty set passes silently)",
+        "lines": "139-157, 706-736, 1020-1060, 1338-1365"
+      },
+      {
+        "path": "scripts/config_key_parity.md",
+        "why": "four-root-preset parity doc",
+        "lines": "25-26, 85, 90, 112, 137-157, 234"
+      },
+      {
+        "path": "src/osprey/agent_runner/build_artifacts/catalog.py",
+        "why": "claude_md_template variants (CLAUDE.ariel/knowledge/channel-finder) 46-78",
+        "lines": "46-78"
+      },
+      {
+        "path": "docs/source/how-to/ariel/standalone-deployment.rst",
+        "why": "delete; relocate SQL read-only-role section 218-258 (cited by postgresql/10-readonly-role.sh.j2:7, postgresql/docker-compose.yml.j2:96, env-chain.rst:178)",
+        "lines": "1-258"
+      },
+      {
+        "path": "docs/",
+        "why": "multi-user/index.rst 97-262, 535-552; tiers.rst; login.rst 380-470, 557-595; build-profiles.rst 37, 516-560 (stale ariel.yml 533); profile.rst; config.rst 744-746, 935; ariel/index.rst 91-95, 217-222, 271; ariel/picture-search 56, search-modes 161, search-sidecar 42; use-channel-finder 194; notebooks 20; event-dispatch.rst 66-94, 185-216",
+        "lines": ""
+      },
+      {
+        "path": "tests/",
+        "why": "test_persona_presets.py (548 notebook, 688-1240 personas, 1317 posture matrix); test_preset_hash_pin.py 316-330; test_hook_selection_pins.py 45-52; test_preset_dependency_pin.py 40-54; tests/fixtures/lifecycle_repo.py 1634-2144, 3138-3142; tests/fixtures/explicit_config (cells.json 32-64, meta.json 11-45, freeze.py 131-136, 29 frozen yml); test_persona_profile_emission.py; test_init_verb.py; test_scaffold_personas.py; test_profile_root.py; test_implicit_delta.py; test_profile_hash_folding.py; tests/deployment/test_persona_render_e2e.py; tests/deployment/web_terminals/{test_persona_images,test_personas,test_persona_rejection_messages,test_role_roster_regressions,test_lint,test_provision,test_golden_render}.py; tests/deployment/goldens/exemplar-profile/personas/; test_graph_agent_surface.py 137-290; test_build_preset.py 180-240, 1499-1530; test_deployed_services_injection.py 205-240; test_explicit_config_equivalence.py 222-224, 655; tests/scripts/test_config_key_guard.py 105, 516, 563, 629-650, 932; plus ~30 parametrized preset lists",
+        "lines": ""
+      }
     ],
     "keySymbols": [
-      {"name": "resolve_profile_root", "signature": "resolve_profile_root(profile_path: Path) -> tuple[Path, bool]", "file": "src/osprey/cli/profile_root.py:38"},
-      {"name": "resolve_profile_document", "signature": "resolve_profile_document(raw, profile_path, *, warn=True) -> ResolvedProfileDocument(raw, root_dir, is_persona_delta, excluded_artifacts, inherited_preset)", "file": "src/osprey/cli/build_profile_merge.py:701"},
-      {"name": "merge_persona_delta", "signature": "merge_persona_delta(root_resolved, delta, *, artifacts=None, shadow_candidates=None) -> dict", "file": "src/osprey/cli/build_profile_merge.py:479"},
-      {"name": "resolve_build_document", "signature": "resolve_build_document(profile_path, preset, overlays=(), set_pairs=()) -> LoadedProfile", "file": "src/osprey/cli/build_profile_resolve.py:445"},
-      {"name": "_persona_deltas / _render_persona_projects", "signature": "_persona_deltas(repo_root) -> list[Path]; _render_persona_projects(shared, zones, project_name) -> list[Path]", "file": "src/osprey/cli/build_cmd.py:2542,2610"},
-      {"name": "persona_catalog / emits_persona_profiles / effective_web_terminals", "signature": "persona_catalog(config) -> dict[str, dict]", "file": "src/osprey/cli/build_profile_emit.py:776-819"},
-      {"name": "emit_persona_delta_yaml / persona_catalog_layer", "signature": "emit_persona_delta_yaml(preset_name, profile_name, profile_filename, host_filename='profile.yml') -> str", "file": "src/osprey/cli/build_profile_emit.py:1087,1221"},
-      {"name": "_persona_profile_texts / _off_chain_problem / _privileged_persona_problems", "signature": "_persona_profile_texts(resolved, profile_name, persona_path_prefix, host_preset) -> dict[str,str]", "file": "src/osprey/cli/profile_cmd.py:1237,1077,1164"},
-      {"name": "effective_persona", "signature": "effective_persona(entry, authorization, default_persona, *, strict=True) -> str | None", "file": "src/osprey/deployment/web_terminals/personas.py:146"},
-      {"name": "normalize_users / freeze_user_indices / entry_is_shared / resolve_access_principals", "signature": "normalize_users(users_raw, *, strict=True) -> list[dict]", "file": "src/osprey/deployment/web_terminals/personas.py:1170,1733,1661,1525"},
-      {"name": "resolve_personas", "signature": "resolve_personas(web_terminals, registry_cfg, *, strict=True) -> list[dict]", "file": "src/osprey/deployment/web_terminals/personas.py:2743"},
-      {"name": "allocate_ports / INDEX_MAX", "signature": "allocate_ports(base_ports, index) -> dict[str,int]; INDEX_MAX = 99", "file": "src/osprey/deployment/web_terminals/ports.py:175; src/osprey/port_layout.py:94"},
-      {"name": "_build_groups / _user_groups / _user_card", "signature": "_user_card(resolved_user, token_login_names) -> {label, url, token_login, sublabel?}", "file": "src/osprey/deployment/web_terminals/render.py:2439,2530,2393"},
-      {"name": "_authorization_context", "signature": "_authorization_context(web_terminals) -> dict  # parses roles.<r>.persona", "file": "src/osprey/deployment/web_terminals/render.py:2843"},
-      {"name": "persona_project / derived_persona_catalog", "signature": "persona_project(project_name, persona) -> (name, build_path)", "file": "src/osprey/deployment/web_terminals/persona_naming.py:23,39"},
-      {"name": "build_persona_images / verify_persona_renders / persona_build_profile_shape_problem", "signature": "build_persona_images(config, resolved_users, dev_mode, env)", "file": "src/osprey/deployment/web_terminals/persona_images.py:700,611,292"},
-      {"name": "_enabled_mcp_servers", "signature": "_enabled_mcp_servers(profile: BuildProfile) -> list[str]", "file": "src/osprey/cli/profile_card.py:377"},
-      {"name": "config_derived_context", "signature": "config_derived_context(config, project_dir) -> dict  # graphdb_configured, event_dispatcher_wired", "file": "src/osprey/cli/templates/claude_code.py:225"},
-      {"name": "_renders_graphdb_block / _runs_the_channel_finder", "signature": "BuildProfile._renders_graphdb_block() -> bool", "file": "src/osprey/cli/build_profile_model.py:876,858"},
-      {"name": "config_needs_dispatcher_token", "signature": "config_needs_dispatcher_token(config) -> bool", "file": "src/osprey/deployment/web_terminals/personas.py:282"},
-      {"name": "DispatchConfig", "signature": "@dataclass triggers, worker_count, workspace_mode, max_concurrent_runs, max_queue_depth, dispatcher_port, worker_port_base, worker_port_stride, timeout_sec, inactivity_sec, max_turns, channel_strip_prefix, network, env", "file": "src/osprey/cli/build_profile_schema.py:478"},
-      {"name": "_inject_project_metadata / setup_build_dir", "signature": "sets services.dispatch_worker.image = osprey_images.worker; stages build/services/dispatch_worker/config.yml", "file": "src/osprey/deployment/compose_generator.py:2066,4221"},
-      {"name": "_worker_image_target", "signature": "_worker_image_target(config, env) -> str", "file": "src/osprey/deployment/container_lifecycle.py:2375"},
-      {"name": "list_presets / preset_data_bundle / preset_facility", "signature": "list_presets() -> list[str]", "file": "src/osprey/cli/build_profile_presets.py:142,208,228"}
+      {
+        "name": "resolve_profile_root",
+        "signature": "resolve_profile_root(profile_path: Path) -> tuple[Path, bool]",
+        "file": "src/osprey/cli/profile_root.py:38"
+      },
+      {
+        "name": "resolve_profile_document",
+        "signature": "resolve_profile_document(raw, profile_path, *, warn=True) -> ResolvedProfileDocument(raw, root_dir, is_persona_delta, excluded_artifacts, inherited_preset)",
+        "file": "src/osprey/cli/build_profile_merge.py:701"
+      },
+      {
+        "name": "merge_persona_delta",
+        "signature": "merge_persona_delta(root_resolved, delta, *, artifacts=None, shadow_candidates=None) -> dict",
+        "file": "src/osprey/cli/build_profile_merge.py:479"
+      },
+      {
+        "name": "resolve_build_document",
+        "signature": "resolve_build_document(profile_path, preset, overlays=(), set_pairs=()) -> LoadedProfile",
+        "file": "src/osprey/cli/build_profile_resolve.py:445"
+      },
+      {
+        "name": "_persona_deltas / _render_persona_projects",
+        "signature": "_persona_deltas(repo_root) -> list[Path]; _render_persona_projects(shared, zones, project_name) -> list[Path]",
+        "file": "src/osprey/cli/build_cmd.py:2542,2610"
+      },
+      {
+        "name": "persona_catalog / emits_persona_profiles / effective_web_terminals",
+        "signature": "persona_catalog(config) -> dict[str, dict]",
+        "file": "src/osprey/cli/build_profile_emit.py:776-819"
+      },
+      {
+        "name": "emit_persona_delta_yaml / persona_catalog_layer",
+        "signature": "emit_persona_delta_yaml(preset_name, profile_name, profile_filename, host_filename='profile.yml') -> str",
+        "file": "src/osprey/cli/build_profile_emit.py:1087,1221"
+      },
+      {
+        "name": "_persona_profile_texts / _off_chain_problem / _privileged_persona_problems",
+        "signature": "_persona_profile_texts(resolved, profile_name, persona_path_prefix, host_preset) -> dict[str,str]",
+        "file": "src/osprey/cli/profile_cmd.py:1237,1077,1164"
+      },
+      {
+        "name": "effective_persona",
+        "signature": "effective_persona(entry, authorization, default_persona, *, strict=True) -> str | None",
+        "file": "src/osprey/deployment/web_terminals/personas.py:146"
+      },
+      {
+        "name": "normalize_users / freeze_user_indices / entry_is_shared / resolve_access_principals",
+        "signature": "normalize_users(users_raw, *, strict=True) -> list[dict]",
+        "file": "src/osprey/deployment/web_terminals/personas.py:1170,1733,1661,1525"
+      },
+      {
+        "name": "resolve_personas",
+        "signature": "resolve_personas(web_terminals, registry_cfg, *, strict=True) -> list[dict]",
+        "file": "src/osprey/deployment/web_terminals/personas.py:2743"
+      },
+      {
+        "name": "allocate_ports / INDEX_MAX",
+        "signature": "allocate_ports(base_ports, index) -> dict[str,int]; INDEX_MAX = 99",
+        "file": "src/osprey/deployment/web_terminals/ports.py:175; src/osprey/port_layout.py:94"
+      },
+      {
+        "name": "_build_groups / _user_groups / _user_card",
+        "signature": "_user_card(resolved_user, token_login_names) -> {label, url, token_login, sublabel?}",
+        "file": "src/osprey/deployment/web_terminals/render.py:2439,2530,2393"
+      },
+      {
+        "name": "_authorization_context",
+        "signature": "_authorization_context(web_terminals) -> dict  # parses roles.<r>.persona",
+        "file": "src/osprey/deployment/web_terminals/render.py:2843"
+      },
+      {
+        "name": "persona_project / derived_persona_catalog",
+        "signature": "persona_project(project_name, persona) -> (name, build_path)",
+        "file": "src/osprey/deployment/web_terminals/persona_naming.py:23,39"
+      },
+      {
+        "name": "build_persona_images / verify_persona_renders / persona_build_profile_shape_problem",
+        "signature": "build_persona_images(config, resolved_users, dev_mode, env)",
+        "file": "src/osprey/deployment/web_terminals/persona_images.py:700,611,292"
+      },
+      {
+        "name": "_enabled_mcp_servers",
+        "signature": "_enabled_mcp_servers(profile: BuildProfile) -> list[str]",
+        "file": "src/osprey/cli/profile_card.py:377"
+      },
+      {
+        "name": "config_derived_context",
+        "signature": "config_derived_context(config, project_dir) -> dict  # graphdb_configured, event_dispatcher_wired",
+        "file": "src/osprey/cli/templates/claude_code.py:225"
+      },
+      {
+        "name": "_renders_graphdb_block / _runs_the_channel_finder",
+        "signature": "BuildProfile._renders_graphdb_block() -> bool",
+        "file": "src/osprey/cli/build_profile_model.py:876,858"
+      },
+      {
+        "name": "config_needs_dispatcher_token",
+        "signature": "config_needs_dispatcher_token(config) -> bool",
+        "file": "src/osprey/deployment/web_terminals/personas.py:282"
+      },
+      {
+        "name": "DispatchConfig",
+        "signature": "@dataclass triggers, worker_count, workspace_mode, max_concurrent_runs, max_queue_depth, dispatcher_port, worker_port_base, worker_port_stride, timeout_sec, inactivity_sec, max_turns, channel_strip_prefix, network, env",
+        "file": "src/osprey/cli/build_profile_schema.py:478"
+      },
+      {
+        "name": "_inject_project_metadata / setup_build_dir",
+        "signature": "sets services.dispatch_worker.image = osprey_images.worker; stages build/services/dispatch_worker/config.yml",
+        "file": "src/osprey/deployment/compose_generator.py:2066,4221"
+      },
+      {
+        "name": "_worker_image_target",
+        "signature": "_worker_image_target(config, env) -> str",
+        "file": "src/osprey/deployment/container_lifecycle.py:2375"
+      },
+      {
+        "name": "list_presets / preset_data_bundle / preset_facility",
+        "signature": "list_presets() -> list[str]",
+        "file": "src/osprey/cli/build_profile_presets.py:142,208,228"
+      }
     ],
     "patterns": [
       "Location is the type: a file is a persona delta only because its parent dir is personas/ beside profile.yml (profile_root.py:59-73). Content never decides the kind.",
@@ -94,17 +371,17 @@
       "Strict vs lenient resolution: binding surfaces raise, reporting surfaces (lint, card, summary) degrade with strict=False."
     ],
     "integrationPoints": [
-      "profile_root.resolve_profile_root → kind enum {root, tier, app} with TIERS_DIRNAME/APPS_DIRNAME; callers: build_profile_merge.py:738, build_profile_drift.py:228, build_cmd.py:2593, persona_images.py:476, profile_root.py:179; ProjectProfile.env_path shares the root .env",
+      "profile_root.resolve_profile_root \u2192 kind enum {root, tier, app} with TIERS_DIRNAME/APPS_DIRNAME; callers: build_profile_merge.py:738, build_profile_drift.py:228, build_cmd.py:2593, persona_images.py:476, profile_root.py:179; ProjectProfile.env_path shares the root .env",
       "build_profile_merge.resolve_profile_document: third branch for apps (resolve `preset:` via _load_preset_raw + _resolve_extends, then host profile.yml, then the app composer); tiers keep the delta branch",
-      "build_cmd._persona_deltas/_render_persona_projects + image contexts + orchestration: enumerate tiers/ and apps/; naming via persona_project (collision if a tier and an app share a stem → refuse)",
+      "build_cmd._persona_deltas/_render_persona_projects + image contexts + orchestration: enumerate tiers/ and apps/; naming via persona_project (collision if a tier and an app share a stem \u2192 refuse)",
       "Deprecation shim at load time in resolve_build_document after resolve_profile_document (build_profile_resolve.py:534-543); lenient fallback in _authorization_context and effective_persona for already-rendered config.yml; config_key_manifest registers old and new keys",
       "normalize_users/resolve_personas: expand `shared:` into derived entries {name, index: 99-i, access: any, app: <name>} so render/sidecar/lint work unchanged; lint _roster_indices/_check_duplicate_index/_check_port_overlap include derived slots",
       "render._user_card: label from the app preset's name for app cards; _build_groups: an 'Apps' section (tray variant) replaces landing_group",
       "profile_card._enabled_mcp_servers: build ctx with graphdb_configured (= profile._renders_graphdb_block()) and event_dispatcher_wired (= EVENTS panel declared), mirroring config_derived_context",
-      "DispatchConfig.tier → _inject_dispatch → services.dispatch_worker.image = <project>-<tier>:local; worker compose template paths/CONFIG_FILE/mount use the tier render name; setup_build_dir stages the tier render's flattened config; container_lifecycle builds the tier image before the worker; lint persona_project_shadows_worker_image revisited",
-      "Presets: control-assistant.yml roster → users with tier + shared; tiers/{readonly,readwrite,admin}.yml (from control-assistant-*); logbook.yml (from ariel-standalone minus services/standalone keys, + graph on, + safety), knowledge.yml, channel-finder.yml (from the standalone presets); ariel.demo_narrative moves to control-assistant.yml",
+      "DispatchConfig.tier \u2192 _inject_dispatch \u2192 services.dispatch_worker.image = <project>-<tier>:local; worker compose template paths/CONFIG_FILE/mount use the tier render name; setup_build_dir stages the tier render's flattened config; container_lifecycle builds the tier image before the worker; lint persona_project_shadows_worker_image revisited",
+      "Presets: control-assistant.yml roster \u2192 users with tier + shared; tiers/{readonly,readwrite,admin}.yml (from control-assistant-*); logbook.yml (from ariel-standalone minus services/standalone keys, + graph on, + safety), knowledge.yml, channel-finder.yml (from the standalone presets); ariel.demo_narrative moves to control-assistant.yml",
       "Init/scaffold emission: tiers/<n>.yml = tier preset layer minus extends (today's emit_persona_delta_yaml); apps/<n>.yml = header + `preset: <app>`; catalog layer writes tiers:/apps: spellings",
-      "Docs: multi-user index/tiers/login, build-profiles Personas section → Tiers and Apps, profile.rst, config.rst, event-dispatch.rst (dispatch.tier), ariel/index quick start → control-assistant, delete ariel/standalone-deployment.rst after relocating the SQL read-only-role section"
+      "Docs: multi-user index/tiers/login, build-profiles Personas section \u2192 Tiers and Apps, profile.rst, config.rst, event-dispatch.rst (dispatch.tier), ariel/index quick start \u2192 control-assistant, delete ariel/standalone-deployment.rst after relocating the SQL read-only-role section"
     ],
     "dependencies": [
       "osprey_connectors.errors.BuildProfileError; osprey.facility.errors.FacilityBuildError",
@@ -118,9 +395,201 @@
   },
   "final_score": 96,
   "rounds_conducted": 1,
-  "score_progression": [84, 96],
+  "score_progression": [
+    84,
+    96
+  ],
   "mode": "interactive",
-  "auto_decisions": [],
-  "carried_findings": [],
-  "loop_gaps": []
+  "auto_decisions": [
+    {
+      "point": "4-da",
+      "question": "CF-1 preset kinds / listings / criteria on calls the plan refuses",
+      "decision": "location is the type on both sides: presets/tiers/, presets/apps/; list_presets() deployments only + list_tiers()/list_apps(); one kind-keyed refusal; criteria on the composed render in the fixture repo; delete _off_chain_problem and the bundle comparison",
+      "justification": "RULINGS end-state picture draws presets/tiers/; list_presets() contract ('every name usable as osprey init --preset') is documented; four lenses converged",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-2 app composition (host underlay, preset: vs extends:, replace vs union, attachment, unassigned keys, data bundle)",
+      "decision": "one _deep_merge over a kind-chosen base; app file spells `extends:`; underlay = host config minus claude_code.servers.* and *writes_enabled, permissions KEPT and unioned; structural writes-off pins + writes-check hook + lint; attachment from kind for both; closed key set per kind; other keys and data bundle from the host",
+      "justification": "design-philosophy \u00a71 (safe default) and \u00a76 (one rule); `extends` is the existing key for 'builds on preset X' so no new public key; R-app-file fixed the shape not the spelling; skeptic confirmed setup_patch is `ask` without the floor deny",
+      "confidence": "high",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-3 exclude: on tiers (R5') and on root profiles",
+      "decision": "tiers/apps refuse exclude: (applied); root/overlay exclude: KEPT with one golden test",
+      "justification": "R5' verbatim for tiers/apps; root fork ESCALATED \u2014 owner chose keep (amendment A2)",
+      "confidence": "high",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-4 shim location + lenient fallback",
+      "decision": "rename at _parse_profile_document per document; no lenient readers; rendered configs new spellings only; pre-vocabulary render refused by check_drift",
+      "justification": "build_profile_document docstring already makes that the single normalisation point; hash must be spelling-independent; \u00a76 rendered config is a projection",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-5 --revalidate missing, window end, rollback",
+      "decision": "FR12 builds osprey init --revalidate; _PROFILE_SCHEMA_MIN_OSPREY bumped; RETIRED_ROSTER_KEYS_REFUSED_FROM test",
+      "justification": "R-deprecation names the flag; the schema floor exists for exactly this case",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-6 rendered catalog successor, knobs, namespace collision",
+      "decision": "build projects modules.web_terminals.renders.<name>; extra_mounts/seed_base/image move into the tier/app file; stem in both folders refused",
+      "justification": "'render' is an approved word in the unit table; the file is the one per-render definition; deleting documented operator knobs would widen the card",
+      "confidence": "medium",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-7 roster expansion",
+      "decision": "roster_entries() helper, in-memory typed app entries, never written back; verbs refuse app names; app branch in resolve_personas",
+      "justification": "17+1 call sites verified; normalize_users keeps its byte-identical contract trivially",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-8 dispatch.tier producer/config/paths/env/admin/default",
+      "decision": "reference semantics; one image producer; one build step on both deploy paths; baked tier config; one project dir; OSPREY_WORKER_IMAGE refused; deployment-editing tiers refused; control-assistant.yml dispatch.tier: readonly; refusal also resolves presets/tiers/ (skeptic miss)",
+      "justification": "RULINGS picture emits dispatch: tier: readonly; design-philosophy \u00a71; skeptic verified every mechanism",
+      "confidence": "high",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "CF-9 config-key guard model",
+      "decision": "render_contexts.apps composed over the host; claims logbook + channel-finder; empty claims fail; same-value marks dropped; panel-port markers removed",
+      "justification": "guard's own definitions (rendered: false means nothing ships it) make the proposal's remedy wrong for every key",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-1 <bridge>.tier contradiction",
+      "decision": "recorded as amendment A1 (owner's interview answer)",
+      "justification": "owner already answered in the interview; RULINGS lagged",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-2 demo_narrative live in control-assistant",
+      "decision": "ship commented; demo repos set it with --set; tests re-aimed",
+      "justification": "\u00a71 safe default; follow-up 5 was planner-resolved, not ruled; skeptic found the deploy-path effect too",
+      "confidence": "high",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-3 explicit-config fixtures",
+      "decision": "delete standalone cells, re-freeze once at PR head, baseline 241443d5d",
+      "justification": "fixture's own contract; RULINGS says re-frozen",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-4 profile card criterion",
+      "decision": "criterion on `osprey profile card --json` in the init repo; import the two gates",
+      "justification": "card verb has no --preset; mirroring rules by hand is the drift the finding exists for",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-5 scope vs criterion (deletion 80 files, docs 33, templates, plugin, scaffold verb, internal vocabulary)",
+      "decision": "scope = criterion: full checklist, all docs/plugin/template files, CLAUDE.logbook.md.j2 rename, scaffold tiers replaces scaffold personas, internal-vocabulary phase",
+      "justification": "owner ruled 'persona is retired'; judge by what the product says, not by less work; scaffold tiers listed as a new public name for veto",
+      "confidence": "medium",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "IA-6 fixture direction, drift pairing, root entries",
+      "decision": "exemplar authored first as spec; goldens in scope; _layer_pairs over renders; enumeration helper feeds KNOWN_ROOT_ENTRIES/MATERIALIZED_SOURCE_ENTRIES/_entry_list",
+      "justification": "goldens/README and test_init_verb make the exemplar the spec",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CC-1 slot rule",
+      "decision": "INDEX_MAX - position in shared: order (owner's interview answer); RULINGS bullet corrected (A3); harmlessness stated; lint on people's index ceiling",
+      "justification": "owner already answered follow-up 1; skeptic verified nothing is keyed by port",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "CC-2 card title carrier + apps section",
+      "decision": "display_name on the derived entry drives landing label, tab and chooser (OpenedCard.label via roster-env var); {type: apps} landing group; landing_group deleted; heading listed for veto",
+      "justification": "one title on every surface; landing.groups already typed; \u00a73 symmetry",
+      "confidence": "high",
+      "source": "design-principle"
+    },
+    {
+      "point": "4-da",
+      "question": "OC-1 lint aliases / manifest both spellings",
+      "decision": "renamed outright (24 codes), manifest new keys only",
+      "justification": "no consumer can reference a lint code; legacy not inherited by default",
+      "confidence": "high",
+      "source": "codebase-convention"
+    },
+    {
+      "point": "4-da",
+      "question": "OC-2 lint revisit row",
+      "decision": "dropped; message noun changed",
+      "justification": "rule guards the project image that ariel_sync/archive still run",
+      "confidence": "high",
+      "source": "codebase-convention"
+    }
+  ],
+  "carried_findings": [
+    {
+      "round": 1,
+      "id": "MISS-2",
+      "finding": "setup_patch posture is also a filesystem fact: Dockerfile.j2 chowns build/config.yml to the agent user whenever the render leaves setup_patch outside deny",
+      "evidence": "src/osprey/templates/project/Dockerfile.j2:346-353; src/osprey/cli/build_cmd.py:4009",
+      "fix": "the app-composer task asserts _profile_setup_patch_capable is False for every composed app render, not only that the deny list contains setup_patch",
+      "becomes": "test-obligation"
+    },
+    {
+      "round": 1,
+      "id": "MISS-3",
+      "finding": "deploy_scaffold_templates enumerates web.get('users') directly for liveness probes (the 18th roster reader)",
+      "evidence": "src/osprey/cli/deploy_scaffold_templates.py:965-983",
+      "fix": "the roster-helper task's checklist of call sites includes this one; a grep gate asserts no caller outside personas.py reads web_terminals['users'] directly",
+      "becomes": "task-note"
+    }
+  ],
+  "loop_gaps": [],
+  "da_tier": {
+    "tier": "robust",
+    "grounding": "explicit --robust flag; >40 files in relevantFiles, a new profile-file kind, a deletion widening into fixtures and the config-key manifest",
+    "lenses": [
+      "end-product integration",
+      "assumptions & correctness",
+      "operability & migration",
+      "roster/ports data model",
+      "interface contracts & UX",
+      "dispatch.tier & security",
+      "deletion widening & config-key guard"
+    ],
+    "model": "fable (reviewers and skeptic)",
+    "rounds": 1,
+    "round_tallies": [
+      "14 design + 5 code upheld (19/19), 4 skeptic misses (2 design folded, 2 code carried)"
+    ],
+    "settled_by": "owner instruction: one round only; no blind pass run"
+  }
 }

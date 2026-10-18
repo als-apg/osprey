@@ -1,0 +1,355 @@
+{
+ "verdict": "REVISE",
+ "issues": [
+  {
+   "id": "CF-1",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "Tiers and apps are put into the flat list_presets() namespace and fenced off by content refusals; the bundled tier presets have two incompatible homes; success criteria assert results on calls the plan says raise",
+   "evidence": {
+    "file": "src/osprey/cli/build_profile_presets.py",
+    "line": 142,
+    "detail": "list_presets() is a flat iterdir() over presets/*.yml; it is the single writer behind `osprey init --list-presets` (init_cmd.py:1159-1171), `osprey profile presets` (profile_cmd.py:74-93, docstring 'Every name printed here is usable as osprey init --preset NAME', docs cli.rst:112,315) and four 'Unknown preset \u2026 Available:' messages. A presets/tiers/ subfolder is never listed, yet the criterion says list_presets() returns the five 'plus the three tiers'. `osprey profile card --preset control-assistant-readwrite` names a flag the card verb does not have (profile_cmd.py:139-147) and a preset the plan deletes. `resolve_build_profile(None,'logbook')` is the call path FR4 refuses (build_profile_resolve.py:493-516), and even unrefused it cannot list `graph`: `_renders_graphdb_block` (build_profile_model.py:876) is True only when the profile's own config/services spell graphdb, which FR4 forbids an app preset to carry. `osprey build --preset readonly` on an extends-less tier layer renders an empty agent with no message (build_cmd.py:4175). profile_cmd.py `_off_chain_problem` (1077) and the `_preset_data_names` bundle comparison (1321-1378) refuse every extends-less tier and every app preset at `osprey init`, so FR10 cannot emit them as written. Pin tables (test_preset_hash_pin.py:340, test_hook_selection_pins.py:82, test_preset_dependency_pin.py:85) and test_build_preset.py:788 iterate list_presets() and would build the apps standalone."
+   },
+   "fix": "'Location is the type' on BOTH sides. Package ships presets/{control-assistant,hello-world}.yml, presets/tiers/{readonly,readwrite,admin}.yml, presets/apps/{logbook,knowledge,channel-finder}.yml. `list_presets()` keeps its contract (deployments only); add `list_tiers()` and `list_apps()` beside it; `osprey profile presets` prints three headed blocks; pin tables iterate the three listings (hash/hook/dependency pins resolve, they do not build); test_each_bundled_preset_builds_clean iterates deployments only. One kind-keyed refusal in resolve_build_profile and osprey init: '<name> is a tier/app, not a deployment. It renders inside a repo: `osprey init <dir> --preset control-assistant` writes tiers/<name>.yml or apps/<name>.yml, and `osprey build` there renders build/<project>-<name>'. Delete `_off_chain_problem` and the bundle comparison (an invariant test asserts no tier/app preset spells extends, app_template or facility); init emits tier files as verbatim copies of presets/tiers/<n>.yml and app files as header + one line, from users[].tier/default_tier/roles and shared:. Rewrite criteria: list_presets()==[control-assistant, hello-world]; list_apps()==[channel-finder, knowledge, logbook]; list_tiers()==[admin, readonly, readwrite]; `osprey build --preset logbook` and `--preset readonly` refuse with the message; in a repo from `osprey init --preset control-assistant`, the composed render build/<p>-logbook has .mcp.json naming exactly osprey_workspace, ariel, graph, agents including facility-knowledge-graph, rules including safety; `osprey profile card --json` in that repo lists graph and event_dispatcher for the agent row and every tier row.",
+   "dependsOn": [],
+   "lenses": [
+    "correctness",
+    "deletion",
+    "endproduct",
+    "interface"
+   ]
+  },
+  {
+   "id": "CF-2",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "FR3's app composition is a splice: the whole host config (armed writes, every enabled server) underlies the app so logbook.yml must re-carry today's 11 negations; a new `preset:` key and a third 'replace' merge semantic duplicate `extends:`+deep-merge; attachment is derived from location for apps but spelled in content for tiers; 20+ profile keys are unassigned; the data bundle falls to a constant",
+   "evidence": {
+    "file": "src/osprey/profiles/presets/control-assistant.yml",
+    "line": 238,
+    "detail": "Host spells control_system.writes_enabled: true (238), servers.bluesky/health enabled (449-450); registry/mcp.py:1427-1440 enables every framework server unless `enabled: false`; control-assistant-logbook.yml carries 11 `*.enabled: false`/writes false keys to narrow the host \u2014 FR3 reproduces that carve-down inside logbook.yml. channel-finder-standalone.yml sets no writes key and no writes-check hook, so as an app on `access: any` it inherits writes_enabled: true for every roster member. `_deep_merge` (build_profile_merge.py:58) with list union is the ONE layer rule for extends, overlays and persona deltas; FR3 adds `preset:` (not in _KNOWN_PROFILE_KEYS, build_profile_load.py:174, so `osprey validate apps/logbook.yml` and `osprey set` refuse it) plus a replace semantic plus a refusal of `extends:`, while `_resolve_extends` (build_profile_merge.py:362,418) already resolves a bundled preset name. If config lists replace, the knowledge render loses the host floor deny `mcp__osprey_workspace__setup_patch` (control-assistant.yml:760) and gets the admin-only tool behind `ask`. deploy_services is read raw (build_profile_load.py:1585); the three tier presets hand-spell deploy_services: false, modules.web_terminals.enabled: false and ~25 comment lines each; the five persona presets pin web_terminals.enabled: false by hand or the render hosts a second web tier (build_profile_emit.py:789). BuildProfile has 30+ top-level fields (provider, model, mcp_servers, data, env, deploy, dispatch, \u2026) FR3 never assigns; ariel-standalone.yml:21 spells provider: anthropic. preset_data_bundle (build_profile_presets.py:208) walks extends for app_template and returns DEFAULT_DATA_BUNDLE='control_assistant' for a chain naming none \u2014 right by coincidence."
+   },
+   "fix": "One resolver rule. `resolve_profile_document` returns kind \u2208 {root, tier, app} from location (operator tiers/ and apps/; bundled presets/tiers/ and presets/apps/). Base = resolved root (tier) or `_resolve_extends` of the named app preset (app: the file spells `extends: logbook`; no `preset:` key; an app file whose extends names a deployment or tier is refused). Result = `_deep_merge(base, layer)` for both kinds \u2014 one list rule, union. For an app the config is `_deep_merge(_deep_merge(host_facts, app_preset.config), app_file.config)` where host_facts = the host's config MINUS `claude_code.servers.*` and MINUS every `control_system.*writes_enabled` key (claude_code.permissions.* is KEPT and unioned, so the host floor deny survives); the composer then pins `control_system.writes_enabled: false` and every `control_system.connector.<type>.writes_enabled: false` structurally on every app render, and adds `writes-check` to hooks \u2014 apps never write to the machine (lint error `web_terminals.app_render_writes_enabled` as the guard). Every other top-level key (provider, model, mcp_servers, data, env, deploy, dispatch, \u2026) is taken verbatim from the host; the data bundle and provenance are the host's, and preset_data_bundle(<app>) raises. Attachment is a fact of the kind for BOTH tiers and apps: the resolver sets deploy_services=False, services={}, modules.web_terminals.enabled=false and refuses those keys when spelled in a tier/app file. Key set per kind: tier \u2192 root keys minus {extends, data, project_name, deploy, services, lifecycle, env, environment, dependencies, exclude} plus {extra_mounts, seed_base, image}; app \u2192 {extends, name, hooks, rules, skills, agents, output_styles, web_panels, default_panel, claude_md_template, channel_finder_mode, config, mcp_servers, extra_mounts, seed_base, image}; loader, `osprey set` and `osprey validate <file>` use the kind's set. App presets list only what they ARE (lists, brief, panels, `servers.<x>.enabled: true` for off-by-default servers, which host servers they switch off \u2014 osprey_facility_knowledge included \u2014 as a stated decision); bundled tier layers shrink to their real content (writes pins, web.ui_mode, panels/skills/privilege lifts). Tests: composed knowledge render denies both setup_patch and draft_concept; composed logbook render has emits_persona_profiles False, host provider, every writes_enabled false, no bluesky/health/controls/python server; an app file spelling provider: or deploy_services: is refused.",
+   "dependsOn": [],
+   "lenses": [
+    "endproduct",
+    "correctness",
+    "interface",
+    "dispatch",
+    "deletion"
+   ]
+  },
+  {
+   "id": "CF-3",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "Requirement 2 keeps `exclude:` on tiers ('exactly as merge_persona_delta does today'), contradicting R5\u2032 ('nothing shadows, nothing excludes'), and after R-standalone the ~450-line exclude machinery has no bundled user left",
+   "evidence": {
+    "file": "src/osprey/cli/build_profile_merge.py",
+    "line": 479,
+    "detail": "merge_persona_delta pops and applies `exclude:` (507-513). `grep ^exclude: presets/` hits only control-assistant-knowledge.yml and control-assistant-logbook.yml, both deleted. Nine symbols (_EXCLUDABLE_FIELDS \u2026 _warn_unmatched_exclusions, l.75-628 \u2248 450 lines) plus excluded_artifacts/shadow_candidates plumbing across build_cmd, build_profile_load, build_profile_model, build_profile_resolve remain for root profiles that `extends:` a preset (documented in build-profiles.rst, cli.rst, profile.rst, 14 lines)."
+   },
+   "fix": "Refuse `exclude:` in any tiers/ or apps/ file with 'a tier adds by name; edit the deployment's own lists in profile.yml instead' and strike 'exactly as merge_persona_delta does today' from FR2 (a tier is one deep-merge over the root). The remaining `exclude:` on ROOT profiles is a legacy structure with no bundled user: show the owner two end states \u2014 (b, standing-rule default) remove the 9 symbols, the plumbing, ResolvedProfileDocument.excluded_artifacts and its consumers, and the 14 doc lines; (a) keep it for root extends chains with one golden test that exercises it.",
+   "dependsOn": [],
+   "lenses": [
+    "endproduct"
+   ]
+  },
+  {
+   "id": "CF-4",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "The deprecation shim sits in resolve_build_document, one of seven readers, so hash, staleness, drift, scaffold, manifest and loader see the un-rewritten document; the 'lenient fallback' names two of fourteen runtime readers of the rendered roster; the end product needs neither",
+   "evidence": {
+    "file": "src/osprey/cli/build_profile_document.py",
+    "line": 76,
+    "detail": "Every layer is read through _read_profile_document, and _normalize_empty_collections (l.49) already runs there 'before the extends and persona-delta merges'. resolve_profile_document (build_profile_merge.py:701) is also called from the content hash (1102: _hash_resolved_profile digests document.raw \u2192 a `persona:` profile and its `tier:` rewrite get different profile_hash, so 'renders byte-identically' cannot hold), staleness (staleness.py:469), preset drift (build_profile_drift.py:258, reports every roster key as deviation), deploy_scaffold.py:430, templates/manifest.py:134, build_profile_load.py:144. Overlays are deep-merged over the raw file before resolution (build_profile_resolve.py:520-523), so 'old and new in one profile' is undefined there. At `osprey up`, build/config.yml is read by persona_images._referenced_personas (224-231), env_production (354-377), deploy_summary (630-640), profile_card (299-307), lint via provision.py:391, reset.py:1004, telemetry_credentials.py:211, seeding.py:278, provision.py:167/256/1627, lifecycle.py:636, health/core/web_terminals.py \u2014 not the two the TR names. staleness.check_drift already refuses a render on creation.osprey_version skew (_version_skew)."
+   },
+   "fix": "Delete the TR sentence placing the shim in resolve_build_document and the 'lenient fallback' scope item. Implement the rename as one function `_normalize_retired_roster_keys(raw, source)` in build_profile_document.py, called from _parse_profile_document beside _normalize_empty_collections: per document it rewrites users[].persona\u2192tier, default_persona\u2192default_tier, authorization.roles.<r>.persona\u2192tier, logs one deprecation line per key naming `source` and ending 'run `osprey init --revalidate`', and refuses a document carrying both spellings of one key (per file, so overlays and extends parents each get a clear verdict). Pin a test that compute_profile_hash is identical for a profile spelled old-way and its rewrite. The rendered config.yml carries NEW spellings only; manifest registers new keys only (old keys appear solely in the shim's tests). A render whose creation.osprey_version predates the vocabulary release is refused by one branch in staleness.check_drift: 'rendered by osprey <v> before tiers/apps; run osprey build' (built-stack test on the previous release's fixture manifest).",
+   "dependsOn": [],
+   "lenses": [
+    "operability",
+    "correctness",
+    "endproduct"
+   ]
+  },
+  {
+   "id": "CF-5",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "R-deprecation's rewrite tool `osprey init --revalidate` does not exist and no FR builds it; the deprecation window has no end mechanism; rollback is unhandled although a schema floor exists for exactly that",
+   "evidence": {
+    "file": "src/osprey/cli/init_cmd.py",
+    "line": 1226,
+    "detail": "init's options are --preset, --set, --list-presets, --force, --no-git, --reset, --up, -d, --dev; `git grep revalidate src/osprey/cli` is empty. --force re-materializes the source zone (MATERIALIZED_SOURCE_ENTRIES profile_cmd.py:264-272 includes personas/) and discards edits. The common old repo holds personas/logbook.yml + knowledge.yml as exclude-carved deltas and fake users with access: any (lifecycle_repo.py:1634-1900), so the rewrite is not a pure key rename. _PROFILE_SCHEMA_MIN_OSPREY='2026.9.0' (build_profile_load.py:169, 'bump only when a release adds profile keys older releases cannot honor'), pinned by test_profile_unknown_keys.py:208, enforced at build_cmd.py:3640-3659; on the previous release a rewritten repo has no personas/ and `tier:` is silently ignored. Versions are CalVer from setuptools-scm (pyproject.toml:7); nothing names the release that refuses the old keys."
+   },
+   "fix": "Add FR11: `osprey init --revalidate`, valid only on an existing repo (refused with --preset/--force/--reset), rewrites in place with the ruamel round-trip writer profile_expand.py uses (l.15,66): (1) git mv personas/ tiers/; (2) rewrite the key spellings in profile.yml and every variant overlay; (3) for each tiers/<n>.yml whose provenance header names control-assistant-logbook/-knowledge and whose content hash equals the retired preset's, delete it, write apps/<n>.yml (`extends: <app>`), move the users that pinned it into shared: and drop their index/access/landing_group; (4) a deviating delta stays a tier and the manual step is printed naming the file; (5) restamp requires_osprey_version; (6) print the diff. Bump _PROFILE_SCHEMA_MIN_OSPREY to the vocabulary release and re-pin the test, so the previous release refuses a rewritten repo at osprey build with the version message; document rollback as 'revert the --revalidate commit, then osprey build'. Beside the shim a constant RETIRED_ROSTER_KEYS_REFUSED_FROM='<next release>' with a test asserting the current version is below it, so the release that must drop the shim fails its own suite until it does; changelog fragment type `deprecated`. Test: --revalidate over the previous release's lifecycle_repo exemplar is byte-equal to the new exemplar.",
+   "dependsOn": [
+    "CF-4"
+   ],
+   "lenses": [
+    "operability",
+    "interface"
+   ]
+  },
+  {
+   "id": "CF-6",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "FR7 rewrites the `personas:` catalog 'at load time' without saying to what; the catalog's per-render knobs (extra_mounts, seed_base, image) and its runtime readers are stranded, and tiers and apps share one render/image namespace with no rule keeping them apart",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/persona_naming.py",
+    "line": 35,
+    "detail": "The rendered catalog modules.web_terminals.personas.<name>.{build_profile,project,project_path,extra_mounts,seed_base,image,landing_group} is read by resolve_personas (personas.py:2804-2811, 2839-2841, 2906-2958), _check_default_persona_exists (lint.py:1015), _check_unknown_persona_reference (2063), persona_render_key_errors (build_profile_model.py:290), persona_catalog_layer (build_profile_emit.py:1221-1248), derived_persona_catalog, docker-compose.web.yml.j2 (4 refs), init's README template (init_cmd.py:369-375 documents extra_mounts), 44+23 test refs, three lint codes. No bundled preset sets the knobs. Both kinds render through persona_project() \u2192 <project>-<name>, build/<project>-<name>, image <project>-<name>:local; _check_persona_project_collisions (lint.py:2472) EXEMPTS members sharing a project_path, so tiers/logbook.yml beside apps/logbook.yml race onto one render dir with a green lint, and `tier: logbook` (an app name) resolves \u2014 the 'admin logbook' cross product the proposal puts out of scope but nothing refuses."
+   },
+   "fix": "Folder + file are the source; the build writes ONE derived catalog into the root render as a projection: `modules.web_terminals.renders.<name>: {kind: tier|app, project, project_path, extra_mounts?, seed_base?, image?}` ('render' is an approved word in the RULINGS unit table). users[].tier/default_tier/roles.<r>.tier resolve against kind=tier entries only; shared: against kind=app only; a tier name that is an app (or vice versa) is refused. extra_mounts, seed_base, image become top-level keys of the tier/app FILE (the one per-render definition), allowed only in those kinds, projected by the build; init's README sample and the three lint codes follow. One lint error when a stem appears in both tiers/ and apps/ (same check in the enumeration helper); `_check_persona_project_collisions`' shared-path exemption goes. The shim (CF-4) rewrites `personas:` into nothing (the folder enumerates tiers) and `osprey init --revalidate` (CF-5) moves personas.<n>.extra_mounts etc. into tiers/<n>.yml. persona_render_key_errors and the drift pairing read the derived catalog. Record `renders` in the profile/config reference and list it for the owner's gate as a new rendered key composed from approved words.",
+   "dependsOn": [
+    "CF-4"
+   ],
+   "lenses": [
+    "roster",
+    "operability",
+    "interface",
+    "endproduct"
+   ]
+  },
+  {
+   "id": "CF-7",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "`shared:` cannot be expanded inside normalize_users: it receives only the users list and 17 call sites pass that list directly; a derived entry flowing through effective_persona falls back to default_tier and renders the readonly TIER; verbs that write the roster back would persist or mis-address the app cards",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/personas.py",
+    "line": 1170,
+    "detail": "normalize_users(users_raw) iterates users_raw alone. `normalize_users(web_terminals.get('users'))` is called at 17 sites in 10 files (health/core/web_terminals.py:173, users_cmd.py:265, build_profile_model.py:1283, host_ports.py:807, seeding.py:258, deploy_summary.py:474/1213/1248/1274, provision.py:499/585, artifacts.py:811, lifecycle.py:393/497/614/1051, lint.py:3348) plus roster_user_names (2604), roster_role_by_name (2641), freeze_user_indices (1789): host-port preflight, health, seeding, passwd, prune/nuke orphan detection and credential provisioning would be blind to app cards. resolve_personas (2743) calls effective_persona (146: role \u2192 pin \u2192 default) then persona_project; an entry without a tier pin resolves to default_tier \u2192 <p>-readonly, /u/logbook/ opens an operator terminal; shared_card_privileged_problems (2277) and shared_card_control_identity (2461) read the resolved tier. lifecycle.decommission_user (237) writes freeze_user_indices' output back with config_replace_list; users_cmd.remove (172-245) edits users: only. lint_web_terminals (lint.py:190) hands the raw users list to ~20 checks and prints remedies ('Set access: own for logbook') a derived card cannot follow. _privileged_persona_problems at init (profile_cmd.py:1164) runs over users: only."
+   },
+   "fix": "One helper `roster_entries(web_terminals, *, strict=True)` in personas.py = normalize_users(people) + derived app entries `{kind: app, name, app: <name>, index, display_name: <app preset name>, access: 'any'}`; every site above calls it; normalize_users stays the people-only primitive (its byte-identical contract holds trivially); freeze_user_indices stays people-only. Derived entries exist in memory only \u2014 build/config.yml carries users: (people) and shared: (names), never expanded users. resolve_personas (\u2192 resolve_cards) gets an explicit kind=app branch: project/image/container dir from the app's render name, never effective_persona; tier-only lint rules skip kind=app; sidecar/compose/nginx read the common card fields. decommission_user, `users remove` and `users passwd` resolve the name through the helper first and refuse an app entry with 'logbook is a shared app card; remove it from modules.web_terminals.shared in profile.yml and rebuild'. lint_web_terminals/lint_profile_config build users from the helper so name/charset/reserved/index/port checks cover app cards, with the three messages branched on the marker ('logbook is both a roster user and a shared app; rename the user'). _privileged_persona_problems at init runs over the helper's output. Fixture assertion: /u/logbook/ serves <p>-logbook:local.",
+   "dependsOn": [
+    "CF-6"
+   ],
+   "lenses": [
+    "roster",
+    "endproduct",
+    "interface"
+   ]
+  },
+  {
+   "id": "CF-8",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "FR8's worker image `<project>-<tier>:local` has no producer (tier images are built only for roster-referenced tiers, only in local image mode, only on the web-terminals deploy path), the plan splices a third config copy for the worker, moves two of five container paths, lets OSPREY_WORKER_IMAGE silently bypass the tier, bounds no tier, and the flagship preset leaves the chat-reachable worker armed although the ruling's picture shows dispatch.tier: readonly",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/persona_images.py",
+    "line": 191,
+    "detail": "_referenced_personas derives the build set from roster entries; build_persona_images (700) returns unless image_source=='local' (default 'registry', personas.py:2657); in registry mode the tier image is <registry_url>/web-terminal-<tier>:<tag> (personas.py:2766-2785) on a different prefix and tag axis than the worker's resolve_image_defaults()['worker'] (compose_generator.py:1358-1372). _project_image_build_target (container_lifecycle.py:2409-2417) returns None when the worker image differs from <project>:local ('Skipping the build', 2585-2590); persona images are built only inside deploy_up_web_terminals (provision.py:1640). setup_build_dir (compose_generator.py:4218) flattens the DEPLOYMENT config into build/services/dispatch_worker/config.yml and the template bind-mounts it over the baked file (299); a tier render's cards run the baked copy (docker-compose.web.yml.j2:1116). container_project_dir=/app/<project> (compose_generator.py:1856) feeds agent-data dir (1858-1863), audit dir (1876), the volume target and the entrypoint chown (Dockerfile.j2:341) \u2014 moving only OSPREY_PROJECT_DIR and CONFIG_FILE strands transcripts in the container layer. Template image line is ${OSPREY_WORKER_IMAGE:-\u2026} (62), _service_image_target returns the env first (container_lifecycle.py:2365). The admin tier lifts the setup_patch deny and enables web.config_panel; in a dispatch run the approval hook records approver 'dispatch_policy' and emits no decision (osprey_approval.py:397,944). control-assistant.yml:238 writes_enabled: true with the epics pin a comment (316), so the worker the bridges reach is armed; RULINGS' picture emits `dispatch: tier: readonly`. persona_project_shadows_worker_image (lint.py:2466) guards the PROJECT image that ariel_sync and archive still run (_PROJECT_IMAGE_SERVICES, container_lifecycle.py:2332) and needs no logic revisit."
+   },
+   "fix": "dispatch.tier is one more REFERENCE to a tier. (1) _inject_dispatch writes services.dispatch_worker.tier: <name> into config.yml (never an image string), refuses a name not in tiers/, and refuses a tier whose resolved config lifts a base deny or enables web.config_panel / web.scaffold_gallery.write_enabled ('a headless run has no approver'). (2) The reference set (_referenced_personas, verify_persona_renders, lint existence) = roster tiers \u222a {dispatch tier}. (3) resolve_personas is the sole producer of every image name in both image modes; _inject_project_metadata and _service_image_target take the worker image from its entry for that tier; osprey up builds it only when image_source=='local' and pulls otherwise. (4) Move build_persona_images out of deploy_up_web_terminals to the shared pre-compose step beside _build_project_image (container_lifecycle.py:6426) so both deploy paths build every referenced render once; deploy_up_web_terminals keeps verify_persona_renders. (5) A tiered worker runs the tier image's BAKED config like every card: CONFIG_FILE=/app/<p>-<tier>/build/config.yml, no ./build/services/dispatch_worker/config.yml volume, setup_build_dir stages no config (control_identity staging stays). (6) One worker_container_project_dir (=/app/<tier render> when set, else /app/<project>) derives OSPREY_PROJECT_DIR, CONFIG_FILE, agent-data volume target and audit root; a render test asserts one prefix. (7) When tier is set, osprey up refuses OSPREY_WORKER_IMAGE and the template renders the resolved image without the env wrapper. (8) control-assistant.yml's dispatch: block gains tier: readonly so `osprey init --preset control-assistant` emits it (matching the ruling's picture); unset stays the deployment's own posture as ruled; event-dispatch docs carry one sentence 'the dispatcher's tier is the ceiling for every chat bridge'. (9) Drop the 'lint rule revisited' risk row; rename the code with the others and change the message noun to 'the project image'. Unset path byte-identical. Criteria: with dispatch.tier: readonly and no readonly user, osprey up builds <p>-readonly:local before compose; in registry mode the worker compose names <registry>/web-terminal-readonly:<tag>; the emitted profile contains dispatch.tier: readonly.",
+   "dependsOn": [],
+   "lenses": [
+    "dispatch",
+    "operability"
+   ]
+  },
+  {
+   "id": "CF-9",
+   "category": "critical_flaw",
+   "altitude": "design",
+   "summary": "Deleting the two standalone roots leaves the three app presets' config outside the config-key guard: six phantom keys (not four), two parity failures, and an empty governed-set check that passes silently; the proposal's remedy (state them in control-assistant.yml or mark rendered: false) is wrong for every one",
+   "evidence": {
+    "file": "scripts/check_config_keys.py",
+    "line": 1338,
+    "detail": "Run in memory with render_contexts.presets = hello-world + control-assistant: union 399\u2192393; phantom keys claude_code.servers.python, .python.enabled, .osprey_facility_knowledge, .osprey_facility_knowledge.enabled, ariel.demo_narrative, web.control_target_picker; parity failures on approval.tools.entry_create/entry_publish same-value marks; check_governed_sets with claims={} records zero failures. Five of the six keys are written tomorrow by the app presets (today control-assistant-logbook.yml:98,102,127, -knowledge.yml:90,113 state them live). check_phantom_keys (706-736) defines rendered: false as 'nothing in the shipped configuration writes it', and its mirror arm fires only for sources in the union \u2014 an app preset outside render_contexts could ship a key live under rendered: false forever. render_one(name) raises KeyError for a name not in render_contexts.presets (648-650), so an app claim cannot be added without a new source kind. test_config_key_guard.py:105, 629-650, 930-939 strand with the presets."
+   },
+   "fix": "Add a second source kind: manifest render_contexts.apps: [presets/apps/logbook.yml, knowledge.yml, channel-finder.yml] with host: presets/control-assistant.yml. ConfigKeyGuard.resolved_apps() composes each over the host via the resolver's app branch (CF-2); rendered() adds each app's composed config under its own name so the keys stay in the union with honest writers; render_one(app) = host framework render + host config + app config so governed_tools works for apps; check_parity keeps expected = roots only. governed_sets.claims = logbook (entry_create, entry_publish, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, draft_concept \u2014 today's ariel-standalone claim) and channel-finder (setup_patch + the three rail verbs); check_governed_sets FAILS on an empty claims mapping. Drop the same-value marks on approval.tools.entry_create/entry_publish and say so in config_key_parity.md; remove the two EXPECTED_PANEL_PORT_MARKERS entries (139-157); rewrite the guard tests with logbook as the governed-set fixture; record expected_union_size from the run. Replace the TR's 'four phantom keys \u2026 state them or mark rendered: false' with this.",
+   "dependsOn": [
+    "CF-1",
+    "CF-2"
+   ],
+   "lenses": [
+    "deletion"
+   ]
+  },
+  {
+   "id": "IA-1",
+   "category": "incorrect_assumption",
+   "altitude": "design",
+   "summary": "The proposal narrows ruling R-tier-home (`<bridge>.tier`) in an Out-of-Scope bullet instead of recording the owner's interview answer as an amendment",
+   "evidence": {
+    "file": ".claude/plans/persona-design/RULINGS.md",
+    "line": 0,
+    "detail": "R-tier-home: 'users[].tier, dispatch.tier, <bridge>.tier each say which tier they run at'; Consequences: 'dispatch.tier and <bridge>.tier \u2026 in P1's scope by ruling R-tier-home'. The bridges (src/osprey/bridges/{google_chat,nextcloud_talk,teams}) hold only DISPATCHER_URL/WORKER_URL, tokens and a trigger name; no bridge imports an agent runner; their profile blocks (build_profile_schema.py:956-1070) hold trigger and mentions only. CONTEXT.json followup 3 records the owner's answer 'Bridges need no key: they go through the dispatcher', but RULINGS.md still carries the ruled key."
+   },
+   "fix": "Add an amendment row to RULINGS.md (dated 2026-10-17, source: interview answer): '<bridge>.tier retired; a bridge's tier IS dispatch.tier because a bridge never runs the agent'; keep the Out-of-Scope bullet pointing at the row; one sentence in the event-dispatch page.",
+   "dependsOn": [],
+   "lenses": [
+    "dispatch",
+    "operability"
+   ]
+  },
+  {
+   "id": "IA-2",
+   "category": "incorrect_assumption",
+   "altitude": "design",
+   "summary": "Moving `ariel.demo_narrative: all` live into control-assistant.yml makes every fresh real-facility deployment seed simulator logbook scenarios on first osprey up",
+   "evidence": {
+    "file": "src/osprey/services/ariel_search/cli_operations.py",
+    "line": 3143,
+    "detail": "osprey up / ariel quickstart seed demo_narrative into an empty logbook whenever no ingestion source is configured (3143-3150); demo_narrative_scenarios returns [] when unset (apply.py:518-539), so control-assistant seeds nothing today; only ariel-standalone.yml:228 states 'all'. CONTEXT.json followup 5 was 'resolved from research' by the planning agent, not ruled by the owner, and states no behaviour change."
+   },
+   "fix": "Ship ariel.demo_narrative COMMENTED in control-assistant.yml beside the commented ariel.ingestion guidance (the manifest's legitimate 'commented example in a preset' case, row rendered: false with a note that the quickstart how-to says to uncomment it); demo repos that need it (lifecycle_repo exemplar, e2e profile edits) set it with --set; move the two asserting tests onto the exemplar repo. Record in the proposal that the flagship preset's seeding behaviour is unchanged.",
+   "dependsOn": [],
+   "lenses": [
+    "deletion"
+   ]
+  },
+  {
+   "id": "IA-3",
+   "category": "incorrect_assumption",
+   "altitude": "code",
+   "summary": "The explicit-config fixture plan ('cells.json/meta.json edited by hand, frozen baseline 246198f1c, no re-freeze') misquotes the baseline and violates the fixture's own contract; RULINGS says re-freeze",
+   "evidence": {
+    "file": "tests/cli/test_explicit_config_equivalence.py",
+    "line": 28,
+    "detail": "The docstring states the only two legal routes when a render moves: declare every moved leaf in CELL_DELTAS or re-freeze with freeze.py. meta.json:3 records baseline_commit 241443d5d; 246198f1c is freeze.py:122's DEFAULT_BASELINE flag. Five of ten cells are standalone cells (ariel-standalone/unset, channel-finder-standalone/*) and must be deleted; the four control-assistant cells carry logbook/knowledge documents whose content changes in dozens of leaves (~6,500 lines). RULINGS Consequences: 'the 29 frozen renders re-frozen'."
+   },
+   "fix": "Replace the TR with: delete tests/fixtures/explicit_config/{ariel-standalone,channel-finder-standalone}/ and their cells.json/meta.json rows; set freeze.py PRESETS to (hello-world, control-assistant) and teach its render discovery tiers/ + apps/; run freeze.py --baseline <PR head sha> once after the last render-moving commit; commit as produced; CELL_DELTAS empty. Cite 241443d5d wherever the plan names the baseline.",
+   "dependsOn": [],
+   "lenses": [
+    "deletion",
+    "operability"
+   ]
+  },
+  {
+   "id": "IA-4",
+   "category": "incorrect_assumption",
+   "altitude": "code",
+   "summary": "P1.3's criterion names a flag the card verb does not have, and the implementation should import the render's two gates rather than mirror them",
+   "evidence": {
+    "file": "src/osprey/cli/profile_cmd.py",
+    "line": 139,
+    "detail": "card(as_json, repo) takes only --json and --repo (139-147) and reads a repo's profile.yml plus its deltas (read_persona_deltas, 181); cli.rst:365 documents that. _enabled_mcp_servers (profile_card.py:377-399) passes only channel_finder_pipeline; the render's gates are _graphdb_configured(config) (cli/templates/claude_code.py:189) and config_needs_dispatcher_token(config) (310)."
+   },
+   "fix": "Criterion: 'in a repo created by osprey init --preset control-assistant, osprey profile card --json lists graph and event_dispatcher in the agent row and in every tier row'. FR9: _enabled_mcp_servers builds ctx with graphdb_configured=_graphdb_configured(effective config) and event_dispatcher_wired=config_needs_dispatcher_token(effective config) by importing those two functions.",
+   "dependsOn": [],
+   "lenses": [
+    "interface",
+    "correctness"
+   ]
+  },
+  {
+   "id": "IA-5",
+   "category": "incorrect_assumption",
+   "altitude": "design",
+   "summary": "Scope under-describes its own success criterion by an order of magnitude: the deletion strands 80 tracked files (not 66) including a -W docs cross-reference; 33 docs files, 4 diagrams, 7 plugin skill files and 19 templates/JS files teach 'persona'; R-names' brief-template renames are missing; a public verb is named after the retired word; 84 Python files carry the word internally",
+   "evidence": {
+    "file": "docs/source/how-to/deploy-project/env-chain.rst",
+    "line": 178,
+    "detail": "':doc:`../ariel/standalone-deployment`' \u2014 the page is deleted and ci.yml:772 builds docs with -W, so this alone turns CI red; use-facility-graph.rst:419-420 states the opposite of R-graph; _static/resources/ariel_standalone.png is referenced only by the deleted page; tests/docs/test_picture_search_docs._PRESETS, postgresql template comments with a rendered golden, cf_standalone_addresses.json, plugins/osprey/skills/setup/** all name the standalones (git grep over src tests docs scripts packages plugins .github = 80 files). `git grep -il persona docs/` = 33 files vs the 8-9 the scope lists (safety-chain.rst:324-370, _diagrams/{tier-render,multi-user,safety-chain,open-mode-egress}.html, cli.rst 102/124/235/546/1449-1520, deploy-a-facility.rst:192, \u2026). catalog.py:46-78 ships claude-md-ariel \u2192 CLAUDE.ariel.md.j2 '(ARIEL logbook research persona)' referenced from 6 files; R-names rules CLAUDE.logbook.md.j2. scaffold_cmd.py:862 `scaffold personas` (cli.rst:1449-1460) is catalog-driven (repoint_persona_catalog, scaffold_personas.py 234 lines) and has no input once the catalog is gone. grep -rli persona src/osprey = 84 Python files / 2,511 lines + 19 templates/JS (landing.html.j2, docker-compose.web.yml.j2, Dockerfile.j2, config.yml.j2, session-pointer.js, palette.js) incl. module names personas.py, persona_images.py, persona_naming.py and symbols effective_persona, resolve_personas, is_persona_delta, PERSONA_DIRNAME."
+   },
+   "fix": "Scope = the criterion. (1) Deletion checklist = the 80-file grep list; env-chain.rst:178 \u2192 the relocated SQL section; use-facility-graph.rst:185,419-423 rewritten for the logbook app with graph on; delete ariel_standalone.png; re-aim test_picture_search_docs, the postgresql template comments + render_defaults golden, cf_standalone_addresses.json/test_standalone_sources, demo_census.json; rewrite plugins/osprey/skills/setup/** to tiers/apps/users[].tier/shared (same PR, plugin version bump); rewrite e2e fixtures. (2) Docs scope = every file `git grep -il persona docs/ plugins/ src/osprey/templates` lists, the four _diagrams/*.html re-exported, every 'standalone' mention rewritten to the app; base.md '## Personas' \u2192 '## Tiers and apps'. (3) Rename CLAUDE.ariel.md.j2 \u2192 CLAUDE.logbook.md.j2, catalog names claude-md-logbook/-knowledge/-channel-finder with descriptions '(logbook app)' etc., 6 referencing files; logbook.yml names claude_md_template: CLAUDE.logbook.md.j2. (4) Delete `scaffold personas` and scaffold_personas.py; add `osprey scaffold tiers [--from PRESET] [--force]` writing tiers/<n>.yml for every tier the named preset ships (apps need no verb: shared: [x] without apps/x.yml is the FR5 lint error whose remedy is the one-line file); update cli.rst and the group help; list the verb for the owner's gate as a public name composed from approved words. (5) Add an 'internal vocabulary' phase, last before docs: module renames (personas.py \u2192 roster.py, persona_images.py \u2192 render_images.py, persona_naming.py \u2192 render_naming.py), symbol renames (effective_persona \u2192 effective_tier, resolve_personas \u2192 resolve_cards, is_persona_delta \u2192 profile kind, PERSONA_DIRNAME \u2192 TIERS_DIRNAME/APPS_DIRNAME, derived_persona_catalog \u2192 derived_renders), the 19 template/JS files; a function named effective_persona that returns a tier is a wrong name kept. Criterion: `git grep -i persona src/ docs/ plugins/ tests/e2e/fixtures/` returns only the shim, its tests and the changelog.",
+   "dependsOn": [],
+   "lenses": [
+    "deletion",
+    "interface",
+    "endproduct",
+    "operability"
+   ]
+  },
+  {
+   "id": "IA-6",
+   "category": "incorrect_assumption",
+   "altitude": "code",
+   "summary": "Fixture work is planned in the wrong direction and misses two families and four readers: the lifecycle_repo exemplar IS the spec of osprey init, the goldens exemplar is unlisted, the drift lint's persona pairing goes empty, and KNOWN_ROOT_ENTRIES / MATERIALIZED_SOURCE_ENTRIES / init's entry list / scaffold's repoint still read personas/",
+   "evidence": {
+    "file": "tests/fixtures/lifecycle_repo.py",
+    "line": 98,
+    "detail": "goldens/README.md: 'the exemplar in lifecycle_repo.py is the specification'; test_init_verb.py:165-168 asserts init output byte-for-byte against PERSONA_PRESETS/PERSONA_*_YML/PROFILE_YML \u2014 the Risks row 'fixtures rewritten mechanically from the new emitted repo' inverts that. goldens/exemplar-profile/profile.yml:245-253 and personas/{readonly,readwrite}.yml are consumed by 10 test files (test_persona_presets.py:125 EXEMPLAR_PERSONAS_DIR, test_hook_selection_pins.py:62) and appear only under Dependencies. build_profile_drift._persona_pairs (300) pairs catalog entries with the preset's catalog and runs zero times once there is no catalog; persona_build_profile_shape_problem (persona_images.py:292-344) accepts only personas/ children. profile_conventions.KNOWN_ROOT_ENTRIES (275) names personas; init_cmd._entry_list (1799) globs personas/*.yml; profile_cmd.MATERIALIZED_SOURCE_ENTRIES (264-272) names personas/."
+   },
+   "fix": "Order the exemplar work: author the new preset comments \u2192 author the exemplar constants (three tier files, three one-line app files, roster with tier/shared) \u2192 make osprey init match them; the exemplar is part of the owner's review. Add goldens/exemplar-profile to the rewrite task (personas/\u2192tiers/, keys; test_persona_presets' hand-kept copies become the three tier layers). Replace _persona_pairs with _layer_pairs over the derived catalog of CF-6: every tiers/<n>.yml pairs with presets/tiers/<n>.yml and every apps/<n>.yml with an empty layer over the preset its extends names, so any key beyond the pointer is a deviation (test: an edited apps/logbook.yml shows one finding). The enumeration helper returns (kind, path) over tiers/, apps/ and, for the window, personas/ with a warning; KNOWN_ROOT_ENTRIES and MATERIALIZED_SOURCE_ENTRIES gain tiers/apps; _entry_list prints both. Add build_profile_drift.py, profile_conventions.py and profile_cmd._persona_profile_texts/_preset_data_names to Dependencies.",
+   "dependsOn": [
+    "CF-6"
+   ],
+   "lenses": [
+    "operability",
+    "correctness"
+   ]
+  },
+  {
+   "id": "CC-1",
+   "category": "corner_case",
+   "altitude": "design",
+   "summary": "Two port-slot rules are in force for shared cards (RULINGS 'after the people's block, stable by app name' vs FR5 '99 - position in shared: order'), the harmlessness of a shifting slot is asserted, not shown, and the bare-list drift lint would be silently exempted",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/ports.py",
+    "line": 186,
+    "detail": "allocate_ports(base, index) = base + index, INDEX_MAX 99 (port_layout.py:94), every family band 100 wide so 99 is a real slot. CONTEXT.json followup 1 records the owner's answer: count down from 99 in shared: list order; RULINGS Consequences bullet 4 still says 'after the people's block, stable by app name'. Verified: nothing on a card is keyed by port \u2014 volumes <name>-agent-data / <name>_claude-config (render.py:1132), audit var/audit/<name> (1142-1146), sidecar sessions and env by env_var_suffix(name), nginx /u/<name>/ re-rendered. lint._check_bare_list_port_drift_risk (750) would be exempted by derived dict entries."
+   },
+   "fix": "Keep the owner's answer (index = INDEX_MAX - position in shared: order) and correct the RULINGS Consequences bullet to match it in the same commit. State in FR5 and the multi-user docs: 'removing or reordering an app may move later apps' internal ports; nothing on a card is keyed by port (volumes, audit, sessions and URLs are keyed by name), so this needs no migration'. Lint refuses a person whose index \u2265 INDEX_MAX - len(shared) + 1; _check_bare_list_port_drift_risk runs on the people list only.",
+   "dependsOn": [
+    "CF-7"
+   ],
+   "lenses": [
+    "endproduct",
+    "roster"
+   ]
+  },
+  {
+   "id": "CC-2",
+   "category": "corner_case",
+   "altitude": "design",
+   "summary": "FR6's card title has no carrier (landing label = roster name, display_name reaches only the tab, the sidecar chooser prints card.name) and the 'Apps' section is hardcoded outside landing.groups, so one card would read 'Logbook Research' on the landing page and 'logbook' in the chooser, and operators could neither label nor order the section",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/render.py",
+    "line": 2427,
+    "detail": "_user_card sets label: name unconditionally; display_name flows only to OSPREY_WEB_APP_NAME (1159-1164; compose template 92). The sidecar's enter.html:73 renders card.name from OpenedCard (routes/entry.py:108-120) which has only name/own. _build_groups (2500-2526) dispatches typed landing.groups entries (users with label and names: hidden, links) in operator order; _user_groups labels the users section 'Terminals' unless label is set (2567); control-assistant.yml spells landing.groups: [{type: users, label: Users}]. The criterion says 'People group' \u2014 the preset's label is Users. landing_group has docs at multi-user/index.rst:188-191, 253, 545."
+   },
+   "fix": "One title everywhere: the derived app entry carries display_name = app preset name:; _user_card uses display_name as label only for kind=app entries (people unchanged); the sidecar gets the same title via a roster-env var beside OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX> (roster_env.py) read into OpenedCard.label, defaulting to the name. Landing: a third group type {type: apps, label: <heading>} in landing.groups rendered from the derived entries (variant tray, empty suppressed); default groups when omitted = [{type: users}, {type: apps}]; control-assistant.yml spells both with labels; the default heading lives in one constant beside _SIGN_IN_LABEL and is listed for the owner's landing-page review (new public string). Delete landing_group and its docs lines; document type: apps beside users/links. Criteria: 'a Users group with alice, bob, carol and an Apps group with Logbook Research, Facility Knowledge, Channel Finder; the chooser lists the same three titles'.",
+   "dependsOn": [
+    "CF-7"
+   ],
+   "lenses": [
+    "interface",
+    "roster",
+    "endproduct"
+   ]
+  },
+  {
+   "id": "OC-1",
+   "category": "overcomplication",
+   "altitude": "code",
+   "summary": "Lint-code aliases (28 codes, not 24) and a manifest carrying both key spellings serve no consumer: nothing in OSPREY lets an operator reference a lint code",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/lint.py",
+    "line": 133,
+    "detail": "Finding carries one code: str; no alias field or suppression mechanism (grep ignore/suppress: only contextlib.suppress). By-name consumers: console prints [code] message (scaffold_cmd.py:1713-1785), two internal sets _UP_BLOCKING_LINT_CODES/_UP_ADVISORY_LINT_CODES (provision.py:282-310), 17 test files, one docs line (multi-user/index.rst:487). lint.py has 28 distinct web_terminals.*persona* codes. Proposed: 28 new codes + 28 aliases + alias lookup + manifest rows for 3 keys \u00d7 2 spellings; needed: rename 28 codes, update two sets, 17 tests, one docs line."
+   },
+   "fix": "Remove 'old codes as aliases' and 'manifest carries both spellings' from scope and the RULINGS Consequences line. Rename the 28 codes outright (*persona* \u2192 *tier*/*app*), update provision.py's two sets, the tests and the one docs line; list old\u2192new in the changelog fragment. Manifest registers default_tier/shared/renders and the new roster key; the four retired keys appear in one `deprecated:` note on the shim's own entry.",
+   "dependsOn": [],
+   "lenses": [
+    "endproduct",
+    "interface",
+    "operability"
+   ]
+  },
+  {
+   "id": "OC-2",
+   "category": "overcomplication",
+   "altitude": "code",
+   "summary": "The Risks row 'lint rule revisited explicitly' for persona_project_shadows_worker_image is a non-task",
+   "evidence": {
+    "file": "src/osprey/deployment/web_terminals/lint.py",
+    "line": 2466,
+    "detail": "The rule compares each render project with resolve_project_name(root) and errors when a render would tag <project>:local; _PROJECT_IMAGE_SERVICES = (dispatch_worker, ariel_sync, archive) (container_lifecycle.py:2332) all fall back to <project>:local, so the collision it prevents exists whether or not the worker moves to a tier image. Proposed: 1 revisit task; needed: 0 logic changes, 1 message noun edit."
+   },
+   "fix": "Drop the row from the Risks table; the code is renamed with the others (OC-1) and its message says 'the project image'.",
+   "dependsOn": [
+    "CF-8"
+   ],
+   "lenses": [
+    "dispatch"
+   ]
+  }
+ ],
+ "alternativeApproach": "One resolver rule, one bundled layout, one card list, one migration. (1) 'Location is the type' on both sides: operator tiers/ and apps/ beside profile.yml, bundled presets/tiers/ and presets/apps/; three listings, one kind-keyed refusal for init/build/validate/set. (2) One merge: _deep_merge over a kind-chosen base (root for a tier, the extends-named app preset for an app); for apps the config is underlaid with the host's deployment facts only and writes are pinned off structurally; attachment is a fact of the kind, never spelled; no exclude in tiers or apps. (3) One roster helper is the only place that knows an app card exists; derived entries live in memory, typed, never written back; one title on every surface; apps are a landing group type. (4) The build projects one derived `renders` catalog; folder + file are the source. (5) dispatch.tier is one more reference to a tier: one image producer in both image modes, one build step on both deploy paths, the worker runs the baked tier config from one project dir; the flagship preset defaults the chat-reachable worker to readonly. (6) The rename is a schema migration: per-document key normalisation at the single parse point, `osprey init --revalidate` as the rewrite, schema floor bumped, window end enforced by a test; rendered configs carry new spellings only and an old render is refused as drift. (7) The config-key guard models two roots + three apps composed over the host. (8) Scope equals the criterion: 80-file deletion checklist, every docs/plugin/template mention, brief-template renames, `scaffold tiers`, and an internal-vocabulary phase."
+}
