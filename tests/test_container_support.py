@@ -493,12 +493,22 @@ def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
 
 
 def _fake_runtime(monkeypatch, *, inspect: subprocess.CompletedProcess, logs=None) -> list:
-    """Answer ``<runtime> inspect`` / ``<runtime> logs`` with canned results; record argv."""
+    """Answer ``<runtime> inspect`` / ``<runtime> logs`` with canned results; record argv.
+
+    A ``logs`` call asked for one merged stream gets its canned stdout and stderr
+    back as that stream, stdout first.
+    """
     calls: list[list[str]] = []
 
     def fake_run(argv, **kwargs):
         calls.append(list(argv))
-        return inspect if argv[1] == "inspect" else logs
+        if argv[1] == "inspect":
+            return inspect
+        if kwargs.get("stderr") == subprocess.STDOUT:
+            return subprocess.CompletedProcess(
+                argv, logs.returncode, stdout=logs.stdout + logs.stderr, stderr=None
+            )
+        return logs
 
     monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
     return calls
@@ -522,6 +532,23 @@ def test_a_named_runtime_container_reads_state_and_log_tail(monkeypatch):
     assert container.logs(tail=7) == b"booting\nindex failed\n"
     assert calls[0][:2] == ["podman", "inspect"] and calls[0][-1] == "deploy-qmd"
     assert calls[1] == ["podman", "logs", "--tail", "7", "deploy-qmd"]
+
+
+def test_a_named_runtime_container_returns_the_whole_merged_log(monkeypatch):
+    """No tail is the whole log, as one stream: an offset into it stays a fixed point."""
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((list(argv), kwargs))
+        return subprocess.CompletedProcess(argv, 0, stdout=b"booting\nindex failed\n")
+
+    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+
+    assert RuntimeContainer("deploy-qmd").logs() == b"booting\nindex failed\n"
+    argv, kwargs = calls[0]
+    assert argv == ["docker", "logs", "deploy-qmd"]
+    assert kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["stderr"] == subprocess.STDOUT
 
 
 def test_an_unknown_named_container_is_unreadable_not_dead(monkeypatch):
