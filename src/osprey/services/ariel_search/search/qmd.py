@@ -80,6 +80,8 @@ from osprey.services.qmd import QMDClient, QMDUnavailableError
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -261,6 +263,7 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
+    search_calls: Executor | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute a hybrid keyword+semantic search against the qmd sidecar.
@@ -304,6 +307,9 @@ async def hybrid_search(
             original `query`.
         include_images: Whether the picture lane runs. ``None`` means on
             exactly when ``image_embedding`` is enabled.
+        search_calls: The search service's pool for search-time provider
+            calls, where the picture lane embeds the query. Required when the
+            picture lane runs; the text lane makes no such call.
 
     Returns:
         Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
@@ -338,6 +344,8 @@ async def hybrid_search(
         SearchConfigurationError: If the module's config block holds a
             malformed knob. Typed so the service can report it as a
             configuration problem rather than a generic module failure.
+        TypeError: If the picture lane runs and no ``search_calls`` pool was
+            passed. Raised before either lane starts.
     """
     if not query.strip():
         return module_result([], query_expansion)
@@ -365,12 +373,18 @@ async def hybrid_search(
     # picture lane sees the typed query, never a vocabulary expansion.
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None = None
     if lane_on:
+        if search_calls is None:
+            # Raised here, not in the lane: the lane reads any exception as a
+            # failed picture search and opens its breaker.
+            raise TypeError("hybrid_search with the picture lane on needs search_calls")
         # Imported here: the lane's dependencies import the config module,
         # which imports this package.
         from osprey.services.ariel_search.search import image_lane
 
         img_task = asyncio.create_task(
-            image_lane.search_images(query, repository, config, fetch_limit=fetch_limit)
+            image_lane.search_images(
+                query, repository, config, fetch_limit=fetch_limit, search_calls=search_calls
+            )
         )
     try:
         return await _ranked_search(
@@ -1090,6 +1104,7 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         args_schema=HybridSearchInput,
         execute=hybrid_search,
         format_result=format_qmd_result,
+        needs_search_calls=True,
         accepts_expansion=True,
         accepts_include_images=True,
     )

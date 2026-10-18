@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -114,6 +115,7 @@ class Lane:
     config: ARIELConfig
     repository: ARIELRepository
     vectors: dict[str, list[float]]
+    search_calls: Executor
 
     @property
     def table(self) -> str:
@@ -157,7 +159,12 @@ class Lane:
 
     async def search(self, text_ranking: list[str], **kwargs: Any) -> list[tuple[Any, ...]]:
         result = await hybrid_search(
-            QUERY, self.repository, self.config, client=StubClient(text_ranking), **kwargs
+            QUERY,
+            self.repository,
+            self.config,
+            client=StubClient(text_ranking),
+            search_calls=self.search_calls,
+            **kwargs,
         )
         assert isinstance(result, list), (
             f"picture lane failed: {image_lane.last_unavailable_reason()!r} {result!r}"
@@ -189,6 +196,7 @@ async def lane(
     server: str,  # noqa: ARG001 - requested for its version guard
     scratch_database: str,
     llama_stub: Callable[[], LlamaStub],
+    search_calls: Executor,
 ) -> AsyncIterator[Lane]:
     """A migrated scratch database, the stub server and the recorded picture vectors."""
     from osprey.services.ariel_search.database.connection import create_connection_pool
@@ -213,7 +221,7 @@ async def lane(
     pool = await create_connection_pool(config.database)
     try:
         await run_migrations(pool, config)
-        yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors)
+        yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors, search_calls)
     finally:
         await pool.close()
 
