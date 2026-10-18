@@ -30,6 +30,7 @@ import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
+from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
 from osprey.mcp_server.python_executor import executor  # noqa: E402
 from osprey.mcp_server.python_executor.tools import (  # noqa: E402
     model_response_matrix as tool,
@@ -273,7 +274,7 @@ class TestSolve:
         np.testing.assert_allclose(
             np.asarray(result["matrix"]), expected.matrix, rtol=1e-12, atol=0
         )
-        assert result["unsolved"] == {}
+        assert result["missing"] == {}
 
     def test_rows_and_columns_name_their_address_and_device(self, sandbox, sr_render):
         sandbox["render"] = sr_render
@@ -426,24 +427,28 @@ def _child_line(request: Any) -> dict[str, Any]:
 
 
 class TestSolveErrors:
-    def test_an_oversized_step_on_a_line_names_the_corrector(self, sandbox, tmp_path):
+    def test_an_oversized_step_on_a_line_answers_nothing_naming_the_corrector(
+        self, sandbox, tmp_path
+    ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0)
 
         with pytest.raises(ToolError) as raised:
             _call(model=LINE)
 
         envelope = _envelope(raised)
-        assert envelope["error_type"] == "execution_error"
-        assert envelope["error_message"].startswith(f"the response of {LINE} has no solve: lost")
-        assert envelope["error_message"].endswith(f"(while stepping {LINE_KICK})")
-        assert envelope["details"].keys() == {"model", "unsolved"}
+        assert envelope["error_type"] == "nothing_answered"
+        assert (
+            envelope["error_message"]
+            == f"{tool.TOOL_NAME}: none of the 1 requested correctors answered"
+        )
+        assert envelope["details"].keys() == {"model", "missing"}
         assert envelope["details"]["model"] == LINE
-        assert list(envelope["details"]["unsolved"]) == [LINE_KICK]
-        text = envelope["details"]["unsolved"][LINE_KICK]
+        assert list(envelope["details"]["missing"]) == [LINE_KICK]
+        text = envelope["details"]["missing"][LINE_KICK]
         assert text.startswith("lost")
         assert text.endswith(f"(while stepping {LINE_KICK})")
         assert envelope["suggestions"] == [
-            f"Name other correctors, or check corrector_delta in measurement/{LINE}.yaml."
+            "Name each entry of details.missing and its text to the operator."
         ]
 
     def test_a_destabilising_step_on_sr_names_the_corrector(self, sandbox, sr_render, tmp_path):
@@ -454,9 +459,12 @@ class TestSolveErrors:
         with pytest.raises(ToolError) as raised:
             _call(model="SR", correctors=[CORRECTOR_X])
 
-        message = _envelope(raised)["error_message"]
-        assert message.startswith("the response of SR has no solve:")
-        assert message.endswith(f"(while stepping {CORRECTOR_X})")
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "nothing_answered"
+        assert list(envelope["details"]["missing"]) == [CORRECTOR_X]
+        assert envelope["details"]["missing"][CORRECTOR_X].endswith(
+            f"(while stepping {CORRECTOR_X})"
+        )
 
     def test_an_engine_refusing_the_request_is_refused_with_its_text(
         self, sandbox, tmp_path, monkeypatch
@@ -584,7 +592,7 @@ class TestSolveErrors:
 
         assert [column["address"] for column in result["columns"]] == [CORRECTOR_X]
         assert result["matrix"] == [[2.5]]
-        assert result["unsolved"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
+        assert result["missing"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
 
     def test_an_orbit_solver_that_raises_names_the_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {3})
@@ -596,9 +604,17 @@ class TestSolveErrors:
 
         assert line["columns"] == [CORRECTOR_X]
         assert len(line["matrix"][0]) == 1
-        assert list(line["unsolved"]) == [CORRECTOR_Y]
-        assert line["unsolved"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
-        assert line["unsolved"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+        assert list(line["missing"]) == [CORRECTOR_Y]
+        assert line["missing"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
+        assert line["missing"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+
+    def test_the_childs_map_is_under_the_contract_key(self, sr_render, monkeypatch):
+        _refuse_solves(monkeypatch, {3})
+        request = tool.resolve_model_request(
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+        )
+
+        assert set(_child_line(request)) == {"rows", "columns", "matrix", MISSING_KEY}
 
     def test_no_solved_column_is_a_refusal_naming_every_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {1, 3})
@@ -609,8 +625,8 @@ class TestSolveErrors:
         line = _child_line(request)
 
         assert line["columns"] == []
-        assert list(line["unsolved"]) == [CORRECTOR_X, CORRECTOR_Y]
-        for address, text in line["unsolved"].items():
+        assert list(line["missing"]) == [CORRECTOR_X, CORRECTOR_Y]
+        for address, text in line["missing"].items():
             assert text.startswith("closed orbit solve raised AtError:")
             assert text.endswith(f"(while stepping {address})")
 
