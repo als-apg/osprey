@@ -288,76 +288,6 @@
       "title": "ReferenceLoad",
       "type": "object"
     },
-    "RunLockHolder": {
-      "additionalProperties": false,
-      "description": "Another process holding this target's run lock, as its holder record says.",
-      "properties": {
-        "identity": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Identity"
-        },
-        "owner": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Owner"
-        },
-        "pid": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pid"
-        },
-        "started": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Started"
-        },
-        "target": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Target"
-        }
-      },
-      "required": [
-        "pid",
-        "started",
-        "owner",
-        "target",
-        "identity"
-      ],
-      "title": "RunLockHolder",
-      "type": "object"
-    },
     "RunningAction": {
       "additionalProperties": false,
       "description": "The action in flight.\n\nAttributes:\n    name: The action (``shot``, ``setup``, ``apply``, ``put_back``,\n        ``reference``).\n    stopping: Whether Stop was set; it ends within ``stop_budget_s``.\n    armed_stragglers: BPMs whose ``armed`` flag has not yet answered.",
@@ -678,7 +608,7 @@
     },
     "Snapshot": {
       "additionalProperties": false,
-      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    run_lock_holder: Another process holding the run lock, else ``None``.\n    plan_running: Whether a Bluesky plan runs; ``None`` when the bridge did\n        not answer.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.",
+      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.",
       "properties": {
         "action": {
           "anyOf": [
@@ -787,17 +717,6 @@
           "title": "Model Kind",
           "type": "string"
         },
-        "plan_running": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Plan Running"
-        },
         "posture": {
           "title": "Posture",
           "type": "string"
@@ -810,16 +729,6 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ReferenceLoad"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "run_lock_holder": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RunLockHolder"
             },
             {
               "type": "null"
@@ -872,8 +781,6 @@
         "writing_available",
         "model",
         "model_kind",
-        "run_lock_holder",
-        "plan_running",
         "holder",
         "taken_over",
         "mode",

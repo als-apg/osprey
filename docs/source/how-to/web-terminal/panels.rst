@@ -96,7 +96,7 @@ Panels backed by a URL
 
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
-dashboard and the BLUESKY tab ship in the
+dashboard, the BLUESKY tab and the TRAJECTORY tab ship in the
 ``control-assistant`` preset (a build that includes those stacks registers
 the entries for you):
 
@@ -239,6 +239,94 @@ Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.
+
+.. _web-terminal-trajectory-panel:
+
+The Trajectory panel
+--------------------
+
+One tab drives first-turn threading by hand, served by the trajectory service:
+**TRAJECTORY** (``/panel/``) takes shots, shows the step the service solves
+from them, and applies it. :doc:`/how-to/thread-the-first-turn` explains the
+loop itself; this section covers the tab.
+
+**Where the tab comes from.** A persona that lists ``- trajectory`` in its
+``web_panels`` gets the tab, on a deployment whose profile has a
+``trajectory:`` block. In the ``control-assistant`` presets the readwrite and
+admin personas list it beside ``bluesky`` and ``events``, and the read-only
+login is built without it. The build fills in the tab's address and label
+from the trajectory service, the same way it does for the Bluesky and EVENTS
+tabs.
+
+**The header** says what the tab acts on: the target, the operator the
+service names you as, the target's posture and limits, whether **Writing** is
+available, the loaded model, and who holds the session. The connection to
+the service's state stream is shown beside them. Every figure on the tab
+comes from that stream, so a change made from another tab or by the agent
+appears without a refresh.
+
+**Opening a session.** Only the holder of the session can shoot, set up or
+apply, and one holder at a time drives the service, whether that is a tab or
+the agent. When nobody holds it the tab offers **Open session**. When
+somebody does, the tab offers **Take over**, but only while no action runs.
+While an action runs, the tab names it and its owner and offers only **Stop**,
+so **Take over** appears once that action ends. The service refuses
+a take-over while an apply or a put-back is writing, and any other action of
+the old holder is stopped and its pending step voided. The holder line reads
+*(this tab)* on the tab that holds the session.
+
+A session belongs to the tab, not to the account. A second tab of your own is
+a different holder and has to take over, and so does the same tab after a
+reload, because the tab keeps nothing across one. Closing or reloading the tab
+does not release the session; **Release** does. An action already running
+keeps running after a reload: the service finishes it, and the reloaded tab
+sees its outcome in the state.
+
+**The loop controls** are enabled only on the tab that holds the session, and
+only while nothing runs:
+
+- **Setup**, with **bunch clean** ticked or not, runs the sequence module's
+  setup. It never fires an injection.
+- **Shot** takes the number of shots you set and averages them as chosen,
+  then shows the shot and the pending step: its digest, factor, reason, and
+  every corrector's delta.
+- **Apply step** writes that pending step, by its digest. It is disabled when
+  no step is pending or the step is all zero.
+- **Put back** sets everything the last apply or setup moved back to its
+  value from before that action. It is offered only after an apply or a setup
+  that moved something, and never twice in a row.
+
+**Continuous.** **Start continuous** takes shots one after another, up to
+**max shots**. It never applies a step, so the step on screen is always the
+latest shot's. The run holds a **lease** that the tab renews with a heartbeat
+every five seconds. A lease that goes ten seconds without a heartbeat ends the
+run and voids its pending step. That happens when the tab is closed, crashes,
+or is hidden long enough for the browser to throttle it, so keep the tab
+visible while a run goes. When the run ends, the tab says why.
+
+**Stop** is on every admitted operator's tab, whether it holds the session or
+not, and the holder keeps the session. It ends the running action at its next
+checkpoint, and the running line reads *stopping* until it has.
+Nothing is restored: a stopped apply, put-back or setup lists the settings it
+wrote with their before-values, and **Put back** writes them back.
+
+**Refusals and outcome pending.** The service decides every action. A refused
+action is listed with its refusal code and, when it wrote anything first, the
+settings it moved. The tab sends one action at a time and tells you when it
+is still busy with the last one. When a call gets no usable answer, which can
+happen on a dropped connection or a proxy timeout, the tab shows **outcome
+pending — see state** rather than a refusal, because the service may well
+have acted. The state stream and the **Last action** below are then the
+record of what happened.
+
+**References** saves a shot under a name and selects the reference the step
+is solved against. Selecting one replaces the pending step.
+
+**After an upgrade, rebuild the stack.** The service finds the addresses
+behind the sequence module's tag slots in the build's facility facts. A
+stack built before the facts carried them reads them as empty, so the header
+shows **Writing: unavailable** and every writing action is refused until the
+stack is rebuilt with ``osprey build`` and brought up again.
 
 Channel suggestions in plan forms
 ---------------------------------

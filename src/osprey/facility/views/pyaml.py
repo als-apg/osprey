@@ -440,6 +440,9 @@ _TRAJECTORY_KIND = "trajectory"
 #: The vocabulary signal behind each per-device slot of the kind.
 _SLOT_SIGNALS: dict[str, str] = {"arm": "bpm_arm_command", "armed": "bpm_armed_status"}
 
+#: The key of the signal-to-addresses map :func:`trajectory_slots` ends with.
+_TAGS_KEY = "tags"
+
 
 def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
     """The channels a model's ``trajectory`` measurement arms, fires and watches.
@@ -452,7 +455,9 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
     the rows of a response matrix. The other slots are the kind's instruments
     as the measurement file names them: ``injection_request`` and
     ``injection_busy`` always, ``bunch_clean_enable``, ``beam_current`` and
-    ``rf_status`` each only when the file names it.
+    ``rf_status`` each only when the file names it. ``tags`` maps every
+    signal a channel of a member device carries to those channels, in the
+    same device order, the addresses of one device sorted.
 
     Args:
         doc: The facility file.
@@ -461,7 +466,8 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
     Returns:
         Slot to address: a list of addresses for ``arm`` and ``armed``, one
         address for each instrument slot; the two per-device slots first, then
-        the instruments in :data:`KIND_MEMBERS` order.
+        the instruments in :data:`KIND_MEMBERS` order, then ``tags``, signal to
+        its list of addresses with the signals sorted.
 
     Raises:
         KeyError: The facility file has no model ``model``, or the model's
@@ -480,14 +486,15 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
     ]
     signals = {str(channel["id"]): channel.get("signal") for channel in doc.get("channels", [])}
     on_device = _channels_of(doc)
-    slots: dict[str, Any] = {}
-    for slot, signal in _SLOT_SIGNALS.items():
-        addresses: dict[str, None] = {}
-        for device in _device_order(doc, members):
-            for address in sorted(set(on_device.get(device, ()))):
-                if signals.get(address) == signal:
-                    addresses.setdefault(address, None)
-        slots[slot] = list(addresses)
+    tagged: dict[str, dict[str, None]] = {}
+    for device in _device_order(doc, members):
+        for address in sorted(set(on_device.get(device, ()))):
+            signal = signals.get(address)
+            if signal is not None:
+                tagged.setdefault(str(signal), {}).setdefault(address, None)
+    slots: dict[str, Any] = {
+        slot: list(tagged.get(signal, {})) for slot, signal in _SLOT_SIGNALS.items()
+    }
     instruments = measurement.get("instruments") or {}
     for name in KIND_MEMBERS[_TRAJECTORY_KIND]:
         if name in GROUP_ROLES:
@@ -497,6 +504,7 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
             slots[name] = str(named)
         elif name not in INSTRUMENT_CLASSES["optional"]:
             slots[name] = None
+    slots[_TAGS_KEY] = {signal: list(tagged[signal]) for signal in sorted(tagged)}
     return slots
 
 

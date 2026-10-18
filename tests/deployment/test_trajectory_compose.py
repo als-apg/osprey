@@ -253,3 +253,31 @@ def test_the_artifact_catalog_carries_the_template() -> None:
     assert artifact.output_path == "services/trajectory"
     assert artifact.template_root == "services"
     assert artifact.is_directory
+
+
+def test_the_stop_grace_period_covers_the_default_call_timeout() -> None:
+    service = _service(_config({"network": "host"}, EPICS))
+
+    assert service["stop_grace_period"] == "41s"
+
+
+def test_the_stop_grace_period_grows_with_a_raised_connector_timeout() -> None:
+    raised = {**EPICS, "connector": {"epics": {"gateways": {}, "timeout_s": 30}}}
+    service = _service(_config({"network": "host"}, raised))
+
+    assert service["stop_grace_period"] == "116s"
+
+
+def test_the_stop_grace_period_reads_the_connector_its_target_selects() -> None:
+    # The block's own target picks the connector whose timeout counts: the
+    # simulator's here, though the deployment baseline is the EPICS machine.
+    control_system = {
+        **EPICS,
+        "connector": {
+            "epics": {"gateways": {}, "timeout_s": 30},
+            "virtual_accelerator": {"serving": "in_process", "timeout_s": 5},
+        },
+    }
+    service = _service(_config({"network": "host", "target": "va"}, control_system))
+
+    assert service["stop_grace_period"] == "41s"

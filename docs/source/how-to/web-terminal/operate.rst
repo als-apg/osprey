@@ -60,7 +60,8 @@ The window has three working areas plus a header:
   ``artifact_server.example_artifact`` in ``config.yml``.
 - **Side panels** — your control-system tools (Channel Finder, ARIEL, the
   lattice dashboard, and so on), opened from the icon rail and arranged as
-  dockable tiles. See :doc:`panels`.
+  dockable tiles. See :doc:`panels`; a write-armed persona's TRAJECTORY tab
+  threads the first turn by hand (:ref:`web-terminal-trajectory-panel`).
 - **Utility controls** — pinned to the far end of the same rail, a
   **Documentation** link, a **Feedback** button that lets whoever is at the
   terminal report a problem without leaving it (see :doc:`send-feedback`), and

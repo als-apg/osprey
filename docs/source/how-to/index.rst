@@ -96,7 +96,7 @@ Facility services
 
       Measure orbit, dispersion, tune and chromaticity responses on the
       control target, every write under the control target's run lock, and read the
-      model's orbit response.
+      model's orbit or first-turn trajectory response.
 
    .. grid-item-card:: Thread the First Turn
       :link: thread-the-first-turn

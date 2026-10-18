@@ -34,8 +34,9 @@ In order:
 4. **The command set.** ``trajectory_slots`` of the build's
    ``facility_facts.json``: no model → the service starts with its writing
    actions unavailable; one model, or the one ``services.trajectory.model``
-   names → its ``arm``, ``armed`` and ``injection_request`` addresses;
-   several and none named → refused, naming them.
+   names → its ``arm``, ``armed`` and ``injection_request`` addresses, and
+   its ``tags``, each facility signal to its address on every BPM; several
+   and none named → refused, naming them.
 5. **The raw-put block**, armed once per process with the executor's armed
    contract, so a client put no connector let through is refused here in the
    words it is refused everywhere else.
@@ -46,7 +47,9 @@ In order:
    run), else none; its sequence module is loaded and validated
    (:func:`~osprey.services.trajectory.sequence.load_sequence`). A directory
    holding no module leaves the service without one; a module that fails to
-   load or validate is refused.
+   load or validate is refused. With a trajectory model, a module slot
+   tagging a signal absent from the model's ``tags`` is refused, naming the
+   slot and the signal; with none, the module is not checked against tags.
 7. **One connector** for the target, built with ``fresh_reads`` on — every
    read asks the machine, so a shot never reads a buffer a cache kept — and
    connected. ``connect()`` latches nothing about reachability; that is asked
@@ -96,6 +99,7 @@ __all__ = [
     "check_shared_dirs",
     "resolve_sequence_dir",
     "select_commands",
+    "select_tags",
     "service_settings",
     "start",
 ]
@@ -184,6 +188,9 @@ class TrajectoryStartup:
             trajectory model and the writing actions are unavailable.
         guarded_run_dir: The target's guarded-run directory.
         settings: The service's tunable keys.
+        tag_addresses: Facility signal to its addresses, one per BPM in BPM
+            order, from the selected model's ``tags``; empty when the build
+            has no trajectory model.
         sequence_dir: The directory the sequence module is loaded from, or
             ``None`` when the deployment names none.
         sequence: The loaded sequence module, once its builder filled the
@@ -200,6 +207,7 @@ class TrajectoryStartup:
     commands: TrajectoryCommands | None
     guarded_run_dir: Path
     settings: TrajectorySettings = field(default_factory=TrajectorySettings)
+    tag_addresses: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     sequence_dir: Path | None = None
     sequence: Any = None
     tool: Any = None
@@ -486,6 +494,44 @@ def select_commands(facts: Mapping[str, Any], model: str | None) -> TrajectoryCo
     return _commands_of(names[0], by_model[names[0]])
 
 
+def select_tags(
+    facts: Mapping[str, Any], commands: TrajectoryCommands | None
+) -> dict[str, tuple[str, ...]]:
+    """The selected model's ``tags``: each facility signal to its addresses, one per BPM.
+
+    Args:
+        facts: The build's ``facility_facts.json``.
+        commands: The command set :func:`select_commands` selected, or ``None``.
+
+    Returns:
+        Signal to addresses in BPM order; empty when there is no command set or
+        the model states no ``tags``.
+
+    Raises:
+        StartupRefused: The model's ``tags`` is not a mapping of signal to a
+            list of addresses.
+    """
+    if commands is None:
+        return {}
+    model = commands.model
+    tags = _mapping(_mapping(facts.get("trajectory_slots")).get(model)).get("tags")
+    if tags is None:
+        return {}
+    if not isinstance(tags, Mapping):
+        raise StartupRefused(
+            f"model {model!r} states 'tags' as {tags!r}, not a mapping of signal to addresses"
+        )
+    selected: dict[str, tuple[str, ...]] = {}
+    for signal, addresses in tags.items():
+        if not isinstance(addresses, list) or not all(isinstance(a, str) and a for a in addresses):
+            raise StartupRefused(
+                f"model {model!r} states 'tags' signal {signal!r} as {addresses!r}, "
+                "not a list of addresses"
+            )
+        selected[str(signal)] = tuple(addresses)
+    return selected
+
+
 _RAW_PUT_ARMED = False
 
 
@@ -547,13 +593,13 @@ async def start() -> TrajectoryStartup:
 
     Returns:
         The started service's target, connector, command set, lock directory,
-        tunable keys, sequence module directory, sequence module and
+        tunable keys, tag map, sequence module directory, sequence module and
         correction tool (or why there is none).
 
     Raises:
         StartupRefused: Any check in the module's list fails.
     """
-    from osprey.services.trajectory.sequence import load_sequence
+    from osprey.services.trajectory.sequence import check_tags, load_sequence
     from osprey.services.trajectory.step import build_service_tool
     from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
@@ -562,13 +608,17 @@ async def start() -> TrajectoryStartup:
     target, model, settings = service_settings(config)
     directory = check_shared_dirs(target)
     check_limits_file(section, target)
-    commands = select_commands(_facts(config), model)
+    facts = _facts(config)
+    commands = select_commands(facts, model)
+    tag_addresses = select_tags(facts, commands)
     if commands is None:
         logger.warning(
             "trajectory service: the build has no trajectory model; writing actions are unavailable"
         )
     sequence_dir = resolve_sequence_dir(settings, resolve_project_root(config))
     sequence = load_sequence(sequence_dir, commands)
+    if commands is not None and sequence is not None:
+        check_tags(sequence, tag_addresses)
     arm_raw_put_block()
     connector = await _connect(section, target)
     logger.info(
@@ -582,6 +632,7 @@ async def start() -> TrajectoryStartup:
         commands=commands,
         guarded_run_dir=directory,
         settings=settings,
+        tag_addresses=tag_addresses,
         sequence_dir=sequence_dir,
         sequence=sequence,
         tool=build_service_tool(config, commands.model if commands else None),

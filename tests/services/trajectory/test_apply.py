@@ -313,6 +313,7 @@ def _sessions(
         settings=TrajectorySettings(action_timeout_s=timeout_s),
         sequence=load_sequence(FIXTURE_DIR, COMMANDS) if sequence else None,
         tool=tool or _tool(),
+        tag_addresses=TAGS if sequence else {},
     )
     layer = ActionLayer(startup, AdmitGate(target=TARGET, section=ARMED))
     return Sessions(layer), machine
@@ -835,7 +836,7 @@ async def test_a_putback_of_a_setups_module_slots_restores_them() -> None:
             OWNER,
             KIND,
             client_id,
-            setup_action(sessions.layer.startup, tag_addresses=TAGS, bunch_clean=True),
+            setup_action(sessions.layer.startup, bunch_clean=True),
         )
         assert [moved.name for moved in setup.moved] == [*MODES, KICKER, KICKER]
         # A put-back names each setting once: the earliest before of each.
@@ -857,6 +858,117 @@ async def test_a_putback_of_a_setups_module_slots_restores_them() -> None:
         Moved(name=MODES[1], before=1, outcome="confirmed"),
         Moved(name=KICKER, before=0, outcome="confirmed"),
     ]
+
+
+async def test_a_setup_through_sessions_writes_every_tag_address_and_its_putback_restores_them() -> (
+    None
+):
+    sessions, machine = _sessions(sequence=True)
+    try:
+        client_id = (await sessions.open(OWNER, KIND)).client_id
+        setup = await sessions.setup(OWNER, KIND, client_id, bunch_clean=True)
+        assert [moved.name for moved in setup.moved] == [*MODES, KICKER, KICKER]
+        assert all(machine.values[address] == 1 for address in MODES)
+        first: dict[str, Any] = {}
+        for moved in setup.moved:
+            first.setdefault(moved.name, moved.before)
+        result = await _apply(
+            sessions,
+            client_id,
+            {"model": MODEL, "values": [{"name": n, "before": b} for n, b in first.items()]},
+            tag_addresses=sessions.layer.startup.tag_addresses,
+        )
+    finally:
+        await sessions.layer.close()
+    assert machine.values[MODES[0]] == 3 and machine.values[MODES[1]] == 2
+    assert [moved.name for moved in result.moved] == [*MODES, KICKER]
+
+
+# -- the doors ------------------------------------------------------------------------
+
+_SECRET = "alice-secret-" + "a" * 32
+_TOKEN = "launch-token-value"
+
+
+def _app(machine: _Machine) -> Any:
+    from osprey.interfaces.web_auth import WebCredentials
+    from osprey.services.trajectory.app import create_app
+
+    async def start() -> TrajectoryStartup:
+        return TrajectoryStartup(
+            target=TARGET,
+            connector=machine,
+            commands=COMMANDS,
+            guarded_run_dir=Path("/unused"),
+            sequence=load_sequence(FIXTURE_DIR, COMMANDS),
+            tool=_tool(),
+            tag_addresses=TAGS,
+        )
+
+    app = create_app(start=start)
+    app.state.web_credentials = WebCredentials(
+        operator_secret="own-secret-" + "x" * 32,
+        panel_token="panel-token",
+        roster_secrets=(_SECRET,),
+        roster_owners=(OWNER,),
+    )
+    return app
+
+
+@pytest.mark.no_auth_seam
+@pytest.mark.parametrize("door", ["/panel/api", "/api"])
+def test_the_doors_setup_writes_every_tag_address_and_a_putback_of_them_is_accepted(
+    door: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+    from osprey.services.trajectory.app import CLIENT_HEADER, LAUNCH_TOKEN_ENV
+    from osprey.services.trajectory.store import STATE_DIR_ENV_VAR
+    from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+    from osprey_connectors.workspace import reset_config_cache
+
+    Path("build/config.yml").write_text(
+        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
+    )
+    reset_config_cache()
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, _TOKEN)
+    monkeypatch.setenv(STATE_DIR_ENV_VAR, str(tmp_path / "state"))
+
+    def headers(at: str, client_id: str | None = None) -> dict[str, str]:
+        sent = {OPERATOR_SECRET_HEADER: _SECRET}
+        if at == "/api":
+            sent[LAUNCH_TOKEN_HEADER] = _TOKEN
+        if client_id is not None:
+            sent[CLIENT_HEADER] = client_id
+        return sent
+
+    machine = _Machine()
+    with TestClient(_app(machine)) as client:
+        grant = client.post("/panel/api/session", headers=headers("/panel/api")).json()
+        setup = client.post(
+            "/panel/api/setup",
+            headers=headers("/panel/api", grant["client_id"]),
+            json={"bunch_clean": True},
+        )
+        assert setup.status_code == 200, setup.text
+        moved = setup.json()["moved"]
+        assert [m["name"] for m in moved] == [*MODES, KICKER, KICKER]
+        assert [address for address, _ in machine.writes[:2]] == list(MODES)
+        if door == "/api":
+            grant = client.post("/api/takeover", headers=headers("/api")).json()
+        first: dict[str, Any] = {}
+        for m in moved:
+            first.setdefault(m["name"], m["before"])
+        put_back = client.post(
+            f"{door}/apply",
+            headers=headers(door, grant["client_id"]),
+            json={"model": MODEL, "values": [{"name": n, "before": b} for n, b in first.items()]},
+        )
+    assert put_back.status_code == 200, put_back.text
+    assert [m["name"] for m in put_back.json()["moved"]] == [*MODES, KICKER]
+    assert machine.values[MODES[0]] == 3 and machine.values[MODES[1]] == 2
+    assert machine.values[KICKER] == 0
 
 
 # -- the bridge probe ----------------------------------------------------------------

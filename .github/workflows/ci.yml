@@ -1167,6 +1167,7 @@ jobs:
           tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
+          tests/interfaces/trajectory/test_panel_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
@@ -2670,15 +2671,19 @@ jobs:
         PY
 
   trajectory-deploy-e2e:
-    name: Trajectory Deploy E2E (VA + trajectory service, full Docker stack)
+    name: Trajectory Deploy E2E (VA + trajectory service + panel, multi-user Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors bluesky-web-deploy-e2e's gating).
     # This job needs no secrets — the trajectory service never shells out to an
-    # LLM; the module drives both of its doors over raw HTTP.
+    # LLM, and the terminal's agent is started only so its panel token exists.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Co-deploys the VA (native PyAT/serving-stack build, cold-cache cost as
-    # bluesky-web-deploy-e2e) beside the project image the service runs.
-    timeout-minutes: 45
+    # Sized for the multi-user scope: the VA (native PyAT/serving-stack build,
+    # cold-cache cost as bluesky-web-deploy-e2e), the project image the service
+    # runs and one persona image for the roster user's terminal, then a browser
+    # and an in-container MCP client against the stack, and a down/up in the
+    # last test that reuses the images. The single-build multi-user lanes
+    # measure 7-11 minutes per cold image build; this lane builds three.
+    timeout-minutes: 80
 
     steps:
     - name: Checkout repository
@@ -2700,11 +2705,19 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    # The operator's panel is proved in a real browser against this lane's stack.
+    - name: Install Playwright chromium
+      run: uv run playwright install chromium --with-deps
+
+    # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself.
+    # No provider secret is needed: the fixture writes a placeholder
+    # ANTHROPIC_API_KEY line into the deployment's .env, and the terminal's
+    # agent never contacts a model.
     - name: Run trajectory deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 40
+      timeout-minutes: 70
       run: |
         uv run pytest tests/e2e/test_trajectory_deploy.py -v -rs --tb=short \
           --junitxml=junit-trajectory-deploy-e2e.xml
@@ -2743,6 +2756,19 @@ jobs:
       with:
         name: trajectory-deploy-e2e
         engine: docker
+
+    # Belt-and-suspenders on top of the module's own try/finally teardown, and
+    # after the capture above (it reads the containers this step deletes).
+    # Every resource named here is exact — never a prune, an -a/--all sweep or
+    # a wildcard removal — matching the module's own container-ops guardrail.
+    - name: Clean up any stranded trajectory deploy resources
+      if: always()
+      run: |
+        docker rm -f trajectory-proj-web-alice || true
+        docker rm -f trajectory-proj-nginx || true
+        docker compose -p trajectory-proj down || true
+        docker volume ls -q --filter "name=^trajectory-proj_" \
+          | xargs -r docker volume rm -f || true
 
 
   va-substrate-equivalence-e2e:

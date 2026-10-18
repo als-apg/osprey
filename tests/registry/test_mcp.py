@@ -1895,3 +1895,70 @@ class TestEventDispatcherServer:
 
         assert "dispatcher2" not in {s["name"] for s in servers}
         assert any("conditioned" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# The trajectory entry: rendered only where the trajectory panel is declared
+# ---------------------------------------------------------------------------
+
+
+def _trajectory_panel_config() -> dict:
+    """A config that declares the trajectory panel, as a write-tier persona does."""
+    return {"web": {"panels": {"trajectory": {"url": "http://127.0.0.1:9"}}}}
+
+
+def _trajectory_entry(ctx: dict) -> dict:
+    """The resolved ``trajectory`` server dict for *ctx*."""
+    (entry,) = [s for s in resolve_servers({}, ctx) if s["name"] == "trajectory"]
+    return entry
+
+
+class TestTrajectoryServer:
+    """The trajectory entry an agent reaches through its own terminal's proxy."""
+
+    def test_absent_without_the_trajectory_panel(self):
+        """No ``trajectory_panel_declared`` in the context → the entry is disabled.
+
+        Without the panel the terminal serves no proxy route into the service
+        and holds no launch token for it, so the entry would be a tool that can
+        only fail.
+        """
+        assert _trajectory_entry(_base_ctx())["enabled"] is False
+        assert _trajectory_entry(_base_ctx(trajectory_panel_declared=True))["enabled"] is True
+
+    def test_render_key_is_the_launch_token_predicate(self, tmp_path):
+        """``trajectory_panel_declared`` IS ``config_declares_trajectory_panel``.
+
+        The launch-token grant reads that predicate; deriving the render key
+        from any second reading of the config would let a persona be handed the
+        server without the proxy hop behind it, or the hop with no server.
+        """
+        from osprey.cli.templates.claude_code import config_derived_context
+        from osprey.deployment.web_terminals.personas import config_declares_trajectory_panel
+
+        with_panel = _trajectory_panel_config()
+        assert config_derived_context(with_panel, tmp_path)["trajectory_panel_declared"] is True
+        assert config_derived_context({}, tmp_path)["trajectory_panel_declared"] is False
+
+        for config in (with_panel, {}, _events_panel_config()):
+            assert config_derived_context(config, tmp_path)[
+                "trajectory_panel_declared"
+            ] == config_declares_trajectory_panel(config)
+
+    def test_render_carries_the_server_only_with_the_panel(self, tmp_path):
+        """End to end: a config declaring the panel renders the ``trajectory`` server."""
+        from osprey.cli.templates.claude_code import config_derived_context
+        from osprey.cli.templates.manager import TemplateManager
+
+        def _render(config: dict) -> dict:
+            ctx = _base_ctx(**config_derived_context(config, tmp_path))
+            ctx["servers"] = resolve_servers({}, ctx)
+            tm = TemplateManager()
+            template = tm.jinja_env.get_template("claude_code/mcp.json.j2")
+            return json.loads(template.render(**ctx))["mcpServers"]
+
+        rendered = _render(_trajectory_panel_config())
+        assert "trajectory" in rendered
+        assert rendered["trajectory"]["args"][-1] == "osprey.mcp_server.trajectory"
+
+        assert "trajectory" not in _render({})

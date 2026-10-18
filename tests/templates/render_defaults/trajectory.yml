@@ -17,6 +17,7 @@ services:
     # mounted below, and the address it binds from TRAJECTORY_BIND.
     command: ["python", "-m", "osprey.services.trajectory"]
     restart: unless-stopped
+    stop_grace_period: 41s
     ports:
       - "127.0.0.1:10082:10082"
     environment:

@@ -280,6 +280,15 @@ FIRING_USER = READWRITE_USER
 #: persona's render carries exactly when that persona selects the EVENTS panel.
 DISPATCHER_MCP_SERVER = "event_dispatcher"
 
+#: The ``.mcp.json`` key of the trajectory server — rendered exactly when the
+#: persona selects the TRAJECTORY panel, whose proxy hop and launch token are the
+#: server's only route to the trajectory service.
+TRAJECTORY_MCP_SERVER = "trajectory"
+
+#: Server entries that follow a panel only the read-write persona declares. The
+#: read-only persona holds neither the panel nor the credential behind it.
+PANEL_GATED_MCP_SERVERS = frozenset({DISPATCHER_MCP_SERVER, TRAJECTORY_MCP_SERVER})
+
 #: Triggers this module appends to the deployment's own ``triggers.yml`` before
 #: the build. Two probes, each fired through BOTH doors, so the owner-carrying
 #: door and the owner-less one are separate runs in the feed rather than two
@@ -1237,12 +1246,13 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     set — that tier boundary is enforcement (``writes_enabled``), never a
     quietly different tool surface.
 
-    The dispatcher wire is the one entry that differs, and it must: it follows
-    the persona's EVENTS panel (see the owner-attribution note above), so the
-    persona that may fire triggers declares it and the read-only persona — which
-    holds no panel to reach it through and no credential to present — does not.
-    Both halves are asserted, so neither an extra difference nor a dispatcher
-    entry leaking into the read-only render can pass.
+    The panel-gated entries are the ones that differ, and they must: the
+    dispatcher wire follows the persona's EVENTS panel (see the owner-attribution
+    note above) and the trajectory server its TRAJECTORY panel, so the persona
+    that declares those panels carries them and the read-only persona — which
+    holds no panel to reach them through and no credential to present — does
+    not. Both halves are asserted, so neither an extra difference nor a
+    panel-gated entry leaking into the read-only render can pass.
     """
 
     def mcp_server_keys(render: Path) -> set[str]:
@@ -1252,16 +1262,16 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
 
     readonly_keys = mcp_server_keys(_persona_dir(deployed_stack, READONLY_PROJECT))
     readwrite_keys = mcp_server_keys(_persona_dir(deployed_stack, READWRITE_PROJECT))
-    assert DISPATCHER_MCP_SERVER in readwrite_keys, (
-        "the read-write persona selects the EVENTS panel, so its render must declare "
-        f"the dispatcher wire: readwrite={sorted(readwrite_keys)}"
+    assert PANEL_GATED_MCP_SERVERS <= readwrite_keys, (
+        "the read-write persona selects the EVENTS and TRAJECTORY panels, so its render "
+        f"must declare {sorted(PANEL_GATED_MCP_SERVERS)}: readwrite={sorted(readwrite_keys)}"
     )
-    assert DISPATCHER_MCP_SERVER not in readonly_keys, (
-        "the read-only persona carries no EVENTS panel, so a dispatcher entry in its "
+    assert not PANEL_GATED_MCP_SERVERS & readonly_keys, (
+        "the read-only persona carries neither panel, so a panel-gated entry in its "
         f"render is a server it cannot reach: readonly={sorted(readonly_keys)}"
     )
-    assert readonly_keys == readwrite_keys - {DISPATCHER_MCP_SERVER}, (
-        "apart from the dispatcher wire the two tiers must declare the identical MCP "
+    assert readonly_keys == readwrite_keys - PANEL_GATED_MCP_SERVERS, (
+        "apart from the panel-gated entries the two tiers must declare the identical MCP "
         "server set (the boundary is writes_enabled, not tool absence): "
         f"readonly={sorted(readonly_keys)} readwrite={sorted(readwrite_keys)}"
     )

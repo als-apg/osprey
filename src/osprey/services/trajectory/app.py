@@ -71,7 +71,12 @@ from osprey.services.trajectory.acquisition import (
 from osprey.services.trajectory.actions import ACTION_STOPPED, ActionLayer
 from osprey.services.trajectory.admit import NO_OPERATOR_IDENTITY, AdmitGate, AdmitRefused
 from osprey.services.trajectory.apply import ApplyFailed, apply
-from osprey.services.trajectory.constants import AGENT_DOOR, CLIENT_HEADER, PANEL_DOOR
+from osprey.services.trajectory.constants import (
+    AGENT_DOOR,
+    CLIENT_HEADER,
+    PANEL_DOOR,
+    connector_call_timeout_s,
+)
 from osprey.services.trajectory.extraction import AVERAGE_MODES
 from osprey.services.trajectory.reach import REACHABLE, TRAJECTORY_UNAVAILABLE
 from osprey.services.trajectory.refusal import Refused
@@ -417,7 +422,9 @@ class _Subscriber:
 
 
 def _frame(event: BaseModel) -> str:
-    return f"data: {event.model_dump_json()}\n\n"
+    """One SSE frame: the event's ``type`` names the frame, its JSON is the data."""
+    name = event.model_dump(include={"type"})["type"]
+    return f"event: {name}\ndata: {event.model_dump_json()}\n\n"
 
 
 class _Feed:
@@ -470,8 +477,6 @@ class _Feed:
             writing_available=startup.writing_available,
             model=startup.commands.model if startup.commands is not None else None,
             model_kind="single_pass" if startup.commands is not None else "none",
-            run_lock_holder=None,
-            plan_running=None,
             holder=HolderView(owner=holder.owner, kind=holder.kind)  # type: ignore[arg-type]
             if holder is not None
             else None,
@@ -783,6 +788,9 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
         _record(owner=owner, subject="shot", refusal=None, detail=detail)
         if result.shots_included == 0:
             feed.shot_unhooked(result)
+        else:
+            # The hook published while the action ran; this snapshot shows it ended.
+            feed.publish()
         return result.model_dump(mode="json")
 
     @router.get("/step")
@@ -812,7 +820,14 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
         with _refusals_recorded(owner, subject, detail):
             client_id = _client_id(request)
             try:
-                done = await apply(sessions, owner, kind, client_id, body)
+                done = await apply(
+                    sessions,
+                    owner,
+                    kind,
+                    client_id,
+                    body,
+                    tag_addresses=sessions.layer.startup.tag_addresses,
+                )
             except ApplyFailed as exc:
                 failed = exc
         if failed is not None:
@@ -1082,23 +1097,6 @@ def _load_config() -> Mapping[str, Any]:
     return load_osprey_config()
 
 
-def _call_timeout_s(config: Mapping[str, Any], target: str) -> float:
-    """The call timeout the service connector's own block declares."""
-    from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-    from osprey_connectors.types import resolve_target
-
-    section = config.get("control_system")
-    if not isinstance(section, Mapping):
-        return DEFAULT_TIMEOUT_S
-    try:
-        connector_type = resolve_target(section, target)
-    except ValueError:
-        return DEFAULT_TIMEOUT_S
-    blocks = section.get("connector")
-    block = blocks.get(connector_type) if isinstance(blocks, Mapping) else None
-    return call_timeout_s(block if isinstance(block, Mapping) else {}, connector_type)
-
-
 def _open_store() -> TrajectoryStore | None:
     try:
         return TrajectoryStore.from_env()
@@ -1131,7 +1129,7 @@ def create_app(*, start: StartFn | None = None) -> FastAPI:
         gate = AdmitGate.from_config(config, startup.target)
         layer = ActionLayer(startup, gate)
         layer.start()
-        sessions = Sessions(layer, call_timeout_s=_call_timeout_s(config, startup.target))
+        sessions = Sessions(layer, call_timeout_s=connector_call_timeout_s(config, startup.target))
         store = _open_store()
         feed = _Feed(sessions, store)
         await feed.refresh_reference()
