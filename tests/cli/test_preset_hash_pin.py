@@ -336,22 +336,22 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:15fd1f66f9ecbf5028fe7f057f0dae6cfe6e4e02504d5eba2270f74459bb5e3e"
     ),
     "control-assistant": (
-        "sha256:2b770fd997ab9ce6ce3da076c4e99d10d3fe1ecc8857581573fa622b99ac0716"
+        "sha256:75793ecea3e54ecc72deecb194f5e4c8195a480abbdaca7867f9eec954bf66f6"
     ),
     "control-assistant-admin": (
-        "sha256:3db6a053641e997b3fb42d57c91979c270950d6a16141b54cc6719da0240be12"
+        "sha256:7945e00bb4f96c43a98124bc58ec0a40b5e833b08589ff20833fbb3e42b55c9b"
     ),
     "control-assistant-knowledge": (
-        "sha256:1d98c440dd2d9689ad78ab80a1deb0f7ce5eb660ebab1622b776bf27f24e8d7b"
+        "sha256:080f9ceed8e18d9b0df2beda1676e0fe8b34f41972ed6c20ead2e66bfe524823"
     ),
     "control-assistant-logbook": (
-        "sha256:4c9eae5905ab76d289fc65ccc00e1f224266270b746f1a71d880eed080e8e6df"
+        "sha256:924a9866c2da30834fc8a0e7ecf6940710f8c835c1ae1fe59a0ed339c7c32a03"
     ),
     "control-assistant-readonly": (
-        "sha256:ebe42cb8d964f2d055909a1f9e92ce066e9de150fdf99f594d705e75ce087ab1"
+        "sha256:5e8746e86ea56452f85fd5a78470dde69bc5dca0da5b16f87fb2c80222814871"
     ),
     "control-assistant-readwrite": (
-        "sha256:16f53c60c07d87a70ed843617f30feed2b8ad9acbd68800d31d85f5303dcaf6e"
+        "sha256:f06640f4bd19779f1209fde3f4f34455368cc976395b59d8a8b0a90d1f266dbf"
     ),
     "hello-world": ("sha256:029244f425e473d9e22635202920f1bb67474520cb5cffa97318a33c80c45240"),
 }
