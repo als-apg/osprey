@@ -10921,3 +10921,76 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     )
     with pytest.raises(AssertionError, match="below a top-level test directory"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The revalidation dispatch runs every lane a push skips
+# ---------------------------------------------------------------------------
+#
+# A push to main runs only the jobs with no `if:`. Every other lane is scoped
+# to pull requests, so main's coverage of those lanes comes from one place:
+# the `revalidate_secret_lanes` dispatch. Each such lane carries the dispatch
+# arm beside its pull-request arm, and the set of lanes that must carry it is
+# derived from the workflow, not listed: a new pull-request-only lane without
+# the arm fails here. The benchmark lanes run on their own dispatch input and
+# the roll-up gate runs on every event, so neither is in the set.
+
+REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
+#: e2e-tests runs on every dispatch that is not a benchmark run, which
+#: includes the revalidation dispatch.
+_E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)"
+
+
+def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
+    """Jobs whose `if:` names no push arm, minus the benchmarks and the gate."""
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if "if" in job
+        and "push" not in str(job["if"])
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB}
+    }
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(
+    workflow: dict[str, Any],
+) -> None:
+    lanes = _lanes_a_push_skips(workflow)
+    assert len(lanes) > len(SPENDING_LANES), f"derived set looks empty: {sorted(lanes)}"
+    missing = sorted(
+        name
+        for name in lanes
+        if not any(
+            arm in " ".join(str(_jobs(workflow)[name]["if"]).split())
+            for arm in (REVALIDATION_ARM, _E2E_DISPATCH_ARM)
+        )
+    )
+    assert missing == [], f"lanes with no revalidation arm: {missing}"
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch__mutation_strips_queue() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[QUEUE_JOB]
+    stripped = re.sub(rf"\s*\|\|\s*{re.escape(REVALIDATION_ARM)}", "", str(job["if"]))
+    assert stripped != job["if"], "no revalidation arm on the queue lane — mutation is stale"
+    job["if"] = stripped
+    with pytest.raises(AssertionError, match=QUEUE_JOB):
+        test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(mutated)
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(
+    workflow: dict[str, Any],
+) -> None:
+    """Under a dispatch `github.event.pull_request.head.sha` is empty, so the
+    pip spec falls back to the run's own sha."""
+    spec = json.dumps(_jobs(workflow)[DOCKERFILE_E2E_JOB])
+    assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec
+    assert "@${{ github.event.pull_request.head.sha }}" not in spec
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    raw = json.dumps(_jobs(mutated)[DOCKERFILE_E2E_JOB]).replace(" || github.sha", "")
+    _jobs(mutated)[DOCKERFILE_E2E_JOB] = json.loads(raw)
+    with pytest.raises(AssertionError):
+        test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
