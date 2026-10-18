@@ -383,6 +383,8 @@ def hook_runner(tmp_path, _throwaway_repo):
 
     Mirrors the real Claude Code hook execution: stdin receives JSON with
     tool_name and tool_input, stdout receives JSON output (or empty for allow).
+    ``args`` follow the script on its command line, as a rendered hook
+    command's arguments do.
     """
 
     def run(
@@ -394,6 +396,7 @@ def hook_runner(tmp_path, _throwaway_repo):
         tool_response=None,
         hook_input_extra=None,
         hook_config=None,
+        args=(),
     ):
         hook_script = HOOKS_DIR / hook_name
         project_dir = _hook_project_dir(_throwaway_repo, cwd)
@@ -414,7 +417,7 @@ def hook_runner(tmp_path, _throwaway_repo):
         env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
-            [sys.executable, str(hook_script)],
+            [sys.executable, str(hook_script), *args],
             input=stdin_data,
             capture_output=True,
             text=True,
