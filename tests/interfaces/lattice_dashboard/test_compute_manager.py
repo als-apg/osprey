@@ -14,6 +14,7 @@ import sys
 import time
 
 import pytest
+from pydantic import BaseModel
 
 from osprey.interfaces.lattice_dashboard import compute as compute_mod
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
@@ -33,8 +34,9 @@ class RecordingBroadcaster:
     def __init__(self) -> None:
         self.events: list[dict] = []
 
-    def broadcast(self, data: dict) -> None:
-        self.events.append(data)
+    def broadcast(self, event: BaseModel) -> None:
+        assert isinstance(event, BaseModel), f"broadcast a bare {type(event).__name__}"
+        self.events.append(event.model_dump())
 
     def of(self, kind: str) -> list[dict]:
         return [e for e in self.events if e.get("type") == kind]
