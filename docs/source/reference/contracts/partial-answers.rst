@@ -49,7 +49,11 @@ Three arms
        failed with the same error the controls server answers on its own --
        ``not_found``, ``timeout_error``, ``connection_error`` -- that error is
        returned, with its own message and remedy and ``details.missing``
-       added. Otherwise the error type is ``nothing_answered``.
+       added. Otherwise the error type is ``nothing_answered``. When the
+       controls server dropped the connector or replaced its connector-host
+       child because of one of those failures, the error lists each action
+       under ``details.recovery``, as an ``action`` word and its sentence, and
+       repeats the sentence in the message.
    * - The request refused as a whole
      - The refusal's own error type (``validation_error``, ``write_refused``,
        ...), with no map: nothing was tried, so nothing is missing.
