@@ -160,7 +160,10 @@ async def test_a_shared_connection_error_drops_the_connector_once():
                 ConnectionError("down"), missing={"A": "x", "B": "y", "C": "z"}
             )
 
-    assert _envelope(excinfo)["error_type"] == "connection_error"
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "connection_error"
+    assert envelope["details"][RECOVERY_KEY][0]["action"] == "connector_dropped"
+    assert envelope["error_message"].endswith(envelope["details"][RECOVERY_KEY][0]["text"])
     invalidate.assert_awaited_once_with("archiver")
 
 
