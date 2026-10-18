@@ -241,7 +241,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
     """
-    from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.personas import (
+        config_declares_trajectory_panel,
+        config_needs_dispatcher_token,
+    )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey_connectors.types import connector_transport, resolve_control_system_type
@@ -308,6 +311,12 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # it, or the credential with no entry to spend it on. The panel
         # declaration IS that entitlement; there is no separate key.
         "event_dispatcher_wired": config_needs_dispatcher_token(config),
+        # Gate for the `trajectory` MCP server, read the same way. The server
+        # reaches the trajectory service only through the terminal's proxy,
+        # which injects the service's launch token; the launch-token grant in
+        # deployment/reach.py reads this same predicate, so a persona holds the
+        # server exactly when it holds the hop and the credential behind it.
+        "trajectory_panel_declared": config_declares_trajectory_panel(config),
         # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
