@@ -136,7 +136,7 @@ New public names composed from approved words, listed here for the owner's veto 
 | Name | Where | Composed from |
 |---|---|---|
 | `modules.web_terminals.renders.<name>` | rendered `build/config.yml` only — the build's projection of every render (`{kind, project, project_path, extra_mounts?, seed_base?, image?}`); replaces the `personas:` catalog | "render" (unit table above) |
-| `osprey scaffold tiers [--from PRESET]` | CLI verb replacing `osprey scaffold personas` | "tiers" |
+| `osprey scaffold tiers [--from PRESET]`, `osprey scaffold apps [--from PRESET]` | CLI verbs replacing `osprey scaffold personas` (owner chose the pair, 2026-10-17) | "tiers", "apps" |
 | `landing.groups: [{type: apps, label: …}]` | profile key, third landing group type beside `users` and `links`; default heading "Apps" | "app" |
 | `list_tiers()`, `list_apps()` | Python API beside `list_presets()` | "tier", "app" |
 | `osprey init --revalidate` | ruled by R-deprecation; now built (FR12) | — |

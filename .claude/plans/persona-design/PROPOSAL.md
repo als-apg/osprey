@@ -104,7 +104,9 @@ and never with the host agent's tool switches or write posture.
   its test; rendered configs carry new spellings only; a render from before the vocabulary
   release is refused as drift; the 24 `web_terminals.*persona*` lint codes renamed outright;
   manifest registers new keys only.
-- **CLI.** `osprey scaffold tiers [--from PRESET] [--force]` replaces `scaffold personas`;
+- **CLI.** `osprey scaffold tiers [--from PRESET] [--force]` and `osprey scaffold apps [--from
+  PRESET] [--force]` replace `scaffold personas`, each materializing explicit files into an
+  existing repo; the lint remedy for a `shared:` name with no `apps/<n>.yml` names the verb;
   `osprey profile card` builds its registry context from the render's two gates.
 - **dispatch.tier.** Own last code phase: reference semantics, one image producer, one build
   step on both deploy paths, baked tier config, one container project dir, `OSPREY_WORKER_IMAGE`
@@ -227,7 +229,9 @@ and never with the host agent's tool switches or write posture.
     uses `tier`, `shared` and
     `dispatch.tier: readonly`. `_off_chain_problem` and the bundle comparison are deleted; the
     privilege tally at init runs over `roster_entries`. `osprey scaffold tiers [--from PRESET]
-    [--force]` writes the tier files of a named deployment preset into an existing repo.
+    [--force]` and `osprey scaffold apps [--from PRESET] [--force]` materialize the tier files
+    and the app files of a named deployment preset into an existing repo, through the same
+    explicit-emission pipeline as init.
 12. `osprey init --revalidate`, valid only on an existing repo and refused with `--preset`,
     `--force` or `--reset`, rewrites in place with the ruamel round-trip writer: `git mv
     personas/ tiers/`; the four key spellings in `profile.yml` and every variant overlay;

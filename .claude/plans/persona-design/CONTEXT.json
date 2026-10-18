@@ -33,6 +33,18 @@
     {
       "question": "App file: pointer (`preset:`/`extends:`) or materialized copy?",
       "answer": "Materialized explicit copy with provenance, like profile.yml and tiers/<n>.yml; no pointer into the package; osprey validate reports drift. Owner, 2026-10-17 (amendment A4). The owner confirmed the standing rule: materialized repos never carry extends:."
+    },
+    {
+      "question": "Per-card knobs extra_mounts/seed_base/image after the catalog goes",
+      "answer": "Keep, as top-level keys of the explicit tier/app file; the build projects them into modules.web_terminals.renders. Owner, 2026-10-17."
+    },
+    {
+      "question": "Internal vocabulary rename (84 py files, 19 templates) in P1 or a follow-up card",
+      "answer": "In P1, as the last code phase. Owner, 2026-10-17."
+    },
+    {
+      "question": "Replacement for osprey scaffold personas",
+      "answer": "Both `osprey scaffold tiers` and `osprey scaffold apps`; the lint remedy for a missing apps/<n>.yml names the verb. Owner, 2026-10-17."
     }
   ],
   "codebase_findings": {
