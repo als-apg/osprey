@@ -1785,7 +1785,9 @@ jobs:
     # see; this one resolves none. Excluding Dependabot here would take the
     # model-free proof off the pull requests that move the dependency set,
     # which is where it is worth the most.
-    if: github.event_name == 'pull_request'
+    if: >-
+      (github.event_name == 'pull_request')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Not measured on a runner: no lane has run these files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
@@ -2491,7 +2493,9 @@ jobs:
     # gating). This job needs no secrets — the bluesky bridge never shells out
     # to an LLM — but the same-repo restriction is the house policy for any
     # extra Docker-build-and-deploy job, not just secret-gated ones.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -2545,7 +2549,9 @@ jobs:
     # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
     # equivalence-e2e gating). This job needs no secrets — neither the
     # bridge nor the bluesky-web sidecar shells out to an LLM.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Co-deploys the VA (native PyAT/serving-stack build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
     # bluesky-web sidecar, then drives a real plan end to end through the
@@ -2611,7 +2617,9 @@ jobs:
     # dedicated job and was only ever swept into e2e-tests' glob (the
     # secret-gated LLM lane), contradicting its own docstring ("never
     # collected by the fast lane"). This job is that missing lane.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The VA image build + `osprey up` inside the test carry their own
     # generous internal timeouts (5min build, 20min deploy-up) to absorb a
     # cold image cache; that's 25min before the five CA proofs (P1-P5, with
@@ -2688,7 +2696,9 @@ jobs:
     # VA/bridge/Tiled stack — more than one at once is more than a GHA runner
     # has to give. Sequential steps also keep the four failures separately
     # attributable in the job log.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
     # cold image cache can't red the job. Raised from 45 when the grid-scan
@@ -2794,7 +2804,9 @@ jobs:
     # Only run on PRs from same repo (mirrors orm-roundtrip-e2e gating). This
     # job needs no secrets — every stage drives the bridge HTTP API and the
     # osprey CLI directly, no LLM involved.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized from the suite's own internal caps rather than a guess: the 2400s
     # `osprey up` budget is spent TWICE (stage 8 flips the control
     # system to mock and redeploys the whole stack), plus a 900s whole-queue
@@ -3030,7 +3042,9 @@ jobs:
     # Docker-build-and-deploy job, not just secret-gated ones. A secret
     # appearing here would mean the lane's scope silently grew; that is guarded
     # by test_archiver_world_job_has_no_llm_secret.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source (same cost as
     # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day
     # retention at two tiers across the full channel manifest. The seed itself
@@ -3088,7 +3102,9 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo-PR gating, house policy for every extra Docker lane. No
     # secrets: the file reads the render and the store, and reaches no model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Three `osprey build`s of the control-assistant preset plus one
     # testcontainers Neo4j store; about a minute on a workstation.
     timeout-minutes: 30
@@ -3142,7 +3158,9 @@ jobs:
     # job needs no secrets — the bridge never shells out to an LLM — but the
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Deploys the control-assistant preset, so the bring-up builds that preset's
     # images (qmd ~3.4GB, bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
     # and the Tiled image pull it actually tests. ~6.5min with
@@ -3215,7 +3233,9 @@ jobs:
     # amd64-emulated Virtual Accelerator image (mock devices, no EPICS), so
     # it's comparable in weight to bluesky-deploy-e2e rather than
     # va-substrate-equivalence-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -3277,7 +3297,9 @@ jobs:
     # Accelerator image (the negative case's IOC no-write proof reads a real
     # corrector setpoint over Channel Access, independent of the bridge), so
     # it's as heavy as va-substrate-equivalence-e2e, not bluesky-catalog-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 45
 
     steps:
@@ -3750,7 +3772,9 @@ jobs:
     # lifecycle lanes this touches nothing host-global — every image and
     # container it creates carries a per-run uuid under the
     # osprey-e2e-privsplit prefix — so it is safe to run on per-phase PRs too.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -3872,7 +3896,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Only run on PRs from same repo (mirrors deploy-e2e gating)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -3896,7 +3922,7 @@ jobs:
       env:
         # Install the PR branch inside the image (not the PyPI release) so
         # the generated Dockerfile is tested against the code under review.
-        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha }}
+        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha || github.sha }}
         # Drives the real-LLM round-trip in test_generated_image_serves_agent_
         # over_http (injected into the container at run time). The build/boot
         # test needs no key; the HTTP test auto-skips (requires_als_apg) if the
@@ -4128,7 +4154,9 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: it builds an image and runs `print(2+2)`
     # through the python-executor path; no LLM is called anywhere in the file.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Must exceed the test's own BUILD_TIMEOUT (1200s) plus checkout, uv sync,
     # the wheel build and four container runs — so a slow-but-progressing build
     # is killed by the test (which prints the docker log) rather than silently
@@ -4184,7 +4212,9 @@ jobs:
     # them down in a `finally` — so it is cheap enough to gate every PR that
     # can touch the build/deploy/profile path. No secrets: nothing here reaches
     # an LLM.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 20
 
     steps:
@@ -4249,10 +4279,11 @@ jobs:
     # then runs once at the epic→main boundary). Scoped this way because it
     # drives REAL, destructive container/volume lifecycle operations
     # (decommission/prune/nuke) against the runtime.
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4334,10 +4365,11 @@ jobs:
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4447,10 +4479,11 @@ jobs:
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4568,10 +4601,11 @@ jobs:
     # lane that only runs after the work is already merged is one that can go
     # red inside a green gate.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4681,7 +4715,9 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. No secret is needed: the fixture writes a fake ANTHROPIC_API_KEY and
     # nothing in the module contacts a model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # One cold persona image build (the neighbouring single-build auth lanes
     # measure 7-11 minutes for the same work), one `osprey up --dev`, then the
     # notebook assertions and a second down/up in the last test — which reuses
@@ -4768,10 +4804,11 @@ jobs:
     # instead of docker (tests/e2e/test_deploy_lifecycle.py picks its runtime
     # from OSPREY_E2E_RUNTIME). Scoped identically: same-repo PRs into main
     # (per-phase PRs inside an epic target epic/* and skip it).
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -4885,10 +4922,11 @@ jobs:
     # would skip on every PR that changes what it covers and only ever run once
     # the work was already merged into the epic.
     if: >-
-      github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.pull_request.base.ref == 'main'
+        || startsWith(github.event.pull_request.base.ref, 'epic/')))
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -5104,7 +5142,9 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: the sidecar is a local container serving
     # a fixture corpus, and no LLM is called anywhere in the module.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Cold-cache shape: 2.1 GB of GGUF models fetched during the build, plus
     # qmd's fail-closed startup pass, which will not serve until it has
     # embedded the corpus. Warm-cache runs skip the fetch entirely (see the
@@ -5330,7 +5370,9 @@ jobs:
     # the same channel names with different values), and every assertion here
     # reads back a number. No LLM is called anywhere in either module. The
     # agent-driven half of this feature is a separate, secret-gated lane.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Measured once on this branch rather than guessed, on an Apple Silicon
     # host where BOTH images are pinned linux/amd64 and therefore emulated:
     #   - virtual accelerator image, cold (`--no-cache`):     226 s
@@ -5788,7 +5830,9 @@ jobs:
     # of its subject: every assertion reads a value back from a container this
     # job built, and no module in it calls a model. A fork therefore loses
     # nothing here that a secret would have given it.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The composition this cap bounds, piece by piece rather than as one
     # guessed number:
     #   - the virtual accelerator image build, which target-switch-e2e
@@ -5989,7 +6033,9 @@ jobs:
     # job, secret-gated or not. This one needs no secret: the deployment's
     # .env is seeded from the rendered .env.example, and nothing in the module
     # calls a model.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized against bluesky-deploy-e2e's 60 rather than against the container
     # lane above, because that is the comparable surface: `osprey init`,
     # `osprey build`, `osprey up`, a stack of containers and `osprey down`,
