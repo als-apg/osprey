@@ -56,6 +56,21 @@ for line in sys.stdin:
     print(json.dumps(reply), flush=True)
 """
 
+#: A stub MCP server that dies at startup the way a framework server does: a
+#: run of ``[STARTUP-TIMING]`` lines first, then an uncaught exception, exit 1,
+#: before it reads a frame. The explaining traceback is the END of its stderr.
+_DYING_STUB = """\
+import sys
+
+for i in range(40):
+    print(f"[STARTUP-TIMING] stub | import_{{i}}: 1ms", file=sys.stderr, flush=True)
+raise RuntimeError("{marker}")
+"""
+
+#: The dying stub's exception message: present in the error text only if the
+#: report carries the tail of stderr.
+_DYING_MARKER = "stub-server-startup-failure-marker"
+
 
 def _stub(tmp_path: Path, *, phases: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
     script = tmp_path / "stub_server.py"
@@ -84,3 +99,21 @@ def test_a_mute_server_still_times_out(tmp_path: Path) -> None:
         list_mcp_tools(command=command, args=args, timeout=2.0)
 
     assert "timeout waiting for" in str(excinfo.value)
+
+
+def test_a_dying_server_reports_its_exit_code_and_traceback(tmp_path: Path) -> None:
+    """A server that exits before answering is reported with the tail of its stderr.
+
+    A framework server opens stderr with startup-timing lines, so the head of
+    what it said is timing and the traceback that explains the exit is the tail.
+    """
+    script = tmp_path / "dying_server.py"
+    script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
+
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    message = str(excinfo.value)
+    assert "rc=1" in message
+    assert "Traceback" in message
+    assert _DYING_MARKER in message
