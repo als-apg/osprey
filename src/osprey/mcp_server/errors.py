@@ -48,6 +48,11 @@ def make_error(
 #: answered); a ``nothing_answered`` refusal carries it under ``details``.
 MISSING_KEY = "missing"
 
+#: The key under which an error names what the server did about the failure:
+#: a list of ``{"action": <word>, "text": <sentence>}``, present only when
+#: something was done.
+RECOVERY_KEY = "recovery"
+
 #: The error word for a request whose every item was tried and none answered.
 NOTHING_ANSWERED = "nothing_answered"
 
@@ -57,6 +62,8 @@ def refuse_nothing_answered(
     noun: str,
     missing: Mapping[str, str | None],
     details: dict | None = None,
+    *,
+    recovery: Sequence[Mapping[str, str]] = (),
 ) -> NoReturn:
     """Raise the ``nothing_answered`` envelope for a request nothing answered.
 
@@ -65,12 +72,20 @@ def refuse_nothing_answered(
         noun: What the request asked for, in the plural (``"channels"``).
         missing: Each item asked for, mapped to the source's own text or ``None``.
         details: Further structured facts; ``missing`` is merged into them.
+        recovery: What the server did about the failures, each an ``action``
+            word and its ``text``; listed under ``details.recovery`` and the
+            sentences appended to the message.
     """
+    message = f"{tool}: none of the {len(missing)} requested {noun} answered"
+    merged = {**(details or {}), MISSING_KEY: dict(missing)}
+    if recovery:
+        message += ". " + " ".join(r["text"] for r in recovery)
+        merged[RECOVERY_KEY] = [dict(r) for r in recovery]
     make_error(
         NOTHING_ANSWERED,
-        f"{tool}: none of the {len(missing)} requested {noun} answered",
+        message,
         [f"Name each entry of details.{MISSING_KEY} and its text to the operator."],
-        details={**(details or {}), MISSING_KEY: dict(missing)},
+        details=merged,
     )
 
 
