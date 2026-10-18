@@ -18,7 +18,7 @@ from rich.logging import RichHandler
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
 from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
+from tests import _env_scope_guard, _live_threads, _repo_cleanliness, _run_temp, ci_diagnostics
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
@@ -1581,8 +1581,16 @@ def pytest_collection_modifyitems(items):
 _CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Open the per-worker records and arm the stack dumper."""
+    """Claim the run's temporary root, open the per-worker records and arm the stack dumper.
+
+    A run owns its temporary root; nothing else on the host numbers or prunes
+    it. The root is claimed first, ahead of pytest's own temporary-path setup,
+    which reads it. See tests/_run_temp.py.
+    """
+    _run_temp.claim(config)
+
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this
@@ -1622,6 +1630,19 @@ def pytest_configure(config):
     # A failing test's containers are snapshotted before its module's fixtures
     # remove them. See tests/ci_diagnostics.py.
     ci_diagnostics.register_container_snapshots(config.pluginmanager)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """Remove the run's temporary root once the session's own teardown is done."""
+    _run_temp.release(session.config, exitstatus)
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    """Name the temporary root the run kept."""
+    root = _run_temp.kept_root(config)
+    if root is not None:
+        terminalreporter.write_line(f"{_run_temp.KEPT_LINE} {root}")
 
 
 def pytest_runtest_logstart(nodeid):
