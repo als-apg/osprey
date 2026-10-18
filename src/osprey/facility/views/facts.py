@@ -39,9 +39,11 @@ any other file for the zero-source facts, which every build rewrites.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import logging
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -351,8 +353,6 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
         other file of the view by its name in the view's directory, with its
         digest.
     """
-    import hashlib
-
     from osprey.facility.views.pyaml import CONFIGURATION_FILE, PYAML_DIR
 
     records: dict[str, dict[str, Any]] = {}
@@ -370,12 +370,19 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
     return records
 
 
+#: The most recent measurement blocks, keyed by the digests of the bytes each was read from.
+_MEASUREMENT_MEMO: OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]] = OrderedDict()
+_MEASUREMENT_MEMO_KEYS = 8
+
+
 def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, dict[str, Any]]:
     """The approval hook's ``measurement`` block of one render.
 
     Read from each pyAML view the facts record: its arrays and the addresses
     their members stand for, through the view's one name mapping. A render
-    whose facts record no view reads no file.
+    whose facts record no view reads no file. The block is a function of the
+    bytes it reads, so it is computed once per distinct content; each caller
+    gets its own copy.
 
     Args:
         facts: The facts document.
@@ -394,17 +401,43 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     if not recorded:
         return {}
     from osprey.facility import FACILITY_FILE
+
+    facility = (render_root / FACILITY_FILE).read_bytes()
+    views = {
+        str(model): (record, (render_root / record["path"]).read_bytes())
+        for model, record in recorded.items()
+    }
+    key = (
+        hashlib.sha256(facility).hexdigest(),
+        tuple(
+            (model, record["path"], record.get("sha256"), hashlib.sha256(view).hexdigest())
+            for model, (record, view) in sorted(views.items())
+        ),
+    )
+    block = _MEASUREMENT_MEMO.get(key)
+    if block is None:
+        block = _measurement_block(facility, views)
+        _MEASUREMENT_MEMO[key] = block
+        while len(_MEASUREMENT_MEMO) > _MEASUREMENT_MEMO_KEYS:
+            _MEASUREMENT_MEMO.popitem(last=False)
+    else:
+        _MEASUREMENT_MEMO.move_to_end(key)
+    return copy.deepcopy(block)
+
+
+def _measurement_block(
+    facility: bytes, views: Mapping[str, tuple[Mapping[str, Any], bytes]]
+) -> dict[str, dict[str, Any]]:
+    """The ``measurement`` block read from a facility file and its pyAML views' bytes."""
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    doc = json.loads(facility.decode("utf-8"))
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
-    for model, record in sorted(recorded.items()):
-        configuration = yaml_loader.safe_load(
-            (render_root / record["path"]).read_text(encoding="utf-8")
-        )
+    for model, (record, view) in sorted(views.items()):
+        configuration = yaml_loader.safe_load(view.decode("utf-8"))
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}
