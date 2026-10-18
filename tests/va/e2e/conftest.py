@@ -897,10 +897,21 @@ async def reconciling():
 
 @dataclass(frozen=True)
 class Corrector:
-    """One corrector of the served view: the address a lane writes and the one it reads back."""
+    """One corrector of the served view: the address a lane writes and the one it reads back.
+
+    Attributes:
+        setpoint_address: The address a lane writes a demand to.
+        readback_address: The address the same magnet reads its own field back on.
+        readback_motion: The band the readback's declared motion (noise and
+            drift) keeps it within around its held value, as the served tree
+            declares it under the suite's scenarios
+            (:meth:`SimulatorView.motion_envelope` with :data:`SUITE_SCENARIOS`).
+            Two reads of a quiet readback differ by at most twice this band.
+    """
 
     setpoint_address: str
     readback_address: str
+    readback_motion: float
 
 
 def corrector_at_slot(slot: int) -> Corrector:
@@ -956,4 +967,8 @@ def corrector_at_slot(slot: int) -> Corrector:
         f"{setpoint} is served with no readback of its own, so a "
         f"lane cannot tell a magnet's reading from the demand written to it"
     )
-    return Corrector(setpoint_address=setpoint, readback_address=str(readback))
+    return Corrector(
+        setpoint_address=setpoint,
+        readback_address=str(readback),
+        readback_motion=view.motion_envelope(str(readback), active=SUITE_SCENARIOS),
+    )
