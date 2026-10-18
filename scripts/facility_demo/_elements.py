@@ -118,9 +118,6 @@ DEMO_NAME = re.compile(
 
 # --- the deck ----------------------------------------------------------------------
 
-#: The sections whose lattice arrays the deck elements index.
-DECK_SECTIONS = ("LTB", "BTS")
-
 #: An occurrence-indexed deck element.
 DECK_ELEMENT = re.compile(r"^(?P<sec>LTB|BTS):(?P<family>[A-Za-z][A-Za-z0-9_]*)#(?P<n>[1-9]\d*)$")
 
