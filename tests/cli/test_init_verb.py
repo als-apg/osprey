@@ -14,6 +14,8 @@ different kinds of thing:
 * The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
   against the exemplar's ~20 hand-authored files, which exist to pin paths
   rather than content. Every path the exemplar names must be present.
+* ``data/README.md`` is the exception: it is copied from the package, the
+  exemplar reads that same file, and the two are compared byte for byte.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
   ``personas/*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
@@ -322,6 +324,12 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
         if exemplar_repo.joinpath(name).read_text(encoding="utf-8") != expected[name]
     ]
     assert differing == []
+
+
+def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
+    """Init copies the preset's ``data/README.md`` through unchanged."""
+    emitted = exemplar_repo.joinpath("data/README.md").read_text(encoding="utf-8")
+    assert emitted == exemplar_source_files(with_ci=False)["data/README.md"]
 
 
 def test_source_lives_at_the_repo_root(exemplar_repo: Path) -> None:
