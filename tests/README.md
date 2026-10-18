@@ -56,12 +56,14 @@ holding it, and the exit callbacks registered with `atexit`.
 `tests/integration/test_suite_exit_bound.py` (`wallclock`) holds a facility
 test module under `-n 2` to that bound.
 
-A run keeps only failing tests' `tmp_path` directories
-(`tmp_path_retention_policy = "failed"` in `pyproject.toml`): a passing test's
-files are gone after the run, and a failing test's files stay under
-`{temproot}/pytest-of-<user>/pytest-N/`. A run that exits in silence after its
-summary while that root holds other runs' trees is pytest pruning them at exit;
-the exit report names it (`cleanup_numbered_dir`).
+Each run creates its own temporary root, `{temproot}/osprey-tests-*`
+(`PYTEST_DEBUG_TEMPROOT` or the system temp dir), in `tests/conftest.py`;
+an xdist run's workers live under it. A green run removes it. A red run keeps
+it, with only its failing tests' `tmp_path` directories
+(`tmp_path_retention_policy = "failed"` in `pyproject.toml`), and names it in
+the summary (`temporary files kept at …`). Nothing else on the host numbers or
+prunes it. Pass `--basetemp` to choose the place yourself; it is then never
+removed. Never add `--basetemp` to a launcher.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
