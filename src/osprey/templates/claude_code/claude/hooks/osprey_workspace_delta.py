@@ -88,8 +88,9 @@ both derive the file name the same way — change one and the other stops seeing
 the same file.
 
 stdlib-only — must NOT import osprey, yaml, requests, or any third-party lib.
-Uses only ``json``, ``os``, ``sys``, ``tempfile``, ``urllib.request``,
-``urllib.error``.  Runs under ``python3`` (possibly system Python 3.9, not the
+Uses only ``json``, ``os``, ``pathlib``, ``sys``, ``tempfile``,
+``urllib.request``, ``urllib.error`` and the sibling stdlib-only helper
+``osprey_safety_file``.  Runs under ``python3`` (possibly system Python 3.9, not the
 venv interpreter), so this file must be 3.9-safe.
 
 That contract is why the web terminal's port is the one number written out
@@ -107,13 +108,22 @@ Fails open on any error — stays silent and exits 0.  A user prompt is never
 blocked by workspace bookkeeping.
 """
 
-import contextlib
 import json
 import os
 import sys
 import tempfile
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# The stdlib-only file helper the snapshot is written through, a sibling script.
+# Without it no snapshot is written, which costs one redundant line next turn.
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - render without the helper
+    _safety_file = None
 
 #: Characters a session id may contain before it is joined into a file name.
 #: Must match ``osprey_panels_context.py`` — the two hooks share the file.
@@ -231,21 +241,20 @@ def _workspace_state(data):
 def _write_snapshot(path, state):
     """Overwrite the snapshot at ``path`` with ``state``.
 
-    Written to a sibling temp file and renamed, so a hook reading concurrently
-    never sees a half-written file. Returns True on success, False on any
-    failure — a snapshot that cannot be written costs one redundant line next
-    turn, which is not worth disturbing a prompt over.
+    Replaced whole through ``osprey_safety_file``, so a hook reading
+    concurrently never sees a half-written file. Returns True on success, False
+    on any failure or a missing helper — a snapshot that cannot be written costs
+    one redundant line next turn, which is not worth disturbing a prompt over.
     """
-    tmp_path = f"{path}.tmp"
-    try:
-        with open(tmp_path, "w") as handle:
-            json.dump(state, handle)
-        os.replace(tmp_path, path)
-        return True
-    except Exception:
-        with contextlib.suppress(Exception):
-            os.remove(tmp_path)
+    if _safety_file is None:
         return False
+    try:
+        _safety_file.atomic_replace(
+            Path(path), json.dumps(state).encode("utf-8"), mode=0o644, sync="best_effort"
+        )
+    except Exception:
+        return False
+    return True
 
 
 def _merge_state(previous, current):

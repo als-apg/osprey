@@ -34,7 +34,7 @@ from osprey.services.python_executor.write_surface import (
     _READONLY_WRITE_TARGETS,
     CLIENT_PACKAGES,
 )
-from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ClientLibraryRefusedError
+from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("execution_wrapper")
@@ -139,9 +139,9 @@ def _armed_rows(table: dict[tuple[str, str], str]) -> tuple[tuple[str, tuple[str
 def armed_contract(*, refuse_rpc: bool) -> dict:
     """The keyword arguments of ``raw_put_block.install("armed", ...)``.
 
-    One place computes them, so every process that arms the block — the
-    executor's generated script and the notebook kernel alike — refuses the
-    same client entry points with the same marker.
+    One place computes them, so the executor's generated script — the one
+    process that arms the block — refuses the same client entry points with
+    the same marker.
     """
     return {
         "blocked_targets": _armed_rows(_ARMED_BLOCKED),
@@ -168,7 +168,6 @@ def no_client_contract() -> dict:
         "library_names": tuple(_CLIENT_LIBRARY_NAMES),
         "library_symbols": tuple(_CLIENT_LIBRARY_SYMBOLS),
         "loader_targets": tuple((dotted, tuple(attrs)) for dotted, attrs in _CLIENT_LOADER_ROWS),
-        "marker": ClientLibraryRefusedError.MARKER,
     }
 
 
@@ -1043,8 +1042,9 @@ if not _execution_dir.exists():
         ``osprey`` cannot be imported — no guard name leaks into the user code,
         and this process never imports ``osprey.runtime``, whose package import
         registers an exit handler. The tables are emitted as literals read from
-        this module's globals at emission time; the framework rows are the
-        deferred half, patched when the script imports their module.
+        this module's globals at emission time; the framework rows and cffi's
+        loader row are the deferred half, patched when the script imports their
+        module, so the install itself imports neither.
 
         The connector side of the same contract lives in
         ``osprey_connectors.control_system.base`` (refuses ``write_channel``
@@ -1053,7 +1053,7 @@ if not _execution_dir.exists():
         """
         if self.execution_mode != "readonly":
             return ""
-        deferred = _FRAMEWORK_WRITE_TARGETS
+        deferred = _FRAMEWORK_WRITE_TARGETS + _CLIENT_LOADER_ROWS
         eager = tuple(row for row in _READONLY_WRITE_TARGETS if row not in deferred)
         return _embedded_raw_put_block(
             (

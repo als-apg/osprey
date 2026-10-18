@@ -8,14 +8,27 @@ collection names the connector needs, and delegate the bring-up to the shared
 recipe in ``tests/_mongo_container.py``: the image pin, the start, the
 readiness wait and the teardown all live there, as does the skip on a host with
 no container engine.
+
+``ioc_prefix`` is the record prefix every soft-IOC suite names its records
+with.
 """
 
+import uuid
 from datetime import datetime, timedelta
 
 import pytest
 
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+
+
+@pytest.fixture
+def ioc_prefix() -> str:
+    """One record prefix per test, so an IOC this test did not start — another
+    xdist worker's, or one that fell back to a different port — serves none of
+    the names this test reads, and a mix-up fails as "cannot connect" instead
+    of returning somebody else's plausible value."""
+    return f"IOC{uuid.uuid4().hex[:8].upper()}"
 
 
 @pytest.fixture(scope="session")

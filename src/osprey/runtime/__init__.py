@@ -57,12 +57,11 @@ Control Target:
 
     A notebook kernel is the one process that outlives a switch, so it is the
     one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
-    stamp from the deployment's record before every cell. On a deployment that
-    can switch, the kernel takes its connector from a
-    :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so each stamp is
-    served by a connector-host child of its own: a moved stamp stops the child
-    in hand and selects a fresh one, and the kernel never holds a control-system
-    client itself. A cell the kernel could route nowhere at all is refused by
+    stamp from the deployment's record before every cell. Every kernel takes its
+    connector from a :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so
+    each stamp is served by a connector-host child of its own: a moved stamp
+    stops the child in hand and selects a fresh one, and the kernel never holds
+    a control-system client itself. A cell the kernel could route nowhere at all is refused by
     :func:`_get_connector` on its first control-system call.
 """
 
@@ -84,9 +83,10 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system.base import values_match
 from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
     from osprey_connectors.control_context import ControlContext
@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         ChannelLimitsConfig,
         LimitsValidator,
     )
+    from osprey_connectors.settle import Landing
 
 logger = get_logger("runtime")
 
@@ -103,6 +104,7 @@ __all__ = [
     "read_channel",
     "read_channels",
     "write_channels",
+    "settle",
     "channel_limits",
     "record_writes",
     "values_match",
@@ -185,8 +187,8 @@ _runtime_connector: Any | None = None
 #: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
 _connector_stamp: tuple[str | None, int | None] | None = None
 _connector_lock = asyncio.Lock()
-#: Whether this process takes its connector from a connector-host pool when the
-#: deployment can switch. Set only by :func:`_route_connector_through_pool`.
+#: Whether this process takes its connector from a connector-host pool. Set only
+#: by :func:`_route_connector_through_pool`.
 _pool_routing = False
 #: The pool an opted-in process draws its connector from, built on first need.
 _connector_pool: Any | None = None
@@ -211,6 +213,15 @@ _limits_validator: "LimitsValidator | None" = None
 #: Registered only through :func:`_register_write_observer` and removed through
 #: :func:`_unregister_write_observer`.
 _write_observers: "list[Callable[[str, str], None]]" = []
+
+#: Seconds a written setpoint's readback has to settle when :func:`settle` is
+#: given no ``timeout_s``.
+SETTLE_TIMEOUT_S = 5.0
+
+#: The last facility file :func:`settle` parsed: its path, its ``st_mtime_ns``
+#: and its channel records by ``id``; read and replaced under :data:`_facility_lock`.
+_facility_parsed: "tuple[Path, int, dict[str, Mapping[str, Any]]] | None" = None
+_facility_lock = threading.Lock()
 
 
 def _stamped_target() -> str | None:
@@ -247,9 +258,8 @@ def _route_connector_through_pool() -> None:
 
     For a process whose stamp moves under it: one connector-host child serves
     each stamp, so a switch never re-points a client library that is already
-    bound to the old target in this address space. It applies only where the
-    deployment can switch (:func:`~osprey_connectors.types.switch_capable`); a
-    deployment with one target builds its connector in process as before.
+    bound to the old target in this address space, and the process itself
+    holds no control-system client on any deployment.
 
     The pooled connector is driven from one event loop for the life of the
     process, and :data:`_limits_validator` is never set where this is called,
@@ -262,16 +272,8 @@ def _route_connector_through_pool() -> None:
 
 
 def _pool_mode() -> bool:
-    """Whether this process's connector comes from the pool. Never raises."""
-    if not _pool_routing:
-        return False
-    try:
-        from osprey_connectors.types import switch_capable
-
-        return switch_capable(_control_system_section())
-    except Exception:
-        logger.debug("Control system section unreadable; building in process", exc_info=True)
-        return False
+    """Whether this process's connector comes from the pool: every process routed through it."""
+    return _pool_routing
 
 
 def _pool_event_loop() -> asyncio.AbstractEventLoop:
@@ -292,7 +294,8 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     """The pool's connector for *target*, building the pool on first need.
 
     An unstamped cell is served the deployment's baseline target, the machine
-    it would read with no switch made. The lock must be held already.
+    it would read with no switch made: ``va`` on a deployment serving the
+    simulator in process. The lock must be held already.
     """
     global _connector_pool
 
@@ -428,11 +431,9 @@ def _claim_cell() -> None:
             "launch_posture": os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR),
             "started_at": datetime.now().astimezone().isoformat(),
         }
-        # Temp file beside it and a rename, as the executor's marker is written:
-        # a reader must never meet half of one.
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(marker), encoding="utf-8")
-        os.replace(tmp, path)
+        # A reader must never meet half a marker, so it is replaced whole
+        # through atomic_replace.
+        atomic_replace(path, json.dumps(marker).encode("utf-8"), mode=0o640, sync="best_effort")
         _cell_marker = path
     except Exception:  # an unclaimed cell is not worth the cell
         logger.warning("Could not claim this cell against a target switch", exc_info=True)
@@ -457,7 +458,7 @@ async def _get_connector():
     (:func:`_route_connector_through_pool`) that stops the stamp's child, and
     the next connector is a fresh child's; the launch pin is part of the
     comparison there, because a child selects its gateway on the posture it was
-    spawned with. Anywhere else the connector is rebuilt in process. The
+    spawned with. Only an unrouted process rebuilds its connector in process. The
     disconnect goes through :func:`_disconnect_locked` because
     ``_connector_lock`` is already held here and is not reentrant.
 
@@ -484,10 +485,12 @@ async def _get_connector():
             logger.debug("Control target moved to %s; replacing the connector", stamp)
             await _disconnect_locked()
 
-        if _runtime_connector is None and pooled:
-            _runtime_connector = await _pooled_connector_locked(stamp[0])
-            _connector_stamp = stamp
-            _connector_launch_pin = launch_pin
+        if pooled:
+            if _runtime_connector is None:
+                _runtime_connector = await _pooled_connector_locked(stamp[0])
+                _connector_stamp = stamp
+                _connector_launch_pin = launch_pin
+            return _runtime_connector
 
         if _runtime_connector is None:
             from osprey_connectors.factory import ConnectorFactory
@@ -942,6 +945,116 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
         >>> write_channel("MAGNET:FIELD", 2.5, timeout=10.0)
     """
     _run_async(_write_channel_async(channel_address, value, **kwargs))
+
+
+def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) -> None:
+    """Wait until each written setpoint's readback is within its stated bound.
+
+    Synchronous function - no 'await' needed. Call it after
+    :func:`write_channel`. Each setpoint's readback (its ``pair`` in the
+    render's facility file, else the setpoint itself) is read through the
+    same connector until it is within the setpoint's ``tolerance`` of the
+    demand; on the simulator a setpoint that states none settles within its
+    readback's motion band. A setpoint with neither is not waited on.
+
+    Args:
+        demands: Setpoint address to the value written, in the channel's unit.
+        timeout_s: Seconds the readbacks have to settle; :data:`SETTLE_TIMEOUT_S`
+            when omitted.
+
+    Raises:
+        FileNotFoundError: No deployment config is found, or the render has no
+            facility file; nothing was read.
+        ValueError: An address is no setpoint in the facility file; nothing was read.
+        SettleTimeoutError: A readback was not within its bound in time
+            (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
+        SettleReadError: A readback could not be read, or answered no value
+            (:class:`osprey_connectors.settle.SettleReadError`, a
+            ``ChannelReadFailedError``); names the readback.
+
+    Examples:
+        >>> from osprey.runtime import settle, write_channel
+        >>> write_channel("MAGNET:H01", 5.0)
+        >>> settle({"MAGNET:H01": 5.0})
+    """
+    landings = _landings(demands)
+    if landings:
+        wait = SETTLE_TIMEOUT_S if timeout_s is None else timeout_s
+        _run_async(_settle_async(landings, wait))
+
+
+async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
+    """Internal async implementation of :func:`settle`."""
+    import osprey_connectors.settle as settle_step
+
+    connector = await _get_connector()
+    await settle_step.settle(connector, landings, timeout_s=timeout_s)
+
+
+def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
+    """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.settle import Landing, settle_bound
+    from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.types import is_simulated, resolve_control_system_type
+
+    path, channels = _facility_channels()
+    simulated: bool | None = None
+    landings: list[Landing] = []
+    for address, demand in demands.items():
+        channel = channels.get(address)
+        if channel is None or channel.get("role") != "setpoint":
+            raise ValueError(f"{address} is no setpoint in {path}")
+        readback = str(channel.get("pair") or address)
+        if simulated is None:
+            section = _target_connector_config() or _control_system_section()
+            simulated = is_simulated(resolve_control_system_type(section))
+        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        bound = settle_bound(
+            channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
+        )
+        if bound is not None:
+            landings.append(Landing(address, readback, float(demand), bound))
+    return landings
+
+
+def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
+    """The render's facility file and its channel records by ``id``.
+
+    Parsed once per path and modification time.
+
+    Raises:
+        FileNotFoundError: No deployment config is found, or the render has no facility file.
+        ValueError: The facility file holds no ``channels`` list.
+    """
+    global _facility_parsed
+
+    from osprey.channel_roster.sources import facility_file_path
+    from osprey_connectors.config import get_full_configuration
+
+    config = get_full_configuration()
+    path = facility_file_path(config)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{path} does not exist; run `osprey build` to render the facility file"
+        ) from None
+    with _facility_lock:
+        parsed = _facility_parsed
+    if parsed is not None and parsed[0] == path and parsed[1] == mtime_ns:
+        return path, parsed[2]
+    document = json.loads(path.read_text(encoding="utf-8"))
+    records = document.get("channels") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise ValueError(f"{path} holds no 'channels' list")
+    channels: dict[str, Mapping[str, Any]] = {
+        str(record["id"]): record
+        for record in records
+        if isinstance(record, dict) and "id" in record
+    }
+    with _facility_lock:
+        _facility_parsed = (path, mtime_ns, channels)
+    return path, channels
 
 
 def read_channel(channel_address: str, **kwargs) -> Any:

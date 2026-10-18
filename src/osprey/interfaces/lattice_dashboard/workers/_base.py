@@ -16,7 +16,6 @@ lattice loading (with overrides), baseline lattice loading, and data saving.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -24,6 +23,8 @@ from typing import Any, cast
 import at
 import numpy as np
 import plotly.graph_objects as go
+
+from osprey_connectors.safety_file import atomic_replace
 
 
 def load_settings(job: dict[str, Any], group: str) -> dict[str, Any]:
@@ -112,7 +113,7 @@ def _numpy_default(obj: Any) -> Any:
 def save_data(job: dict[str, Any], data: dict[str, Any], output_path: Path) -> None:
     """Save raw physics data as plain JSON (no Plotly, no bdata) under the job's key.
 
-    The file is written through a temporary file, so no reader sees half of it.
+    The file is replaced whole, so no reader sees half of it.
     """
     payload = {
         "key": job.get("key"),
@@ -121,9 +122,8 @@ def save_data(job: dict[str, Any], data: dict[str, Any], output_path: Path) -> N
         "data": data,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(payload, default=_numpy_default))
-    tmp.replace(output_path)
+    text = json.dumps(payload, default=_numpy_default)
+    atomic_replace(output_path, text.encode("utf-8"), mode=0o644, sync="best_effort")
 
 
 def figure_to_dict(fig: Any) -> dict[str, Any]:

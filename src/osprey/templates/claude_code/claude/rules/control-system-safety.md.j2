@@ -1,29 +1,23 @@
-{% set cs_type = control_system_type | default('virtual_accelerator') %}
-{% set transport = control_system_transport | default('in_process') %}
-{% if cs_type == 'epics' %}
-{% set protocol_name = 'EPICS' %}
-{% set protocol_long = 'EPICS Channel Access' %}
-{% elif cs_type == 'doocs' %}
-{% set protocol_name = 'DOOCS' %}
-{% set protocol_long = 'DOOCS' %}
-{% elif cs_type == 'tango' %}
-{% set protocol_name = 'Tango' %}
-{% set protocol_long = 'Tango Controls' %}
-{% elif cs_type == 'opcua' %}
-{% set protocol_name = 'OPC-UA' %}
-{% set protocol_long = 'OPC-UA' %}
-{% elif cs_type == 'labview' %}
-{% set protocol_name = 'LabVIEW' %}
-{% set protocol_long = 'LabVIEW' %}
+{% if control_system_transport is not defined %}{{ fail("control-system-safety: the render context has no control_system_transport") }}{% endif %}
+{% set transport = control_system_transport %}
+{% set labels = {
+    'ca': ('EPICS', 'EPICS Channel Access'),
+    'doocs': ('DOOCS', 'DOOCS'),
+    'tango': ('Tango', 'Tango Controls'),
+} %}
+{% if transport is none or transport == 'in_process' %}
+{% set protocol_name, protocol_long = 'Control System', 'Control System' %}
+{% elif transport in labels %}
+{% set protocol_name, protocol_long = labels[transport] %}
 {% else %}
-{% set protocol_name = 'Control System' %}
-{% set protocol_long = 'Control System' %}
+{{ fail("control-system-safety: no rule block for transport " ~ transport) }}
 {% endif %}
 {% set raw_put_refusal -%}
 A raw client put is not a slower route to the same write: the Python executor
-(`execute`, `execute_file`) and the notebook kernels refuse it at runtime with
-`RAW_CLIENT_WRITE`, in readwrite runs too, and approving the run does not
-change that. Write through `write_channel(address, value)`, or
+(`execute`, `execute_file`) refuses it at runtime with `RAW_CLIENT_WRITE`, in
+readwrite runs too, and approving the run does not change that. A notebook
+kernel refuses the client library's import itself, for reads as for writes,
+with `RAW_CLIENT_IMPORT`. Write through `write_channel(address, value)`, or
 `write_channels({address: value, ...})` for several channels at once — those
 are the calls that carry limits checking, write confirmation, approval and the
 audit record.
@@ -62,8 +56,10 @@ yet, so a raw PVA put is how a PVA channel is written: it asks for approval
 like any write, and wherever limits checking is on each put is checked
 against the limits before it reaches the network, with no route around that.
 Use it only for a channel served over pvAccess — a Channel Access channel
-goes through `write_channel`. Reads still go through `read_channel`, every
-client flavor alike:
+goes through `write_channel`. The exception is the Python executor's: a
+notebook kernel refuses the `p4p` and `pvaccess` imports, so it does not
+apply in a notebook. Reads still go through `read_channel`, every client
+flavor alike:
 
 ```python
 from p4p.client.thread import Context      # A raw client: reads skip audit
@@ -99,7 +95,7 @@ ca.putDouble(150.0)                               # Refused at runtime: RAW_CLIE
 pvaccess.MultiChannel(names).putAsDoubleArray(v)  # Refused at runtime: RAW_CLIENT_WRITE
 pvaccess.RpcClient("SR:SVC:ORBIT").invoke(req)    # Not approvable — refused at runtime
 ```
-{% elif cs_type == 'doocs' %}
+{% elif transport == 'doocs' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead
 import doocs4py
@@ -110,7 +106,7 @@ doocs4py.subscribe(address, callback)                       # Bypasses audit log
 ```
 
 {{ raw_put_refusal }}
-{% elif cs_type == 'tango' %}
+{% elif transport == 'tango' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead
 import tango
@@ -123,23 +119,6 @@ dev.write_attribute("Setpoint", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 ```
 
 {{ raw_put_refusal }}
-{% elif cs_type == 'opcua' %}
-```python
-# DO NOT use these — they bypass safety controls
-from opcua import Client
-client = Client("opc.tcp://localhost:4840")
-client.connect()
-node = client.get_node("ns=2;i=2")
-node.get_value()     # Bypasses audit logging
-node.set_value(150)  # Bypasses limits + approval
-```
-{% elif cs_type == 'labview' %}
-```python
-# DO NOT use these — they bypass safety controls
-import labview
-labview.set_control("Current", 150)   # Bypasses limits + approval
-# Any direct LabVIEW library calls bypass all safety layers
-```
 {% else %}
 ```python
 # DO NOT use any direct hardware library calls — they bypass safety controls

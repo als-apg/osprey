@@ -30,6 +30,7 @@ services:
     # unchanged here — so this rename needs no network alias.
     container_name: golden-project-dispatch-worker-1
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    security_opt: ["no-new-privileges:true"]
     labels:
       # Content fingerprint of the env chain this deploy read (runtime_helper's
       # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
@@ -103,7 +104,7 @@ services:
       # name, using the module mounted read-only below, before it drops
       # privileges.
       OSPREY_CONTROL_IDENTITY: osprey-dispatch-1
-      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity.py
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity/control_identity.py
 
       # WHERE this worker reads the control-context tree, mounted read-only
       # below. A dispatch run writes as the OWNER on its job — a person, whose
@@ -219,10 +220,10 @@ services:
       # (compose_generator.ensure_guarded_run_dirs).
       - ./var/guarded_run:/app/golden-project/var/guarded_run
 
-      # The control-identity module, staged into this build context by
-      # compose_generator byte for byte from the packaged source. Read-only:
-      # the entrypoint runs it as root, so nothing inside may edit it.
-      - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity:/opt/osprey/control_identity:ro
     networks:
       - osprey-network
     healthcheck:

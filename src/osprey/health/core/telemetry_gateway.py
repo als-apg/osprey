@@ -53,7 +53,6 @@ import json
 import math
 import os
 import re
-import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -72,6 +71,7 @@ from osprey.deployment.telemetry_gateway import (
 from osprey.health.core.telemetry_store import on_compose_network
 from osprey.health.derive import _in_container
 from osprey.health.models import CheckResult, Status
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey.health.core import CategoryCallable
@@ -381,17 +381,14 @@ def read_baseline(path: Path) -> Baseline | None:
 
 
 def write_baseline(path: Path, baseline: Baseline) -> None:
-    """Write *baseline* atomically: a temporary file in the same directory, then a rename."""
+    """Store *baseline*, replaced whole through ``atomic_replace``."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(baseline.to_json(), handle, sort_keys=True)
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    atomic_replace(
+        path,
+        json.dumps(baseline.to_json(), sort_keys=True).encode("utf-8"),
+        mode=0o600,
+        sync="best_effort",
+    )
 
 
 def evaluate_trend(

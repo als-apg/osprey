@@ -58,7 +58,6 @@ SELF_EXEMPT: tuple[str, ...] = (
     "tests/facility/golden/cf_index_pre_line/MANIFEST.json",
     "tests/facility/golden/demo_fingerprint.json",
     "tests/facility/golden/in_context_size.json",
-    "tests/facility/golden/nominal_va.json",
     "tests/facility/test_deleted_surfaces.py",
     "tests/facility/test_no_retired_shapes.py",
     "tests/facility/test_schema_loosenings.py",

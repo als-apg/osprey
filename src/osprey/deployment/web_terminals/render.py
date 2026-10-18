@@ -35,7 +35,10 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     simulated_target_configured,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
+    CONTROL_IDENTITY_CONTAINER_PATH,
+)
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.telemetry_config import (
     HISTORY_SERVICE,
@@ -114,8 +117,9 @@ _LANDING_TEMPLATE = "landing.html.j2"
 _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
-# Mounted as `./build/control_identity/control_identity.py` by the template.
-_CONTROL_IDENTITY_OUTPUT = "control_identity/control_identity.py"
+# Bound as `./build/control_identity/` by the template: the identity script
+# and its catalog closure.
+_CONTROL_IDENTITY_DIR = "control_identity"
 
 # The one button a `names: hidden` users section shows in place of its cards.
 _SIGN_IN_LABEL = "Log in to your terminal"
@@ -1047,10 +1051,12 @@ def render_web_terminals(
         roster user whose location injects one. The write seam clears that directory
         first (see
         :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
-        cannot survive a re-render. Plus ``control_identity/control_identity.py``
-        — the packaged :mod:`osprey.deployment.control_identity` source, byte
-        for byte — only when the deployment is walled and some card sets a
-        ``control_identity``, i.e. exactly when the compose file binds it.
+        cannot survive a re-render. Plus one ``control_identity/<file>`` per
+        file of the control-identity script's catalog closure — the packaged
+        :mod:`osprey.deployment.control_identity` source and the helper rows it
+        imports beside itself, byte for byte — only when the deployment is
+        walled and some card sets a ``control_identity``, i.e. exactly when the
+        compose file binds that directory.
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is set to something
@@ -1581,10 +1587,12 @@ def render_web_terminals(
         # a record nothing looks for, and a missing record reads as "nothing
         # narrowed".
         "control_context_dir_env": CONTROL_CONTEXT_DIR_ENV_VAR,
-        # Where the staged identity module sits INSIDE the container, handed
-        # to the template from the module's own constant: the bind target and
-        # the path the entrypoint runs must be one spelling, not two.
+        # Where the staged identity directory is bound INSIDE the container,
+        # and the script's path within it, handed to the template from the
+        # module's own constants: the bind target and the path the entrypoint
+        # runs must agree, so neither is spelled in the template.
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         # Which CHECKOUT this stack belongs to, baked into every container and
         # volume label the template emits. Derived through the same helper the
         # services stack renders from, so one deployment cannot end up with two
@@ -1725,18 +1733,24 @@ def render_web_terminals(
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)
         rendered_landing = html_env.get_template(_LANDING_TEMPLATE).render(**landing_ctx)
 
-    # The source of the identity module's bind, written beside the compose file
-    # whenever the template emits that bind — the same predicate, so a card
-    # never mounts a missing file (which the runtime would turn into an empty
-    # directory) and a deployment with no identity stages nothing. Byte-equal
-    # to the packaged module, exactly as the build-context stager copies it.
+    # The source of the identity script's directory bind, written beside the
+    # compose file whenever the template emits that bind — the same predicate,
+    # so a card never mounts a missing directory (which the runtime would create
+    # empty) and a deployment with no identity stages nothing. The script and
+    # its catalog closure, byte-equal to their sources, exactly as the
+    # build-context stager copies them.
     identity_module: dict[str, str] = {}
     if auth_tls_ctx["walled"] and any(svc.get("control_identity") for svc in services):
-        from osprey.deployment import control_identity
+        from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+        from osprey.cli.templates.manager import TemplateManager
 
-        identity_module[_CONTROL_IDENTITY_OUTPUT] = Path(control_identity.__file__).read_text(
-            encoding="utf-8"
+        beside = BuildArtifactCatalog.default().files_beside(
+            "control-identity", TemplateManager().template_root
         )
+        for filename, source in sorted(beside.items()):
+            identity_module[f"{_CONTROL_IDENTITY_DIR}/{filename}"] = source.read_text(
+                encoding="utf-8"
+            )
 
     return {
         _COMPOSE_OUTPUT: rendered_compose,

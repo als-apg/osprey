@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -27,6 +25,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     # Imported at type-checking time only so the runtime import stays lazy
@@ -118,35 +117,6 @@ _drafts_in_flight: set[str] = set()
 TOUCH_MARKER_NAME = ".qmd-touch"
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Write *text* to *path* atomically, replacing any existing file.
-
-    The content is written to a temp file in the *same* directory (so the final
-    rename stays within one filesystem), flushed to disk, and then moved over
-    *path* with :func:`os.replace`.  A reader therefore sees either the previous
-    file or the complete new one, never a partially written one.  Synchronous by
-    design: callers rely on this function introducing no ``await`` point.
-
-    Args:
-        path: Destination file.  Its parent directory must already exist.
-        text: Full file content to write, UTF-8 encoded.
-
-    Raises:
-        OSError: If the temp file cannot be created, written, or renamed.  The
-            temp file is removed on any failure, leaving *path* untouched.
-    """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
-
-
 def _touch_bundle_marker(root: Path) -> bool:
     """Advance the bundle's :data:`TOUCH_MARKER_NAME` freshness marker.
 
@@ -170,7 +140,8 @@ def _touch_bundle_marker(root: Path) -> bool:
     """
     marker = root / TOUCH_MARKER_NAME
     try:
-        _atomic_write_text(marker, f"{datetime.now(UTC).isoformat()}\n")
+        text = f"{datetime.now(UTC).isoformat()}\n"
+        atomic_replace(marker, text.encode("utf-8"), mode=0o600, sync="required")
     except OSError as exc:
         logger.warning(
             "draft_concept: could not update freshness marker %s: %s — the search "
@@ -670,9 +641,9 @@ async def draft_concept(
             # Ensure parent directories exist.
             target.parent.mkdir(parents=True, exist_ok=True)
 
-            # Atomic write: serialise into a sibling temp file, then rename over
-            # the target so a concurrent reader never sees a half-written doc.
-            _atomic_write_text(target, doc.serialize())
+            # Replaced whole, so a concurrent reader never sees a half-written
+            # doc. atomic_replace is synchronous: no await point opens here.
+            atomic_replace(target, doc.serialize().encode("utf-8"), mode=0o600, sync="required")
 
             # Advance the freshness marker so a search sidecar re-indexes the
             # bundle promptly instead of waiting out its full fallback sweep.

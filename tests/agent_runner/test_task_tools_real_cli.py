@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +25,7 @@ from typing import Any
 
 import pytest
 
+from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.agent_runner.primitives import build_agent_options
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
@@ -221,13 +220,15 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
 
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
+    # The probe runs the pinned build under the environment a headless run gets:
+    # the product's base child env, with only the isolation keys laid over it.
     env = {
+        **build_base_child_env(),
         "HOME": str(home),
         "CLAUDE_CONFIG_DIR": str(home / ".claude"),
         "ANTHROPIC_API_KEY": "scripted",
         "ANTHROPIC_BASE_URL": messages_api,
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "PATH": os.pathsep.join([str(Path(sys.executable).parent), "/usr/bin", "/bin"]),
     }
     try:
         options = build_agent_options(

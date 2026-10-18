@@ -15,6 +15,11 @@ and ``Action.RESTORE`` after a stepped knob is put back. A callback that returns
 falsy value stops the run and ``measure`` returns ``False``; what it had moved is
 left where it stopped and listed in the call's result.
 
+Every write of a measurement settles before its ``set_wait_time`` pause
+(:func:`pyaml_cs_osprey.device.settling`): its readback waits in
+:func:`osprey.runtime.settle` to come within the bound the facility states, and
+one that does not fails the run where it stopped.
+
 pySC is always called with ``skip_save=True``: its default writes result files
 under the working directory's ``data/``.
 """
@@ -31,6 +36,8 @@ from pyaml.common.constants import Action
 from pyaml.external.pySC_interface import pySCInterface
 from pyaml.tuning_tools.measurement_tool import MeasurementTool
 from pySC.apps import measure_dispersion, measure_ORM
+
+from pyaml_cs_osprey.device import settling
 
 if TYPE_CHECKING:
     from pyaml.common.holders.element_holder import ElementHolder
@@ -278,16 +285,23 @@ class StepMeasurement(MeasurementTool):
         Returns:
             ``True`` when the run completed and ``latest_measurement`` holds its
             result, ``False`` when the callback stopped it.
+
+        Raises:
+            OspreyWriteFailed: A stepped setpoint's readback did not settle in
+                time; the run stops where it was.
+            OspreyReadFailed: A stepped setpoint's readback could not be read; the
+                run stops where it was.
         """
         self._register_callback(callback)
         try:
-            self._init_measure(RESPONSE_MATRIX_DATA)
-            if self.kind == "orm":
-                result = self._measure_orm()
-            elif self.kind == "dispersion":
-                result = self._measure_dispersion()
-            else:
-                result = self._measure_groups()
+            with settling():
+                self._init_measure(RESPONSE_MATRIX_DATA)
+                if self.kind == "orm":
+                    result = self._measure_orm()
+                elif self.kind == "dispersion":
+                    result = self._measure_dispersion()
+                else:
+                    result = self._measure_groups()
         except KeyboardInterrupt:
             return False
         self.latest_measurement.update(result)

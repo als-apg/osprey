@@ -23,11 +23,12 @@ import copy
 import hashlib
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.pyat import Prepared
@@ -345,11 +346,10 @@ def _merged_settings(saved: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    """Write *payload* to *path* through a temporary file, so no reader sees half of it."""
+    """Write *payload* to *path*, replaced whole so no reader sees half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, default=str))
-    tmp.replace(path)
+    text = json.dumps(payload, indent=2, default=str)
+    atomic_replace(path, text.encode("utf-8"), mode=0o644, sync="best_effort")
 
 
 def _read_json(path: Path) -> Any:

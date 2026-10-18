@@ -132,8 +132,9 @@ def _writable_setpoint(channel: Channel) -> bool:
 def _plant_journal(state_dir: Path) -> Path:
     """Write the journal the mock connector would have written; return its path."""
     from osprey_connectors.control_system.va_in_process_connector import active_set_sha256
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
 
-    active = (state_dir / "active_scenarios").read_text(encoding="utf-8").split()
+    active = resolve_active_scenarios(read_active_state(state_dir)[0])
     path = state_dir.joinpath(*JOURNAL)
     path.parent.mkdir(parents=True, exist_ok=True)
     writes = [[seq, address, value] for seq, (address, value) in enumerate(PLANTED.items(), 1)]

@@ -26,8 +26,8 @@ What the ``control-assistant`` preset ships
        knowledge tools, and where to read the facts the build generates.
      - Yes
    * - ``control-system-safety.md``
-     - Which control protocol the facility runs (EPICS, Tango, OPC-UA, LabVIEW)
-       and the required ``osprey.runtime`` write path.
+     - Which control protocol the deployment's connector speaks (EPICS Channel
+       Access, DOOCS, Tango) and the required ``osprey.runtime`` write path.
      - Yes
    * - ``timezone.md``
      - The facility timezone used to interpret timestamps.
@@ -57,18 +57,18 @@ Test IOC port isolation
 =======================
 
 ``test-ioc-safety`` is a packaged rule the ``control-assistant`` preset selects
-by default (it renders only for EPICS-family control systems). For other
-profiles, add it to the ``rules:`` list when the project runs an EPICS soft IOC
-for testing:
+by default (it renders only where the deployment's connector speaks Channel
+Access). For other profiles, add it to the ``rules:`` list when the project runs
+an EPICS soft IOC for testing:
 
 .. code-block:: yaml
 
    rules:
      - test-ioc-safety   # mandatory port isolation for a test soft IOC
 
-It renders only for EPICS-family control systems (``control_system.type`` of
-``epics`` or ``virtual_accelerator``); selected under any other protocol it
-renders empty and the build drops the file.
+It renders wherever the deployment's connector speaks Channel Access: an EPICS
+machine, the served virtual accelerator, the live stand-in. Under any other
+connector it renders empty and the build drops the file.
 
 The rule exists because EPICS Channel Access broadcasts on UDP by default. A
 ``softIoc`` started with no port configuration binds to UDP 5064 (server) and

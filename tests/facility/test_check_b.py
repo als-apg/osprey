@@ -18,12 +18,16 @@ quantity each kind is compared on, the comparison and the replica's runtime
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 
 from tests.facility._model_reference import ORBIT_ATOL_M
 
@@ -150,7 +154,10 @@ def assert_meets(
 
 
 class ReplicaRuntime:
-    """``osprey.runtime``'s channel functions over a composite in this process.
+    """The connector ``osprey.runtime`` reaches, over a composite in this process.
+
+    Installed through ``osprey.runtime._get_connector``, it is the one route
+    every runtime read, write and settle takes to the replica.
 
     Args:
         composite: Anything with the composite's ``get(list) -> dict`` and
@@ -163,36 +170,51 @@ class ReplicaRuntime:
         self.limits = dict(limits)
         self.writes: list[tuple[str, Any]] = []
 
-    def read_channel(self, channel_address: str, **_kwargs: Any) -> Any:
-        return self.composite.get([channel_address])[channel_address]
+    def _reading(self, value: Any) -> Any:
+        from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
 
-    def read_channels(self, addresses: Sequence[str], **_kwargs: Any) -> list[Any]:
+        return ChannelValue(value=value, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
+
+    def _write(self, address: str, value: Any) -> Any:
+        from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+
+        self.writes.append((address, value))
+        self.composite.set({address: value})
+        return ChannelWriteResult(
+            channel_address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
+        )
+
+    async def read_channel(self, channel_address: str, **_kwargs: Any) -> Any:
+        return self._reading(self.composite.get([channel_address])[channel_address])
+
+    async def read_multiple_channels(
+        self, addresses: Sequence[str], timeout: float | None = None
+    ) -> dict[str, Any]:
+        del timeout
         values = self.composite.get(list(addresses))
-        return [values[address] for address in addresses]
+        return {address: self._reading(values[address]) for address in addresses}
 
-    def write_channel(self, channel_address: str, value: Any, **_kwargs: Any) -> None:
-        self.writes.append((channel_address, value))
-        self.composite.set({channel_address: value})
+    async def write_channel_checked(self, channel_address: str, value: Any, **_kwargs: Any) -> Any:
+        return self._write(channel_address, value)
 
-    def write_channels(self, channel_values: Mapping[str, Any], **_kwargs: Any) -> None:
-        for address, value in channel_values.items():
-            self.write_channel(address, value)
+    async def write_multiple_channels(
+        self, channel_values: Sequence[tuple[str, Any]], **_kwargs: Any
+    ) -> list[Any]:
+        return [self._write(address, value) for address, value in channel_values]
 
     def channel_limits(self, address: str) -> Any:
         return self.limits.get(address)
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> ReplicaRuntime:
-        """Replace ``osprey.runtime``'s channel functions with this replica's."""
+        """Make this replica the connector every ``osprey.runtime`` function reaches."""
         import osprey.runtime
 
-        for name in (
-            "read_channel",
-            "read_channels",
-            "write_channel",
-            "write_channels",
-            "channel_limits",
-        ):
-            monkeypatch.setattr(osprey.runtime, name, getattr(self, name))
+        async def connector() -> ReplicaRuntime:
+            return self
+
+        monkeypatch.setattr(osprey.runtime, "_get_connector", connector)
+        # The runtime answers limits from its injected validator, never the connector.
+        monkeypatch.setattr(osprey.runtime, "channel_limits", self.channel_limits)
         return self
 
 
@@ -342,3 +364,52 @@ def test_the_replica_reads_and_writes_the_composite_and_answers_its_limits(
     assert osprey.runtime.channel_limits("H1:SP") == "limits"
     assert osprey.runtime.channel_limits("BPM1:X") is None
     assert replica.writes == [("H1:SP", 2.0), ("H1:SP", 3.0)]
+
+
+def test_a_write_through_the_replica_settles_on_its_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import osprey.runtime
+    from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
+    from osprey_connectors.workspace import reset_config_cache
+
+    monkeypatch.chdir(tmp_path)
+    for name in ("OSPREY_CONFIG", ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / "build").mkdir()
+    config = tmp_path / "build" / "config.yml"
+    config.write_text(
+        yaml.safe_dump({"control_system": {"type": "epics", "connector": {"epics": {}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CONFIG_FILE", str(config))
+    (tmp_path / "build" / "facility.json").write_text(
+        json.dumps(
+            {
+                "channels": [
+                    {
+                        "id": "H1:SP",
+                        "role": "setpoint",
+                        "pair": "H1:RB",
+                        "tolerance": {"absolute": 0.05},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    reset_config_cache()
+    try:
+        composite = _Composite({"H1:SP": 0.0, "H1:RB": 2.01})
+        ReplicaRuntime(composite, {}).install(monkeypatch)
+        reads: list[list[str]] = []
+        get = composite.get
+        monkeypatch.setattr(composite, "get", lambda names: reads.append(names) or get(names))
+
+        osprey.runtime.write_channel("H1:SP", 2.0)
+        osprey.runtime.settle({"H1:SP": 2.0})
+
+        assert ["H1:RB"] in reads
+        assert osprey.runtime._runtime_connector is None
+    finally:
+        reset_config_cache()

@@ -28,6 +28,7 @@ what these tests need, and a second copy would be a second thing to keep true.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import os
 import subprocess
@@ -1344,6 +1345,41 @@ class TestInFlightMarkerContract:
             assert "owner_ppid" not in live[0]
 
         assert control_target.in_flight_executions() == []
+
+    @pytest.mark.usefixtures("state_root")
+    def test_the_marker_lands_group_readable_under_an_owner_only_umask(self):
+        """The reader may run under another uid, reaching the file through the group."""
+        directory = target_state.state_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        previous = os.umask(0o077)
+        try:
+            with py_executor._in_flight_marker("va"):
+                (marker,) = directory.glob(target_state.INFLIGHT_FILE_GLOB)
+                mode = marker.stat().st_mode & 0o777
+        finally:
+            os.umask(previous)
+
+        assert mode == 0o640
+
+    @pytest.mark.usefixtures("state_root")
+    def test_a_temporary_marker_name_never_matches_the_readers_glob(self, monkeypatch):
+        """A half-written marker is never listed: its temporary is hidden and ends .tmp."""
+        directory = target_state.state_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        seen: list[str] = []
+        real_replace = os.replace
+
+        def spy(src, dst):
+            seen.append(os.path.basename(src))
+            real_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", spy)
+        with py_executor._in_flight_marker("va"):
+            pass
+
+        assert len(seen) == 1
+        assert seen[0].startswith(".") and seen[0].endswith(".tmp")
+        assert not fnmatch.fnmatch(seen[0], target_state.INFLIGHT_FILE_GLOB)
 
     def test_a_marker_that_cannot_be_written_does_not_fail_the_execution(self, monkeypatch):
         """The run is what the operator asked for; the marker is bookkeeping."""

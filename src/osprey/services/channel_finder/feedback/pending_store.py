@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.safety_file import atomic_replace
+
 logger = logging.getLogger(__name__)
 
 STORE_VERSION = 1
@@ -161,12 +163,10 @@ class PendingReviewStore:
             self._data = {"version": STORE_VERSION, "items": {}}
 
     def _save(self) -> None:
-        """Save data to file atomically (must be called within _locked context)."""
+        """Replace the file whole with the data (must be called within _locked context)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self._path.with_suffix(".tmp")
-        with open(tmp_path, "w") as f:
-            json.dump(self._data, f, indent=2)
-        tmp_path.replace(self._path)
+        text = json.dumps(self._data, indent=2)
+        atomic_replace(self._path, text.encode("utf-8"), mode=0o644, sync="best_effort")
 
     @contextmanager
     def _locked(self):

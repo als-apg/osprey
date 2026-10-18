@@ -16,6 +16,7 @@ in the file runs the guard in a subprocess against whatever is installed.
 """
 
 import asyncio
+import ctypes
 import importlib
 import json
 import platform
@@ -36,6 +37,10 @@ from osprey.services.python_executor.execution.wrapper import (
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
+
+# Bound before any guard is installed, as a script can hold the loader class
+# from before the guard ran.
+cdll_before = ctypes.CDLL
 
 
 def _resolve_target(dotted):
@@ -732,6 +737,9 @@ def test_framework_write_targets_stay_importable():
             lambda: __import__("ctypes").cdll.LoadLibrary("libca.so"), id="ctypes-LoadLibrary"
         ),
         pytest.param(lambda: __import__("ctypes").cdll.libca, id="ctypes-cdll-attribute"),
+        pytest.param(lambda: __import__("_ctypes").dlopen("libca.so"), id="_ctypes-dlopen"),
+        pytest.param(lambda: __import__("ctypes")._dlopen("libca.so"), id="ctypes-_dlopen"),
+        pytest.param(lambda: cdll_before("libca.so"), id="ctypes-CDLL-captured-before"),
     ],
 )
 def test_readonly_refuses_routes_out_of_python(call):
@@ -826,12 +834,14 @@ def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
     """Having pyepics importable opens nothing for the user code's own loads."""
     _install_fake_pyepics_loader(monkeypatch)
     _run_guard("readonly")
-    import ctypes
+    import _ctypes
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
         ctypes.CDLL(None)
     with pytest.raises(RuntimeError, match=_REFUSAL):
         ctypes.cdll.LoadLibrary(None)
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        _ctypes.dlopen(None)
 
 
 # ---------------------------------------------------------------------------
@@ -915,14 +925,31 @@ def test_readonly_gates_the_loader_class_itself():
     assert type(lib) is ctypes.CDLL
 
 
-def test_the_refusing_loader_keeps_no_original_loader():
-    """No load is permitted, so the refusal holds no original ``__init__`` to reach."""
-    import ctypes
+def test_the_refusing_loaders_keep_no_original_loader():
+    """No load is permitted, so no refusing loader holds an original to reach.
 
-    _guarded_libca()
-    cells = ctypes.CDLL.__init__.__closure__ or ()
+    The rows come from the guard's own loader tables, so a row added there is
+    pinned here too; a row whose owner is absent on this interpreter is skipped.
+    """
+    import importlib.util
 
-    assert not [cell for cell in cells if callable(cell.cell_contents)]
+    from osprey.runtime import raw_put_block
+
+    _run_guard("readonly")
+    loaders = {}
+    for dotted, attr in sorted(raw_put_block._CTYPES_LOADER_ROWS | raw_put_block._FFI_LOADER_ROWS):
+        if importlib.util.find_spec(dotted.split(".")[0]) is None:
+            continue
+        owner = raw_put_block._resolve(dotted)
+        if owner is None or not hasattr(owner, attr):
+            continue
+        loaders[f"{dotted}.{attr}"] = getattr(owner, attr)
+
+    assert "_ctypes.dlopen" in loaders, sorted(loaders)
+    for row, loader in loaders.items():
+        assert getattr(loader, "_osprey_loader_gate", False), row
+        cells = loader.__closure__ or ()
+        assert not [cell for cell in cells if callable(cell.cell_contents)], row
 
 
 def test_readonly_leaves_the_read_symbols_on_the_cadef_libca_handle():

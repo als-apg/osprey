@@ -247,7 +247,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
-    from osprey_connectors.types import connector_transport, resolve_control_system_type
+    from osprey_connectors.types import connector_transport
     from osprey_connectors.workspace import agent_data_base_dir
 
     control_system = config.get("control_system", {}) or {}
@@ -287,8 +287,6 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # spelled in the hook, so renaming a tool never touches that standalone
         # hook source.
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
-        # Control system type for protocol-aware safety rules
-        "control_system_type": resolve_control_system_type(control_system),
         # The wire it speaks, so a rule about a protocol library is rendered
         # only where that protocol is spoken.
         "control_system_transport": connector_transport(control_system),

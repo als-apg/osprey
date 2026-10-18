@@ -142,6 +142,32 @@ section.
        ``deployment.port_base`` (:ref:`reference-ports`).
 
 
+.. _deploy-write-boundary:
+
+The write boundary today
+========================
+
+A process in a terminal or dispatch-worker container reaches the control
+system the way the host does. OSPREY's block on raw puts is cooperative, not a
+sandbox (:doc:`/architecture/safety-chain`). The boundary that does not depend
+on OSPREY's own code is the facility's EPICS access security, at the CA
+gateway or the IOCs:
+
+- a host access group (HAG) holding only the OSPREY host, so writes from any
+  other machine are refused;
+- a user access group (UAG) holding only the writer names OSPREY uses (the
+  control identities in :doc:`/architecture/safety-chain`);
+- a gateway pvlist that denies by default and allows writes only to the
+  channels this deployment is meant to move.
+
+The client reports its own user name, so these rules narrow which writes are
+possible; they do not authenticate the process that makes one. Where the
+server supports it, match hosts by address rather than by the name the client
+reports. Code in a container that claims a writer name can still write to the
+allowed channels. The end state closes that gap: the connector runs as its own
+service, and the agent containers have no route to the control system.
+
+
 Step 1 — Create the facility repository
 =======================================
 

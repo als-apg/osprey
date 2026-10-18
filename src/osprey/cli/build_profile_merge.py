@@ -11,6 +11,7 @@ here leaves :mod:`osprey.cli.build_profile_presets` a leaf.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -250,6 +251,25 @@ def _apply_config_exclude(merged: dict[str, Any], entries: Any) -> None:
         config[key] = [item for item in current if item not in removal]
 
 
+def _refuse_excluded_helpers(names: Iterable[str]) -> None:
+    """Refuse a bare helper under ``exclude: hooks:``.
+
+    A helper is never selected, so there is nothing to subtract: it ships with
+    the hooks that need it. A profile's own copy is omitted by its qualified
+    spelling (``hooks/<name>``), which this leaves alone.
+
+    Raises:
+        BuildProfileError: Naming the first helper among *names*.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+    from osprey.cli.templates.artifact_library import helper_refusal
+
+    helpers = BuildArtifactCatalog.default().helpers()
+    for name in names:
+        if f"hooks/{name}" in helpers:
+            raise BuildProfileError(helper_refusal(f"hooks/{name}"))
+
+
 def _apply_exclude(
     merged: dict[str, Any],
     exclude: Any,
@@ -340,6 +360,8 @@ def _apply_exclude(
                 f"(got {type(entries).__name__})"
             )
         split = [_split_exclude_entry(field_name, source, entry) for entry in entries]
+        if field_name == "hooks":
+            _refuse_excluded_helpers(name for name, qualified in split if not qualified)
         if source is not None:
             for name, qualified in split:
                 # One library probe per entry: list_artifacts() walks a
@@ -618,54 +640,6 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
         )
 
 
-# Hook short names, as the built-in library spells them
-# (``_hook_short_name``). ``target-state`` is a helper library rather than a
-# wired hook: selecting it is the only thing that copies it into
-# ``.claude/hooks/`` beside the gates that import it.
-TARGET_STATE_HOOK = "target-state"
-WRITE_POSTURE_HOOKS: tuple[str, ...] = ("writes-check", "approval")
-
-
-def _warn_missing_target_state(root_dir: Path, resolved: dict[str, Any]) -> None:
-    """Warn when a write gate is selected without the posture helper it imports.
-
-    ``writes-check`` and ``approval`` resolve a target's write posture by
-    importing ``target-state`` from beside them in ``.claude/hooks/``. A profile
-    that selects a gate but not the helper builds and runs — the gates fall back
-    to the most restrictive answer — so the deployment comes out silently
-    write-less, with nothing in the build saying which line caused it. Warning
-    rather than refusing: the selection lists are the author's to compose, and a
-    profile may have its own reason to run a gate with no posture source.
-
-    Args:
-        root_dir: The profile root, named in the warning.
-        resolved: The fully resolved profile mapping.
-    """
-    hooks = resolved.get("hooks")
-    if not isinstance(hooks, list):
-        return
-    selected = {entry for entry in hooks if isinstance(entry, str)}
-    # A profile shipping its own ``hooks/osprey_target_state.py`` renders it
-    # whether or not the short name is selected, so the import resolves.
-    if TARGET_STATE_HOOK in selected or _profile_ships(root_dir, f"hooks/{TARGET_STATE_HOOK}"):
-        return
-    triggering = [name for name in WRITE_POSTURE_HOOKS if name in selected]
-    if not triggering:
-        return
-    _LOGGER.warning(
-        "Profile %s selects %s but not %r. Those hooks import the %r helper from "
-        "beside them in .claude/hooks/, and selecting it is what puts it there — "
-        "without it the hooks resolve write posture to the most restrictive "
-        "answer and refuse writes this deployment is configured to allow. Add "
-        "%r to the profile's 'hooks:' list.",
-        root_dir,
-        ", ".join(repr(name) for name in triggering),
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
-    )
-
-
 @dataclass(frozen=True)
 class ResolvedProfileDocument:
     """One profile document resolved into what the build actually reads.
@@ -716,9 +690,9 @@ def resolve_profile_document(
         raw: The profile document as read.
         profile_path: Where that document lives — the classification is made
             from its location, not its contents.
-        warn: Whether to log the resolution diagnostics — exclusions that match
-            no file, and a write gate selected without the posture helper it
-            imports. ``False`` for the hash path, which resolves the same
+        warn: Whether to log the exclusion diagnostics — exclusions that match
+            no file, and bare exclusions a profile file shadows. ``False`` for
+            the hash path, which resolves the same
             document a build already loaded — without it every build reports
             each one twice, and a warning that repeats is one people learn to
             skip. The loader is the user-facing surface, so it keeps the
@@ -742,17 +716,15 @@ def resolve_profile_document(
     lineage: list[str] = []
 
     def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
-        """Report the resolution diagnostics, then package the result.
+        """Report the exclusion diagnostics, then package the result.
 
         Both branches end the same way, and they must: the diagnostics read the
-        sets every layer of either branch fed — and the resolved selection lists
-        only both branches produce — so a branch that skipped one would leave
-        that whole shape of profile without the warning.
+        exclusion sets every layer of either branch fed, so a branch that
+        skipped one would leave that whole shape of profile without the warning.
         """
         if warn:
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
-            _warn_missing_target_state(root_dir, resolved)
         return ResolvedProfileDocument(
             resolved,
             root_dir,

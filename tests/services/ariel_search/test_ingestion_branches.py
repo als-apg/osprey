@@ -24,7 +24,6 @@ import ssl
 import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -48,6 +47,7 @@ from osprey.services.ariel_search.ingestion.adapters.jlab import JLabLogbookAdap
 from osprey.services.ariel_search.ingestion.adapters.ornl import ORNLLogbookAdapter
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+from osprey_connectors import safety_file
 
 ENCODED_OLOG_ENTRIES = (
     pathlib.Path(__file__).parents[2] / "fixtures" / "ariel" / "als_olog_encoded_entries.jsonl"
@@ -1589,34 +1589,26 @@ class TestGenericAppendEntry:
 
     @pytest.mark.asyncio
     async def test_failed_write_removes_the_temp_file(self, tmp_path, monkeypatch):
-        """A failure mid-write cleans up the temp file and leaves the target intact.
+        """A failure mid-write leaves no temporary file and the target intact.
 
-        The write is staged through ``<name>.tmp`` and promoted with an atomic
-        replace, so a crash must not leave the staging file behind for the next
-        run to trip over.
+        The file is replaced whole, so a crash must not leave a staging file
+        behind for the next run to trip over.
         """
         path = tmp_path / "entries.json"
         path.write_text(json.dumps({"entries": []}))
         adapter = _generic_adapter(str(path))
 
-        def failing_dump(*args, **kwargs):
+        def failing_write(*args, **kwargs):
             raise OSError("no space left on device")
 
-        # Rebind the module's own ``json`` name so the fake cannot escape this module.
-        monkeypatch.setattr(
-            generic_module,
-            "json",
-            SimpleNamespace(
-                load=json.load, dump=failing_dump, JSONDecodeError=json.JSONDecodeError
-            ),
-        )
+        monkeypatch.setattr(safety_file.os, "write", failing_write)
 
         with pytest.raises(IngestionError):
             await adapter.create_entry(
                 FacilityEntryCreateRequest(subject="Subject", details="Details")
             )
 
-        assert not (tmp_path / "entries.tmp").exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["entries.json"]
         assert json.loads(path.read_text()) == {"entries": []}
 
     @pytest.mark.asyncio

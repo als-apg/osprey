@@ -68,7 +68,7 @@ def test_extends_by_preset_name_resolves(tmp_path: Path) -> None:
     assert _profile_data_bundle(resolved) == "hello_world"
     assert resolved.provider == "anthropic"
     # Preset's hook list must be present (child added nothing → list is the preset's).
-    assert "hook-log" in resolved.hooks
+    assert "approval" in resolved.hooks
 
 
 def test_extends_by_path_still_works(tmp_path: Path) -> None:
@@ -79,7 +79,7 @@ def test_extends_by_path_still_works(tmp_path: Path) -> None:
         "extends: hello-world\ndata: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
-        "hooks: [hook-log]\n"
+        "hooks: [error-guidance]\n"
     )
     child = tmp_path / "child.yml"
     (tmp_path / "data").mkdir()
@@ -95,7 +95,7 @@ def test_extends_path_shaped_value_resolves_via_filesystem(tmp_path: Path) -> No
     """
     base = tmp_path / "als-base.yml"
     base.write_text(
-        "name: AlsBase\nextends: hello-world\ndata: data\nprovider: anthropic\nhooks: [hook-log]\n"
+        "name: AlsBase\nextends: hello-world\ndata: data\nprovider: anthropic\nhooks: [error-guidance]\n"
     )
     child = tmp_path / "client.yml"
     (tmp_path / "data").mkdir()

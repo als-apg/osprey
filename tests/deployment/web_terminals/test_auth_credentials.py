@@ -518,6 +518,26 @@ def test_purge_preserves_mode_and_leaves_no_temporary_file(tmp_path: Path) -> No
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
 
 
+def test_a_link_planted_at_the_temporary_name_is_never_followed(tmp_path: Path) -> None:
+    ensure_auth_credentials(["alice", "bob"], tmp_path, echo=Echo())
+    victim = tmp_path / "victim"
+    victim.write_text("untouched", encoding="utf-8")
+    planted = tmp_path / f"{AUTH_ENV_FILENAME}.tmp"
+    planted.symlink_to(victim)
+
+    previous = os.umask(0o077)
+    try:
+        assert purge_auth_credentials("alice", tmp_path) is True
+    finally:
+        os.umask(previous)
+
+    assert victim.read_text(encoding="utf-8") == "untouched"
+    assert planted.is_symlink()
+    assert not (tmp_path / AUTH_ENV_FILENAME).is_symlink()
+    assert file_mode(tmp_path / AUTH_ENV_FILENAME) == 0o600
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" not in read_auth_env(tmp_path)
+
+
 def test_purge_is_a_no_op_for_an_unknown_user(tmp_path: Path) -> None:
     ensure_auth_credentials(["alice"], tmp_path, echo=Echo())
     before = (tmp_path / AUTH_ENV_FILENAME).read_text()

@@ -313,38 +313,47 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # shorter, so the advisory firing is correct. The five `extends` children
     # inherit it (logbook and knowledge do not select the panel, and their
     # build writes the block off); the other three stand still.
-    # The forty-third move, and control-assistant's family alone: the root
+    # The forty-third move, and every preset: each selects the `safety-file`
+    # hook helper, the atomic file replace the hooks that write files import.
+    # A rebuilt project gains the helper in `.claude/hooks/` and no
+    # settings.json registration, so the advisory firing is correct.
+    # The forty-fourth move, and every preset: each drops its helper lines
+    # (`hook-log`, `target-state`, `safety-file`, `hook-config`) from `hooks:`,
+    # because helpers ship as the closure of the hooks that need them. The
+    # rendered files are identical; the resolved content moved, so the
+    # advisory fires once on already-deployed projects.
+    # The forty-fifth move, and control-assistant's family alone: the root
     # preset gains a `trajectory:` block on the host network, so a rebuilt
     # project deploys the trajectory service and its panel entry. The five
     # `extends` children inherit the block; the other three presets stand still.
-    # The forty-fourth move, and two presets: the write-capable tiers,
+    # The forty-sixth move, and two presets: the write-capable tiers,
     # control-assistant-readwrite and control-assistant-admin, list
     # `trajectory` in `web_panels:`, so a rebuilt project of either serves the
     # TRAJECTORY tab. The root preset deploys the service but lists no tab, so
     # the read-only login is built without it; every other preset stands still.
-    "ariel-standalone": ("sha256:2c89e6847871ea21f8d6a4841a038e4ae30a064ea8965d8975de2ec2e05f3628"),
+    "ariel-standalone": ("sha256:fa82a97146a3eca6dc1c0d34b4457c574d0a34bfaaf98f72f256ca2a0de62d19"),
     "channel-finder-standalone": (
-        "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
+        "sha256:15fd1f66f9ecbf5028fe7f057f0dae6cfe6e4e02504d5eba2270f74459bb5e3e"
     ),
     "control-assistant": (
-        "sha256:363f983218d4c8e20063c9d46a68a9e85fd318e93c1ae524ce670b6b67b3e664"
+        "sha256:2b770fd997ab9ce6ce3da076c4e99d10d3fe1ecc8857581573fa622b99ac0716"
     ),
     "control-assistant-admin": (
-        "sha256:7deb9b61e8de995e21df47c0a065bcc0f1a1512b70f3ab7ebf20981b3d07b5f5"
+        "sha256:3db6a053641e997b3fb42d57c91979c270950d6a16141b54cc6719da0240be12"
     ),
     "control-assistant-knowledge": (
-        "sha256:ab88737fd9a613b4451a474decaf0cf5565c7cd9438622a55de729bb07c719bb"
+        "sha256:1d98c440dd2d9689ad78ab80a1deb0f7ce5eb660ebab1622b776bf27f24e8d7b"
     ),
     "control-assistant-logbook": (
-        "sha256:f79705325b48b7c83e55c697c0602d0ffbda309a604f90cdc395bcf17edf749c"
+        "sha256:4c9eae5905ab76d289fc65ccc00e1f224266270b746f1a71d880eed080e8e6df"
     ),
     "control-assistant-readonly": (
-        "sha256:e9e20643567209407e1e21d67402da40b44f9a979bb6d56d8bdd233aef69e1ed"
+        "sha256:ebe42cb8d964f2d055909a1f9e92ce066e9de150fdf99f594d705e75ce087ab1"
     ),
     "control-assistant-readwrite": (
-        "sha256:bd71b301e4f758aa95341e1ca01bd381f32a2beb4f1823b5d8a8c45f9f508e74"
+        "sha256:16f53c60c07d87a70ed843617f30feed2b8ad9acbd68800d31d85f5303dcaf6e"
     ),
-    "hello-world": ("sha256:7c70f737295971c63093e823a2021e78251ca6c285b5da4c1f04cb0afd964803"),
+    "hello-world": ("sha256:029244f425e473d9e22635202920f1bb67474520cb5cffa97318a33c80c45240"),
 }
 
 

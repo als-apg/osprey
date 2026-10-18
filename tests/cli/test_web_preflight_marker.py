@@ -14,6 +14,7 @@ all.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -80,6 +81,22 @@ def _seed_marker(audit_dir: Path) -> Path:
     marker = audit_dir / PREFLIGHT_REFUSED_MARKER
     marker.write_text("2000-01-01T00:00:00+00:00\n- a stale finding\n", encoding="utf-8")
     return marker
+
+
+def test_the_marker_is_world_readable_whatever_the_umask(monkeypatch, tmp_path):
+    """The marker's mode is fixed, never the umask's."""
+    from osprey.cli.web_cmd import _write_preflight_marker
+
+    monkeypatch.setenv(AUDIT_DIR_ENV, str(tmp_path))
+    previous = os.umask(0o077)
+    try:
+        _write_preflight_marker(FINDING)
+    finally:
+        os.umask(previous)
+
+    marker = tmp_path / PREFLIGHT_REFUSED_MARKER
+    assert marker.stat().st_mode & 0o777 == 0o644
+    assert [p.name for p in tmp_path.iterdir()] == [PREFLIGHT_REFUSED_MARKER]
 
 
 class TestPreflightRefusalWritesTheMarker:

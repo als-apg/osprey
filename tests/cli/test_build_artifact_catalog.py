@@ -1,5 +1,7 @@
 """Tests for BuildArtifactCatalog — the declarative catalog of prompt artifacts."""
 
+import ast
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -7,8 +9,10 @@ import pytest
 from osprey.agent_runner.build_artifacts.catalog import (
     DEFAULT_CLAUDE_MD_TEMPLATE,
     INSTRUCTIONS_OUTPUT,
+    LONE_SCRIPTS,
     BuildArtifact,
     BuildArtifactCatalog,
+    LoneScript,
 )
 
 
@@ -85,6 +89,8 @@ class TestBuildArtifactCatalogDefault:
             "hooks/notebook-update",
             "hooks/cf-feedback-capture",
             "hooks/hook-log",
+            "hooks/target-state",
+            "hooks/safety-file",
             "hooks/config-drift",
             "skills/session-report",
             "skills/session-report/reference",
@@ -244,3 +250,131 @@ class TestInstructionsPersona:
             counts[art.output_path] = counts.get(art.output_path, 0) + 1
         shared = {path: n for path, n in counts.items() if n > 1}
         assert shared == {INSTRUCTIONS_OUTPUT: 4}
+
+
+# ---------------------------------------------------------------------------
+# Hook helpers: each hook row declares the sibling files it needs
+# ---------------------------------------------------------------------------
+
+_TEMPLATES_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates"
+
+
+def _hook_rows() -> list[BuildArtifact]:
+    """Every catalog row rendered into ``.claude/hooks/``."""
+    return [
+        art
+        for art in BuildArtifactCatalog.default().all_artifacts()
+        if art.template_root == "claude_code" and art.template_path.startswith("claude/hooks/")
+    ]
+
+
+def _lone_script_source(script: LoneScript) -> Path:
+    """The file a lone script's module is loaded from."""
+    origin = importlib.util.find_spec(script.module).origin
+    assert origin is not None
+    return Path(origin)
+
+
+def _derived_requires(source: Path, own_name: str) -> set[str]:
+    """The sibling rows the file at *source* imports or names, read from its AST."""
+    siblings = _hook_rows()
+    by_module = {
+        Path(art.output_path).stem: art.canonical_name
+        for art in siblings
+        if art.output_path.endswith(".py")
+    }
+    by_file = {Path(art.output_path).name: art.canonical_name for art in siblings}
+
+    tree = ast.parse(source.read_text())
+    heads: set[str] = set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            heads.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            heads.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            names.add(node.value)
+    heads.discard("osprey_connectors")
+
+    derived = {by_module[head] for head in heads if head in by_module}
+    derived |= {by_file[name] for name in names if name in by_file}
+    derived.discard(own_name)
+    return derived
+
+
+def _requiring_files() -> list[tuple[str, Path, tuple[str, ...]]]:
+    """Every file that declares its siblings: the Python hook rows and the lone scripts."""
+    hooks = [
+        (art.canonical_name, _TEMPLATES_DIR / art.template_root / art.template_path, art.requires)
+        for art in _hook_rows()
+        if art.template_path.endswith(".py")
+    ]
+    lone = [(script.name, _lone_script_source(script), script.requires) for script in LONE_SCRIPTS]
+    return hooks + lone
+
+
+@pytest.mark.parametrize(
+    ("name", "source", "requires"),
+    _requiring_files(),
+    ids=[entry[0] for entry in _requiring_files()],
+)
+def test_each_file_requires_exactly_the_siblings_it_uses(
+    name: str, source: Path, requires: tuple[str, ...]
+):
+    derived = _derived_requires(source, name)
+    assert set(requires) == derived, (
+        f"{name} ({source.name}) declares requires {sorted(requires)} but its file uses "
+        f"{sorted(derived)}; set requires on that entry to {sorted(derived)}"
+    )
+
+
+def test_the_closure_is_transitive():
+    closure = BuildArtifactCatalog.default().closure({"hooks/approval"})
+    assert "hooks/approval" in closure
+    assert "hooks/hook-config" in closure
+
+
+def test_helpers_are_the_rows_something_requires():
+    assert BuildArtifactCatalog.default().helpers() == {
+        "hooks/hook-config",
+        "hooks/hook-log",
+        "hooks/safety-file",
+        "hooks/target-state",
+    }
+
+
+def test_a_requires_entry_naming_no_row_is_refused():
+    hook = BuildArtifact("hooks/mine", "mine.py", "mine.py", "x", requires=("hooks/nope",))
+    with pytest.raises(ValueError) as excinfo:
+        BuildArtifactCatalog([hook])
+    assert "hooks/mine" in str(excinfo.value)
+    assert "hooks/nope" in str(excinfo.value)
+
+
+def test_a_lone_script_has_its_closure_beside_it():
+    files = BuildArtifactCatalog.default().files_beside("control-identity", _TEMPLATES_DIR)
+    assert set(files) == {"control_identity.py", "osprey_safety_file.py"}
+    assert files["control_identity.py"] == _lone_script_source(LONE_SCRIPTS[0])
+    assert files["osprey_safety_file.py"] == (
+        _TEMPLATES_DIR / "claude_code" / "claude" / "hooks" / "osprey_safety_file.py"
+    )
+    assert all(path.is_file() for path in files.values())
+
+
+def test_a_lone_script_requiring_no_row_is_refused():
+    script = LoneScript("mine", "osprey.deployment.control_identity", ("hooks/nope",))
+    with pytest.raises(ValueError) as excinfo:
+        BuildArtifactCatalog([], lone_scripts=(script,))
+    assert "mine" in str(excinfo.value)
+    assert "hooks/nope" in str(excinfo.value)
+
+
+def test_a_lone_script_whose_closure_reaches_a_template_is_refused():
+    config = BuildArtifact("hooks/config", "config.json.j2", "config.json", "x")
+    log = BuildArtifact("hooks/log", "log.py", "log.py", "x", requires=("hooks/config",))
+    script = LoneScript("mine", "osprey.deployment.control_identity", ("hooks/log",))
+    with pytest.raises(ValueError) as excinfo:
+        BuildArtifactCatalog([config, log], lone_scripts=(script,))
+    assert "mine" in str(excinfo.value)
+    assert "hooks/config" in str(excinfo.value)

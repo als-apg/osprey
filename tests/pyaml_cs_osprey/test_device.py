@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,10 +22,15 @@ from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
+from tests.pyaml_cs_osprey.conftest import Clock, RunRecord, plant_facility
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
-from tests.pyaml_cs_osprey.conftest import RunRecord
 
 RW = "(QF_001:Cm:rdbk, QF_001:Cm:set)[1/m]"
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
+    return Clock.install(monkeypatch)
 
 
 @pytest.fixture
@@ -189,10 +196,105 @@ def test_a_nan_before_value_is_recorded_and_the_write_goes_out(
 
 
 @pytest.mark.usefixtures("in_run")
-def test_set_and_wait_confirms(runtime: _Runtime) -> None:
-    """set_and_wait() is a confirmed write."""
+def test_set_and_wait_confirms(runtime: _Runtime, guarded_repo: Path) -> None:
+    """set_and_wait() is a confirmed write; an untoleranced live setpoint is not read back."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", None)})
     _device(RW).set_and_wait(4.0)
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert runtime.polls == []
+
+
+@pytest.mark.usefixtures("in_run")
+def test_set_and_wait_polls_the_pair_within_the_tolerance(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock
+) -> None:
+    """A stated tolerance makes set_and_wait poll the readback until it is inside it."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    def lagging(address: str) -> None:
+        if len(runtime.polls) == 3:
+            runtime.values[address] = 3.99
+
+    runtime.on_poll = lagging
+
+    _device(RW).set_and_wait(4.0)
+
+    assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert runtime.polls == ["QF_001:Cm:rdbk"] * 3
+    assert runtime.calls == ["read_channels", "write_channel"] + ["poll"] * 3
+    assert len(clock.pauses) == 2
+
+
+def test_set_and_wait_fails_closed_when_the_pair_never_settles(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback that never comes within the tolerance fails the write; it stays moved."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    with pytest.raises(OspreyWriteFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.channel_address == "QF_001:Cm:set"
+    assert "QF_001:Cm:rdbk" in info.value.reason
+    assert "4.0 ± 0.02" in info.value.reason and "(last read: 1.49)" in info.value.reason
+    assert clock.now >= osprey.runtime.SETTLE_TIMEOUT_S
+    assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert "QF_001:Cm:set" in _run.moved()
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback read that raises while settling surfaces as OspreyReadFailed."""
+    del clock
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    def unreachable(address: str) -> None:
+        raise ConnectionError(f"{address} is unreachable")
+
+    runtime.on_poll = unreachable
+
+    with pytest.raises(OspreyReadFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.addresses == ["QF_001:Cm:rdbk"]
+    assert "QF_001:Cm:rdbk is unreachable" in info.value.reason
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+def test_a_connector_value_error_during_the_settle_is_a_read_failure(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback read that raises ValueError while settling is a read failure of the readback."""
+    del clock
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    def bad_reply(address: str) -> None:
+        del address
+        raise ValueError("bad reply")
+
+    runtime.on_poll = bad_reply
+
+    with pytest.raises(OspreyReadFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.addresses == ["QF_001:Cm:rdbk"]
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
+
+
+@pytest.mark.usefixtures("in_run")
+def test_an_address_that_is_no_setpoint_propagates_as_raised(
+    runtime: _Runtime, guarded_repo: Path
+) -> None:
+    """A written address the facility states as a readback is refused before any read."""
+    facility = {"channels": [{"id": "QF_001:Cm:set", "role": "readback"}]}
+    (guarded_repo / "build" / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="is no setpoint"):
+        _device(RW).set_and_wait(4.0)
+
+    assert runtime.polls == []
 
 
 def test_set_records_the_prior_setpoint(runtime: _Runtime, in_run: RunRecord) -> None:

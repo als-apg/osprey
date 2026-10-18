@@ -96,7 +96,7 @@ def _own(project_dir: Path, name: str) -> None:
 # Hook modules that are shipped into .claude/hooks/ as importable support code
 # rather than as hook entry points. They are deliberately absent from
 # settings.json and are excluded from the settings <-> hooks parity invariant.
-HOOK_LIBRARY_MODULES = {"osprey_hook_log.py", "osprey_target_state.py"}
+HOOK_LIBRARY_MODULES = {"osprey_hook_log.py", "osprey_safety_file.py", "osprey_target_state.py"}
 
 _HOOK_BASENAME_RE = re.compile(r"osprey_[A-Za-z0-9_]+\.py")
 

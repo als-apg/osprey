@@ -539,6 +539,33 @@ def test_all_checks_passed_needs_both_new_jobs__mutation_drops_only_va() -> None
         assert _needs_contains_both_new_jobs(mutated)
 
 
+def _gate_stands_down_only_when_cancelled(wf: dict[str, Any]) -> bool:
+    """The gate runs on every run that was not cancelled. `always()` would also
+    run it in a superseded run, where every need reads `cancelled` and the gate
+    reports a failure nobody can act on; `success()` (the default) would skip
+    it when a need fails, and a skipped required check counts as passing."""
+    condition = str(_jobs(wf)[GATE_JOB].get("if", ""))
+    return "".join(condition.split()) == "${{!cancelled()}}"
+
+
+def test_gate_job_stands_down_only_when_the_run_is_cancelled(workflow: dict[str, Any]) -> None:
+    assert _gate_stands_down_only_when_cancelled(workflow)
+
+
+def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_reverts_to_always() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["if"] = "always()"
+    with pytest.raises(AssertionError):
+        assert _gate_stands_down_only_when_cancelled(mutated)
+
+
+def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_uses_success() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["if"] = "${{ success() }}"
+    with pytest.raises(AssertionError):
+        assert _gate_stands_down_only_when_cancelled(mutated)
+
+
 # ---------------------------------------------------------------------------
 # The unit-test job must install the extras its tests import
 # ---------------------------------------------------------------------------

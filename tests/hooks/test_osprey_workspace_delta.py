@@ -18,7 +18,9 @@ import json
 
 import pytest
 
-import osprey.templates.claude_code.claude.hooks.osprey_workspace_delta as delta
+from tests.hooks.conftest import import_hook
+
+delta = import_hook("osprey_workspace_delta")
 
 
 class _FakeResponse:
@@ -118,7 +120,7 @@ def test_snapshot_path_matches_sibling_hook(temp_snapshot_dir):
     The seeding hook owns the schema; this asserts the two independent copies of
     the path rule have not drifted apart.
     """
-    import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+    panels = import_hook("osprey_panels_context")
 
     assert delta._snapshot_path("s1") == str(temp_snapshot_dir / "osprey-workspace-s1.json")
     assert delta._snapshot_path("s1") == panels._snapshot_path("s1")
@@ -151,6 +153,12 @@ def test_write_snapshot_leaves_no_temp_file(temp_snapshot_dir):
 
 def test_write_snapshot_returns_false_when_unwritable(tmp_path):
     assert delta._write_snapshot(str(tmp_path / "no-such-dir" / "s.json"), {}) is False
+
+
+def test_write_snapshot_writes_nothing_without_the_file_helper(temp_snapshot_dir, monkeypatch):
+    monkeypatch.setattr(delta, "_safety_file", None)
+    assert delta._write_snapshot(delta._snapshot_path("s1"), _state(["a"], "a", ["a"])) is False
+    assert list(temp_snapshot_dir.iterdir()) == []
 
 
 def test_workspace_state_null_age_means_tiles_unknown():

@@ -71,6 +71,9 @@ async def get_run(run_id: str) -> str:
     running item and history, keyed by the OSPREY run id. Its lifecycle runs
     ``pending`` -> ``running`` -> ``completed`` | ``stopped`` | ``error``.
 
+    The record carries no measured values; a run's rows are read with
+    get_run_data.
+
     Args:
         run_id: Run id returned by queue_add or list_runs.
 
