@@ -18,8 +18,10 @@ no service, unlike the container-backed modules beside them.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -56,6 +58,21 @@ for line in sys.stdin:
     print(json.dumps(reply), flush=True)
 """
 
+#: A stub MCP server that dies at startup the way a framework server does: a
+#: run of ``[STARTUP-TIMING]`` lines first, then an uncaught exception, exit 1,
+#: before it reads a frame. The explaining traceback is the END of its stderr.
+_DYING_STUB = """\
+import sys
+
+for i in range(40):
+    print(f"[STARTUP-TIMING] stub | import_{{i}}: 1ms", file=sys.stderr, flush=True)
+raise RuntimeError("{marker}")
+"""
+
+#: The dying stub's exception message: present in the error text only if the
+#: report carries the tail of stderr.
+_DYING_MARKER = "stub-server-startup-failure-marker"
+
 
 def _stub(tmp_path: Path, *, phases: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
     script = tmp_path / "stub_server.py"
@@ -84,3 +101,93 @@ def test_a_mute_server_still_times_out(tmp_path: Path) -> None:
         list_mcp_tools(command=command, args=args, timeout=2.0)
 
     assert "timeout waiting for" in str(excinfo.value)
+
+
+def test_a_dying_server_reports_its_exit_code_and_traceback(tmp_path: Path) -> None:
+    """A server that exits before answering is reported with the tail of its stderr.
+
+    A framework server opens stderr with startup-timing lines, so the head of
+    what it said is timing and the traceback that explains the exit is the tail.
+    """
+    script = tmp_path / "dying_server.py"
+    script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
+
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    message = str(excinfo.value)
+    assert "rc=1" in message
+    assert "Traceback" in message
+    assert _DYING_MARKER in message
+
+
+def test_a_server_dead_before_the_first_message_reports_its_exit_code_and_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A server already gone when the first frame is written is reported like any early exit.
+
+    The spawn is held until the child has exited, so the first write meets a
+    closed pipe every time rather than only when the machine is loaded.
+    """
+    real_popen = subprocess.Popen
+
+    def popen_after_exit(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        proc.wait(timeout=30)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", popen_after_exit)
+    script = tmp_path / "dying_server.py"
+    script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
+
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    message = str(excinfo.value)
+    assert "rc=1" in message
+    assert "Traceback" in message
+    assert _DYING_MARKER in message
+
+
+def test_a_silent_dying_server_is_reported_by_its_exit_code_alone(tmp_path: Path) -> None:
+    """A server that exits having written nothing to stderr gets no empty stderr clause."""
+    script = tmp_path / "silent_server.py"
+    script.write_text("import sys, time\ntime.sleep(0.5)\nsys.exit(1)\n")
+
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    assert str(excinfo.value).endswith("rc=1 before responding to id=1")
+
+
+def test_a_server_that_closes_its_stdin_and_keeps_running_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A server that stops reading but does not exit is a handshake failure, never a hang.
+
+    The spawn is held until the child has closed its stdin, so the first write
+    meets a closed pipe while the child is still alive.
+    """
+    flag = tmp_path / "stdin_closed"
+    script = tmp_path / "deaf_server.py"
+    script.write_text(
+        "import os, pathlib, sys, time\n"
+        "os.close(0)\n"
+        f"pathlib.Path({str(flag)!r}).touch()\n"
+        "time.sleep(30)\n"
+    )
+    real_popen = subprocess.Popen
+
+    def popen_after_stdin_closed(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        deadline = time.monotonic() + 30
+        while not flag.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", popen_after_stdin_closed)
+
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    assert str(excinfo.value).endswith("server closed its stdin before reading id=1")

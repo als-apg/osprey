@@ -32,6 +32,17 @@ _SERVING_PHASE = "total_startup"
 #: control-system import alone runs to tens of seconds.
 _STARTUP_BUDGET_S = 120.0
 
+#: How many trailing stderr lines a failure report carries. A dying server's
+#: stderr opens with startup-timing lines and ends with the traceback that
+#: explains the exit, so the report keeps the tail; this is sized to hold a
+#: deep Python traceback whole.
+_STDERR_TAIL_LINES = 80
+
+#: How long a dead server's stderr drain may take to reach end-of-file. The
+#: pipe closes when the process exits, so this bounds only a pipe still held
+#: open by a descendant; it guards against a hang and decides nothing.
+_STDERR_DRAIN_JOIN_S = 2.0
+
 
 class MCPHandshakeError(RuntimeError):
     """Raised when the MCP server fails to spawn, parse, or respond."""
@@ -86,12 +97,26 @@ def list_mcp_tools(
     stdout_q: Queue = Queue()
     stderr_q: Queue = Queue()
     threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True).start()
-    threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True).start()
+    stderr_drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True)
+    stderr_drain.start()
 
     def _send(msg: dict) -> None:
         assert proc.stdin is not None
-        proc.stdin.write(json.dumps(msg) + "\n")
-        proc.stdin.flush()
+        try:
+            proc.stdin.write(json.dumps(msg) + "\n")
+            proc.stdin.flush()
+        except BrokenPipeError as exc:
+            stderr_drain.join(timeout=_STDERR_DRAIN_JOIN_S)
+            try:
+                proc.wait(timeout=_STDERR_DRAIN_JOIN_S)
+            except subprocess.TimeoutExpired:
+                raise MCPHandshakeError(
+                    f"server closed its stdin before reading id={msg.get('id')}{_stderr_suffix()}"
+                ) from exc
+            raise MCPHandshakeError(
+                f"server exited rc={proc.returncode} before reading id={msg.get('id')}"
+                f"{_stderr_suffix()}"
+            ) from exc
 
     stderr_seen: list[str] = []
     announced = False
@@ -112,9 +137,19 @@ def list_mcp_tools(
         except Empty:
             pass
 
-    def _stderr_text() -> str:
+    def _stderr_tail() -> str:
+        """The last lines the child wrote to stderr, marked when earlier ones are cut."""
         _read_stderr()
-        return "".join(stderr_seen)
+        omitted = len(stderr_seen) - _STDERR_TAIL_LINES
+        tail = "".join(stderr_seen[-_STDERR_TAIL_LINES:])
+        if omitted > 0:
+            return f"({omitted} earlier lines omitted)\n{tail}"
+        return tail
+
+    def _stderr_suffix() -> str:
+        """``; stderr: <tail>`` when the child wrote anything, else nothing."""
+        tail = _stderr_tail()
+        return f"; stderr: {tail}" if tail.strip() else ""
 
     def _deadline() -> float:
         """When the wait expires, given how far the child has got.
@@ -137,13 +172,12 @@ def list_mcp_tools(
             _read_stderr()
             remaining = _deadline() - time.monotonic()
             if remaining <= 0:
-                raise MCPHandshakeError(
-                    f"timeout waiting for id={target_id}; stderr: {_stderr_text()[:600]}"
-                )
+                raise MCPHandshakeError(f"timeout waiting for id={target_id}{_stderr_suffix()}")
             if proc.poll() is not None:
+                stderr_drain.join(timeout=_STDERR_DRAIN_JOIN_S)
                 raise MCPHandshakeError(
-                    f"server exited rc={proc.returncode} before responding to id={target_id}; "
-                    f"stderr: {_stderr_text()[:600]}"
+                    f"server exited rc={proc.returncode} before responding to id={target_id}"
+                    f"{_stderr_suffix()}"
                 )
             try:
                 line = stdout_q.get(timeout=min(0.25, remaining))
