@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -301,3 +302,40 @@ def test_gate_sources_env_after_the_lock_check__mutation_sources_it_first() -> N
     lines.insert(lines.index("uv lock --check"), _SOURCE_LINES[1])
     with pytest.raises(AssertionError):
         test_gate_sources_env_after_the_lock_check("\n".join(lines))
+
+
+#: Every file that provisions or verifies the pinned CLI outside the resolver.
+_PIN_READERS = (
+    *LANE_SCRIPTS,
+    "scripts/_gate_env.sh",
+    ".github/actions/install-pinned-claude-code/action.yml",
+)
+
+
+def _restated_pin(source: str) -> list[str]:
+    found = []
+    if PIN in source:
+        found.append(f"the literal {PIN}")
+    if re.search(r"claude-code@[0-9]", source):
+        found.append("a claude-code@<version> spelling")
+    if "_DEFAULT_CLAUDE_CLI_VERSION" in source:
+        found.append("the pin constant")
+    return found
+
+
+def _assert_no_restated_pin(path: str, source: str) -> None:
+    assert _restated_pin(source) == [], f"{path} restates the pin"
+
+
+@pytest.mark.parametrize("path", _PIN_READERS)
+def test_no_gate_file_restates_the_pin(path: str) -> None:
+    """``scripts/pinned_claude.py`` is the one reader of the pin; every other file
+    asks it."""
+    _assert_no_restated_pin(path, _script_source(path))
+
+
+@pytest.mark.parametrize("path", _PIN_READERS)
+def test_no_gate_file_restates_the_pin__mutation_plants_the_literal(path: str) -> None:
+    planted = _script_source(path) + f"\n# claude {PIN}\n"
+    with pytest.raises(AssertionError):
+        _assert_no_restated_pin(path, planted)
