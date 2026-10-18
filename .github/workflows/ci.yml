@@ -46,9 +46,9 @@ on:
           its pull requests. After reading the dependency diff, a maintainer
           revalidates the branch with:
           gh workflow run ci.yml --ref <branch> -f revalidate_secret_lanes=true
-          The same dispatch is how these lanes run against main: nothing
-          runs them on a schedule, so main gets its agentic coverage from a
-          labeled pull request or from this command with --ref main.
+          The same dispatch with --ref main is how main gets every lane a
+          push skips: main-full-ci.yml starts it once a day when main has
+          moved, and a maintainer can start it by hand.
         required: false
         type: boolean
         default: false
@@ -68,19 +68,23 @@ on:
 # (an Opus diagnostic session re-reads ~100k cached tokens per turn, 50
 # turns), and volume -- ~10 PRs a day at ~2.2 pushes each.
 #
-# So the lever is WHEN, not WHAT. Each of these lanes now runs on exactly
-# two events, spelled out in its `if:` in this order:
+# So the lever is WHEN, not WHAT. Each of these lanes runs on exactly two
+# events, spelled out in its `if:` in this order:
 #
 #   1. a same-repo, non-Dependabot pull request carrying the `full-ci`
 #      label -- opt-in per PR, for the change that touches what these lanes
 #      cover (`gh pr edit <n> --add-label full-ci`; the roll-up gate prints
 #      that command in the run summary of every unlabeled PR);
-#   2. a maintainer's `revalidate_secret_lanes` dispatch against any ref --
-#      the Dependabot path, and the way main gets the lanes at all.
+#   2. a `revalidate_secret_lanes` dispatch against any ref -- the
+#      Dependabot path, and the way main gets these lanes. Every pull-request
+#      -only lane carries the same dispatch arm, so a revalidation run covers
+#      every lane a push skips.
 #
-# There is deliberately no schedule. A scheduled run spends model tokens
-# with nobody watching, and its red reaches nobody: a lane that only runs
-# when someone asked for it has a person waiting on the result.
+# This workflow has no schedule. Main's nightly run comes from
+# main-full-ci.yml, which spends nothing itself: once a day, and only when
+# main's head differs from the last revalidation run's sha, it dispatches
+# the revalidation run against main. Its red opens or updates one tracker
+# issue, which closes on the next green, so every red reaches a person.
 #
 # Path filtering was measured and rejected: over the 161 PRs merged in the
 # two weeks before this landed, 86-91% touched something under src/ that
