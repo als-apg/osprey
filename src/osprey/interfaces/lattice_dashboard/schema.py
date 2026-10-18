@@ -4,14 +4,15 @@ One model per response body, so the page, the agent tools and the pinned
 OpenAPI document read one contract. A figure route answers 200 only for a
 figure of the inputs on screen (``FigureResponse`` / ``DataResponse``), 404
 with ``FigureNotCurrent`` while it is not, and 409 with ``FigureUnavailable``
-for a figure the selected model cannot draw.
+for a figure the selected model cannot draw. The events on ``/api/events``
+are one model per ``type``, joined as the ``DashboardEvent`` union.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, Field, RootModel
 
 #: A figure's status for the inputs on screen.
 FigureStatus = Literal["ready", "computing", "failed", "stale", "not_computed"]
@@ -142,3 +143,68 @@ class FigureUnavailable(BaseModel):
 
     status: Literal["unavailable"]
     reason: str
+
+
+# ── The live-update events ────────────────────────────────
+
+
+class StateUpdatedEvent(BaseModel):
+    """The dashboard state changed; re-read ``/api/state``."""
+
+    type: Literal["state_updated"]
+
+
+class FigureStatusEvent(BaseModel):
+    """A figure's worker was launched."""
+
+    type: Literal["figure_status"]
+    name: str
+    status: Literal["computing"]
+
+
+class FigureReadyEvent(BaseModel):
+    """A figure of the inputs on screen is in the store."""
+
+    type: Literal["figure_ready"]
+    name: str
+
+
+class FigureErrorEvent(BaseModel):
+    """A figure's worker failed, and why."""
+
+    type: Literal["figure_error"]
+    name: str
+    error: str
+
+
+class SettingsUpdatedEvent(BaseModel):
+    """The computation settings changed."""
+
+    type: Literal["settings_updated"]
+    settings: SettingsResponse
+
+
+class BaselineSetEvent(BaseModel):
+    """The comparison baseline was set at this summary."""
+
+    type: Literal["baseline_set"]
+    summary: dict[str, Any]
+
+
+class BaselineClearedEvent(BaseModel):
+    """The comparison baseline was cleared."""
+
+    type: Literal["baseline_cleared"]
+
+
+#: One event on ``/api/events``, told apart by its ``type``.
+DashboardEvent = Annotated[
+    StateUpdatedEvent
+    | FigureStatusEvent
+    | FigureReadyEvent
+    | FigureErrorEvent
+    | SettingsUpdatedEvent
+    | BaselineSetEvent
+    | BaselineClearedEvent,
+    Field(discriminator="type"),
+]
