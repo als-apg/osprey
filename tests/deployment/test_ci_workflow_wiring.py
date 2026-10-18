@@ -10994,3 +10994,46 @@ def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback
     _jobs(mutated)[DOCKERFILE_E2E_JOB] = json.loads(raw)
     with pytest.raises(AssertionError):
         test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
+
+
+def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result: str) -> int:
+    """Run the gate's own `check_pr_lane` on one lane result; return its exit code."""
+    run = _gate_run_text(wf)
+    start = run.index("check_pr_lane() {")
+    function = run[start : run.index("\n}\n", start) + 3]
+    env = {**os.environ, "EVENT_NAME": event, "REVALIDATE": revalidate}
+    done = subprocess.run(
+        ["bash", "-ec", f'{function}check_pr_lane "Some lane" "{result}"'],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
+    """A green revalidation run vouches for every lane on its sha, so a lane
+    that skipped there fails the gate. Elsewhere a skip still passes."""
+    env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
+    assert env["REVALIDATE"] == "${{ inputs.revalidate_secret_lanes }}"
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "skipped") != 0, (
+        "a skipped lane passes the gate on a revalidation run"
+    )
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "success") == 0
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "false", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "push", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "failure") != 0
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run__mutation_drops_the_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = re.sub(
+        r'if \[\[ "\$2" == "skipped" && .*?\n  elif ', "if ", original, flags=re.DOTALL
+    )
+    assert step["run"] != original, "no revalidation branch in check_pr_lane — mutation is stale"
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(mutated)
