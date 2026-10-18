@@ -410,12 +410,14 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
     class _Context:
         async def invalidate_connector(self, name):
             invalidated.append(name)
+            return False
 
     monkeypatch.setattr(server_context_module, "get_server_context", _Context)
 
-    await error_handling.invalidate_active_connector("control_system")
+    done = await error_handling.invalidate_active_connector("control_system")
 
     assert invalidated == ["control_system"]
+    assert done is False
 
 
 # ------------------------------------------- a child that misses its deadline
