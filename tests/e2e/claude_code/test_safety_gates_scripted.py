@@ -5,7 +5,8 @@ that behaves well will not make one. Here the model is replaced by a script
 (:mod:`tests.e2e.scripted_model`): the real Claude Code, on a real render,
 receives exactly the forbidden tool call and has to refuse it. Everything a
 refusal passes through is real — ``settings.json``, the PreToolUse hook chain,
-the MCP servers, the mock connector.
+the MCP servers, the in-process simulator the render's ``live`` block
+resolves to.
 
 Each test asserts the call was delivered, that the refusal is the gate's own
 and no other's, that no approval prompt was surfaced for it, and that a read
@@ -95,9 +96,11 @@ def assert_no_callback(result: HookObservedResult, tool: str) -> None:
 def assert_untouched(before: float, after: float, written: float) -> None:
     """The read after the refusal is the channel's own value, not the written one.
 
-    The mock connector's reads carry noise, so equality with the read made
-    before the write is not available as a check; a write that landed would
-    put the second read at the written value.
+    The simulator serves each channel with the noise its seed declares
+    (``SR:MAG:QF:01:CURRENT:RB`` carries ``noise.absolute: 0.001`` in the
+    example facility), so equality with the read made before the write is not
+    available and the check compares distances: a write that landed would put
+    the second read at the written value.
     """
     assert abs(after - before) < abs(after - written), (
         f"the channel read {before} before and {after} after a refused write of {written}"
