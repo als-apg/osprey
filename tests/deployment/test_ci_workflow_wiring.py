@@ -4364,7 +4364,7 @@ def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
 #: below it would then pass over the difference, so the floor is worth what
 #: the distance between it and the count is worth: a suite added raises this
 #: and a suite deliberately deleted lowers it, both by hand.
-BROWSER_SUITE_FLOOR = 40
+BROWSER_SUITE_FLOOR = 50
 
 
 def test_browser_suite_discovery_has_a_floor() -> None:
@@ -10797,6 +10797,74 @@ def test_trajectory_job_fails_on_any_skipped_test__mutation_gate_stops_failing()
     step["run"] = step["run"].replace("sys.exit(1)", "pass")
     with pytest.raises(AssertionError, match="must fail the job"):
         test_trajectory_job_fails_on_any_skipped_test(mutated)
+
+
+TRAJECTORY_PLAYWRIGHT_STEP = "Install Playwright chromium"
+
+
+def test_trajectory_job_installs_chromium_before_its_module(workflow: dict[str, Any]) -> None:
+    """The operator's panel is driven in a real browser against the lane's stack;
+    the lane fails on any skip, so a missing browser is a red run, not a gap."""
+    steps = _jobs(workflow)[TRAJECTORY_JOB]["steps"]
+    names = [step.get("name") for step in steps]
+    assert TRAJECTORY_PLAYWRIGHT_STEP in names, f"'{TRAJECTORY_JOB}' installs no browser"
+    install = steps[names.index(TRAJECTORY_PLAYWRIGHT_STEP)]
+    assert re.search(r"playwright install\b[^\n]*\bchromium\b", install.get("run", "")), install
+    assert names.index(TRAJECTORY_PLAYWRIGHT_STEP) < names.index(TRAJECTORY_RUN_STEP), (
+        f"'{TRAJECTORY_JOB}' installs the browser after the module runs"
+    )
+
+
+def test_trajectory_job_installs_chromium_before_its_module__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TRAJECTORY_JOB]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != TRAJECTORY_PLAYWRIGHT_STEP]
+    with pytest.raises(AssertionError, match="installs no browser"):
+        test_trajectory_job_installs_chromium_before_its_module(mutated)
+
+
+def test_trajectory_job_installs_chromium_before_its_module__mutation_after_the_run() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TRAJECTORY_JOB]
+    install = next(s for s in job["steps"] if s.get("name") == TRAJECTORY_PLAYWRIGHT_STEP)
+    job["steps"].remove(install)
+    job["steps"].append(install)
+    with pytest.raises(AssertionError, match="after the module runs"):
+        test_trajectory_job_installs_chromium_before_its_module(mutated)
+
+
+#: The trajectory lane's caps, in minutes: the job, and its one pytest step
+#: under it. Sized for the multi-user scope (three cold image builds, a
+#: browser, an in-container MCP client and a redeploy; see the job's comment);
+#: a change to either is a re-sizing of the lane, never a deflake raise.
+TRAJECTORY_JOB_CAP = 80
+TRAJECTORY_STEP_CAP = 70
+
+
+def test_trajectory_job_caps_are_the_sized_ones(workflow: dict[str, Any]) -> None:
+    job = _jobs(workflow)[TRAJECTORY_JOB]
+    caps = (job["timeout-minutes"], _sole_heavy_step(job)["timeout-minutes"])
+    assert caps == (TRAJECTORY_JOB_CAP, TRAJECTORY_STEP_CAP), (
+        f"'{TRAJECTORY_JOB}' carries caps {caps}, not the sized "
+        f"{(TRAJECTORY_JOB_CAP, TRAJECTORY_STEP_CAP)}: re-size the lane and pin both"
+    )
+
+
+def test_trajectory_job_caps_are_the_sized_ones__mutation_step_cap() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _sole_heavy_step(_jobs(mutated)[TRAJECTORY_JOB])["timeout-minutes"] = TRAJECTORY_STEP_CAP + 1
+    with pytest.raises(AssertionError, match="re-size"):
+        test_trajectory_job_caps_are_the_sized_ones(mutated)
+
+
+def test_trajectory_job_caps_are_the_sized_ones__mutation_back_to_single_user() -> None:
+    """The single-user lane's caps, held to the multi-user scope."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TRAJECTORY_JOB]
+    job["timeout-minutes"] = 45
+    _sole_heavy_step(job)["timeout-minutes"] = 40
+    with pytest.raises(AssertionError, match="re-size"):
+        test_trajectory_job_caps_are_the_sized_ones(mutated)
 
 
 # ---------------------------------------------------------------------------
