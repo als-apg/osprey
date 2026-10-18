@@ -58,11 +58,12 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
-frozen. Init copies the packaged provider catalog and the packaged tutorial
-trigger file into the repo verbatim, so the fixture reads both rather than
-holding a second copy of either; see :func:`packaged_providers_yml` and
-:func:`packaged_tutorial_triggers_yml`.
+``providers.yml``, ``triggers.yml`` and ``data/README.md`` are the fourth,
+fifth and sixth things not frozen. Init copies the packaged provider catalog,
+the packaged tutorial trigger file and the preset's data README into the repo
+verbatim, so the fixture reads all three rather than holding a second copy of
+any; see :func:`packaged_providers_yml`, :func:`packaged_tutorial_triggers_yml`
+and :func:`packaged_data_readme_md`.
 
 Usage::
 
@@ -2142,6 +2143,29 @@ def packaged_tutorial_triggers_yml() -> str:
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
+def packaged_data_readme_md() -> str:
+    """The preset's packaged ``data/README.md``, which ``osprey init`` copies verbatim.
+
+    Read rather than frozen, for the same reason the provider catalog and the
+    trigger file are: the package owns this file's content, so a copy here
+    would prove only that someone remembered to update two places. What the
+    byte comparison downstream is for is that init copies the README through
+    unchanged, and that is what reading it here asserts.
+
+    Resolved from the preset's packaged composition, the tree ``osprey init``
+    copies into ``data/``, so the exemplar and the emission it is compared
+    against read one file.
+    """
+    from tests._preset_data import preset_data
+
+    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+
+
+#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: import, because :data:`BASE_SOURCE_FILES` is built at import.
+DATA_README_MD = packaged_data_readme_md()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — git, secrets, README
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2895,108 +2919,11 @@ exit 0
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — data tree
 # ─────────────────────────────────────────────────────────────────────────────
-# Hand-authored and deliberately small. The packaged bundle a real `init`
-# copies here is ~2 MB across ~60 files; a per-test tmp_path materialization
-# wants the *shape* — every path the profile and the build reference — not the
-# volume. Each file below is valid content of its real kind.
-
-DATA_README_MD = """\
-# Project Data Directory
-
-Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, and the facility's sources and scenarios. These are your files —
-edit them freely.
-
-## Directory Structure
-
-The channel-finder indexes are not here: each is a view the build writes from
-`facility/` into the render. As shipped by the preset:
-
-```
-data/
-├── channel_databases/
-│   └── examples/                         # Hierarchy-shape examples
-├── benchmarks/
-│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── ariel/
-│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
-│   └── README.md                         # Vocabulary format walkthrough
-├── facility/                              # The facility's authored sources
-│   ├── knowledge/                         # Markdown knowledge bundle
-│   └── scenarios/                         # Simulation scenarios
-```
-
-`osprey build` copies the benchmark query file matching `channel_finder_mode`
-to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
-`tree_queries.json` for every other mode. Each channel-finder index is the view
-the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/` subtree.
-
-## Database Paradigms
-
-`channel_finder_mode` in the build profile picks one of three ways to organize
-the same channel namespace as a file; all three are views of the same
-facility records. The mode's fourth value, `graph`, is not one of them: it
-answers from the facility knowledge graph rather than a channel database. Its
-corpus is `data/graph/facility.ttl`, the graph view the build writes from
-`facility/`, seeded into the `services.graphdb` store.
-
-### `in_context` — flat structure
-
-Best for fewer than about 1,000 channels. The whole database fits in the
-agent's context, so lookup is direct semantic search over a flat list of
-channels.
-
-### `hierarchical` — nested structure
-
-Best for more than about 1,000 channels. The agent navigates the hierarchy
-level by level instead of loading everything at once: the facility's place
-words by depth, then class, device and leaf.
-
-### `middle_layer` — functional structure
-
-An MML-organized functional hierarchy: System / Family / Field / Subfield.
-Navigation mirrors the way operators reason about devices rather than the way
-the control system names them.
-
-## Database Tools
-
-Database tools are `osprey channel-finder` CLI subcommands. Each reads the
-active database from `config.yml` unless you pass `--database`.
-
-Validate database format and structure:
-
-```bash
-osprey channel-finder validate
-osprey channel-finder validate --database data/channel_finder/hierarchical.json
-```
-
-Preview database contents:
-
-```bash
-osprey channel-finder preview
-osprey channel-finder preview --database data/channel_finder/hierarchical.json
-```
-
-## Benchmarks
-
-Evaluate channel-finder accuracy against the query set in
-`data/benchmarks/queries.json`:
-
-```bash
-# Full query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
-
-# A slice of the query set
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
-
-# Repeat each query to measure run-to-run variance
-osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
-```
-
-Results are written to `data/benchmarks/results/` as JSON reports carrying
-per-query outcomes, accuracy, timing, and cost.
-"""
+# Hand-authored and deliberately small, except ``data/README.md``, which is
+# read from the package (:func:`packaged_data_readme_md`). The packaged bundle a
+# real `init` copies here is ~2 MB across ~60 files; a per-test tmp_path
+# materialization wants the *shape* — every path the profile and the build
+# reference — not the volume. Each file below is valid content of its real kind.
 
 BENCHMARK_QUERIES_JSON = """\
 [
