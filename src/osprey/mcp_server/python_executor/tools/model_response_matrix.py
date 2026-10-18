@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.mcp_server.errors import make_error
-from osprey.simulation.response import RESULT_TAG
+from osprey.simulation.response import CAUSES, RESULT_TAG
 
 logger = logging.getLogger("osprey.mcp_server.tools.model_response_matrix")
 
@@ -309,7 +309,9 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "refused" in value or _SOLVED_KEYS <= value.keys():
+    if "refused" in value:
+        return value if value.get("cause") in CAUSES else None
+    if _SOLVED_KEYS <= value.keys():
         return value
     return None
 
@@ -357,8 +359,11 @@ async def model_response_matrix(
         ``matrix`` (one list per row) and ``unsolved`` (each corrector whose
         step has no solve, mapped to the engine's text). When no corrector
         solves, the call is refused with every unsolved text and
-        ``details.unsolved`` holding the same map; when the engine refuses
-        the request, the call is refused with the engine's text.
+        ``details.unsolved`` holding the same map. When the engine refuses
+        the request, the call is refused with the engine's text; when the
+        facility file is defective, it is refused with the rebuild remedy;
+        when the whole request has no solve, it fails with the engine's
+        text. Any other engine error is a failure carrying its stderr.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
@@ -394,11 +399,19 @@ async def model_response_matrix(
             ["Read stderr for the reason."],
             details={"model": request.model, "stderr": (result.stderr or "")[-2000:]},
         )
+    if line.get("cause") == "solve":
+        make_error(
+            "execution_error",
+            f"the response of {request.model} has no solve: {line['refused']}",
+            [],
+            details={"model": request.model},
+        )
     if "refused" in line:
+        remedy = ["Fix the facility file and run `osprey build`."]
         make_error(
             "validation_error",
             f"the response of {request.model} was refused: {line['refused']}",
-            [],
+            remedy if line["cause"] == "facility" else [],
             details={"model": request.model},
         )
     if not line["columns"]:
