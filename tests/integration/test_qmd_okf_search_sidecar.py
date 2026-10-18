@@ -46,8 +46,8 @@ import pytest
 
 from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
 from tests.fixtures.qmd_okf import BUNDLE_ROOT, OKF_QUERY_FIXTURES
+from tests.integration._qmd_ariel_support import sidecar_log_mark, wait_for_reindex_settled
 from tests.integration._qmd_okf_support import (
-    SIDECAR_REINDEX_TIMEOUT,
     require_docker,
     start_okf_sidecar,
     tail_logs,
@@ -209,6 +209,7 @@ async def test_drafted_concept_becomes_findable_through_the_panel(
     import osprey.mcp_server.facility_knowledge.server as fk_server
     from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME, draft_concept
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle
+    from osprey.services.qmd import QMDClient
 
     container, port = drafting_sidecar
     panel = _panel_client(drafting_bundle, _project_config(port), monkeypatch)
@@ -216,6 +217,9 @@ async def test_drafted_concept_becomes_findable_through_the_panel(
     marker_before = marker.stat().st_mtime_ns if marker.exists() else None
 
     monkeypatch.setattr(fk_server, "_bundle", OKFBundle(drafting_bundle))
+    # Before the draft: the marker poll runs every second, so a mark taken after
+    # it could already be past the update the draft causes.
+    mark = sidecar_log_mark(container)
     result = json.loads(
         await _tool_fn(draft_concept)(
             concept_id=DRAFTED_CONCEPT_ID,
@@ -238,34 +242,39 @@ async def test_drafted_concept_becomes_findable_through_the_panel(
         "the freshness marker did not advance, so nothing would have prompted a re-index"
     )
 
-    hits = _wait_for_panel_hit(panel, DRAFTED_QUERY, DRAFTED_CONCEPT_ID, container=container)
+    hits = _wait_for_panel_hit(
+        panel,
+        DRAFTED_QUERY,
+        DRAFTED_CONCEPT_ID,
+        container=container,
+        qmd=QMDClient(_qmd_config(port)),
+        since=mark,
+    )
     assert any(hit["score"] is not None for hit in hits), (
         "the drafted concept came back unranked, so the panel had fallen back to "
         "substring search and this proves nothing about the index"
     )
 
 
-def _wait_for_panel_hit(client, query: str, concept_id: str, *, container):
-    """Poll the panel until *concept_id* appears, or fail with container logs.
+def _wait_for_panel_hit(client, query: str, concept_id: str, *, container, qmd, since: int):
+    """Wait for the sidecar's index to settle, then require *concept_id* on the panel.
 
-    A timeout is a failure: the sidecar's fallback sweep is set to an hour for
-    this lane, so the marker is the only thing that could have re-indexed the
-    document, and its not happening is exactly the defect this test exists to
-    catch.
+    The wait is :func:`~tests.integration._qmd_ariel_support.wait_for_reindex_settled`
+    from *since*, so it is bound to the sidecar's own progress. A concept the
+    settled index does not return is a failure: the sidecar's fallback sweep is
+    set to an hour for this lane, so the marker is the only thing that could have
+    re-indexed the document, and its not happening is exactly the defect this
+    test exists to catch.
     """
-    deadline = time.monotonic() + SIDECAR_REINDEX_TIMEOUT
-    seen: list[dict[str, Any]] = []
-    while time.monotonic() < deadline:
-        seen = _panel_search(client, query)
-        if any(hit["id"] == concept_id for hit in seen):
-            return seen
-        time.sleep(2.0)
-
-    raise AssertionError(
-        f"{concept_id!r} never became findable within {SIDECAR_REINDEX_TIMEOUT:.0f}s of the "
-        f"touch marker advancing; last panel hits: {[hit['id'] for hit in seen]}\n"
-        f"--- container logs ---\n{tail_logs(container)}"
-    )
+    wait_for_reindex_settled(qmd, container, since=since)
+    hits = _panel_search(client, query)
+    if not any(hit["id"] == concept_id for hit in hits):
+        raise AssertionError(
+            f"{concept_id!r} is not findable through the panel once the index settled; "
+            f"panel hits: {[hit['id'] for hit in hits]}\n"
+            f"--- container logs ---\n{tail_logs(container)}"
+        )
+    return hits
 
 
 def _tool_fn(tool):
