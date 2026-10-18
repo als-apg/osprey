@@ -7,13 +7,14 @@ run is waited on for as long as its stdout or stderr keeps growing, and stopped
 only after ``STALL_SECONDS`` in which neither grew. The streams go to files
 rather than pipes so their growth can be observed while the run is alive.
 
-A nested run's temporary directories live under a root inside the helper's
-scratch, named to it by ``PYTEST_DEBUG_TEMPROOT``. pytest prunes the older
-numbered ``pytest-N`` directories of its root when it exits, and the shared
-``pytest-of-<user>`` root holds what every other run on the host left behind,
-often a whole suite's ``tmp_path`` tree. Pruning there would make the nested
-run spend minutes deleting another run's files after its summary, writing
-nothing. In its own root it prunes only itself.
+A nested run gets a temporary root of its own, named to it by
+``PYTEST_DEBUG_TEMPROOT``, unless the caller shares one on purpose
+(``temproot=``). A nested run that does not load ``tests/conftest.py`` numbers
+its directories under ``pytest-of-<user>`` in that root and prunes the older
+``pytest-N`` ones when it exits; the shared ``pytest-of-<user>`` of the host
+temp dir holds what every other such run left behind, so pruning there would
+make the nested run spend minutes deleting another run's files after its
+summary, writing nothing. In its own root it prunes only itself.
 
 A stopped run is reported with the Python stack of every thread of every
 process it started: the run gets its own process group and ``faulthandler``,
@@ -117,6 +118,7 @@ def run_nested_pytest(
     cwd: Path | None,
     env: Mapping[str, str] | None,
     stall_seconds: float = STALL_SECONDS,
+    temproot: Path | None = None,
 ) -> NestedRun:
     """Run ``argv`` to its exit, failing the calling test if it stalls.
 
@@ -125,8 +127,11 @@ def run_nested_pytest(
         cwd: The directory it runs in.
         env: Its environment; ``None`` inherits this process's. Output is made
             unbuffered, so what the child writes is visible at once, and the
-            run's temporary root is a directory of its own, either way.
+            run's temporary root is ``temproot``, either way.
         stall_seconds: How long it may write nothing before it is stopped.
+        temproot: The run's ``PYTEST_DEBUG_TEMPROOT``; ``None`` gives it a root
+            of its own inside the helper's scratch, which goes with the
+            helper's return. A path is used as is, so several runs can share it.
 
     Returns:
         The finished run, with its stdout and stderr as text and how long it
@@ -136,8 +141,9 @@ def run_nested_pytest(
     child_env["PYTHONUNBUFFERED"] = "1"
     child_env["PYTHONFAULTHANDLER"] = "1"
     with tempfile.TemporaryDirectory(prefix="nested-pytest-") as scratch:
-        temproot = Path(scratch) / "temproot"
-        temproot.mkdir()
+        if temproot is None:
+            temproot = Path(scratch) / "temproot"
+            temproot.mkdir()
         child_env["PYTEST_DEBUG_TEMPROOT"] = str(temproot)
         out_path = Path(scratch) / "stdout"
         err_path = Path(scratch) / "stderr"
