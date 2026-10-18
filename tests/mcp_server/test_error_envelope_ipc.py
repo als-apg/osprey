@@ -237,11 +237,11 @@ async def test_a_limits_violation_arrives_as_the_real_class_with_every_field(rai
 
 
 async def test_the_envelopes_isinstance_branch_fires_on_the_reconstructed_class(raising_pair):
-    """``osprey_connectors.errors`` is an alias of the connectors module, and it has to stay one.
+    """The child's refusal arrives as the very class the handler's ``except`` names.
 
-    The handler's ``except`` clauses name the classes through ``osprey_connectors.errors``;
-    the child rebuilt this instance from ``osprey_connectors.errors``. If those
-    ever stopped being the same module object, every refusal would fall through
+    The handler's ``except`` clauses name the classes from ``osprey_connectors.errors``,
+    and the child's refusal frame is rebuilt into an instance of that same class. If
+    the rebuilt class were ever a different object, every refusal would fall through
     to ``internal_error`` — silently, and only across the process boundary.
     """
     from osprey_connectors.errors import ChannelLimitsViolationError as ShimLimitsError
@@ -410,12 +410,14 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
     class _Context:
         async def invalidate_connector(self, name):
             invalidated.append(name)
+            return False
 
     monkeypatch.setattr(server_context_module, "get_server_context", _Context)
 
-    await error_handling.invalidate_active_connector("control_system")
+    done = await error_handling.invalidate_active_connector("control_system")
 
     assert invalidated == ["control_system"]
+    assert done is False
 
 
 # ------------------------------------------- a child that misses its deadline
@@ -479,6 +481,7 @@ async def test_a_slow_child_that_still_answers_a_ping_is_kept(served_from_a_chil
     envelope = await _timed_out_read(manager, "SLOW:X")
 
     assert "still answers a ping, so it was kept" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_kept"
     assert manager.status()["child_pid"] == pid
     value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
     assert value is not None
@@ -494,6 +497,7 @@ async def test_a_wedged_child_that_answers_no_ping_is_replaced_on_the_same_targe
     envelope = await _timed_out_read(manager, "WEDGE:X")
 
     assert "did not answer a ping and was replaced" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_replaced"
     assert manager.status()["child_pid"] != pid
     assert manager.active_generation() == generation
     assert manager.active_target() == "live"
