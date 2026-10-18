@@ -4,7 +4,9 @@ EPICS/mock -- ``VirtualAcceleratorConnector`` is an unmodified
 must hard-block writes at the connector guard with zero CA I/O, exactly as
 ``tests/connectors/test_writes_enabled.py`` proves for the base class in
 isolation. This test proves the same contract against a real container: the
-blocked write never reaches the IOC (read-back over CA confirms no change),
+blocked write never reaches the IOC (read-back over CA confirms no change
+beyond the motion the served tree declares for the readback under the suite's
+scenarios),
 and the *same* channel accepts the write once writes are enabled -- so the
 blocking is demonstrably the guard, not something else broken.
 
@@ -37,6 +39,14 @@ from tests.va.e2e import conftest as e2e_conftest
 _CORRECTOR_SLOT = 2
 
 DEMO_CURRENT = 10.0
+
+#: How far above the readback check's threshold the demand sits from the held
+#: setpoint, so a leaked write cannot hide inside the readback's declared motion.
+LEAK_VISIBILITY_FACTOR = 100.0
+
+#: Absolute slack on the readback check beyond the declared motion: float
+#: rounding of the served value, far below any write this lane makes.
+READBACK_FLOOR = 1e-9
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
@@ -71,12 +81,24 @@ def corrector_rb(corrector: e2e_conftest.Corrector) -> str:
 class TestApprovalSmoke:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container")
-    async def test_write_blocked_when_writes_disabled_no_ca_io(self, corrector_sp, corrector_rb):
+    async def test_write_blocked_when_writes_disabled_no_ca_io(
+        self, corrector, corrector_sp, corrector_rb
+    ):
+        # Two reads each carry an independent draw of the readback's declared
+        # motion, so a quiet readback stays within twice its band.
+        rb_threshold = 2 * corrector.readback_motion + READBACK_FLOOR
+
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": False}):
             connector = await e2e_conftest.connect_va()
 
             sp_before = (await connector.read_channel(corrector_sp)).value
             rb_before = (await connector.read_channel(corrector_rb)).value
+
+            assert abs(DEMO_CURRENT - sp_before) >= LEAK_VISIBILITY_FACTOR * rb_threshold, (
+                f"the demand {DEMO_CURRENT} sits {abs(DEMO_CURRENT - sp_before)} from "
+                f"{corrector_sp}'s held {sp_before}, too close to {corrector_rb}'s readback "
+                f"threshold {rb_threshold} for the readback check to see a leaked write"
+            )
 
             result = await connector.write_channel(corrector_sp, DEMO_CURRENT)
 
@@ -95,9 +117,10 @@ class TestApprovalSmoke:
             f"{corrector_sp} changed from {sp_before} to {sp_after} despite the write "
             "being blocked at the connector guard"
         )
-        assert rb_after == pytest.approx(rb_before), (
-            f"{corrector_rb} changed from {rb_before} to {rb_after} despite the write "
-            "being blocked at the connector guard"
+        assert abs(rb_after - rb_before) <= rb_threshold, (
+            f"{corrector_rb} changed from {rb_before} to {rb_after}, beyond twice its declared "
+            f"motion band {corrector.readback_motion}, despite the write being blocked at the "
+            "connector guard"
         )
 
     @pytest.mark.asyncio
