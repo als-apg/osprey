@@ -296,7 +296,7 @@ uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
 ---
 
 **What it does**: Stages the project the live-container suite serves, applies
-the `still` scenario on its fresh state directory and asserts no captured
+the `still` scenario on top of the suite's scenarios and asserts no captured
 address moves, boots the VA image (`osprey-va-full:latest`, built by
 `scripts/va/build_and_boot_check.sh`, or the one `OSPREY_VA_E2E_IMAGE` names)
 and reads every served address over Channel Access until two snapshots agree.
