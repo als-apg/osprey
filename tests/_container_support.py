@@ -398,17 +398,29 @@ class RuntimeContainer:
         self.status = str(attrs["State"]["Status"])
         self.attrs = attrs
 
-    def logs(self, tail: int) -> bytes:
-        """The last *tail* lines the container wrote, stdout and stderr together."""
-        result = self._run("logs", "--tail", str(tail), self.name)
-        return result.stdout + result.stderr
+    def logs(self, tail: int | None = None) -> bytes:
+        """What the container wrote, stdout and stderr as the one stream it wrote.
 
-    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        The two streams come back interleaved in the order they were written, so
+        the log only ever grows at its end and a byte offset into an earlier read
+        still marks the same point in a later one.
+
+        Args:
+            tail: Lines to return from the end, or ``None`` for the whole log.
+        """
+        tail_args = () if tail is None else ("--tail", str(tail))
+        return self._run("logs", *tail_args, self.name, merge_streams=True).stdout
+
+    def _run(self, *args: str, merge_streams: bool = False) -> subprocess.CompletedProcess:
         result = subprocess.run(
-            [self.runtime, *args], capture_output=True, timeout=CONTAINER_STATE_TIMEOUT
+            [self.runtime, *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_streams else subprocess.PIPE,
+            timeout=CONTAINER_STATE_TIMEOUT,
         )
         if result.returncode != 0:
-            detail = result.stderr.decode("utf-8", "replace").strip()
+            output = result.stdout if merge_streams else result.stderr
+            detail = output.decode("utf-8", "replace").strip()
             raise RuntimeError(f"{self.runtime} {args[0]} {self.name}: {detail}")
         return result
 
