@@ -6,6 +6,7 @@ set -e
 
 # Ensure we're in the project root
 cd "$(dirname "$0")/.."
+source scripts/_gate_env.sh
 
 echo "🔍 Running full CI checks locally..."
 echo "===================================="
@@ -141,36 +142,28 @@ echo "→ Checking Node/npm availability for frontend JS checks..."
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
     echo "✅ Node/npm available — running frontend JS checks"
     echo ""
-    echo "→ Installing JS dependencies (npm ci)..."
-    if ! npm ci; then
-        FAILED_CHECKS+=("npm-ci")
-        echo "❌ npm ci failed"
+    echo "→ Running typecheck (npm run typecheck)..."
+    if ! npm run typecheck; then
+        FAILED_CHECKS+=("js-typecheck")
+        echo "❌ JS typecheck failed"
     else
-        echo "✅ JS dependencies installed"
-        echo ""
-        echo "→ Running typecheck (npm run typecheck)..."
-        if ! npm run typecheck; then
-            FAILED_CHECKS+=("js-typecheck")
-            echo "❌ JS typecheck failed"
-        else
-            echo "✅ JS typecheck passed"
-        fi
-        echo ""
-        echo "→ Running lint (npm run lint)..."
-        if ! npm run lint; then
-            FAILED_CHECKS+=("js-lint")
-            echo "❌ JS lint failed"
-        else
-            echo "✅ JS lint passed"
-        fi
-        echo ""
-        echo "→ Running JS tests (npm run test:js)..."
-        if ! npm run test:js; then
-            FAILED_CHECKS+=("js-tests")
-            echo "❌ JS tests failed"
-        else
-            echo "✅ JS tests passed"
-        fi
+        echo "✅ JS typecheck passed"
+    fi
+    echo ""
+    echo "→ Running lint (npm run lint)..."
+    if ! npm run lint; then
+        FAILED_CHECKS+=("js-lint")
+        echo "❌ JS lint failed"
+    else
+        echo "✅ JS lint passed"
+    fi
+    echo ""
+    echo "→ Running JS tests (npm run test:js)..."
+    if ! npm run test:js; then
+        FAILED_CHECKS+=("js-tests")
+        echo "❌ JS tests failed"
+    else
+        echo "✅ JS tests passed"
     fi
 else
     echo "⚠️  Frontend JS checks NOT verified on this platform (no node/npm) — CI enforces them"

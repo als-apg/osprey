@@ -101,6 +101,9 @@ serial() {
 step "lockfile"
 uv lock --check
 
+step "environment"
+source scripts/_gate_env.sh
+
 step "ruff (linting)"
 uv run ruff check .
 
