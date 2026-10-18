@@ -23,6 +23,7 @@ here. ``requests`` is a base dependency and is safe at module scope.
 """
 
 import functools
+import json
 import logging
 import shutil
 import subprocess
@@ -356,6 +357,56 @@ class ContainerExitedError(AssertionError):
     not answer is the same container on a second look, while one that exited
     during its own boot is gone, and only a fresh one can come up differently.
     """
+
+
+class RuntimeContainer:
+    """A container known only by name, read through its runtime's CLI.
+
+    The handle :func:`wait_until_ready` takes for a container that ``docker
+    compose`` or the runtime CLI started rather than testcontainers: it offers
+    the same surface (``get_wrapped_container()``, ``reload()``, ``status``,
+    ``attrs``, ``logs(tail=)``), so the wait reads it like any other. It goes
+    through the CLI rather than an SDK socket, so it reads a docker and a
+    podman container alike.
+
+    Every read raises when the runtime cannot answer — an unknown name, a
+    failed command, a timeout — which the wait treats as "unreadable, keep
+    waiting", never as a dead container.
+
+    Args:
+        name: The container's name as the runtime knows it.
+        runtime: The runtime CLI to call, ``docker`` or ``podman``.
+    """
+
+    def __init__(self, name: str, runtime: str = "docker") -> None:
+        self.name = name
+        self.runtime = runtime
+        self.attrs: dict = {}
+        self.status: str | None = None
+
+    def get_wrapped_container(self) -> "RuntimeContainer":
+        return self
+
+    def reload(self) -> None:
+        """Read the container's state from ``<runtime> inspect``."""
+        result = self._run("inspect", self.name)
+        attrs = json.loads(result.stdout)[0]
+        self.status = str(attrs["State"]["Status"])
+        self.attrs = attrs
+
+    def logs(self, tail: int) -> bytes:
+        """The last *tail* lines the container wrote, stdout and stderr together."""
+        result = self._run("logs", "--tail", str(tail), self.name)
+        return result.stdout + result.stderr
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        result = subprocess.run(
+            [self.runtime, *args], capture_output=True, timeout=CONTAINER_STATE_TIMEOUT
+        )
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", "replace").strip()
+            raise RuntimeError(f"{self.runtime} {args[0]} {self.name}: {detail}")
+        return result
 
 
 def wait_until_ready(

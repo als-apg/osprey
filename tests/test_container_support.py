@@ -17,6 +17,7 @@ import requests
 from tests import _container_support
 from tests._container_support import (
     ContainerExitedError,
+    RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
     start_or_skip,
@@ -470,6 +471,62 @@ def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
     probe = CountingProbe(failures=2)
 
     wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=UnreadableContainer())
+
+    assert probe.calls == 3
+
+
+# RuntimeContainer: a container known only by name, read through the runtime CLI
+
+
+def _fake_runtime(monkeypatch, *, inspect: subprocess.CompletedProcess, logs=None) -> list:
+    """Answer ``<runtime> inspect`` / ``<runtime> logs`` with canned results; record argv."""
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return inspect if argv[1] == "inspect" else logs
+
+    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    return calls
+
+
+def test_a_named_runtime_container_reads_state_and_log_tail(monkeypatch):
+    inspect_json = '[{"State": {"Status": "exited", "ExitCode": 3, "Error": ""}}]'
+    calls = _fake_runtime(
+        monkeypatch,
+        inspect=subprocess.CompletedProcess([], 0, stdout=inspect_json.encode(), stderr=b""),
+        logs=subprocess.CompletedProcess([], 0, stdout=b"booting\n", stderr=b"index failed\n"),
+    )
+    container = RuntimeContainer("deploy-qmd", runtime="podman")
+
+    wrapped = container.get_wrapped_container()
+    wrapped.reload()
+
+    assert wrapped is container
+    assert container.status == "exited"
+    assert container.attrs["State"]["ExitCode"] == 3
+    assert container.logs(tail=7) == b"booting\nindex failed\n"
+    assert calls[0][:2] == ["podman", "inspect"] and calls[0][-1] == "deploy-qmd"
+    assert calls[1] == ["podman", "logs", "--tail", "7", "deploy-qmd"]
+
+
+def test_an_unknown_named_container_is_unreadable_not_dead(monkeypatch):
+    """A name the runtime does not know yet is not a verdict; the wait sits on the probe."""
+    _fake_runtime(
+        monkeypatch,
+        inspect=subprocess.CompletedProcess(
+            [], 1, stdout=b"[]", stderr=b"Error: No such object: deploy-qmd"
+        ),
+    )
+    probe = CountingProbe(failures=2)
+
+    wait_until_ready(
+        probe,
+        "qmd sidecar",
+        timeout=30.0,
+        interval=0.0,
+        container=RuntimeContainer("deploy-qmd"),
+    )
 
     assert probe.calls == 3
 
