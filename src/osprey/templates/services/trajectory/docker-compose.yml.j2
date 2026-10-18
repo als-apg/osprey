@@ -146,9 +146,10 @@ services:
       - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
       # The service's state directory, read-write.
       - {{ osprey_trajectory_state_mount.source }}:{{ osprey_trajectory_state_mount.target }}
-      # The control-identity module, staged into this build context byte for
-      # byte from the packaged source. Read-only: the entrypoint runs it as root.
-      - ./build/services/trajectory/control_identity.py:{{ control_identity_container_path }}:ro
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/trajectory/control_identity:{{ control_identity_container_dir }}:ro
 {#- The facility's sequence module directory, READ-ONLY: the service runs its
     code and nothing here may change what it runs. #}
 {%- if svc.sequence_dir %}
