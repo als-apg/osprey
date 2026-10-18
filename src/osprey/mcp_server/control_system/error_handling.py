@@ -141,18 +141,22 @@ def shared_typed_cause(errors: list[BaseException]) -> BaseException | None:
     return errors[0]
 
 
-async def invalidate_active_connector(connector_name: str) -> None:
+async def invalidate_active_connector(connector_name: str) -> bool:
     """Drop the connector a failed call was using, so the next call rebuilds it.
 
-    This is the one seam between the ``ConnectionError`` branch below and
+    This is the one seam between the ``ConnectionError`` handling below and
     whoever owns the connector's lifetime. It delegates to
     :meth:`ServerContext.invalidate_connector`, which recreates an in-process
     connector, or respawns a connector-host child on the same target, so the
     envelope rendering never has to know where connectors live.
+
+    Returns:
+        What :meth:`ServerContext.invalidate_connector` returns: ``False`` when
+        a connector-host respawn was refused and the previous child still serves.
     """
     from osprey.mcp_server.control_system.server_context import get_server_context
 
-    await get_server_context().invalidate_connector(connector_name)
+    return await get_server_context().invalidate_connector(connector_name)
 
 
 async def _answer_unresponsive_child(connector_name: str) -> str:
