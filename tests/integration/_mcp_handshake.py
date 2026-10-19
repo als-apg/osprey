@@ -8,6 +8,7 @@ Used by tests/integration/test_build_boot.py.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -225,6 +226,12 @@ def list_mcp_tools(
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
+        # Closing a text pipe flushes it; a dead child turns that into a
+        # BrokenPipeError that must not mask the handshake error.
+        if proc.stdin is not None:
+            with contextlib.suppress(OSError):
+                proc.stdin.close()
 
 
 def assert_tools_superset(

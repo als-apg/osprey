@@ -28,6 +28,14 @@ import pytest
 
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
+#: The helper leaves no pipe or child behind: a pipe or process left for the
+#: collector warns from a finalizer, which pytest reports as unraisable, so both
+#: are errors here.
+pytestmark = [
+    pytest.mark.filterwarnings("error::ResourceWarning"),
+    pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning"),
+]
+
 #: A stub MCP server. With ``phases`` above zero it reports that many startup
 #: phases to stderr in the framework's own ``[STARTUP-TIMING]`` shape, one every
 #: ``gap`` seconds, closes with ``total_startup``, then speaks JSON-RPC. With
@@ -191,3 +199,25 @@ def test_a_server_that_closes_its_stdin_and_keeps_running_is_reported(
         list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
 
     assert str(excinfo.value).endswith("server closed its stdin before reading id=1")
+
+
+def test_a_finished_handshake_leaves_the_childs_stdin_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The helper closes the pipe it writes to, however the handshake ends."""
+    real = subprocess.Popen
+    made: list[subprocess.Popen] = []
+
+    def spy(*a, **k):
+        p = real(*a, **k)
+        made.append(p)
+        return p
+
+    monkeypatch.setattr(subprocess, "Popen", spy)
+    script = tmp_path / "dying_server.py"
+    script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
+
+    with pytest.raises(MCPHandshakeError):
+        list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
+
+    assert len(made) == 1 and made[0].stdin is not None and made[0].stdin.closed
