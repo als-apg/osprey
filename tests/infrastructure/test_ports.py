@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -87,3 +88,25 @@ def test_the_lock_is_released_when_the_block_ends():
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:
         os.close(fd)
+
+
+def _repo_root() -> str:
+    return str(Path(__file__).resolve().parents[2])
+
+
+def test_the_lock_directory_ignores_tmpdir(tmp_path):
+    with reserved_port() as port:
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                f"from tests._ports import _lock; print(_lock({port}))",
+            ],
+            cwd=_repo_root(),
+            env={**os.environ, "TMPDIR": str(tmp_path)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    assert probe.stdout.strip() == "None"
