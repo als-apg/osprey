@@ -14,14 +14,13 @@ its commands the way the agent CLI does, and the door runs through
 
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from osprey.interfaces.web_terminal import process_tree
+from osprey.deployment import process_table
 from osprey.interfaces.web_terminal.pty_manager import PtySession
 from osprey.interfaces.web_terminal.session_handoff import (
     ERROR_HANDOFF_STARTED_COMMANDS,
@@ -49,7 +48,6 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
 ]
 
 
@@ -162,46 +160,13 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
         kill_quietly(pids)
 
 
-def _fail_reads(monkeypatch, failures: int | None) -> list[bool]:
-    """Make the first *failures* process-table reads fail, or every read when None.
+def _fail_reads(monkeypatch) -> None:
+    """Make every process-table read fail."""
 
-    Returns the log of reads: each entry says whether that read reached the real ``ps``.
-    """
-    real = process_tree.snapshot
-    reads: list[bool] = []
+    def unreadable():
+        raise process_table.ProcessTableUnreadable(OSError("process table"))
 
-    def flaky():
-        reads.append(failures is not None and len(reads) >= failures)
-        return real() if reads[-1] else None
-
-    monkeypatch.setattr(process_tree, "snapshot", flaky)
-    return reads
-
-
-async def test_a_failed_process_table_read_is_looked_at_again_before_the_door_acts(
-    tmp_path, monkeypatch
-):
-    app = make_app(hook=False)
-    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
-    pids: list[int] = []
-    try:
-        pids = wait_for_pids(session, pid_file, 2)
-        reads = _fail_reads(monkeypatch, 1)
-
-        with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
-
-        assert reads[0] is False
-        assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
-        assert [c["label"] for c in refused.value.extra["commands"]] == ["magnet_scan.py"]
-        assert refused.value.extra["unread"] is False
-        assert session.is_alive
-        assert input_file.read_bytes() == b""
-        assert not pid_gone(pids[0], within=0.0)
-    finally:
-        monkeypatch.undo()
-        registry(app).cleanup_all()
-        kill_quietly(pids)
+    monkeypatch.setattr(process_table, "snapshot", unreadable)
 
 
 async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_commands(
@@ -212,7 +177,7 @@ async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_co
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
-        _fail_reads(monkeypatch, None)
+        _fail_reads(monkeypatch)
 
         with pytest.raises(HandoffRefused) as refused:
             await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
@@ -237,7 +202,7 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
-        _fail_reads(monkeypatch, None)
+        _fail_reads(monkeypatch)
 
         await acquire(
             app,

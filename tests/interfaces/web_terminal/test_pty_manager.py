@@ -5,7 +5,6 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
-import shutil
 import signal
 import struct
 import subprocess
@@ -15,6 +14,7 @@ import time
 
 import pytest
 
+from osprey.deployment import process_table
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 from tests.interfaces.web_terminal._pty_child import (
@@ -29,10 +29,6 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_pids,
     wait_for_report,
     wait_gone,
-)
-
-needs_ps = pytest.mark.skipif(
-    shutil.which("ps") is None, reason="needs ps to read the process tree"
 )
 
 
@@ -161,7 +157,6 @@ class TestPtySession:
         finally:
             session.terminate()
 
-    @needs_ps
     def test_terminate_ends_the_process_groups_the_child_started(self, tmp_path):
         pid_file = tmp_path / "pids"
         scripts = [
@@ -183,7 +178,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
         pid_file = tmp_path / "pids"
         source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
@@ -198,7 +192,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_a_started_process_that_ignores_sigterm(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGTERM, signal.SIGHUP))
@@ -215,7 +208,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_logs_what_it_ended(self, tmp_path, caplog):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
@@ -236,7 +228,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_what_the_child_started_when_the_first_process_table_read_fails(
         self, tmp_path, monkeypatch
     ):
@@ -249,14 +240,17 @@ class TestPtySession:
         pids: list[int] = []
         try:
             pids = wait_for_pids(session, pid_file, 2)
-            real = process_tree.snapshot
+            real = process_table.snapshot
             reads: list[None] = []
 
             def spy():
                 reads.append(None)
-                return real() if len(reads) > 1 else None
+                if len(reads) == 1:
+                    raise process_table.ProcessTableUnreadable(OSError("process table"))
+                return real()
 
-            monkeypatch.setattr(process_tree, "snapshot", spy)
+            monkeypatch.setattr(process_table, "snapshot", spy)
+            monkeypatch.setattr(process_table, "_READ_RETRY_S", 0.0)
             session.terminate()
             assert pid_gone(pids[0]), "the command the child started is still running"
         finally:
@@ -264,35 +258,33 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
-    def test_terminate_warns_when_the_process_table_never_reads(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        pid_file = tmp_path / "pids"
-        script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
-        session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
-        )
+    def test_terminate_warns_when_the_table_stays_unreadable(self, monkeypatch, caplog):
+        reads: list[None] = []
+
+        def unreadable():
+            reads.append(None)
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
+
+        monkeypatch.setattr(process_table, "snapshot", unreadable)
+        monkeypatch.setattr(process_tree, "TEARDOWN_READ_WAIT_S", 0.3)
+        session = PtySession(["/bin/sh", "-c", "sleep 60"])
         session.start()
-        pids: list[int] = []
         try:
-            pids = wait_for_pids(session, pid_file, 2)
             child = session.pid
-            monkeypatch.setattr(process_tree, "snapshot", lambda: None)
             with caplog.at_level(logging.WARNING):
                 session.terminate()
-            assert not session.is_alive
+
+            assert len(reads) > 1
             warnings = [
-                record.getMessage()
-                for record in caplog.records
-                if record.levelno == logging.WARNING and "process table" in record.getMessage()
+                r.getMessage()
+                for r in caplog.records
+                if r.levelno == logging.WARNING and "may survive" in r.getMessage()
             ]
             assert len(warnings) == 1, warnings
             assert f"PTY child {child} " in warnings[0]
+            assert not session.is_alive
         finally:
-            monkeypatch.undo()
             session.terminate()
-            kill_quietly(pids)
 
     def test_terminate_of_a_dead_child_looks_for_nothing(self, monkeypatch):
         session = PtySession(["/bin/sh", "-c", "exit 0"])
@@ -304,11 +296,10 @@ class TestPtySession:
             calls.append(None)
             return None
 
-        monkeypatch.setattr(process_tree, "snapshot", spy)
+        monkeypatch.setattr(process_table, "snapshot", spy)
         session.terminate()
         assert calls == []
 
-    @needs_ps
     def test_started_commands_lists_only_groups_of_their_own(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
@@ -341,12 +332,32 @@ class TestPtySession:
             calls.append(None)
             return None
 
-        monkeypatch.setattr(process_tree, "snapshot", spy)
+        monkeypatch.setattr(process_table, "snapshot", spy)
         try:
             assert session.started_commands() == []
             assert calls == []
         finally:
             session.terminate()
+
+    def test_started_commands_is_unknown_when_the_table_cannot_be_read(self, monkeypatch):
+        def unreadable():
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
+
+        monkeypatch.setattr(process_table, "snapshot", unreadable)
+        session = PtySession(["/bin/sh", "-c", "sleep 60"])
+        session.start()
+        try:
+            assert session.started_commands() is None
+        finally:
+            session.terminate()
+
+        dead = PtySession(["/bin/sh", "-c", "exit 0"])
+        dead.start()
+        wait_for_exit(dead)
+        try:
+            assert dead.started_commands() == []
+        finally:
+            dead.terminate()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
@@ -402,7 +413,6 @@ class TestPtyChildWaits:
                 proc.kill()
                 proc.wait()
 
-    @needs_ps
     async def test_wait_gone_fails_naming_the_pid_still_running(self):
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
         try:
@@ -481,7 +491,6 @@ class TestPtyRegistry:
         finally:
             registry.cleanup_all()
 
-    @needs_ps
     def test_eviction_ends_the_evicted_terminals_started_processes(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = detaching_child_script(
@@ -499,7 +508,6 @@ class TestPtyRegistry:
             registry.cleanup_all()
             kill_quietly(pids)
 
-    @needs_ps
     def test_cleanup_all_ends_every_terminals_started_processes(self, tmp_path):
         registry = PtyRegistry()
         pids: list[int] = []
