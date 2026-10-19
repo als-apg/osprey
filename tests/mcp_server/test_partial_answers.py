@@ -10,6 +10,8 @@ which key a tool states its map under is declared once, in ``MAP_KEYS``.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -123,6 +125,24 @@ def test_a_tool_with_no_declared_map_key_states_no_map():
 def test_the_carrier_holds_one_map():
     with pytest.raises(ValueError, match="not both"):
         NothingAnsweredError(None, missing={"PV:A": None}, results=ROWS)
+
+
+def test_every_declared_map_key_is_on_the_contract_page():
+    """The page's tools table lists every tool whose map is ``missing``; the rest
+    each have their own entry naming the key they state."""
+    page = (
+        Path(__file__).parents[2] / "docs/source/reference/contracts/partial-answers.rst"
+    ).read_text()
+    tools_table = page.split("The tools\n=========\n", 1)[1].split("Two exceptions", 1)[0]
+    listed = set(re.findall(r"^   \* - ``(\w+)``$", tools_table, flags=re.MULTILINE))
+    declared_missing = {tool for tool, key in MAP_KEYS.items() if key == MISSING_KEY}
+    assert listed == declared_missing
+
+    for tool, key in MAP_KEYS.items():
+        if key == MISSING_KEY:
+            continue
+        entry = page.split(f"\n``{tool}``\n", 1)[1].split("\n\n``", 1)[0]
+        assert f"``details.{key}``" in entry
 
 
 # ---------------------------------------------------------------------------

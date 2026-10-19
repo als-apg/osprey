@@ -132,7 +132,9 @@ there to be shown, not parsed.
 ``unconfirmed``; the mismatch message names both the value sent and the value
 observed. The ``channel_write`` MCP tool reports the outcome for every channel
 instead of raising, so the agent can describe a batch in which some channels
-took the value and others did not.
+took the value and others did not. A call where no value reached any channel is
+refused, with the same rows under ``details.results`` (see
+:doc:`partial-answers`).
 
 Switching confirmation off
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
