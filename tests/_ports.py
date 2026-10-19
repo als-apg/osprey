@@ -8,7 +8,8 @@ ephemeral range are handed only to explicit binds. ``reserved_port()`` picks
 one there and holds an exclusive lock file named after it for the whole
 ``with`` block, which serializes explicit binds among test processes: no
 concurrent test process, in this run or another run on the same host, is
-handed the same port while the lock is held.
+handed the same port while the lock is held. The lock files live in one
+directory per host, whatever ``TMPDIR`` each process sees.
 """
 
 from __future__ import annotations
@@ -20,14 +21,17 @@ import random
 import socket
 import subprocess
 import sys
-import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 #: Lowest port a reservation hands out, clear of the well-known and registered
 #: ports fixed services listen on.
 PORT_FLOOR = 20000
+
+#: The one directory every test process on the host locks ports in, shared by
+#: every user of the host.
+LOCK_DIR = Path("/tmp/osprey-test-ports")
 
 _LINUX_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
 _MACOS_RANGE_KEY = "net.inet.ip.portrange.first"
@@ -58,7 +62,7 @@ def ephemeral_range_start() -> int:
 
 def lock_path(port: int) -> Path:
     """The lock file whose holder owns *port* among test processes."""
-    return Path(tempfile.gettempdir()) / "osprey-test-ports" / f"{port}.lock"
+    return LOCK_DIR / f"{port}.lock"
 
 
 def _candidates(first: int) -> list[int]:
@@ -73,9 +77,10 @@ def _candidates(first: int) -> list[int]:
 
 def _lock(port: int) -> int | None:
     """An open descriptor holding *port*'s lock, or ``None`` when another holds it."""
-    path = lock_path(port)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+    LOCK_DIR.mkdir(exist_ok=True)
+    with suppress(PermissionError):
+        LOCK_DIR.chmod(0o1777)
+    fd = os.open(lock_path(port), os.O_RDONLY | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
