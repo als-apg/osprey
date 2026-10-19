@@ -259,3 +259,52 @@ def test_stubs_seeded_from_the_graph_view_link_held_devices(
     }
     assert linked and linked <= held
     assert dangling_links(tmp_path, built_control_assistant.facility) == []
+
+
+#: The example pages that name facility things, listed so the check below cannot
+#: pass on an empty scan.
+LINKING_PAGES: tuple[str, ...] = (
+    "devices/bpm.md",
+    "devices/ion-pump.md",
+    "physics/beam-current-calibration.md",
+    "physics/quadrupole-scan.md",
+    "procedures/orbit-correction.md",
+    "procedures/ps-startup.md",
+    "procedures/pss-reset.md",
+    "procedures/sample-scan.md",
+    "procedures/vacuum-recovery.md",
+    "references/epics-channel-access.md",
+    "references/safety-rules.md",
+    "subsystems/experimental-stations.md",
+    "subsystems/primary-source.md",
+    "subsystems/pss.md",
+    "subsystems/timing.md",
+    "subsystems/transport-delivery.md",
+    "subsystems/vacuum.md",
+)
+
+
+def test_the_example_pages_link_only_held_records(built_control_assistant: BuiltProject) -> None:
+    validated = Validated(built_control_assistant.facility_dir, "demo")
+    validated.document = built_control_assistant.facility
+
+    assert dangling_links(built_control_assistant.facility_dir, validated.document) == []
+    assert check_knowledge_links(validated) == []
+    assert [w for w in validated.warnings if w.kind == "link-dangling"] == []
+
+
+def test_every_rewritten_example_page_links_a_held_record(
+    built_control_assistant: BuiltProject,
+) -> None:
+    from osprey.facility.records import FacilityRecords
+    from osprey.facility.references import find_facility_links
+    from osprey.services.facility_knowledge.okf.document import OKFDocument
+
+    records = FacilityRecords(built_control_assistant.facility)
+    knowledge = built_control_assistant.facility_dir / "knowledge"
+    unlinked = []
+    for page in LINKING_PAGES:
+        body = OKFDocument.parse((knowledge / page).read_text(encoding="utf-8")).body
+        if not any(found.kinds for found in find_facility_links(body, records)):
+            unlinked.append(page)
+    assert unlinked == []

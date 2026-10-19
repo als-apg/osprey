@@ -8,8 +8,10 @@ tags: [orbit, correction, bpm, corrector, steering, procedure]
 # Orbit Correction
 
 This procedure restores the beam orbit to the stored golden orbit using
-[BPM](/devices/bpm.md) position readbacks and corrector magnets in the
-[Transport and Delivery](/subsystems/transport-delivery.md) system.
+[BPM](/devices/bpm.md) position readbacks and corrector magnets.  The steps
+are written for SR; the transfer lines of
+[Transport and Delivery](/subsystems/transport-delivery.md) are corrected the
+same way with their own monitors and correctors.
 
 ## When to Use
 
@@ -20,21 +22,23 @@ This procedure restores the beam orbit to the stored golden orbit using
 
 ## Prerequisites
 
-- Beam present: `PS:DCCT:Current > 10 mA`
-- All BPMs reporting `Quality = OK`
-- Corrector magnets powered and responding
+- Beam present: [SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB) above 10 mA
+- Every BPM used is valid and connected, for example
+  [SR:DIAG:BPM:01:STATUS:VALID](facility:SR:DIAG:BPM:01:STATUS:VALID) and
+  [SR:DIAG:BPM:01:STATUS:CONNECTED](facility:SR:DIAG:BPM:01:STATUS:CONNECTED)
+- Corrector magnets powered and responding, for example
+  [SR:MAG:HCM:01:STATUS:ON](facility:SR:MAG:HCM:01:STATUS:ON)
 
 ## Steps
 
 ### 1. Assess orbit distortion
 
-1. Read all BPM positions:
-   ```
-   TD:BPM:H01:X, TD:BPM:H01:Y
-   TD:BPM:H02:X, TD:BPM:H02:Y
-   … (all H01–H12)
-   ```
-2. Compute RMS deviation from golden orbit values.
+1. Read every BPM position, for example
+   [SR:DIAG:BPM:01:POSITION:X](facility:SR:DIAG:BPM:01:POSITION:X) and
+   [SR:DIAG:BPM:01:POSITION:Y](facility:SR:DIAG:BPM:01:POSITION:Y); ask the
+   channel finder for the full set of monitors.
+2. Compute RMS deviation from the golden orbit values, for example
+   [SR:DIAG:BPM:01:GOLDEN:X](facility:SR:DIAG:BPM:01:GOLDEN:X).
 3. If RMS `< 0.2 mm` in both planes, orbit is acceptable — no action needed.
 
 ### 2. Identify dominant kicks
@@ -44,8 +48,11 @@ This procedure restores the beam orbit to the stored golden orbit using
 
 ### 3. Apply corrector adjustments
 
-1. Adjust horizontal correctors (`TD:HCM:*:CURRENT`) to minimise X RMS.
-2. Adjust vertical correctors (`TD:VCM:*:CURRENT`) to minimise Y RMS.
+1. Adjust horizontal correctors to minimise X RMS, for example
+   [SR:MAG:HCM:01:CURRENT:SP](facility:SR:MAG:HCM:01:CURRENT:SP), checking
+   its readback [SR:MAG:HCM:01:CURRENT:RB](facility:SR:MAG:HCM:01:CURRENT:RB).
+2. Adjust vertical correctors to minimise Y RMS, for example
+   [SR:MAG:VCM:01:CURRENT:SP](facility:SR:MAG:VCM:01:CURRENT:SP).
 3. Apply corrections in small steps (≤ 10% of total correction per iteration)
    to avoid over-shooting.
 

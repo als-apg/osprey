@@ -14,9 +14,13 @@ fault and restores beam permits to the affected area.
 > All resets require a physical area search and confirmation by the operator
 > on shift.  See [Safety Rules](/references/safety-rules.md).
 
+The example facility file holds no records for the PSS: the interlock, door,
+search and permit states below are read at the local PSS panel, not through
+the control tools.
+
 ## When to Use
 
-- `PSS:{Area}:Interlock = FAULTED`
+- The area interlock shows faulted
 - Beam permit denied after a door opening or radiation interlock trip
 - After a controlled maintenance entry requiring area re-commissioning
 
@@ -30,31 +34,34 @@ fault and restores beam permits to the affected area.
 
 ### 1. Identify the fault
 
-1. Read the faulted area interlock: `PSS:{Area}:Interlock`
-2. Check door status: `PSS:{Area}:Door:State`
-3. Check global inhibit: `PSS:Global:BeamInhibit`
+1. Read the faulted area interlock at the PSS panel.
+2. Check the area door status.
+3. Check whether the global beam inhibit is asserted.
+4. For a radiation trip, read the area radiation monitors, for example
+   [SR:DIAG:GAMMA:01:STATUS:ALARM](facility:SR:DIAG:GAMMA:01:STATUS:ALARM) and
+   [SR:DIAG:NEUTRON:01:STATUS:ALARM](facility:SR:DIAG:NEUTRON:01:STATUS:ALARM).
 
 ### 2. Physical area search
 
 1. Walk the area perimeter and visually confirm no personnel inside.
 2. Activate the area search button at the local panel (physical action).
-3. Confirm: `PSS:{Area}:Search:Status = COMPLETE`
+3. Confirm the panel shows the search complete.
 
 ### 3. Latch the door
 
 1. Close and latch the area access door.
-2. Confirm: `PSS:{Area}:Door:State = LATCHED`
+2. Confirm the panel shows the door latched.
 
 ### 4. Reset the interlock
 
 1. Press the reset button at the local PSS panel (physical action — cannot
    be done remotely).
-2. Monitor: `PSS:{Area}:Interlock → OK`
-3. Confirm: `PSS:{Area}:BeamPermit → GRANTED`
+2. Monitor the area interlock until it returns to OK.
+3. Confirm the area beam permit is granted.
 
 ### 5. Restore beam
 
-1. If global inhibit was asserted: `PSS:Global:BeamInhibit → 0` (shift supervisor).
+1. If the global inhibit was asserted, the shift supervisor clears it.
 2. Restore beam via the normal [PS Startup Procedure](/procedures/ps-startup.md)
    or injection restart, as appropriate.
 
