@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import fcntl
 import os
 import socket
@@ -13,7 +14,12 @@ from pathlib import Path
 import pytest
 
 from tests import _ports
-from tests._ports import ephemeral_range_start, lock_path, reserved_port
+from tests._ports import (
+    ephemeral_range_start,
+    lock_path,
+    reserved_port,
+    reserved_ports,
+)
 
 
 def test_the_port_lies_below_the_ephemeral_range():
@@ -110,3 +116,59 @@ def test_the_lock_directory_ignores_tmpdir(tmp_path):
             check=True,
         )
     assert probe.stdout.strip() == "None"
+
+
+def _lockable_elsewhere(ports: list[int]) -> list[bool]:
+    """Whether a fresh process can take each port's lock."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"from tests._ports import _lock; print([_lock(p) is not None for p in {ports!r}])",
+        ],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return ast.literal_eval(probe.stdout)
+
+
+def test_reserved_ports_are_distinct_and_held():
+    with reserved_ports(3) as ports:
+        assert len(set(ports)) == 3
+        assert all(_ports.PORT_FLOOR <= port < ephemeral_range_start() for port in ports)
+        assert _lockable_elsewhere(ports) == [False, False, False]
+    assert _lockable_elsewhere(ports) == [True, True, True]
+
+
+def test_hold_ports_keeps_the_locks_until_exit():
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(
+                """
+                import sys
+                from tests._ports import hold_ports
+                print(hold_ports(2), flush=True)
+                sys.stdin.read()
+                """
+            ),
+        ],
+        cwd=_repo_root(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        assert holder.stdout is not None
+        ports = ast.literal_eval(holder.stdout.readline())
+        assert len(set(ports)) == 2
+        assert _lockable_elsewhere(ports) == [False, False]
+    finally:
+        holder.communicate(timeout=10)
+    assert holder.returncode == 0
+    assert _lockable_elsewhere(ports) == [True, True]
