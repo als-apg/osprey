@@ -21,6 +21,14 @@ import pytest
 
 from osprey.agent_runner.primitives import ToolTrace
 from osprey_connectors.control_context import record_path_under
+from tests.e2e.claude_code.conftest import (
+    AGENT_UNLISTED_SETPOINT,
+    BOUNDED_SETPOINT,
+    READ_ONLY_READBACK,
+    SAFETY_LIMITS_DB,
+    SCRIPTED_UNLISTED_SETPOINT,
+    UNLISTED_READING,
+)
 from tests.e2e.scripted_model import ScriptedCall
 from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
 
@@ -31,15 +39,31 @@ READ = "mcp__controls__channel_read"
 EXECUTE = "mcp__python__execute"
 
 #: Bounded writable setpoint in the safety limits fixture: [0, 100].
-SETPOINT = "SR:DIAG:TEMP:01:TEMPERATURE:SP"
+SETPOINT = BOUNDED_SETPOINT
 #: Read-only readback in the safety limits fixture.
-READBACK = "SR:MAG:QF:01:CURRENT:RB"
+READBACK = READ_ONLY_READBACK
 #: A channel the safety limits fixture does not list.
-CORRECTOR = "MAG:HCM01:CURRENT:SP"
+CORRECTOR = SCRIPTED_UNLISTED_SETPOINT
 
 LIMITS_REASON = "CHANNEL LIMITS VIOLATION"
 WRITES_REASON = "WRITES DISABLED"
 NO_SUCH_TOOL = "No such tool available"
+
+
+def test_the_world_names_agree_with_the_safety_limits_fixture() -> None:
+    """The limits fixture lists the bounded setpoint and the read-only readback, nothing else."""
+    limits = {
+        address: entry
+        for address, entry in json.loads(SAFETY_LIMITS_DB.read_text(encoding="utf-8")).items()
+        if not address.startswith("_")
+    }
+    assert set(limits) == {BOUNDED_SETPOINT, READ_ONLY_READBACK}
+    bounded = limits[BOUNDED_SETPOINT]
+    assert bounded["writable"] is True
+    assert bounded["min_value"] < bounded["max_value"]
+    assert limits[READ_ONLY_READBACK]["writable"] is False
+    for unlisted in (UNLISTED_READING, SCRIPTED_UNLISTED_SETPOINT, AGENT_UNLISTED_SETPOINT):
+        assert unlisted not in limits
 
 
 def write(channel: str, value: float) -> ScriptedCall:
