@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import shutil
 import signal
 import sys
 import time
@@ -18,6 +17,7 @@ from collections.abc import Callable
 
 import pytest
 
+from osprey.deployment import process_table
 from osprey.interfaces.web_terminal import operator_session, process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
@@ -48,7 +48,6 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
 ]
 
 
@@ -154,16 +153,19 @@ def _ended_pids(session: OperatorSession) -> set[int]:
 def _fail_first_reads(monkeypatch, failures: int) -> list[bool]:
     """Make the first *failures* process-table reads fail; return the log of reads.
 
-    Each entry says whether that read reached the real ``ps``.
+    Each entry says whether that read reached the real table.
     """
-    real = process_tree.snapshot
+    real = process_table.snapshot
     reads: list[bool] = []
 
     def flaky():
         reads.append(len(reads) >= failures)
-        return real() if reads[-1] else None
+        if not reads[-1]:
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
+        return real()
 
-    monkeypatch.setattr(process_tree, "snapshot", flaky)
+    monkeypatch.setattr(process_table, "snapshot", flaky)
+    monkeypatch.setattr(process_table, "_READ_RETRY_S", 0.0)
     return reads
 
 
@@ -189,7 +191,7 @@ async def test_stop_ends_what_the_agent_started_when_the_first_process_table_rea
         kill_quietly(pids)
 
 
-async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_never_reads(
+async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unreadable(
     tmp_path, monkeypatch, caplog
 ):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
@@ -202,15 +204,16 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_neve
 
         def unreadable():
             reads.append(None)
-            return None
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
 
-        monkeypatch.setattr(process_tree, "snapshot", unreadable)
+        monkeypatch.setattr(process_table, "snapshot", unreadable)
+        monkeypatch.setattr(process_tree, "TEARDOWN_READ_WAIT_S", 0.3)
 
         with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
             await session.stop()
 
         assert session.process_exited is True
-        assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+        assert len(reads) > 1
         warnings = [
             record.getMessage()
             for record in caplog.records
@@ -242,7 +245,7 @@ async def test_stop_of_a_child_that_already_exited_looks_for_nothing(monkeypatch
         looks.append(None)
         return {}
 
-    monkeypatch.setattr(process_tree, "snapshot", spy)
+    monkeypatch.setattr(process_table, "snapshot", spy)
 
     await session.stop()
 

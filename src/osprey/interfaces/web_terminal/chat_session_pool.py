@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 def _has_running_commands(key: str, session: OperatorSession) -> bool:
     """Whether the agent of chat *key* may still have a command it started running.
 
-    Blocking (it runs ``ps``); the reaper runs it in a worker thread. A failed
+    Blocking (it reads the process table); the reaper runs it in a worker thread. A failed
     look, whether it raises or cannot read the process table (``None``),
     counts as running: what the agent started is unknown, and reaping the chat
     would end it unseen. Capacity eviction does not look at commands, so it
@@ -449,13 +449,13 @@ class ChatSessionPool:
         ``last_activity`` older than ``idle_seconds``. A chat found running
         such a command, or whose look failed so what it started is unknown,
         has its ``last_activity`` refreshed and is kept. The look is one
-        ``ps`` per non-busy chat per sweep, in worker threads, with the lock
+        process-table read per non-busy chat per sweep, in worker threads, with the lock
         released. Reaping ends the agent's process; the next message to that
         chat resumes its transcript in a new child.
         """
         async with self._lock:
             looks = [(k, s) for k, s in self._sessions.items() if not s.is_busy]
-        # The look runs ``ps``, so it runs off the loop and with the lock
+        # The look reads the process table, so it runs off the loop and with the lock
         # released: a creation or terminate must not wait on it.
         running = await asyncio.gather(
             *(asyncio.to_thread(_has_running_commands, k, s) for k, s in looks)
