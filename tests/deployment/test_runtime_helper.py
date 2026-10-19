@@ -12,6 +12,9 @@ every runtime invocation agrees on one project namespace.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -288,3 +291,113 @@ def test_runtime_reports_absent_on_the_runtimes_own_absence_wording(stderr: str)
 def test_runtime_reports_absent_is_false_for_a_refusal(stderr: str) -> None:
     """A refusal, and an empty stderr, are failures and never an absence."""
     assert not runtime_reports_absent(stderr)
+
+
+# --- the shell entry ---------------------------------------------------------
+
+#: A runtime that answers every probe; ``--version`` prints ``$STUB_VERSION`` and
+#: ``buildx version`` exits ``$STUB_BUILDX_RC``.
+_ANSWERING_RUNTIME = """\
+#!/bin/sh
+case "$*" in
+  --version) printf '%s\\n' "${STUB_VERSION:-Docker version 27.0.0}"; exit 0 ;;
+  "buildx version") exit "${STUB_BUILDX_RC:-0}" ;;
+esac
+exit 0
+"""
+
+
+def _shell_entry(
+    tmp_path: Path,
+    runtimes: tuple[str, ...],
+    *args: str,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``python -m osprey.deployment.runtime_helper`` with only ``runtimes`` on PATH."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name in runtimes:
+        stub = bin_dir / name
+        stub.write_text(_ANSWERING_RUNTIME)
+        stub.chmod(0o755)
+    run_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("CONTAINER_RUNTIME", "DOCKER_BUILDKIT", "PATH")
+    }
+    run_env["PATH"] = str(bin_dir)
+    run_env.update(env or {})
+    return subprocess.run(
+        [sys.executable, "-m", "osprey.deployment.runtime_helper", *args],
+        env=run_env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+@pytest.mark.parametrize(
+    ("runtimes", "pin", "expected"),
+    [
+        (("docker", "podman"), None, "docker"),
+        (("podman",), None, "podman"),
+        (("docker", "podman"), "podman", "podman"),
+    ],
+    ids=["auto-prefers-docker", "auto-finds-podman", "pinned-podman"],
+)
+def test_shell_entry_prints_the_runtime_it_decides(
+    tmp_path: Path, runtimes: tuple[str, ...], pin: str | None, expected: str
+) -> None:
+    env = {"CONTAINER_RUNTIME": pin} if pin else {}
+    result = _shell_entry(tmp_path, runtimes, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{expected}\n"
+
+
+def test_shell_entry_refuses_a_pinned_docker_that_is_podman_emulation(tmp_path: Path) -> None:
+    result = _shell_entry(
+        tmp_path,
+        ("docker", "podman"),
+        env={"CONTAINER_RUNTIME": "docker", "STUB_VERSION": "podman version 5.0.0"},
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert " ".join(runtime_helper._PINNED_DOCKER_IS_PODMAN.split()) in " ".join(
+        result.stderr.split()
+    )
+
+
+def test_shell_entry_build_refuses_a_docker_without_buildkit(tmp_path: Path) -> None:
+    result = _shell_entry(
+        tmp_path,
+        ("docker",),
+        "--build",
+        env={"CONTAINER_RUNTIME": "docker", "STUB_BUILDX_RC": "1"},
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "docker-buildx-plugin" in result.stderr
+    assert "DOCKER_BUILDKIT=1" in result.stderr
+
+
+def test_shell_entry_build_passes_podman(tmp_path: Path) -> None:
+    result = _shell_entry(
+        tmp_path,
+        ("podman",),
+        "--build",
+        env={"CONTAINER_RUNTIME": "podman", "STUB_BUILDX_RC": "1"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "podman\n"
+
+
+def test_shell_entry_refuses_an_unknown_argument_as_a_usage_error(tmp_path: Path) -> None:
+    result = _shell_entry(tmp_path, ("docker",), "--bogus")
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "--bogus" in result.stderr
