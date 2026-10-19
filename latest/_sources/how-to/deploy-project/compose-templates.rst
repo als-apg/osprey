@@ -212,12 +212,11 @@ fails at ``up`` on the image it forgot:
        telemetry store and gateway have no variable; keep the store's tag
        when you mirror it, since its query page is served only for a tag
        OSPREY knows.
-   * - The web tier's images
+   * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
-   * - nginx and the auth sidecar
-     - ``modules.web_terminals.nginx_image`` and
-       ``modules.web_terminals.auth.image``. **These two carry no environment
-       variable**, so a mirror reaches them through ``config.yml`` only —
+   * - nginx
+     - ``modules.web_terminals.nginx_image``. **It carries no environment
+       variable**, so a mirror reaches it through ``config.yml`` only —
        there is no one-shell equivalent.
 
 .. code-block:: yaml
@@ -249,8 +248,6 @@ fails at ``up`` on the image it forgot:
      web_terminals:
        image_tag: "2026.08.1"
        nginx_image: registry.example.org/mirror/nginx:1.31-alpine
-       auth:
-         image: registry.example.org/accelerator/demo-auth:2026.08.1
 
 Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.

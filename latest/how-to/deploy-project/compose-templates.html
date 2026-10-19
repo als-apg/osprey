@@ -742,13 +742,12 @@ telemetry store and gateway have no variable; keep the store’s tag
 when you mirror it, since its query page is served only for a tag
 OSPREY knows.</p></td>
 </tr>
-<tr class="row-even"><td><p>The web tier’s images</p></td>
+<tr class="row-even"><td><p>The web tier’s images, auth sidecar included</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code> plus <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p>nginx and the auth sidecar</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_image</span></code> and
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code>. <strong>These two carry no environment
-variable</strong>, so a mirror reaches them through <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> only —
+<tr class="row-odd"><td><p>nginx</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_image</span></code>. <strong>It carries no environment
+variable</strong>, so a mirror reaches it through <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> only —
 there is no one-shell equivalent.</p></td>
 </tr>
 </tbody>
@@ -781,8 +780,6 @@ there is no one-shell equivalent.</p></td>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
 <span class="w">    </span><span class="nt">nginx_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/nginx:1.31-alpine</span>
-<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator/demo-auth:2026.08.1</span>
 </pre></div>
 </div>
 <p>Copy only the rows for services you actually deploy — the upstream pins for a

@@ -441,6 +441,8 @@ names it derives itself.
      - ``<registry.url>/web-terminal:<tag>``
    * - Every other persona
      - ``<registry.url>/web-terminal-<persona>:<tag>``
+   * - The auth sidecar, when login is on
+     - ``<registry.url>/<project_name>-auth:<tag>``
 
 ``<persona>`` is the persona's key in the ``personas`` catalog, not its
 ``project``. The ``project`` is ``<project_name>-<persona>``, which the build
@@ -474,8 +476,8 @@ Build each image from that persona's rendered project,
 ``build/<project_name>-<persona>``: the same render ``image_source: local``
 builds as ``<project_name>-<persona>:local``.
 
-Registry mode also pulls the auth sidecar from
-``modules.web_terminals.auth.image`` when login is on; see :doc:`login`.
+The pipeline pushes the auth sidecar under its name too, unless
+``modules.web_terminals.auth.image`` pins a published one; see :doc:`login`.
 
 ``osprey scaffold web-terminals lint``, ``osprey profile validate`` and
 ``osprey build`` refuse a registry-mode config with no ``registry.url`` (code

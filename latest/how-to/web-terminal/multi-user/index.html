@@ -1024,6 +1024,9 @@ names it derives itself.</p>
 <tr class="row-odd"><td><p>Every other persona</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal-&lt;persona&gt;:&lt;tag&gt;</span></code></p></td>
 </tr>
+<tr class="row-even"><td><p>The auth sidecar, when login is on</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/&lt;project_name&gt;-auth:&lt;tag&gt;</span></code></p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -1054,8 +1057,8 @@ Put that job in <code class="docutils literal notranslate"><span class="pre">ci-
 Build each image from that persona’s rendered project,
 <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code>: the same render <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>
 builds as <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;:local</span></code>.</p>
-<p>Registry mode also pulls the auth sidecar from
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> when login is on; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
+<p>The pipeline pushes the auth sidecar under its name too, unless
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> pins a published one; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a registry-mode config with no <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> (code
 <code class="docutils literal notranslate"><span class="pre">web_terminals.registry_mode_missing_url</span></code>).
