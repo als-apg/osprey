@@ -53,8 +53,11 @@ Three arms
        controls server dropped the connector or replaced its connector-host
        child because of one of those failures, the error lists each action
        under ``details.recovery``, as an ``action`` word and its sentence, and
-       repeats the sentence in the message.
-   * - The request refused as a whole
+       repeats the sentence in the message. A write batch in which no value
+       reached any channel is refused the same way, with its rows under
+       ``details.results``: as ``write_refused`` when every write was
+       refused, and as ``nothing_answered`` when any was sent and not taken.
+   * - A request refused before any item was tried
      - The refusal's own error type (``validation_error``, ``write_refused``,
        ...), with no map: nothing was tried, so nothing is missing.
 
@@ -92,8 +95,9 @@ Two exceptions
 ``channel_write``
    A write answers with one row per channel, and each row's ``outcome`` word
    says what happened to that write (see :doc:`connectors`). A write's map is
-   its rows. It has no ``missing`` key: a written but unconfirmed channel was
-   answered, and a second map would state the refused and failed rows twice.
+   its rows, and a refusal carries them under ``details.results``. It has no
+   ``missing`` key: a written but unconfirmed channel was answered, and a
+   second map would state the refused and failed rows twice.
 
 ``archiver_read``
    A channel with no points in the requested window is answered, not missing:
