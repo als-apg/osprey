@@ -7,13 +7,20 @@ rendered: each channel's role, ``writable``, ``value_range`` (set only when its
 limits record states both ends), its seed, and the bindings of the served
 models. A facility change therefore moves a lane's channel with it instead of
 leaving the lane holding a stale address.
+
+A selection is scoped by a stated reference -- a model, a limits record, a
+role -- and address or document order only breaks ties inside that scope.
 """
 
 from __future__ import annotations
 
+import json
+import re
+from collections import Counter
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.view import SimulatorView
@@ -80,6 +87,23 @@ def monitor_addresses(
     )
 
 
+def monitors_in_plane(
+    view: SimulatorView, plane: str, count: int, *, model: str
+) -> tuple[str, ...]:
+    """The first ``count`` monitor readings of ``model`` in ``plane``, in address order.
+
+    A lane that names a run of beam-position readings asks for them here, so
+    the run moves with the facility instead of spelling device numbers.
+    """
+    found = sorted(monitor_addresses(view, plane=plane, model=model))
+    if len(found) < count:
+        raise AssertionError(
+            f"the view serves {len(found)} monitor(s) of model {model!r} in plane "
+            f"{plane!r}; the lane needs {count}"
+        )
+    return tuple(found[:count])
+
+
 def claimed_addresses(view: SimulatorView) -> frozenset[str]:
     """Every corrector setpoint and monitor reading the view's bindings serve.
 
@@ -107,6 +131,21 @@ def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
             assert binding is not None, f"corrector {address} has no served binding"
             return address, readback, binding.model
     return None
+
+
+def lane_model(view: SimulatorView) -> str:
+    """The model every lane works on: the model of :func:`bounded_corrector_of`.
+
+    The facility's own limits choose it -- the model whose corrector a limits
+    record bounds at both ends -- so a lane's devices and readings come from
+    the part of the machine a write can be sent to.
+    """
+    found = bounded_corrector_of(view)
+    if found is None:
+        raise AssertionError(
+            "no corrector of the served view has a limits record with both min_value and max_value"
+        )
+    return found[2]
 
 
 def bounded_corrector(repo: Path) -> tuple[str, str, str]:
@@ -154,3 +193,171 @@ def bounded_setpoint(view: SimulatorView) -> tuple[str, float]:
             low, high = channel.value_range
             return address, (float(low) + float(high)) / 2
     raise AssertionError("the view has no writable setpoint with a band at both ends")
+
+
+def facility_view(tree: Path, root: Path) -> SimulatorView:
+    """The simulator view a facility ``tree`` renders, rendered into ``root``.
+
+    For a lane that must name a channel in a file it writes before ``osprey
+    build`` runs: it renders the repo's own ``data/facility/`` the way the
+    build does and asks the view, and checks the build agrees afterwards.
+    """
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import render_facility_outputs
+    from osprey_connectors.simulation.view import SimulatorView
+
+    render_facility_outputs(root, build_facility(tree, project_name=tree.name), {}, tree)
+    return SimulatorView.of_render(root)
+
+
+def repo_facility(repo: Path) -> dict[str, Any]:
+    """The facility file the build rendered into ``repo``."""
+    from osprey.facility import FACILITY_FILE
+    from osprey_connectors.workspace import rendered_config_path
+
+    path = rendered_config_path(Path(repo)).parent / FACILITY_FILE
+    if not path.is_file():
+        raise AssertionError(f"the build rendered no facility file at {path}")
+    document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return document
+
+
+@dataclass(frozen=True)
+class ProbeDevice:
+    """One device of the facility file and the facts a graph lane grades against.
+
+    Every field is read from the facility file, which is upstream of the graph
+    the lane's agent queries: a rubric built from these figures cannot be
+    satisfied by a graph that is wrong.
+    """
+
+    device_id: str
+    name: str
+    label: str
+    klass: str
+    class_label: str
+    model: str
+    place: str
+    section: str
+    top_place: str
+    top_place_name: str
+    s: float
+    ordinal_in_place: int
+    ordinal_in_model: int
+    bindings: tuple[str, ...]
+    setpoint: str
+    uri: str
+    previous: tuple[str, float, str] | None
+    next: tuple[str, float, str] | None
+    class_count_in_model: int
+    class_count_in_facility: int
+    class_per_place: int
+    class_span: tuple[float, float]
+    class_spacing: tuple[float, float]
+
+
+def class_label_of(klass: str) -> str:
+    """A class name in words: ``BeamPositionMonitor`` -> ``beam position monitor``."""
+    return " ".join(word.lower() for word in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+", klass))
+
+
+def _channels_on(document: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Each device id's channel records, by the device their ``on`` names."""
+    on: dict[str, list[dict[str, Any]]] = {}
+    for channel in document["channels"]:
+        device = (channel.get("on") or {}).get("device")
+        if device is not None:
+            on.setdefault(device, []).append(channel)
+    return on
+
+
+def _qualifying(document: dict[str, Any], model: str) -> list[dict[str, Any]]:
+    """The devices of ``model`` a graph lane can probe, in document order.
+
+    A device qualifies when it is placed and positioned, no other device of
+    its model shares its position, and at least three channels sit on it, of
+    which exactly one is a setpoint.
+    """
+    on = _channels_on(document)
+    placed = [
+        device
+        for device in document["devices"]
+        if device.get("model") == model and "s" in device and "place" in device
+    ]
+    positions = Counter(device["s"] for device in placed)
+    return [
+        device
+        for device in placed
+        if positions[device["s"]] == 1
+        and len(on.get(device["id"], ())) >= 3
+        and sum(c.get("role") == "setpoint" for c in on[device["id"]]) == 1
+    ]
+
+
+def graph_probe_device(document: dict[str, Any], *, model: str) -> ProbeDevice:
+    """The device of ``model`` a graph lane asks about, with its facts.
+
+    Among the qualifying devices of ``model`` (see :func:`_qualifying`), the
+    class with the fewest devices in that model is taken -- ties broken by
+    class name -- and of that class the qualifying device first by ``s``.
+    """
+    from osprey.facility.views.graph_iri import iri
+
+    qualifying = _qualifying(document, model)
+    if not qualifying:
+        raise AssertionError(
+            f"no device of model {model!r} in the facility file is positioned, "
+            "unshared in position, and carries at least three channels with exactly "
+            "one setpoint"
+        )
+    in_model = sorted(
+        (d for d in document["devices"] if d.get("model") == model and "s" in d),
+        key=lambda d: d["s"],
+    )
+    per_class = Counter(d["class"] for d in in_model)
+    klass = min({d["class"] for d in qualifying}, key=lambda c: (per_class[c], c))
+    device = min((d for d in qualifying if d["class"] == klass), key=lambda d: d["s"])
+
+    channels = _channels_on(document)[device["id"]]
+    setpoint = next(c["id"] for c in channels if c.get("role") == "setpoint")
+    top_place = device["place"].split("/")[0]
+    places = {place["id"]: place for place in document.get("places", ())}
+    top_names = places.get(top_place, {}).get("names") or [top_place]
+
+    def neighbour(candidates: list[dict[str, Any]]) -> tuple[str, float, str] | None:
+        if not candidates:
+            return None
+        other = candidates[0]
+        return (other["names"][0], other["s"], other["class"])
+
+    below = [d for d in reversed(in_model) if d["s"] < device["s"]]
+    above = [d for d in in_model if d["s"] > device["s"]]
+    same_class = [d["s"] for d in in_model if d["class"] == klass]
+    gaps = [b - a for a, b in zip(same_class, same_class[1:], strict=False)]
+    per_place = Counter(d["place"] for d in in_model if d["class"] == klass)
+
+    return ProbeDevice(
+        device_id=device["id"],
+        name=device["names"][0],
+        label=device["label"],
+        klass=klass,
+        class_label=class_label_of(klass),
+        model=model,
+        place=device["place"],
+        section=device["place"].split("/")[-1],
+        top_place=top_place,
+        top_place_name=top_names[0],
+        s=device["s"],
+        ordinal_in_place=device["ordinalInPlace"],
+        ordinal_in_model=device["ordinalInModel"],
+        bindings=tuple(sorted(c["id"] for c in channels)),
+        setpoint=setpoint,
+        uri=iri(document["identity"]["code"], "device", device["id"]),
+        previous=neighbour(below),
+        next=neighbour(above),
+        class_count_in_model=per_class[klass],
+        class_count_in_facility=sum(d.get("class") == klass for d in document["devices"]),
+        class_per_place=Counter(per_place.values()).most_common(1)[0][0],
+        class_span=(same_class[0], same_class[-1]),
+        class_spacing=(min(gaps), max(gaps)) if gaps else (0.0, 0.0),
+    )
