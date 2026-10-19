@@ -89,6 +89,7 @@ dependencies = [
     # The image render worker decodes and re-encodes logbook attachments with
     # Pillow; matplotlib pulls it in only transitively, so declare it here.
     "pillow>=12.3",
+    "psutil>=7.2",  # The web terminal reads the process table with it
     # Networking and protocols
     "aiohttp>=3.14.3",  # Required by litellm (ConnectionTimeoutError needs >=3.10)
     "websocket-client>=1.7.0",
