@@ -43,7 +43,8 @@ deployment, which is why none of them is a config key.
      - What it does
    * - ``CONTAINER_RUNTIME``
      - ``docker`` or ``podman``, overriding the runtime recorded for this
-       deployment for one invocation. See
+       deployment for one invocation. The repository's virtual-accelerator
+       developer scripts read it too. See
        :doc:`/how-to/deploy-project/index`.
    * - ``OSPREY_IMAGE_REGISTRY``, ``OSPREY_IMAGE_TAG``
      - The two image axes for one build, outranking ``images.registry`` /
