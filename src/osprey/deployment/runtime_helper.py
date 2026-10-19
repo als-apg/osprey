@@ -10,13 +10,24 @@ Examples:
 
         cmd = get_runtime_command(config)
         # Returns: ['docker', 'compose'] or ['podman', 'compose']
+
+    From a shell, the runtime ``osprey up`` would drive::
+
+        RUNTIME="$(python -m osprey.deployment.runtime_helper --build)" || exit 1
+
+    It prints ``docker`` or ``podman`` and nothing else on stdout. It reads
+    ``CONTAINER_RUNTIME`` and auto-detects when that is unset; ``--build`` also
+    refuses a host that cannot build OSPREY's images. A refusal prints the
+    reason on stderr and exits non-zero.
 """
 
+import argparse
 import hashlib
 import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 import threading
 from collections.abc import Mapping, Sequence
@@ -25,7 +36,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.logger import get_logger
+from osprey_connectors.logger import configure_logging, get_logger
 
 logger = get_logger("deployment.runtime")
 
@@ -1304,3 +1315,48 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
         "If this host's Compose builds with BuildKit without the plugin, set "
         "DOCKER_BUILDKIT=1 to skip this check. podman needs nothing extra."
     )
+
+
+class _UsageError(Exception):
+    """An argument error, reported as one stderr line instead of argparse's usage block."""
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:  # type: ignore[override]
+        raise _UsageError(message)
+
+
+def main(argv: list[str]) -> int:
+    """Print the container runtime OSPREY drives on this host: ``[--build]``.
+
+    Stdout carries exactly ``docker`` or ``podman`` and a newline, and the exit
+    is 0. The decision is :func:`get_runtime_command`'s. With ``--build`` the
+    host must also be able to build OSPREY's images (:func:`buildkit_missing`).
+    A refusal leaves stdout empty, prints its reason on stderr and exits 1; an
+    argument error exits 2. There is no ``--help``: an exit 0 must always carry
+    a runtime.
+    """
+    configure_logging()
+    parser = _Parser(prog="python -m osprey.deployment.runtime_helper", add_help=False)
+    parser.add_argument("--build", action="store_true")
+    try:
+        args = parser.parse_args(argv)
+    except _UsageError as exc:
+        sys.stderr.write(f"usage: python -m osprey.deployment.runtime_helper [--build]: {exc}\n")
+        return 2
+    try:
+        runtime = get_runtime_command(None)[0]
+    except RuntimeError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    if args.build:
+        refusal = buildkit_missing(runtime, os.environ)
+        if refusal is not None:
+            sys.stderr.write(f"{refusal}\n")
+            return 1
+    sys.stdout.write(f"{runtime}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
