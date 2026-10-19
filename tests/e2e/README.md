@@ -104,6 +104,15 @@ it. Parallel board cells take turns on a host-wide lock, and the images are rebu
 checked-out revision. Expect ~40 minutes cold and ~5 warm; `E2E_REUSE_IMAGES=1` keeps the
 images between local runs.
 
+## Choosing channels
+
+A lane asks `tests/e2e/_facility_select.py` for a kind of channel or device (a
+seeded reading, a bounded setpoint, the corrector the limits file bounds, a run
+of monitors in one plane, the device a graph lane probes) and never types an
+address. Every selection is scoped to the lane's model, the model of that
+bounded corrector. A lane that builds its own stand-in world names each address
+once, in that fixture, and asserts against it.
+
 ## Test Categories
 
 ### Tutorial Workflows (`test_tutorials.py`)
