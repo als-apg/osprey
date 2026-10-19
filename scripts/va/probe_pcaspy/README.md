@@ -149,4 +149,4 @@ path that local arm64 development depends on.
 Knobs: `PCASPY_VERSION`, `PROBE_PLATFORM` (e.g. `linux/amd64`), `PROBE_CA_PORT`
 (default 5164 — **not** 5064, which belongs to the running virtual accelerator),
 `PROBE_KEEP_CONTAINER=1` to leave the container up for the separate client
-coexistence check, `OSPREY_VA_RUNTIME` to force docker or podman.
+coexistence check, `CONTAINER_RUNTIME` to force docker or podman.

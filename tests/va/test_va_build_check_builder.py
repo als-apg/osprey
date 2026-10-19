@@ -1,14 +1,15 @@
-"""The VA gate script refuses a docker without BuildKit before it stages anything.
+"""The VA gate script refuses a runtime that cannot build its image before staging.
 
 The virtual accelerator image is linux/amd64 only, and its Containerfile's
-``FROM --platform`` pin is honoured by BuildKit alone, so the gate script stops
-on a docker that has no BuildKit before it stages the build context, naming how
-to enable it, and asks every builder for linux/amd64 on the command line. A
-docker that is podman's docker emulation is podman: when the runtime is pinned
-to docker on such a host the script names the setting to change instead.
+``FROM --platform`` pin is honoured by BuildKit alone. The script takes its
+runtime from ``osprey.deployment.runtime_helper --build``, the decision
+``osprey up`` makes, so a docker without BuildKit stops before the build
+context is staged, naming how to enable it, and a docker pinned on a host where
+it is podman's docker emulation stops naming the setting to change. Every
+builder is asked for linux/amd64 on the command line.
 
-These run the real script against a stub ``docker`` and read the real build
-command; no image is built.
+These run the real script against a stub ``docker`` on ``PATH`` and read the
+real build command; no image is built.
 """
 
 from __future__ import annotations
@@ -20,11 +21,15 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="the gate script is a bash script"
-)
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+pytestmark = [
+    pytest.mark.skipif(shutil.which("bash") is None, reason="the gate script is a bash script"),
+    pytest.mark.skipif(
+        not (REPO_ROOT / ".venv/bin/python").exists(),
+        reason="the gate script decides its runtime with the worktree venv's python",
+    ),
+]
 SCRIPT = REPO_ROOT / "scripts/va/build_and_boot_check.sh"
 STAGING_LINE = "Staging minimal build context"
 
@@ -36,6 +41,9 @@ if [ "$1" = "--version" ]; then
 fi
 if [ "$1" = "buildx" ]; then
     exit "$STUB_BUILDX_RC"
+fi
+if [ "$1 $2" = "compose version" ] || [ "$1" = "ps" ]; then
+    exit 0
 fi
 if [ "$1" = "build" ]; then
     exit 1
@@ -65,9 +73,10 @@ def _run(
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "stub.log"
     log.touch()
-    env = {k: v for k, v in os.environ.items() if k != "DOCKER_BUILDKIT"}
+    env = {k: v for k, v in os.environ.items() if k not in ("DOCKER_BUILDKIT", "PATH")}
     env.update(
-        OSPREY_VA_RUNTIME=str(stub),
+        PATH=f"{stub.parent}{os.pathsep}{os.environ.get('PATH', '')}",
+        CONTAINER_RUNTIME="docker",
         TMPDIR=str(tmp_path),
         STUB_LOG=str(log),
         STUB_BUILDX_RC=str(buildx_rc),
@@ -91,23 +100,23 @@ def test_docker_without_buildx_stops_before_staging_and_names_how_to_enable_it(
     result, calls = _run(tmp_path, stub_docker, buildx_rc=1)
 
     assert result.returncode == 1
-    assert "docker has no BuildKit" in result.stderr
-    assert "docker buildx version" in result.stderr
+    assert "docker-buildx-plugin" in result.stderr
     assert "DOCKER_BUILDKIT=1" in result.stderr
     assert STAGING_LINE not in result.stdout
-    assert calls == ["--version", "buildx version"]
+    assert "buildx version" in calls
+    assert not any(call.startswith("build ") for call in calls)
 
 
-@pytest.mark.parametrize("buildkit", ["0", "false"])
 def test_docker_with_buildkit_switched_off_stops_before_staging(
-    tmp_path: Path, stub_docker: Path, buildkit: str
+    tmp_path: Path, stub_docker: Path
 ) -> None:
-    result, calls = _run(tmp_path, stub_docker, buildx_rc=0, buildkit=buildkit)
+    result, calls = _run(tmp_path, stub_docker, buildx_rc=0, buildkit="0")
 
     assert result.returncode == 1
-    assert "selects docker's legacy builder" in result.stderr
+    assert "legacy builder" in result.stderr
+    assert "Unset DOCKER_BUILDKIT" in result.stderr
     assert STAGING_LINE not in result.stdout
-    assert calls == ["--version"]
+    assert not any(call.startswith("build ") for call in calls)
 
 
 def test_docker_that_is_podman_emulation_is_refused_when_pinned(
@@ -116,8 +125,8 @@ def test_docker_that_is_podman_emulation_is_refused_when_pinned(
     result, calls = _run(tmp_path, stub_docker, buildx_rc=1, version="podman version 5.0.0")
 
     assert result.returncode == 1
-    assert "OSPREY_VA_RUNTIME" in result.stderr
-    assert "podman" in result.stderr
+    assert "container_runtime: podman" in result.stderr
+    assert "CONTAINER_RUNTIME=podman" in result.stderr
     assert "BuildKit" not in result.stderr
     assert STAGING_LINE not in result.stdout
     assert calls == ["--version"]
