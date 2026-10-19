@@ -52,6 +52,19 @@ on:
         required: false
         type: boolean
         default: false
+      push_acceptance_images:
+        description: >-
+          Publish the deployed-trajectory project's images instead of running
+          anything else: at the dispatched sha, render the project
+          tests/e2e/test_trajectory_deploy.py deploys, build every image it
+          runs (VA, project/trajectory, persona and auth sidecar of the web
+          tier, archiver), and push each as a private package to
+          ghcr.io/als-apg under its own name, tagged with the sha. Every
+          other job stands down on this dispatch. Run with:
+          gh workflow run ci.yml --ref <branch> -f push_acceptance_images=true
+        required: false
+        type: boolean
+        default: false
 
 # Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
@@ -152,6 +165,7 @@ env:
 
 jobs:
   test:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     # Without a bound, a single wedged xdist worker holds the lane at 99% for
@@ -556,6 +570,7 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   dependency-floor:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Archiver suite at the declared dependency floor
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -610,6 +625,7 @@ jobs:
           -v --tb=short
 
   lint:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -739,6 +755,7 @@ jobs:
       run: uv run python scripts/mypy_gate.py
 
   docs:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Documentation Build (Check Only)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -788,6 +805,7 @@ jobs:
         retention-days: 7
 
   package:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Package Build (framework + lean connectors wheel)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -884,6 +902,7 @@ jobs:
         "
 
   static-checks:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     # Matches the convention the other light lanes use. None of this job's work
@@ -1076,6 +1095,7 @@ jobs:
         engine: podman
 
   visual-theming:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Behavioral + Visual Theming (Playwright, design system)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1199,6 +1219,7 @@ jobs:
         commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   frontend-js:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Frontend JS (typecheck + lint + vitest)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1238,6 +1259,7 @@ jobs:
       run: npm run test:js
 
   plugin-smoke:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Plugin marketplace smoke (install the osprey plugin)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1300,6 +1322,7 @@ jobs:
         for s in contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1356,7 +1379,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     strategy:
       fail-fast: false
       matrix:
@@ -1469,7 +1492,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
+      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks && !inputs.push_acceptance_images)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
     # the channel-finder benchmarks live on the benchmark dispatch); a run past
@@ -1937,7 +1960,7 @@ jobs:
     # job log. Deliberately NOT in all-checks-passed's needs — a
     # dispatch-gated job has no result on PR runs. This job is the intended
     # home for future too-expensive-per-PR e2e lanes as well.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks && !inputs.push_acceptance_images
     timeout-minutes: 30
 
     steps:
@@ -2044,7 +2067,7 @@ jobs:
     # marker: every attempt is scored. Deliberately NOT in
     # all-checks-passed's needs — a dispatch-gated job has no result on PR
     # runs.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks && !inputs.push_acceptance_images
     timeout-minutes: 30
 
     steps:
@@ -2116,7 +2139,7 @@ jobs:
       (github.event_name == 'pull_request'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]')
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2210,7 +2233,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2307,7 +2330,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2399,7 +2422,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # Build + deploy + one real agent turn healthily fits well under 20min
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
@@ -2606,6 +2629,7 @@ jobs:
 
 
   trajectory-closed-loop:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Trajectory closed loop (in-process service threads the errored example ring)
     runs-on: ubuntu-latest
     # No `if:` on the job or on any step that names the module: the unit lane
@@ -2765,6 +2789,235 @@ jobs:
     - name: Clean up any stranded trajectory deploy resources
       if: always()
       run: |
+        docker rm -f trajectory-proj-web-alice || true
+        docker rm -f trajectory-proj-nginx || true
+        docker compose -p trajectory-proj down || true
+        docker volume ls -q --filter "name=^trajectory-proj_" \
+          | xargs -r docker volume rm -f || true
+
+
+  # The one image-publishing job. A dispatch with `push_acceptance_images`
+  # runs this and nothing else: every other job's `if:` carries
+  # `!inputs.push_acceptance_images`, and tests/deployment/test_ci_workflow_wiring.py
+  # evaluates every job's condition on that dispatch. It lives here rather
+  # than in a dispatch-only workflow file because GitHub dispatches only
+  # workflows that exist on the default branch, and this one has to run from
+  # a feature branch.
+  #
+  # What it publishes is what the trajectory deploy lane runs: the same
+  # project (the control-assistant preset plus that module's post-init edits),
+  # rendered with the image axes pointed at ghcr and the sha, so the VA and
+  # project images are named for the registry as they are built. The persona
+  # and auth-sidecar images are tagged `<name>:local` by the web tier whatever
+  # the axes say, so they are re-tagged onto the same registry and tag here.
+  #
+  # Built by `osprey up -d --dev`, then taken down: no render-only build mode
+  # exists, and the web tier's compose document -- the one naming the persona
+  # and auth images -- is written by `up` itself. Not a need of
+  # all-checks-passed: that gate stands down on this dispatch too.
+  push-acceptance-images:
+    name: Publish acceptance images (trajectory deploy project to ghcr, tagged by sha)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.push_acceptance_images
+    # packages: write is not in the default token; contents: read is restated
+    # because a job-level block replaces the default rather than extending it.
+    permissions:
+      contents: read
+      packages: write
+    # Cold builds of the VA, the project image and the persona image, as in
+    # trajectory-deploy-e2e, then the pushes.
+    timeout-minutes: 90
+    env:
+      # Read by the render (compose_generator.resolve_image_axes): every
+      # OSPREY-built image the project names becomes
+      # ghcr.io/als-apg/<name>:<sha>.
+      OSPREY_IMAGE_REGISTRY: ghcr.io/als-apg
+      OSPREY_IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Log in to ghcr
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # The trajectory deploy module's own project, built as its fixture builds
+    # it: the same init edits, its `_shape_repo` and `_author_corrector_limits`
+    # post-init edits, the same `osprey build`, and the same placeholder model
+    # key (the terminal's agent never contacts a model).
+    - name: Render the trajectory deploy project
+      run: |
+        uv run python - <<'PY'
+        import os
+        import subprocess
+        from pathlib import Path
+
+        from tests.e2e import _orm_stack
+        from tests.e2e import test_trajectory_deploy as lane
+
+        base = Path(os.environ["RUNNER_TEMP"]) / "acceptance-images"
+        base.mkdir(parents=True, exist_ok=True)
+        repo = base / lane.PROJECT_NAME
+        osprey = str(_orm_stack.find_osprey_console_script())
+
+        args = _orm_stack.init_args(
+            lane.PROJECT_NAME,
+            output_dir=base,
+            bridge_port=lane.BRIDGE_PORT,
+            port_base=lane.PORT_BASE,
+            extra_config={
+                "config": {
+                    "services.postgresql.port_host": lane.POSTGRES_PORT,
+                    "services.telemetry_gateway.port": lane.TELEMETRY_GATEWAY_PORT,
+                    "services.telemetry_store.port": lane.TELEMETRY_STORE_PORT,
+                    "modules.web_terminals.enabled": True,
+                    "modules.web_terminals.image_source": "local",
+                    "modules.web_terminals.auth.method": "token",
+                    "modules.web_terminals.default_persona": lane.PERSONA,
+                    "deploy.fqdn": "127.0.0.1",
+                    **lane._timing_config(),
+                },
+                "trajectory": {"network": "host"},
+            },
+        )
+        subprocess.run([osprey, "init", *args], cwd=base, check=True)
+        lane._shape_repo(repo)
+        lane._author_corrector_limits(repo)
+        subprocess.run(
+            [osprey, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
+            cwd=base,
+            check=True,
+        )
+        _orm_stack.seed_repo_env(repo)
+        env_path = repo / ".env"
+        with env_path.open("a", encoding="utf-8") as handle:
+            handle.write(lane.PLACEHOLDER_MODEL_KEY_LINE)
+        os.chmod(env_path, 0o600)
+        print(f"rendered {repo}")
+        PY
+
+    - name: Build the project's images
+      # Step cap under the job cap so a hang fails this step and the cleanup
+      # below still runs.
+      timeout-minutes: 75
+      working-directory: ${{ runner.temp }}/acceptance-images/trajectory-proj
+      run: |
+        "$GITHUB_WORKSPACE/.venv/bin/osprey" up -d --dev
+
+    - name: Push every image the project runs
+      # Every image a container of this project runs, read off the host rather
+      # than restated: an OSPREY-built image the render names under the
+      # registry and sha is pushed as built, a `<project>...:local` one is
+      # re-tagged onto the registry and sha first, and an upstream pin
+      # (nginx, postgres, mongo, ...) is left alone. The images the
+      # acceptance stack cannot start without must all be among them.
+      run: |
+        uv run python - <<'PY'
+        import os
+        import subprocess
+        import sys
+
+        from tests.e2e import test_trajectory_deploy as lane
+
+        registry = os.environ["OSPREY_IMAGE_REGISTRY"].rstrip("/")
+        tag = os.environ["OSPREY_IMAGE_TAG"]
+        project = lane.PROJECT
+
+
+        def ours(name):
+            return name == project or name.startswith(f"{project}-")
+
+
+        def docker(*args):
+            return subprocess.run(
+                ["docker", *args], check=True, capture_output=True, text=True
+            ).stdout
+
+
+        listing = docker("ps", "-a", "--format", "{{.Names}}\t{{.Image}}")
+        rows = (line.split("\t", 1) for line in listing.splitlines() if "\t" in line)
+        refs = sorted({image for name, image in rows if ours(name)})
+        if not refs:
+            sys.exit(f"::error::no container of {project} is on this host")
+
+        pushed = {}
+        for ref in refs:
+            repository, _, ref_tag = ref.rpartition(":")
+            if repository.startswith(f"{registry}/"):
+                name = repository.removeprefix(f"{registry}/")
+                if ref_tag != tag:
+                    sys.exit(f"::error::{ref} is under {registry} but not tagged {tag}")
+                target = ref
+            elif ref_tag == "local" and "/" not in repository and ours(repository):
+                name = repository
+                target = f"{registry}/{name}:{tag}"
+                docker("tag", ref, target)
+            else:
+                print(f"left alone (not built by this project): {ref}")
+                continue
+            subprocess.run(["docker", "push", target], check=True)
+            pushed[name] = target
+
+        required = {project, f"{project}-va", lane.PERSONA_PROJECT, f"{project}-auth"}
+        missing = sorted(required - pushed.keys())
+        if missing:
+            sys.exit(f"::error::no image pushed for {missing}; pushed {sorted(pushed)}")
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.write(f"### Acceptance images at `{tag}`\n\n")
+            summary.writelines(f"- `{pushed[name]}`\n" for name in sorted(pushed))
+        listed = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-images.txt")
+        with open(listed, "w", encoding="utf-8") as out:
+            out.writelines(f"{pushed[name]}\n" for name in sorted(pushed))
+        PY
+
+    - name: Verify every pushed image resolves in the registry
+      run: |
+        set -euo pipefail
+        while read -r image; do
+          docker buildx imagetools inspect "$image" > /dev/null
+          echo "resolves: $image"
+        done < "$RUNNER_TEMP/acceptance-images.txt"
+
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: push-acceptance-images
+        engine: docker
+
+    # Exact-named teardown, as in trajectory-deploy-e2e: never a prune, an
+    # -a/--all sweep or a wildcard removal. The pushed images stay on the
+    # runner, which is discarded with them.
+    - name: Clean up the build stack
+      if: always()
+      run: |
+        repo="$RUNNER_TEMP/acceptance-images/trajectory-proj"
+        if [ -d "$repo" ]; then
+          (cd "$repo" && "$GITHUB_WORKSPACE/.venv/bin/osprey" down) || true
+        fi
         docker rm -f trajectory-proj-web-alice || true
         docker rm -f trajectory-proj-nginx || true
         docker compose -p trajectory-proj down || true
@@ -3035,7 +3288,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # One pytest invocation covers the whole module: the offline floor/judge
     # checks plus the two live agent runs, which share a single module-scoped
     # deploy of the VA/bridge/queue stack.
@@ -3511,7 +3764,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so `contents: read` is restated alongside the
     # `packages: read` this lane actually needs: the Nextcloud Talk fixture is a
@@ -3635,7 +3888,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so the one scope this lane needs is stated in full.
     # Unlike nextcloud-talk-bridge-e2e there is no `packages: read` here: the
@@ -3793,6 +4046,7 @@ jobs:
 
 
   teams-bridge-e2e:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Microsoft Teams Bridge E2E (loopback fakes, no container)
     runs-on: ubuntu-latest
     # Deliberately no `if:` gate, unlike the two bridge lanes above. Their gates
@@ -5705,7 +5959,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # Composed from measured pieces, not guessed, and not re-measured by
     # re-running the LLM gate. All three figures come off the same Apple
     # Silicon host, where both images are pinned linux/amd64 and therefore
@@ -6308,7 +6562,7 @@ jobs:
     # the same head sha. Operational rule: add the `full-ci` label before
     # pushing -- a label added right after a push starts a second run that
     # cancels the first.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !inputs.push_acceptance_images }}
 
     steps:
     - name: Check all jobs status

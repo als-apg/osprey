@@ -352,6 +352,26 @@ def _find_named_step(wf: dict[str, Any], job_name: str, step_name: str) -> dict[
     raise AssertionError(f"job '{job_name}' has no step named '{step_name}'")
 
 
+#: The dispatch input that publishes the acceptance images, and the one job
+#: such a dispatch runs.
+IMAGE_PUSH_INPUT = "push_acceptance_images"
+IMAGE_PUSH_JOB = "push-acceptance-images"
+#: The whole condition of a job that runs on every event the workflow takes.
+#: The input exists only on a dispatch, so on a push or a pull request the
+#: expression reads ``!null`` and the job runs; the one run it skips is the
+#: image-publishing dispatch, which runs nothing but ``IMAGE_PUSH_JOB``.
+IMAGE_PUSH_STAND_DOWN = "${{ !inputs.push_acceptance_images }}"
+
+
+def _runs_on_every_event(job: dict[str, Any]) -> bool:
+    """Whether a job carries no condition beyond standing down for the
+    image-publishing dispatch -- the one condition that never narrows the
+    events a test runs on, because that dispatch runs no test at all."""
+    if "if" not in job:
+        return True
+    return "".join(str(job["if"]).split()) == "".join(IMAGE_PUSH_STAND_DOWN.split())
+
+
 # ---------------------------------------------------------------------------
 # (a) tiled-roundtrip-e2e job exists
 # ---------------------------------------------------------------------------
@@ -543,9 +563,13 @@ def _gate_stands_down_only_when_cancelled(wf: dict[str, Any]) -> bool:
     """The gate runs on every run that was not cancelled. `always()` would also
     run it in a superseded run, where every need reads `cancelled` and the gate
     reports a failure nobody can act on; `success()` (the default) would skip
-    it when a need fails, and a skipped required check counts as passing."""
+    it when a need fails, and a skipped required check counts as passing.
+
+    The one run it sits out is the image-publishing dispatch, where every job
+    it needs stands down too: there it would read every always-on lane as
+    `skipped` and fail a run that was asked to test nothing."""
     condition = str(_jobs(wf)[GATE_JOB].get("if", ""))
-    return "".join(condition.split()) == "${{!cancelled()}}"
+    return "".join(condition.split()) == f"${{{{!cancelled()&&!inputs.{IMAGE_PUSH_INPUT}}}}}"
 
 
 def test_gate_job_stands_down_only_when_the_run_is_cancelled(workflow: dict[str, Any]) -> None:
@@ -562,6 +586,13 @@ def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_reverts_t
 def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_uses_success() -> None:
     mutated = copy.deepcopy(_load_workflow())
     _jobs(mutated)[GATE_JOB]["if"] = "${{ success() }}"
+    with pytest.raises(AssertionError):
+        assert _gate_stands_down_only_when_cancelled(mutated)
+
+
+def test_gate_job_stands_down_only_when_the_run_is_cancelled__mutation_runs_on_image_push() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["if"] = "${{ !cancelled() }}"
     with pytest.raises(AssertionError):
         assert _gate_stands_down_only_when_cancelled(mutated)
 
@@ -1191,7 +1222,9 @@ def _unconditional_hosts(wf: dict[str, Any], path: str) -> list[str]:
 
     Both gates are read, because either alone reinstates the hole the ignore would
     otherwise open: a job with an ``if:`` runs on a subset of the events the unit lane
-    runs on, and so does an unconditional job whose step is gated on a matrix cell.
+    runs on, and so does an unconditional job whose step is gated on a matrix cell. The
+    image-publishing stand-down is the one job condition that is not a gate here: the
+    unit lane carries the same one, and the dispatch it skips runs no test anywhere.
 
     ``--ignore=`` arguments are stripped from a step's text before the search. A lane
     that declines to run a file names it exactly as literally as one that runs it, and
@@ -1200,7 +1233,7 @@ def _unconditional_hosts(wf: dict[str, Any], path: str) -> list[str]:
     """
     hosts = []
     for name, job in _jobs(wf).items():
-        if name == UNIT_TEST_JOB or "if" in job:
+        if name == UNIT_TEST_JOB or not _runs_on_every_event(job):
             continue
         for step in job.get("steps", []):
             if "if" in step:
@@ -1274,7 +1307,7 @@ def test_every_ignored_file_has_a_host__mutation_gates_the_host_step() -> None:
     """A gate on the step is the same hole as a gate on the job: the file is
     read on a subset of the events the unit lane would have read it on."""
     mutated = copy.deepcopy(_load_workflow())
-    assert "if" not in _jobs(mutated)[BOOT_SMOKE_JOB], (
+    assert _runs_on_every_event(_jobs(mutated)[BOOT_SMOKE_JOB]), (
         f"{BOOT_SMOKE_JOB} already carries an `if:` — mutation is stale"
     )
     _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)["if"] = (
@@ -3438,7 +3471,7 @@ def test_teams_bridge_job_runs_on_every_pull_request(workflow: dict[str, Any]) -
     the lane would simply stop running on most PRs while reporting success as a
     skip, which is the failure mode the gated lanes accept in exchange for the
     money they save and this one has no reason to."""
-    assert "if" not in _jobs(workflow)[TEAMS_JOB], (
+    assert _runs_on_every_event(_jobs(workflow)[TEAMS_JOB]), (
         f"'{TEAMS_JOB}' declares an `if:` gate: {_jobs(workflow)[TEAMS_JOB].get('if')!r} — "
         f"it spends no model tokens and pulls no image, so it runs unconditionally"
     )
@@ -4160,7 +4193,7 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
     three turns the browser proof off at exactly the moment a reviewer is
     reading a green check."""
     job = _jobs(workflow)[BROWSER_JOB]
-    assert "if" not in job, f"the '{BROWSER_JOB}' lane carries a job-level condition"
+    assert _runs_on_every_event(job), f"the '{BROWSER_JOB}' lane carries a job-level condition"
     filters = [
         step.get("name")
         for step in job["steps"]
@@ -6299,7 +6332,7 @@ def test_parse_only_step_lives_in_a_fast_job(workflow: dict[str, Any]) -> None:
     on pushes, schedules and fork PRs alike.
     """
     assert PARSE_ONLY_STEP in _step_names(workflow, PARSE_ONLY_JOB)
-    assert "if" not in _jobs(workflow)[PARSE_ONLY_JOB], (
+    assert _runs_on_every_event(_jobs(workflow)[PARSE_ONLY_JOB]), (
         f"'{PARSE_ONLY_JOB}' has grown an if: — the parse step no longer runs unconditionally"
     )
 
@@ -6778,11 +6811,13 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: reason: ``channel-finder-benchmarks`` is a manually dispatched quality score
 #: (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``),
 #: ``tier2-model-benchmark`` is a manually dispatched model benchmark (pinned
-#: by ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), and the gate
-#: cannot depend on itself. Anything else that is not in
+#: by ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``),
+#: ``push-acceptance-images`` publishes images on a dispatch where the gate
+#: itself stands down (pinned by the image-publishing section below), and the
+#: gate cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
-JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, GATE_JOB})
+JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, IMAGE_PUSH_JOB, GATE_JOB})
 
 
 def test_all_checks_passed_needs_privilege_split(workflow: dict[str, Any]) -> None:
@@ -10005,7 +10040,9 @@ def test_cli_tool_inventory_check_runs_on_every_push(workflow: dict[str, Any]) -
     assert "scripts/cli_tool_inventory.py --check" in step.get("run", ""), (
         f"'{INVENTORY_STEP}' must run the inventory check"
     )
-    assert "if" not in _jobs(workflow)[INVENTORY_JOB], f"'{INVENTORY_JOB}' must carry no `if:`"
+    assert _runs_on_every_event(_jobs(workflow)[INVENTORY_JOB]), (
+        f"'{INVENTORY_JOB}' must carry no `if:`"
+    )
 
 
 def test_cli_tool_inventory_check_runs_on_every_push__mutation_drops_the_step() -> None:
@@ -11203,3 +11240,480 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     )
     with pytest.raises(AssertionError, match="below a top-level test directory"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The image-publishing dispatch: one job runs, every other job stands down
+# ---------------------------------------------------------------------------
+
+#: What the image job pushes to, and the tag it pushes under.
+IMAGE_REGISTRY = "ghcr.io/als-apg"
+IMAGE_TAG_EXPR = "${{ github.sha }}"
+IMAGE_RENDER_STEP = "Render the trajectory deploy project"
+IMAGE_BUILD_STEP = "Build the project's images"
+IMAGE_PUSH_STEP = "Push every image the project runs"
+IMAGE_VERIFY_STEP = "Verify every pushed image resolves in the registry"
+#: The deployed-e2e module whose project the job publishes, and the post-init
+#: edits of that module the render must apply rather than restate.
+TRAJECTORY_DEPLOY_MODULE = "tests.e2e.test_trajectory_deploy"
+TRAJECTORY_POST_INIT_EDITS = ("_shape_repo", "_author_corrector_limits")
+#: The images the acceptance stack cannot start without, as the push step names
+#: them: project (trajectory), VA (and the archiver recorder that reuses it),
+#: persona and auth sidecar of the web tier.
+IMAGE_PUSH_REQUIRED = (
+    "project",
+    'f"{project}-va"',
+    "lane.PERSONA_PROJECT",
+    'f"{project}-auth"',
+)
+
+_EXPR_TOKEN_RE = re.compile(
+    r"\s*(?:(?P<op>&&|\|\||==|!=|!|\(|\)|,)|(?P<str>'(?:[^']|'')*')"
+    r"|(?P<num>\d+)|(?P<path>[A-Za-z_][\w\-]*(?:\.(?:[A-Za-z_][\w\-]*|\*))*))"
+)
+
+
+def _truthy(value: Any) -> bool:
+    return value not in (None, False, 0, "")
+
+
+def _expr_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        return left.casefold() == right.casefold()
+    return left == right
+
+
+def _lookup(context: dict[str, Any], path: str) -> Any:
+    node: Any = context
+    for part in path.split("."):
+        if part == "*":
+            if not isinstance(node, list):
+                return None
+            node = list(node)
+            continue
+        if isinstance(node, list):
+            node = [item.get(part) if isinstance(item, dict) else None for item in node]
+        elif isinstance(node, dict):
+            node = node.get(part)
+        else:
+            return None
+    return node
+
+
+def _evaluate_condition(condition: Any, context: dict[str, Any]) -> bool:
+    """A job's ``if:`` evaluated the way Actions evaluates it, for the subset of
+    the expression language ci.yml uses: ``!``, ``&&``, ``||``, ``==``/``!=``,
+    parentheses, string literals, context paths (``*`` included),
+    ``contains``/``startsWith`` and the status functions. A construct outside
+    that subset raises rather than guessing. A missing condition is ``true``."""
+    if condition is None:
+        return True
+    text = str(condition).strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    tokens: list[tuple[str, str]] = []
+    position = 0
+    while position < len(text):
+        match = _EXPR_TOKEN_RE.match(text, position)
+        if match is None or match.end() == position:
+            if text[position:].strip() == "":
+                break
+            raise ValueError(f"cannot tokenize {text[position:]!r} in {condition!r}")
+        kind = match.lastgroup
+        assert kind is not None
+        tokens.append((kind, match.group(kind)))
+        position = match.end()
+    index = 0
+
+    def peek() -> str | None:
+        return tokens[index][1] if index < len(tokens) else None
+
+    def take() -> tuple[str, str]:
+        nonlocal index
+        token = tokens[index]
+        index += 1
+        return token
+
+    def parse_or() -> Any:
+        value = parse_and()
+        while peek() == "||":
+            take()
+            right = parse_and()
+            value = value if _truthy(value) else right
+        return value
+
+    def parse_and() -> Any:
+        value = parse_unary()
+        while peek() == "&&":
+            take()
+            right = parse_unary()
+            value = right if _truthy(value) else value
+        return value
+
+    def parse_unary() -> Any:
+        if peek() == "!":
+            take()
+            return not _truthy(parse_unary())
+        left = parse_primary()
+        if peek() in ("==", "!="):
+            op = take()[1]
+            right = parse_primary()
+            return _expr_equal(left, right) == (op == "==")
+        return left
+
+    def parse_primary() -> Any:
+        kind, value = take()
+        if value == "(":
+            inner = parse_or()
+            assert take()[1] == ")", f"unbalanced parentheses in {condition!r}"
+            return inner
+        if kind == "str":
+            return value[1:-1].replace("''", "'")
+        if kind == "num":
+            return int(value)
+        if value in ("true", "false", "null"):
+            return {"true": True, "false": False, "null": None}[value]
+        if peek() == "(":
+            take()
+            args: list[Any] = []
+            while peek() != ")":
+                args.append(parse_or())
+                if peek() == ",":
+                    take()
+            take()
+            return call(value, args)
+        return _lookup(context, value)
+
+    def call(name: str, args: list[Any]) -> Any:
+        status = {"always": True, "success": True, "cancelled": False, "failure": False}
+        if name in status and not args:
+            return status[name]
+        if name == "contains":
+            haystack, needle = args
+            if isinstance(haystack, list):
+                return any(_expr_equal(item, needle) for item in haystack)
+            if isinstance(haystack, str) and isinstance(needle, str):
+                return needle.casefold() in haystack.casefold()
+            return False
+        if name == "startsWith":
+            subject, prefix = args
+            return (
+                isinstance(subject, str)
+                and isinstance(prefix, str)
+                and subject.casefold().startswith(prefix.casefold())
+            )
+        raise ValueError(f"unsupported function {name}() in {condition!r}")
+
+    result = parse_or()
+    assert index == len(tokens), f"trailing tokens in {condition!r}: {tokens[index:]}"
+    return _truthy(result)
+
+
+def _dispatch_context(**inputs: Any) -> dict[str, Any]:
+    return {
+        "github": {
+            "event_name": "workflow_dispatch",
+            "event": {"inputs": inputs},
+            "repository": "als-apg/osprey",
+            "actor": "maintainer",
+            "ref": "refs/heads/feature",
+        },
+        "inputs": inputs,
+    }
+
+
+def _pull_request_context(*labels: str) -> dict[str, Any]:
+    return {
+        "github": {
+            "event_name": "pull_request",
+            "event": {
+                "pull_request": {
+                    "head": {"repo": {"full_name": "als-apg/osprey"}},
+                    "base": {"ref": "main"},
+                    "labels": [{"name": label} for label in labels],
+                }
+            },
+            "repository": "als-apg/osprey",
+            "actor": "contributor",
+            "ref": "refs/pull/1/merge",
+        },
+        "inputs": {},
+    }
+
+
+def _push_context() -> dict[str, Any]:
+    return {
+        "github": {
+            "event_name": "push",
+            "event": {},
+            "repository": "als-apg/osprey",
+            "actor": "maintainer",
+            "ref": "refs/heads/main",
+        },
+        "inputs": {},
+    }
+
+
+def _image_push_dispatches() -> Iterator[dict[str, Any]]:
+    """Every image-publishing dispatch the form allows: the input set, and each
+    combination of the other boolean inputs beside it."""
+    for benchmarks in (False, True):
+        for revalidate in (False, True):
+            yield _dispatch_context(
+                e2e_filter="",
+                run_benchmarks=benchmarks,
+                revalidate_secret_lanes=revalidate,
+                push_acceptance_images=True,
+            )
+
+
+def _jobs_running_on(wf: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    return sorted(
+        name for name, job in _jobs(wf).items() if _evaluate_condition(job.get("if"), context)
+    )
+
+
+def test_the_condition_evaluator_reads_the_shapes_ci_uses() -> None:
+    """The evaluator below decides every pin in this section, so it is pinned on
+    the shapes it has to read before it is trusted with the workflow."""
+    dispatch = _dispatch_context(push_acceptance_images=True, revalidate_secret_lanes=False)
+    assert _evaluate_condition(None, dispatch)
+    assert not _evaluate_condition(IMAGE_PUSH_STAND_DOWN, dispatch)
+    assert _evaluate_condition(IMAGE_PUSH_STAND_DOWN, _push_context())
+    assert _evaluate_condition(IMAGE_PUSH_STAND_DOWN, _pull_request_context())
+    assert not _evaluate_condition(
+        "${{ !cancelled() && !inputs.push_acceptance_images }}", dispatch
+    )
+    labeled = "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+    assert _evaluate_condition(labeled, _pull_request_context("full-ci"))
+    assert not _evaluate_condition(labeled, _pull_request_context("other"))
+    assert not _evaluate_condition(labeled, dispatch)
+    assert _evaluate_condition(
+        "startsWith(github.event.pull_request.base.ref, 'ma')", _pull_request_context()
+    )
+    assert _evaluate_condition(
+        "(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]')"
+        " || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)",
+        _pull_request_context(),
+    )
+    with pytest.raises(ValueError, match="unsupported function"):
+        _evaluate_condition("hashFiles('x')", dispatch)
+
+
+def test_the_image_push_input_is_a_boolean_dispatch_input(workflow: dict[str, Any]) -> None:
+    inputs = workflow[True]["workflow_dispatch"]["inputs"]
+    assert IMAGE_PUSH_INPUT in inputs, f"workflow_dispatch has no '{IMAGE_PUSH_INPUT}' input"
+    spec = inputs[IMAGE_PUSH_INPUT]
+    assert spec.get("type") == "boolean", f"'{IMAGE_PUSH_INPUT}' must be a boolean input"
+    assert spec.get("default") is False, f"'{IMAGE_PUSH_INPUT}' must default to false"
+    assert spec.get("required") is False
+
+
+def test_the_image_push_input_is_a_boolean_dispatch_input__mutation_defaults_on() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["workflow_dispatch"]["inputs"][IMAGE_PUSH_INPUT]["default"] = True
+    with pytest.raises(AssertionError, match="default to false"):
+        test_the_image_push_input_is_a_boolean_dispatch_input(mutated)
+
+
+def test_an_image_push_dispatch_runs_only_the_image_job(workflow: dict[str, Any]) -> None:
+    """On the image-publishing dispatch -- whatever else the form carries --
+    exactly one job runs. A lane left out would spend minutes (or model tokens)
+    on a run nobody reads, and the roll-up gate would read the always-on lanes'
+    skips as failures."""
+    for context in _image_push_dispatches():
+        running = _jobs_running_on(workflow, context)
+        assert running == [IMAGE_PUSH_JOB], (
+            f"with inputs {context['inputs']} these jobs run beside '{IMAGE_PUSH_JOB}': "
+            f"{[name for name in running if name != IMAGE_PUSH_JOB]} — give each "
+            f"'!inputs.{IMAGE_PUSH_INPUT}' in its `if:`"
+        )
+
+
+def test_an_image_push_dispatch_runs_only_the_image_job__mutation_ungates_an_always_on_job() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[UNIT_TEST_JOB]["if"]
+    with pytest.raises(AssertionError, match="run beside"):
+        test_an_image_push_dispatch_runs_only_the_image_job(mutated)
+
+
+def test_an_image_push_dispatch_runs_only_the_image_job__mutation_ungates_a_dispatch_lane() -> None:
+    """The e2e lane runs on every dispatch that is not a benchmark run, so the
+    stand-down is the only thing that keeps it off this one."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[E2E_TESTS_JOB]
+    stand_down = f" && !inputs.{IMAGE_PUSH_INPUT}"
+    assert stand_down in job["if"], "the e2e lane carries no stand-down; mutation is stale"
+    job["if"] = job["if"].replace(stand_down, "")
+    with pytest.raises(AssertionError, match="run beside"):
+        test_an_image_push_dispatch_runs_only_the_image_job(mutated)
+
+
+def test_an_image_push_dispatch_runs_only_the_image_job__mutation_ungates_the_gate() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["if"] = "${{ !cancelled() }}"
+    with pytest.raises(AssertionError, match="run beside"):
+        test_an_image_push_dispatch_runs_only_the_image_job(mutated)
+
+
+def test_the_image_job_runs_on_that_dispatch_and_no_other_event(workflow: dict[str, Any]) -> None:
+    condition = _jobs(workflow)[IMAGE_PUSH_JOB].get("if")
+    other_events = {
+        "push": _push_context(),
+        "pull request": _pull_request_context(),
+        "labeled pull request": _pull_request_context("full-ci"),
+        "revalidation dispatch": _dispatch_context(
+            revalidate_secret_lanes=True, push_acceptance_images=False
+        ),
+        "plain dispatch": _dispatch_context(push_acceptance_images=False),
+    }
+    running = sorted(
+        event for event, context in other_events.items() if _evaluate_condition(condition, context)
+    )
+    assert running == [], f"'{IMAGE_PUSH_JOB}' runs on {running}; it publishes only on request"
+    assert all(_evaluate_condition(condition, c) for c in _image_push_dispatches()), (
+        f"'{IMAGE_PUSH_JOB}' does not run on the image-publishing dispatch"
+    )
+
+
+def test_the_image_job_runs_on_that_dispatch_and_no_other_event__mutation_runs_on_prs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["if"] = (
+        "github.event_name == 'pull_request' || inputs.push_acceptance_images"
+    )
+    with pytest.raises(AssertionError, match="publishes only on request"):
+        test_the_image_job_runs_on_that_dispatch_and_no_other_event(mutated)
+
+
+def test_the_image_job_runs_on_that_dispatch_and_no_other_event__mutation_drops_the_input() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["if"] = "github.event_name == 'workflow_dispatch' && false"
+    with pytest.raises(AssertionError, match="does not run on the image-publishing dispatch"):
+        test_the_image_job_runs_on_that_dispatch_and_no_other_event(mutated)
+
+
+def test_the_stand_down_leaves_every_other_event_as_it_was(workflow: dict[str, Any]) -> None:
+    """The stand-down narrows nothing but its own dispatch: on a push and on a
+    pull request, every job whose only condition is the stand-down runs."""
+    plain = [
+        name for name, job in _jobs(workflow).items() if "if" in job and _runs_on_every_event(job)
+    ]
+    assert UNIT_TEST_JOB in plain, f"'{UNIT_TEST_JOB}' carries no stand-down; this scan is stale"
+    for context in (_push_context(), _pull_request_context()):
+        idle = [n for n in plain if not _evaluate_condition(_jobs(workflow)[n]["if"], context)]
+        assert idle == [], f"on {context['github']['event_name']} these jobs no longer run: {idle}"
+
+
+def test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(
+    workflow: dict[str, Any],
+) -> None:
+    job = _jobs(workflow)[IMAGE_PUSH_JOB]
+    assert job.get("permissions") == {"contents": "read", "packages": "write"}, (
+        f"'{IMAGE_PUSH_JOB}' must declare exactly contents: read and packages: write; "
+        f"got {job.get('permissions')}"
+    )
+    assert not _job_declares_secret(workflow, IMAGE_PUSH_JOB, SECRET_TOKEN), (
+        f"'{IMAGE_PUSH_JOB}' builds images and contacts no model; it must not see {SECRET_TOKEN}"
+    )
+    logins = [step for step in job["steps"] if str(step.get("uses", "")).startswith("docker/login")]
+    assert len(logins) == 1, f"'{IMAGE_PUSH_JOB}' must log in to the registry once; got {logins}"
+    assert logins[0]["with"]["registry"] == "ghcr.io"
+    assert logins[0]["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"
+
+
+def test_the_image_job_holds_the_registry_scope_it_needs__mutation_reads_the_model_key() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_PUSH_JOB, IMAGE_BUILD_STEP)
+    step["env"] = {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}
+    with pytest.raises(AssertionError, match="must not see"):
+        test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(mutated)
+
+
+def test_the_image_job_holds_the_registry_scope_it_needs__mutation_drops_packages_write() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["permissions"] = {"contents": "read"}
+    with pytest.raises(AssertionError, match="packages: write"):
+        test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(mutated)
+
+
+def test_the_image_job_names_its_images_for_the_registry_and_the_sha(
+    workflow: dict[str, Any],
+) -> None:
+    """The image axes are set for the whole job, so the render names the VA and
+    project images ``ghcr.io/als-apg/<name>:<sha>`` as they are built."""
+    env = _jobs(workflow)[IMAGE_PUSH_JOB].get("env", {})
+    assert env.get("OSPREY_IMAGE_REGISTRY") == IMAGE_REGISTRY, (
+        f"'{IMAGE_PUSH_JOB}' must export OSPREY_IMAGE_REGISTRY={IMAGE_REGISTRY}"
+    )
+    assert env.get("OSPREY_IMAGE_TAG") == IMAGE_TAG_EXPR, (
+        f"'{IMAGE_PUSH_JOB}' must export OSPREY_IMAGE_TAG={IMAGE_TAG_EXPR}"
+    )
+
+
+def test_the_image_job_names_its_images__mutation_tags_by_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["env"]["OSPREY_IMAGE_TAG"] = "${{ github.ref_name }}"
+    with pytest.raises(AssertionError, match="OSPREY_IMAGE_TAG"):
+        test_the_image_job_names_its_images_for_the_registry_and_the_sha(mutated)
+
+
+def test_the_image_job_renders_the_deployed_e2e_modules_project(workflow: dict[str, Any]) -> None:
+    """The project is the trajectory deploy module's own, so its post-init edits
+    are called from that module rather than restated beside it, and the render
+    is built in the order the job runs: render, build, push, verify."""
+    render = _find_named_step(workflow, IMAGE_PUSH_JOB, IMAGE_RENDER_STEP)["run"]
+    module, _, attribute = TRAJECTORY_DEPLOY_MODULE.rpartition(".")
+    assert f"from {module} import {attribute} as lane" in render, (
+        f"'{IMAGE_RENDER_STEP}' does not import {TRAJECTORY_DEPLOY_MODULE}"
+    )
+    missing = [edit for edit in TRAJECTORY_POST_INIT_EDITS if f"lane.{edit}(repo)" not in render]
+    assert missing == [], f"'{IMAGE_RENDER_STEP}' does not apply the module's {missing}"
+    assert '"build", "--repo"' in render and '"--dev"' in render
+    names = _step_names(workflow, IMAGE_PUSH_JOB)
+    order = [IMAGE_RENDER_STEP, IMAGE_BUILD_STEP, IMAGE_PUSH_STEP, IMAGE_VERIFY_STEP]
+    assert [n for n in names if n in order] == order, (
+        f"'{IMAGE_PUSH_JOB}' steps out of order: {names}"
+    )
+    importable = importlib.util.find_spec(TRAJECTORY_DEPLOY_MODULE)
+    assert importable is not None, f"{TRAJECTORY_DEPLOY_MODULE} is not importable"
+    source = Path(importable.origin or "").read_text(encoding="utf-8")
+    for edit in TRAJECTORY_POST_INIT_EDITS:
+        assert f"def {edit}(repo: Path)" in source, (
+            f"{TRAJECTORY_DEPLOY_MODULE} no longer defines {edit}(repo); the image job calls it"
+        )
+
+
+def test_the_image_job_renders_the_deployed_e2e_modules_project__mutation_skips_an_edit() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_PUSH_JOB, IMAGE_RENDER_STEP)
+    step["run"] = step["run"].replace("lane._author_corrector_limits(repo)\n", "")
+    with pytest.raises(AssertionError, match="does not apply the module's"):
+        test_the_image_job_renders_the_deployed_e2e_modules_project(mutated)
+
+
+def test_the_image_job_pushes_every_image_the_stack_needs(workflow: dict[str, Any]) -> None:
+    """Every image the project's containers run is pushed, the web tier's
+    ``:local`` ones re-tagged first, and the step fails unless the project,
+    VA, persona and auth-sidecar images are among them."""
+    run = _find_named_step(workflow, IMAGE_PUSH_JOB, IMAGE_PUSH_STEP)["run"]
+    assert '"docker", "push"' in run, f"'{IMAGE_PUSH_STEP}' pushes nothing"
+    assert 'docker("tag", ref, target)' in run, f"'{IMAGE_PUSH_STEP}' re-tags no :local image"
+    required = re.search(r"^\s*required = \{(?P<names>.*)\}\s*$", run, re.MULTILINE)
+    assert required is not None, f"'{IMAGE_PUSH_STEP}' names no required image set"
+    names = [name.strip() for name in required.group("names").split(",")]
+    absent = [name for name in IMAGE_PUSH_REQUIRED if name not in names]
+    assert absent == [], f"'{IMAGE_PUSH_STEP}' does not require {absent}"
+    assert "sys.exit" in run[required.end() :], f"'{IMAGE_PUSH_STEP}' never fails on a gap"
+    verify = _find_named_step(workflow, IMAGE_PUSH_JOB, IMAGE_VERIFY_STEP)["run"]
+    assert "imagetools inspect" in verify
+
+
+def test_the_image_job_pushes_every_image_the_stack_needs__mutation_drops_the_persona() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_PUSH_JOB, IMAGE_PUSH_STEP)
+    assert " lane.PERSONA_PROJECT," in step["run"], "persona not required; mutation is stale"
+    step["run"] = step["run"].replace(" lane.PERSONA_PROJECT,", "")
+    with pytest.raises(AssertionError, match="does not require"):
+        test_the_image_job_pushes_every_image_the_stack_needs(mutated)
