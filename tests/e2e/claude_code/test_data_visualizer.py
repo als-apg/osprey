@@ -13,8 +13,11 @@ Requires:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from tests.e2e._facility_select import lane_model, monitors_in_plane, repo_view
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_budget_scale,
@@ -22,6 +25,13 @@ from tests.e2e.sdk_helpers import (
     init_project,
     run_sdk_query,
 )
+
+
+def _lane_monitors(repo: Path, count: int) -> tuple[str, ...]:
+    """The first ``count`` horizontal monitors of the lane's model, from the built view."""
+    view = repo_view(repo)
+    return monitors_in_plane(view, "x", count, model=lane_model(view))
+
 
 pytestmark = pytest.mark.agentic_benchmark
 
@@ -56,14 +66,15 @@ class TestDataVisualizerAgent:
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
         repo = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
+        first, second, third = _lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
-            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
             "Then delegate to the data-visualizer agent to create an "
-            "interactive Plotly scatter plot of BPM18 vs BPM19, colored by "
+            f"interactive Plotly scatter plot of {first} vs {second}, colored by "
             "time. The data-visualizer should use the data_source parameter "
             "of create_interactive_plot to load the archiver data — do NOT "
             "hardcode file paths in the plotting code."
@@ -176,10 +187,11 @@ class TestDataVisualizerAgent:
         are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
         repo = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
+        first, second = _lane_monitors(repo, 2)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X' and 'SR:DIAG:BPM:19:POSITION:X' "
+            f"'{first}' and '{second}' "
             "over the last 4 hours with processing 'mean' and bin_size 300. "
             "Then delegate to the data-visualizer agent to create an "
             "interactive Plotly line chart of both BPMs over time."
