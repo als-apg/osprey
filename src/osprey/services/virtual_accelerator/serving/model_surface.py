@@ -62,6 +62,27 @@ SURFACE_MODEL_ONLY = "model"
 #: The refusal every write meets on a server configured without a token.
 WRITES_DISABLED = "model writes are disabled"
 
+#: Every key the ``status`` document carries. :meth:`ModelSurface.status`
+#: returns exactly these and no other.
+STATUS_KEYS: frozenset[str] = frozenset(
+    {
+        "instance",
+        "endpoint",
+        "last_cycle_ms",
+        "queue_depth",
+        "uptime_s",
+        "last_refused_write",
+        "last_failed_pass",
+        "health",
+    }
+)
+
+#: Every key an ``info`` entry carries. Each entry ``info`` returns has exactly
+#: these and no other.
+INFO_ENTRY_KEYS: frozenset[str] = frozenset(
+    {"name", "unit", "value_range", "read_only", "shape", "surface"}
+)
+
 
 class ModelSurface(ABC):
     """The model RPC's verbs.
@@ -127,9 +148,8 @@ class ModelSurface(ABC):
                 the reading taken here.
 
         Returns:
-            The surface. ``status`` reports ``instance``, ``endpoint``,
-            ``last_cycle_ms``, ``queue_depth``, ``uptime_s``,
-            ``last_refused_write``, ``last_failed_pass`` and ``health``.
+            The surface. ``status`` reports the keys :data:`STATUS_KEYS`
+            names.
         """
         return _ViewSurface(
             composite,
@@ -157,12 +177,11 @@ class ModelSurface(ABC):
         """The server around the composite, as the runner last recorded it; no value is read.
 
         Returns:
-            ``instance``, ``endpoint``, ``last_cycle_ms``, ``queue_depth``,
-            ``uptime_s``, ``last_refused_write``, ``last_failed_pass`` --
+            The keys :data:`STATUS_KEYS` names. ``last_failed_pass`` is
             ``None``, or the ``error`` the latest failed publishing pass
             raised and the ``uptime_s`` it failed at; a later pass that
-            succeeds leaves it in place -- and ``health``, the health
-            record's document, which ``last_failed_pass`` is read from.
+            succeeds leaves it in place. ``health`` is the health record's
+            document, which ``last_failed_pass`` is read from.
         """
         return {
             "instance": self._instance,
@@ -287,9 +306,8 @@ class _ViewSurface(ModelSurface):
             channels, then its status addresses -- with ``surface``
             :data:`SURFACE_SERVED`, then one per variable of each built
             model, named ``<model>/<name>``, with ``surface``
-            :data:`SURFACE_MODEL_ONLY`. Each carries ``name``, ``unit``,
-            ``value_range``, ``read_only``, ``shape`` and ``surface``;
-            ``shape`` is an array's dimensions -- ``[500]`` for a 500-sample
+            :data:`SURFACE_MODEL_ONLY`. Each carries the keys
+            :data:`INFO_ENTRY_KEYS` names; ``shape`` is an array's dimensions -- ``[500]`` for a 500-sample
             waveform -- and ``None`` for a scalar.
         """
         declared = self._composite.supported_variables
@@ -438,6 +456,8 @@ def _describe(variable: Variable, surface: str, *, name: str | None = None) -> d
 
 
 __all__ = [
+    "INFO_ENTRY_KEYS",
+    "STATUS_KEYS",
     "SURFACE_MODEL_ONLY",
     "SURFACE_SERVED",
     "WRITES_DISABLED",

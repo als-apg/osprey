@@ -936,6 +936,8 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
     parse_reply,
 )
 from osprey.services.virtual_accelerator.serving.model_surface import (
+    INFO_ENTRY_KEYS,
+    STATUS_KEYS,
     SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
@@ -948,16 +950,6 @@ hostname, view = sys.argv[5], Path(sys.argv[6])
 # imported because it is the wire text a client is shown, and this gate is one
 # of the clients: the point is that the sentence itself has not changed.
 NO_TOKEN = "model write refused: no write token was presented"
-STATUS_KEYS = {
-    "instance",
-    "endpoint",
-    "last_cycle_ms",
-    "queue_depth",
-    "uptime_s",
-    "last_refused_write",
-    "last_failed_pass",
-}
-ENTRY_KEYS = {"name", "unit", "value_range", "read_only", "surface"}
 # Well below the offset written and the orbit measured, and well above float
 # noise on either.
 TOL = 1e-9
@@ -1020,7 +1012,7 @@ info = call("info")
 if set(info) != {"variables"}:
     raise SystemExit(f"FATAL: info carries {sorted(info)}, not ['variables']")
 for entry in info["variables"]:
-    if set(entry) != ENTRY_KEYS:
+    if set(entry) != INFO_ENTRY_KEYS:
         raise SystemExit(f"FATAL: info entry {entry!r} carries {sorted(entry)}")
 by_surface = {}
 for entry in info["variables"]:

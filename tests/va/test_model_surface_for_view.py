@@ -25,6 +25,8 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
 from osprey.services.virtual_accelerator.serving.model_surface import (
+    INFO_ENTRY_KEYS,
+    STATUS_KEYS,
     SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
@@ -197,7 +199,7 @@ def test_info_lists_the_served_addresses_then_the_model_variables(tmp_path: Path
     assert set(info) == {"variables"}
     assert [entry["name"] for entry in info["variables"]] == [*CHANNELS, STATUS, *MODEL_VARIABLES]
     for entry in info["variables"]:
-        assert set(entry) == {"name", "unit", "value_range", "read_only", "shape", "surface"}
+        assert set(entry) == INFO_ENTRY_KEYS
         assert entry["shape"] is None
     surfaces = {entry["name"]: entry["surface"] for entry in info["variables"]}
     assert surfaces == {
@@ -210,6 +212,15 @@ def test_info_lists_the_served_addresses_then_the_model_variables(tmp_path: Path
     assert by_name[STATUS]["read_only"] is True
     assert by_name["M/knob"]["read_only"] is False
     assert by_name["M/gain"]["read_only"] is True
+
+
+def test_every_info_entry_carries_exactly_the_declared_keys(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path)
+
+    entries = surface.info()["variables"]
+
+    assert entries
+    assert [set(entry) for entry in entries] == [set(INFO_ENTRY_KEYS)] * len(entries)
 
 
 def test_info_of_a_failed_model_lists_no_model_variable(tmp_path: Path) -> None:
@@ -243,6 +254,12 @@ def test_status_carries_the_view_keyset(tmp_path: Path) -> None:
             "last_failed_pass": None,
         },
     }
+
+
+def test_the_status_document_carries_exactly_the_declared_keys(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path)
+
+    assert set(surface.status()) == STATUS_KEYS
 
 
 def test_a_recorded_pass_failure_is_reported_with_its_uptime(tmp_path: Path) -> None:
