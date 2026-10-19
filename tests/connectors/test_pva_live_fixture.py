@@ -24,8 +24,9 @@ operator's own IOCs — can never answer for each other. The connector is pointe
 at that port through ``pva_gateway.use_name_server``, which sets
 ``EPICS_PVA_NAME_SERVERS``: the client then opens a TCP connection straight to
 the server instead of UDP-searching for it, so no search packet leaves the
-host. The suite-wide ``restore_environ`` fixture puts every ``EPICS_PVA_*``
-variable the connector wrote back after each test.
+host, though the client's search sockets are still bound. The suite-wide
+``restore_environ`` fixture puts every ``EPICS_PVA_*`` variable the connector
+wrote back after each test.
 
 **The Channel Access half of the mixed batch is unreachable on purpose.** Its
 address matches no ``pva_channels`` glob, so it takes the CA path, where no
@@ -174,11 +175,13 @@ def connector_factory(pva_server):
     """Builds connectors pointed at the live server, and tears every one down.
 
     Module-scoped on purpose. Every ``connect()`` builds a p4p client context,
-    and a context binds UDP sockets of its own even when it is reaching the
-    server by name server; building and tearing one down per test was observed
-    to fail intermittently with "Unable to bind random UDP6 port" in a full
-    directory run. Two contexts for the module is both faster and steadier, and
-    a connector carries no per-test state — reads do not mutate it.
+    and every client context binds a UDP search pair — a kernel-chosen IPv4 port
+    and the same number on IPv6 — whatever the address configuration. The module
+    builds two contexts, not one per test, to hold as few of those as it needs;
+    a connector carries no per-test state — reads do not mutate it. A context
+    build fails with "Unable to bind random UDP6 port" while another process on
+    the host holds that number on IPv6; that is a pvxs defect, and it is not
+    retried here.
 
     Driven with ``asyncio.run`` rather than as an async fixture so the setup and
     the teardown do not need a module-scoped event loop of their own; the
