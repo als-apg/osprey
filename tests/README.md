@@ -65,6 +65,14 @@ the summary (`temporary files kept at …`). Nothing else on the host numbers or
 prunes it. Pass `--basetemp` to choose the place yourself; it is then never
 removed. Never add `--basetemp` to a launcher.
 
+A run owns its ports the same way. A server the test controls binds its own
+socket and reports the port. A port nothing may answer on is a held
+`bound_socket()`. Use `tests._ports.reserved_port()` / `reserved_ports()` only
+where the number must be known before the server starts, or the code under
+test binds it; the reservation is held until the server has stopped. Never
+bind port 0 and release it. `tests/infrastructure/test_no_released_ports.py`
+lists the files still to convert.
+
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
 
