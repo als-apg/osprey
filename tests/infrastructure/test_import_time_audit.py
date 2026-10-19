@@ -27,11 +27,11 @@ TESTS_ROOT = Path(__file__).resolve().parents[1]
 
 #: ``path relative to tests/`` -> the kinds of import-time mutation allowed there.
 WHITELIST: dict[str, set[str]] = {
-    # libca latches EPICS_CA_* at C-library init, on the first import of
-    # epics/softioc anywhere in the process; the ports are picked from free
-    # ones at the same moment for the same reason.
+    # libca latches EPICS_CA_* at C-library init, on the first Channel Access
+    # call anywhere in the process; the ports it names are fixed at the same
+    # moment for the same reason, picked from free ones or held reservations.
     "va/test_apply_fault.py": {"os.environ", "socket"},
-    "va/test_lume_pva_seam.py": {"os.environ", "socket"},
+    "va/test_lume_pva_seam.py": {"os.environ"},
     # Deploying suites reserve their CA / gallery ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.

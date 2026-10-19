@@ -44,7 +44,6 @@ import math
 import multiprocessing
 import os
 import shutil
-import socket
 import threading
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -56,6 +55,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from tests._ports import hold_ports, reserved_ports
 
 pytest.importorskip(
     "lume_pva_apg",
@@ -71,27 +72,25 @@ if importlib.util.find_spec("aioca") is None:
     pytest.skip("the Channel Access client is aioca", allow_module_level=True)
 
 
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
-
-
 #: The served views, each in a process of its own: the three below, and the
 #: stub view again for a start-up pass that fails.
 SERVERS = ("names", "demo", "stub", "first_pass")
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Each server listens on a Channel Access port of its own, so the client
-# searches them all; the pairing of server and port is fixed here, once.
-CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
-# import-time required because libca reads the search list once, when the CA
-# context is created.
-os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
-os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
+# anywhere in the process. Each server listens on a Channel Access port of its
+# own, so the client searches them all; the pairing of server and port is fixed
+# here, once, in the pytest process alone, and the ports stay held for the
+# process's life. A spawned server process imports this module again, inherits
+# this environment, and takes its port from the spec its parent passes.
+if multiprocessing.parent_process() is None:
+    *_server_ports, _repeater_port = hold_ports(len(SERVERS) + 1)
+    CA_PORTS: dict[str, str] = {
+        server: str(port) for server, port in zip(SERVERS, _server_ports, strict=True)
+    }
+    os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
+    os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+    os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(_repeater_port))
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
 # loaded beside aioca's libca it drops the client on every write. The servers
@@ -720,24 +719,25 @@ def _served(
     stub: bool = False,
     first_pass_fault: str | None = None,
 ) -> Iterator[_Server]:
-    spec = {
-        "view": str(view_dir),
-        "state": None if state_dir is None else str(state_dir),
-        "tick": tick_interval_s,
-        "ca_port": CA_PORTS[server],
-        "pva_port": _free_port(),
-        "pva_broadcast": _free_port(),
-        "physics": physics,
-        "stub": stub,
-        "first_pass_fault": first_pass_fault,
-        "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
-    }
-    view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
-    served = _Server(spec, view, state_dir)
-    try:
-        yield served
-    finally:
-        served.stop()
+    with reserved_ports(2) as (pva_port, pva_broadcast):
+        spec = {
+            "view": str(view_dir),
+            "state": None if state_dir is None else str(state_dir),
+            "tick": tick_interval_s,
+            "ca_port": CA_PORTS[server],
+            "pva_port": str(pva_port),
+            "pva_broadcast": str(pva_broadcast),
+            "physics": physics,
+            "stub": stub,
+            "first_pass_fault": first_pass_fault,
+            "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
+        }
+        view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+        served = _Server(spec, view, state_dir)
+        try:
+            yield served
+        finally:
+            served.stop()
 
 
 # =============================================================================
