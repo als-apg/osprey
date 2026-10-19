@@ -1572,8 +1572,8 @@ jobs:
           # pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
           # LLM lane," NOT "not tested" — every ignored file below runs in
-          # its own job (the deploy-lifecycle jobs run on PRs into main
-          # only — see those jobs' comments), except the channel-finder
+          # its own job (the deploy-lifecycle jobs included; their `if:`
+          # says when they run), except the channel-finder
           # benchmarks, which run on demand via the run_benchmarks
           # dispatch input (channel-finder-benchmarks): they are a
           # statistical quality score with flaky reruns, not a per-PR
@@ -4277,12 +4277,13 @@ jobs:
     name: Multi-User Deploy Lifecycle E2E (real container runtime)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Runs on every same-repo PR whose BASE is main — which is every ordinary
-    # PR, but not per-phase PRs inside an epic (those target epic/* and skip
-    # it, matching how the epic workflow scopes its heavier gates; the job
-    # then runs once at the epic→main boundary). Scoped this way because it
-    # drives REAL, destructive container/volume lifecycle operations
-    # (decommission/prune/nuke) against the runtime.
+    # Pull-request scope is main only: every ordinary PR, but not per-phase
+    # PRs inside an epic (those target epic/* and skip it, matching how the
+    # epic workflow scopes its heavier gates; the job then runs once at the
+    # epic→main boundary). Scoped this way because it drives REAL, destructive
+    # container/volume lifecycle operations (decommission/prune/nuke) against
+    # the runtime. The `if:` below is the exact condition; its dispatch arm is
+    # the one every pull-request-only lane carries (see the workflow header).
     if: >-
       (github.event_name == 'pull_request' &&
         github.event.pull_request.base.ref == 'main' &&
@@ -4352,8 +4353,10 @@ jobs:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Same PR scoping as the lifecycle lanes above: same-repo PRs into main
-    # only, since this drives real container lifecycle against the runtime.
+    # Pull-request scope is main plus epic/* (reason below); this drives real
+    # container lifecycle against the runtime. The `if:` below is the exact
+    # condition; its dispatch arm is the one every pull-request-only lane
+    # carries (see the workflow header).
     #
     # DELIBERATELY ITS OWN LANE. This is the only job in the repo that builds
     # the deployed auth-sidecar Dockerfile, which is a real
@@ -4448,9 +4451,11 @@ jobs:
     # `test_full_chain_auth_lane_outbudgets_the_single_build_lanes` pins: that
     # lane builds two real images where this one builds one.
     timeout-minutes: 70
-    # Same PR scoping as the lifecycle and auth-perimeter lanes above: same-repo
-    # PRs into main only, since this drives a real `osprey up` (container and
-    # volume lifecycle) against the runtime.
+    # Same pull-request scope as auth-perimeter-e2e above: main plus epic/*
+    # (reason below); this drives a real `osprey up` (container and volume
+    # lifecycle) against the runtime. The `if:` below is the exact condition;
+    # its dispatch arm is the one every pull-request-only lane carries (see the
+    # workflow header).
     #
     # DELIBERATELY ITS OWN LANE, for the same reason auth-perimeter-e2e is one.
     # The terminal behind nginx here is the REAL `osprey web`, so the persona
@@ -4806,8 +4811,10 @@ jobs:
     # Podman counterpart of multi-user-deploy-lifecycle-e2e above — same job,
     # same real-runtime lifecycle mechanics, run against rootless podman
     # instead of docker (tests/e2e/test_deploy_lifecycle.py picks its runtime
-    # from OSPREY_E2E_RUNTIME). Scoped identically: same-repo PRs into main
-    # (per-phase PRs inside an epic target epic/* and skip it).
+    # from OSPREY_E2E_RUNTIME). Scoped identically: pull-request scope is main
+    # only (per-phase PRs inside an epic target epic/* and skip it). The `if:`
+    # below is the exact condition; its dispatch arm is the one every
+    # pull-request-only lane carries (see the workflow header).
     if: >-
       (github.event_name == 'pull_request' &&
         github.event.pull_request.base.ref == 'main' &&
