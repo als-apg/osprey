@@ -3,7 +3,8 @@
 A result names what was not answered under ``missing``; a request nothing
 answered is refused with the same map under ``details.missing``, as its one
 shared cause's own error when every item failed alike and as
-``nothing_answered`` otherwise.
+``nothing_answered`` otherwise. A write's map is its rows, under ``results``;
+which key a tool states its map under is declared once, in ``MAP_KEYS``.
 """
 
 from __future__ import annotations
@@ -19,13 +20,16 @@ from osprey.mcp_server.control_system.error_handling import (
     shared_typed_cause,
 )
 from osprey.mcp_server.errors import (
+    MAP_KEYS,
     MISSING_KEY,
     NOTHING_ANSWERED,
     RECOVERY_KEY,
+    RESULTS_KEY,
     NothingAnsweredError,
+    answer_map,
     refuse_nothing_answered,
 )
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
 from osprey_connectors.ipc.proxy import ChildUnresponsiveError
 from tests.mcp_server.test_channel_read_size_rule import _read
 
@@ -41,18 +45,19 @@ def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
 
 def test_the_contract_names():
     assert MISSING_KEY == "missing"
+    assert RESULTS_KEY == "results"
     assert RECOVERY_KEY == "recovery"
     assert NOTHING_ANSWERED == "nothing_answered"
 
 
 def test_nothing_answered_carries_the_map():
     with pytest.raises(ToolError) as excinfo:
-        refuse_nothing_answered("a_tool", "things", {"x": "Gone: no x", "y": None})
+        refuse_nothing_answered("channel_read", "things", {"x": "Gone: no x", "y": None})
 
     assert _envelope(excinfo) == {
         "error": True,
         "error_type": "nothing_answered",
-        "error_message": "a_tool: none of the 2 requested things answered",
+        "error_message": "channel_read: none of the 2 requested things answered",
         "suggestions": ["Name each entry of details.missing and its text to the operator."],
         "details": {"missing": {"x": "Gone: no x", "y": None}},
     }
@@ -64,11 +69,11 @@ def test_nothing_answered_carries_the_recovery():
         {"action": "child_kept", "text": "The child was kept."},
     ]
     with pytest.raises(ToolError) as excinfo:
-        refuse_nothing_answered("a_tool", "things", {"x": None}, recovery=recovery)
+        refuse_nothing_answered("channel_read", "things", {"x": None}, recovery=recovery)
 
     envelope = _envelope(excinfo)
     assert envelope["error_message"] == (
-        "a_tool: none of the 1 requested things answered. "
+        "channel_read: none of the 1 requested things answered. "
         "The archiver connector was dropped. The child was kept."
     )
     assert envelope["details"] == {"missing": {"x": None}, RECOVERY_KEY: recovery}
@@ -76,9 +81,48 @@ def test_nothing_answered_carries_the_recovery():
 
 def test_nothing_answered_keeps_further_details():
     with pytest.raises(ToolError) as excinfo:
-        refuse_nothing_answered("a_tool", "things", {"x": None}, details={"model": "m"})
+        refuse_nothing_answered("channel_read", "things", {"x": None}, details={"model": "m"})
 
     assert _envelope(excinfo)["details"] == {"model": "m", "missing": {"x": None}}
+
+
+ROWS = [
+    {"channel": "PV:A", "outcome": "refused", "error": "Write to 'PV:A' refused"},
+    {"channel": "PV:B", "outcome": "failed", "error": "caput failed: timeout"},
+]
+
+
+def test_a_write_nothing_answered_carries_its_rows():
+    with pytest.raises(ToolError) as excinfo:
+        refuse_nothing_answered("channel_write", "channels", results=ROWS)
+
+    assert _envelope(excinfo) == {
+        "error": True,
+        "error_type": "nothing_answered",
+        "error_message": "channel_write: none of the 2 requested channels answered",
+        "suggestions": ["Name each entry of details.results and its text to the operator."],
+        "details": {"results": ROWS},
+    }
+
+
+@pytest.mark.parametrize(
+    ("tool", "given"),
+    [("channel_write", {"missing": {"PV:A": None}}), ("channel_read", {"results": ROWS})],
+    ids=["write-given-missing", "read-given-rows"],
+)
+def test_a_tool_states_only_the_map_it_declares(tool, given):
+    with pytest.raises(ValueError, match=MAP_KEYS[tool]):
+        answer_map(tool, **given)
+
+
+def test_a_tool_with_no_declared_map_key_states_no_map():
+    with pytest.raises(KeyError):
+        answer_map("archiver_read", missing={})
+
+
+def test_the_carrier_holds_one_map():
+    with pytest.raises(ValueError, match="not both"):
+        NothingAnsweredError(None, missing={"PV:A": None}, results=ROWS)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +188,28 @@ async def test_no_cause_is_nothing_answered_with_the_map():
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["error_message"] == "channel_read: none of the 2 requested channels answered"
     assert envelope["details"] == {"missing": missing}
+
+
+async def test_a_shared_cause_keeps_its_own_envelope_with_the_rows():
+    cause = ChannelWriteBlockedError("PV:A", "WRITES_DISABLED")
+    with pytest.raises(ToolError) as excinfo:
+        async with connector_error_handler("channel_write", "archiver"):
+            raise NothingAnsweredError(cause, results=ROWS)
+
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "write_refused"
+    assert envelope["details"] == {"channel": "PV:A", "reason": "WRITES_DISABLED", "results": ROWS}
+
+
+async def test_no_cause_is_nothing_answered_with_the_rows():
+    with pytest.raises(ToolError) as excinfo:
+        async with connector_error_handler("channel_write", "archiver"):
+            raise NothingAnsweredError(None, results=ROWS)
+
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "nothing_answered"
+    assert envelope["error_message"] == "channel_write: none of the 2 requested channels answered"
+    assert envelope["details"] == {"results": ROWS}
 
 
 async def test_a_shared_connection_error_drops_the_connector_once():

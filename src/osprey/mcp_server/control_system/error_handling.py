@@ -14,9 +14,9 @@ from contextlib import asynccontextmanager
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import (
-    MISSING_KEY,
     RECOVERY_KEY,
     NothingAnsweredError,
+    answer_map,
     make_error,
     refuse_nothing_answered,
 )
@@ -275,7 +275,8 @@ async def connector_error_handler(
     simulator. The archiver has no live/VA axis, so its envelopes carry none.
 
     A :class:`~osprey.mcp_server.errors.NothingAnsweredError` is answered with
-    its cause's envelope, ``details.missing`` added, and with
+    its cause's envelope, the tool's map added under the key
+    :data:`~osprey.mcp_server.errors.MAP_KEYS` declares for it, and with
     ``nothing_answered`` when it has no cause. Without a cause, the connector
     is still dropped once if any item failed with a ``ConnectionError``, and
     the connector-host child still pinged once if any item found it
@@ -297,16 +298,18 @@ async def connector_error_handler(
             refuse_nothing_answered(
                 tool_name,
                 "channels",
-                exc.missing or {},
+                exc.missing,
                 details={"active_target": identity} if identity else None,
                 recovery=[record for record in recovery if record],
+                results=exc.results,
             )
         error_type, message, suggestions, details = await _envelope(
             exc.cause, tool_name, connector_name
         )
-        details = dict(details or {})
-        if exc.missing is not None:
-            details[MISSING_KEY] = exc.missing
+        details = {
+            **(details or {}),
+            **answer_map(tool_name, missing=exc.missing, results=exc.results),
+        }
         make_error(error_type, message, suggestions, details=details)
     except Exception as exc:
         error_type, message, suggestions, details = await _envelope(exc, tool_name, connector_name)
