@@ -215,7 +215,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E (podman runtime)",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -235,7 +235,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E (real container runtime)",
   "status": "completed",
   "conclusion": "skipped"
  },
