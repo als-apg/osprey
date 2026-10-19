@@ -10,36 +10,30 @@ resource: https://epics.anl.gov/EpicsDocumentation/AppDevManuals/ChannelAccess/c
 
 The Example Research Facility uses EPICS (Experimental Physics and Industrial
 Control System) Channel Access as its primary control-system protocol.  This
-document summarises ERF-specific naming conventions and common record types.
+document summarises how ERF channels are named and the common record types.
 
 ## Naming Convention
 
-ERF channel names follow the pattern:
+ERF channel names do not follow one grammar: names grew over decades under
+several conventions.  A channel is identified by its record in the facility
+file, never by a pattern over its address.  Find a channel with the channel
+finder and use the address its record states; do not compose an address from
+a family or an index.
 
-```
-{System}:{Subsystem}:{Device}:{Field}
-```
+Each channel record states its access mode as its role:
 
-Where `{Field}` encodes the access mode:
-
-| Field suffix | Mode | Description |
-|-------------|------|-------------|
-| (none / bare) | Read | Readback / process variable |
-| `:SP` | Write | Setpoint — triggers a hardware action |
-| `:Cmd` | Write | Command — typically a single-shot action |
-| `:Enable` | Read/Write | Enable gate |
-| `:Status` | Read | Derived status string |
-| `:Fault` | Read | Fault flag (0=OK, 1=fault) |
+| Role | Mode | Example |
+|------|------|---------|
+| setpoint | Write — triggers a hardware action | [SR:MAG:HCM:01:CURRENT:SP](facility:SR:MAG:HCM:01:CURRENT:SP) |
+| readback | Read | [SR:MAG:HCM:01:CURRENT:RB](facility:SR:MAG:HCM:01:CURRENT:RB) |
 
 ## Common Record Types
 
 | EPICS record | ERF usage | Example |
 |-------------|-----------|---------|
-| `ai` / `ao` | Analog readback / setpoint | `PS:DCCT:Current`, `PS:RF:CAV01:Power:SP` |
-| `bi` / `bo` | Binary readback / output | `ES3:SHUTTER:State`, `ES3:SHUTTER:Cmd` |
-| `stringin` | String status | `ES{N}:Status`, `TD:BPM:H01:Quality` |
-| `motor` | Motor record | `ES{N}:MOT:{Axis}:Position` |
-| `waveform` | Array data | (used for BPM turn-by-turn data) |
+| `ai` / `ao` | Analog readback / setpoint | [SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB), [SR:RF:CAVITY:01:VOLTAGE:SP](facility:SR:RF:CAVITY:01:VOLTAGE:SP) |
+| `bi` / `bo` | Binary readback / output | [SR:VAC:ION-PUMP:01:STATUS:ON](facility:SR:VAC:ION-PUMP:01:STATUS:ON), [GTL:GUN:EGUN:01:HV_ON:SP](facility:GTL:GUN:EGUN:01:HV_ON:SP) |
+| `waveform` | Array data | [SR:MAG:SEPTUM:01:CURRENT:WAVEFORM](facility:SR:MAG:SEPTUM:01:CURRENT:WAVEFORM) |
 
 ## Access Control
 
@@ -51,17 +45,12 @@ Where `{Field}` encodes the access mode:
 
 ## Units Convention
 
-| Quantity | Unit |
-|----------|------|
-| Beam current | mA |
-| Magnet current | A |
-| RF power | kW |
-| RF phase | degrees |
-| Pressure | Torr |
-| Position (BPM, motor) | mm |
-| Rotation (motor) | degrees |
-| Voltage | V |
-| Temperature | °C |
+Each channel record states its unit; the channel tools return it with the
+value, and the KNOWLEDGE panel shows it when you hover over a facility link.
+Read the unit from the record rather than assuming one: the beam current
+readback [SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB) and
+the vacuum gauge [SR:VAC:GAUGE:SR01:PRESSURE:RB](facility:SR:VAC:GAUGE:SR01:PRESSURE:RB)
+each carry their own.
 
 ## Cross-links
 
