@@ -49,6 +49,8 @@ import threading
 import time
 from contextlib import contextmanager
 
+from osprey import bluesky_tool_names as bsky
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 SCAN_HOOK_CONFIG = {
@@ -157,6 +159,21 @@ def _queue_config(make_config):
     )
 
 
+def _rendered_budget(tool: str) -> int:
+    """The ``--budget`` the render hands the approval hook for ``tool``.
+
+    The hook runs here with the budget the render hands it for this tool; the
+    registry is the one source of that number.
+    """
+    rule = next(
+        rule
+        for rule in FRAMEWORK_SERVERS["bluesky"].hooks_pre
+        if rule.matcher == bsky.matcher(tool)
+    )
+    hook = next(hook for hook in rule.hooks if "osprey_approval.py" in hook.command)
+    return hook.timeout
+
+
 def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
     return hook_runner(
         "osprey_approval.py",
@@ -165,6 +182,7 @@ def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
+        hook_args=("--budget", str(_rendered_budget("queue_add"))),
     )
 
 
@@ -176,6 +194,7 @@ def _run_queue_tool(hook_runner, config, tmp_path, tool, tool_input=None):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
+        hook_args=("--budget", str(_rendered_budget(tool))),
     )
 
 
