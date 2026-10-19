@@ -14,6 +14,7 @@ directory per host, whatever ``TMPDIR`` each process sees.
 
 from __future__ import annotations
 
+import atexit
 import errno
 import fcntl
 import os
@@ -22,7 +23,7 @@ import socket
 import subprocess
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
 
 #: Lowest port a reservation hands out, clear of the well-known and registered
@@ -32,6 +33,10 @@ PORT_FLOOR = 20000
 #: The one directory every test process on the host locks ports in, shared by
 #: every user of the host.
 LOCK_DIR = Path("/tmp/osprey-test-ports")
+
+#: The reservations :func:`hold_ports` keeps for the life of the process.
+_HELD = ExitStack()
+atexit.register(_HELD.close)
 
 _LINUX_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
 _MACOS_RANGE_KEY = "net.inet.ip.portrange.first"
@@ -129,3 +134,16 @@ def reserved_port() -> Iterator[int]:
     raise RuntimeError(
         f"no loopback port free below the ephemeral range: {len(candidates)} candidate(s) tried"
     )
+
+
+@contextmanager
+def reserved_ports(count: int) -> Iterator[list[int]]:
+    """Yield *count* distinct loopback ports, each a :func:`reserved_port`,
+    all held until the block ends."""
+    with ExitStack() as stack:
+        yield [stack.enter_context(reserved_port()) for _ in range(count)]
+
+
+def hold_ports(count: int) -> list[int]:
+    """*count* distinct :func:`reserved_ports`, held until the process exits."""
+    return _HELD.enter_context(reserved_ports(count))
