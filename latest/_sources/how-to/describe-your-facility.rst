@@ -53,11 +53,14 @@ Check the tree at any time, without writing anything:
    osprey facility show
    osprey facility show SR:MAG:HCM:01:CURRENT:SP
 
-``validate`` runs every check the build makes and prints each problem as one
-line, ``facility: <kind>: <record kind> <id> — <detail>; fix: <remedy>``.
-``show`` prints the record counts, the models and the views; given an id it
-prints that record with the file each of its fields came from. Both are
-described in full under :ref:`cli-osprey-facility`.
+``validate`` builds the tree and renders the main profile's views in memory.
+It prints the errors of the first check that fails, one line each,
+``facility: <kind>: <record kind> <id> — <detail>; fix: <remedy>``; a clean
+tree prints its warnings the same way. ``show`` prints the identity, the
+record counts, the models and the views; given an id it prints that record
+with the layer and file each of its fields came from, the fields the build
+filled and the fixes applied. Both are described in full under
+:ref:`cli-osprey-facility`.
 
 Identity
 ========
@@ -72,7 +75,7 @@ and ``description``:
 
 The ``code`` names the facility in the knowledge graph and in each served
 model's status channel, ``<code>:SIM:<model>:STATUS``. Without the file the
-code is taken from the project name. The ``name`` is what agents and panels
+code is the project name, folded to letters, digits and underscores. The ``name`` is what agents and panels
 call the facility; a facility that states none is called by the project name.
 
 Records
@@ -84,9 +87,10 @@ a field left out is either filled by the build or stays absent.
 
 **Places** are the facility's own tree. A place's id is its path,
 ``SR/SECT1`` under ``SR``; ``level`` is the facility's word for that depth.
-A place with a ``span`` covers a stretch of one model's deck, from one marker
-element to the next, and every device the deck puts inside it belongs to that
-place without saying so.
+A place with a ``span`` covers a stretch of one model's deck, from the
+``from_marker`` element up to the ``to_marker`` element, or to the deck's end
+without one. A device the deck puts inside it belongs to the deepest such
+place, unless the device states its own ``place``.
 
 .. code-block:: yaml
 
@@ -97,7 +101,7 @@ place without saying so.
        from_marker: SECT1
        to_marker: SECT2
 
-**Devices** carry a ``class``, either one of the shared vocabulary's classes
+**Devices** name a ``class``, either one of the shared vocabulary's classes
 (``Quadrupole``, ``BeamPositionMonitor``, ``Gauge``) or one the facility adds
 in ``classes.yaml``. A device may state its ``place``, a ``label``, other
 ``names`` people use for it, and a position: ``s`` in metres along the deck of
@@ -117,12 +121,17 @@ address means anything to OSPREY. What a channel is comes from its fields:
      - ``setpoint``, ``readback`` or ``none``. Absent means readback.
    * - ``pair``
      - On a setpoint, the address of its readback. Absent, the build pairs the
-       setpoint with the one readback on the same device whose signal names the
-       same quantity, else with itself.
+       setpoint with the readback that shares its ``on``, or its
+       ``endpoint_of``, or neither, and whose signal names the same quantity
+       (``gap_setpoint`` with ``gap_readback``). It does so only when exactly
+       one setpoint and one readback of that quantity share it, no stated
+       ``pair`` names the readback, and the two agree in ``value_type``,
+       ``options`` and ``shape``; else it pairs the setpoint with itself.
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
-       ``{relative: <fraction>}``.
+       ``{relative: <fraction>}`` of its seed's ``nominal``. The setpoint and
+       its readback must both state a ``unit``.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
@@ -130,7 +139,7 @@ address means anything to OSPREY. What a channel is comes from its fields:
      - The devices that share the channel, for a supply feeding several.
    * - ``signal``
      - A signal role of the shared vocabulary, such as ``current_setpoint`` or
-       ``position_x_readback``.
+       ``gap_readback``. A facility cannot add one.
    * - ``unit``, ``description``
      - Free text. A channel that states no description and names a signal is
        given one composed from its owner, its signal and its unit.
@@ -173,22 +182,23 @@ child of an existing class:
 
 .. code-block:: yaml
 
-   - class: Kicker
+   - class: Undulator
      parent: Magnet
-     aliases: [injection kicker]
+     aliases: [insertion device, ID]
 
 Layers
 ======
 
 Records reach the build from several sources at once, and each source is a
-*layer*. ``records/`` and ``models.yaml`` are the layer ``authored``; each
-directory under ``imported/`` is the layer of that name. A layer states only
+*layer*. ``records/``, ``models.yaml``, ``seeds.yaml`` and ``measurement/``
+are the layer ``authored``; each directory under ``imported/`` is the layer of
+that name. A layer states only
 the fields its source states.
 
 The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
-field stop the build with ``layer-conflict``, naming the record. A fix settles
-it (see `Fixes`_).
+field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
+settles it (see `Fixes`_).
 
 The importers are ``osprey facility import mml`` and
 ``osprey facility import list``.
@@ -223,9 +233,9 @@ steps; each is described in :doc:`/how-to/import-mml-export`.
    ``element_field``, the family field the model wires; ``engine``, the deck
    attribute, index or axis the field acts on; and ``calibration``,
    ``linear`` or ``table``. From it the import writes one wiring record per
-   address into ``imported/mml/models.yaml``, beside the deck the export
-   saved, and ``osprey build`` copies both into the simulator view the
-   simulator serves.
+   address into ``imported/mml/models.yaml``, and the deck it serves, its
+   wired elements renamed, into ``imported/mml/decks/<model>.json``;
+   ``osprey build`` copies both into the simulator view the simulator serves.
 
 5. **Accept.** Run ``osprey facility validate``. For each model whose export
    carried a response matrix it compares that matrix with the one the
@@ -234,10 +244,12 @@ steps; each is described in :doc:`/how-to/import-mml-export`.
    nominals and element bindings of the imported model agree with the machine
    the export was sampled on.
 
-The files under ``imported/mml/`` belong to the import and are rewritten by
-every run. The import also creates ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml``, ``classes.yaml`` and ``measurement/<model>.yaml`` when they
-do not exist, and never rewrites them afterwards. It refuses to run while
+The record files under ``imported/mml/`` belong to the import and are
+rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
+absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
+``identity.yaml``, ``classes.yaml``, ``measurement/<model>.yaml`` and
+``scenarios/readout.yaml`` when they do not exist, and never rewrites them
+afterwards. It refuses to run while
 authored record sources are present: every file of ``records/`` and
 ``decks/``, ``models.yaml``, and a ``limits.yaml``, ``seeds.yaml``,
 ``identity.yaml`` or measurement file it did not create itself.
@@ -289,9 +301,9 @@ source. Each fix names a record and gives the reason:
 ``set`` replaces the fields it names, each whole; ``add`` adds a record;
 ``drop`` removes one. ``kind`` is ``place``, ``device``, ``channel``,
 ``wiring``, ``group`` or ``model``. A ``set`` states under ``was`` the value
-each layer held when the fix was written. When a later import changes that
-value, the build stops with ``fix-stale`` and prints the block to paste in its
-place, so a fix never silently outlives the fact it corrected. The result
+each layer held when the fix was written. When ``was`` is missing, or a later
+import changes that value, the build stops with ``fix-stale`` and prints the
+corrected fix to paste in its place, so a fix never silently outlives the fact it corrected. The result
 does not depend on the order of the fixes.
 
 ``osprey facility show <id>`` lists the fixes applied to a record.
@@ -329,7 +341,7 @@ channel with no record is the deployment's choice,
 ``control_system.limits_checking.mode``: under ``exclusive`` the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under ``optional`` a channel without a record is written with no
-limits. Both presets ship ``optional``.
+limits. The hello-world and control-assistant presets ship ``optional``.
 
 Seeds
 =====
@@ -348,8 +360,9 @@ wires it. It is keyed by address:
 <sigma>}`` in the channel's unit or ``{relative: <fraction>}``; ``drift`` is
 ``{amplitude, period_s}``; ``clamp`` is ``[low, high]``; ``linear`` makes the
 value a weighted sum of other channels. A wired channel starts from its deck
-and needs no seed. The build stops with ``seed-invalid`` when a nominal lies
-outside the channel's limits.
+and needs no seed. The build stops with ``seed-invalid`` when a nominal, or a
+wired channel's operating point, lies outside the ``min_value`` and
+``max_value`` of the channel's limits record.
 
 ``pulse`` gives a waveform channel its trace. It names two other channels:
 ``driver``, whose reading scales the trace, and ``enable``, which switches it
@@ -391,8 +404,9 @@ The build checks both keys and stops with ``value-invalid`` when:
 A ``pulse`` or ``gate`` input that names no channel stops the build with
 ``reference-missing``.
 
-At run time the simulator applies a ``gate`` on every read, after a ``linear``
-sum and together with ``noise`` and ``drift``. A gated float reads its value
+At run time the ``gate`` acts on the channel's held value, after a ``linear``
+sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated
+float reads its value
 times the factor, so it keeps a small residual that still moves; a gated bool
 or enum reads the label ``gated``; a gated int reads the integer ``gated``.
 Each input is read as its own current value, its own gate included, so gates
@@ -431,8 +445,8 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a
-``table``. Channels no model wires are served by the texture model from their
-seeds. Which models a deployment serves, and what a failed one looks like, is
+``table``. Channels no served model wires are served by the texture model from
+their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
 
 Measurement
@@ -506,7 +520,8 @@ Scenarios
 =========
 
 Each file under ``scenarios/`` is one way the simulated machine departs from
-its baseline: overrides, faults, archive history and logbook entries.
+its baseline: value overrides, model and channel faults, its own motion
+(drivers, couplings, noise), archive history and logbook entries.
 Writing and applying them is in :doc:`/how-to/run-scenarios`.
 
 Knowledge
@@ -521,17 +536,10 @@ device of the facility and goes on. The bundle's format is in
 Build
 =====
 
-.. code-block:: bash
-
-   osprey build
-
-The build runs the same checks as ``osprey facility validate``, in fixed
-stages, and stops at the first that fails: each file parses, the layers merge
-and the fixes apply, the result fits the schema, every id a record names
-exists, and the pair, value, limits and seed rules hold. Then it computes
-what no source states (each device's place and position from the decks, each
-wiring record's unit and range) and writes ``build/facility.json`` and the
-views.
+``osprey build`` runs the checks of ``osprey facility validate`` but the
+response check, stops at the first that fails, and then writes
+``build/facility.json`` and the views into the deployment's render and each
+persona and image render.
 
 .. seealso::
 

@@ -707,11 +707,13 @@ per problem and writes nothing. Fix each line and run the import again.</p>
 </section>
 <section id="what-the-import-writes">
 <h2>What the import writes<a class="headerlink" href="#what-the-import-writes" title="Link to this heading">#</a></h2>
-<p>A clean run prints one <code class="docutils literal notranslate"><span class="pre">wrote</span> <span class="pre">&lt;path&gt;</span></code> line per file. The files under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code> are rewritten by every import. The authored
-files beside them — <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> — are created only when
-absent and never rewritten, so your edits to them survive a re-import.
+<p>A clean run prints one <code class="docutils literal notranslate"><span class="pre">wrote</span> <span class="pre">&lt;path&gt;</span></code> line per file. The record files under
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code> are rewritten by every import; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code>
+is yours and is only drafted when absent. The authored files beside them —
+<code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> — are created
+only when absent and never rewritten, so your edits to them survive a
+re-import.
 <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> names, as <code class="docutils literal notranslate"><span class="pre">quad</span></code> and <code class="docutils literal notranslate"><span class="pre">sext</span></code>, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
 groups and instruments allow; the import names the wired families it left out.</p>

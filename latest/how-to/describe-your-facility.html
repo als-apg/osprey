@@ -568,11 +568,14 @@ osprey<span class="w"> </span>facility<span class="w"> </span>show
 osprey<span class="w"> </span>facility<span class="w"> </span>show<span class="w"> </span>SR:MAG:HCM:01:CURRENT:SP
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> runs every check the build makes and prints each problem as one
-line, <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">&lt;kind&gt;:</span> <span class="pre">&lt;record</span> <span class="pre">kind&gt;</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">&lt;detail&gt;;</span> <span class="pre">fix:</span> <span class="pre">&lt;remedy&gt;</span></code>.
-<code class="docutils literal notranslate"><span class="pre">show</span></code> prints the record counts, the models and the views; given an id it
-prints that record with the file each of its fields came from. Both are
-described in full under <a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> builds the tree and renders the main profile’s views in memory.
+It prints the errors of the first check that fails, one line each,
+<code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">&lt;kind&gt;:</span> <span class="pre">&lt;record</span> <span class="pre">kind&gt;</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">&lt;detail&gt;;</span> <span class="pre">fix:</span> <span class="pre">&lt;remedy&gt;</span></code>; a clean
+tree prints its warnings the same way. <code class="docutils literal notranslate"><span class="pre">show</span></code> prints the identity, the
+record counts, the models and the views; given an id it prints that record
+with the layer and file each of its fields came from, the fields the build
+filled and the fixes applied. Both are described in full under
+<a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a>.</p>
 </section>
 <section id="identity">
 <h2>Identity<a class="headerlink" href="#identity" title="Link to this heading">#</a></h2>
@@ -584,7 +587,7 @@ and <code class="docutils literal notranslate"><span class="pre">description</sp
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">code</span></code> names the facility in the knowledge graph and in each served
 model’s status channel, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>. Without the file the
-code is taken from the project name. The <code class="docutils literal notranslate"><span class="pre">name</span></code> is what agents and panels
+code is the project name, folded to letters, digits and underscores. The <code class="docutils literal notranslate"><span class="pre">name</span></code> is what agents and panels
 call the facility; a facility that states none is called by the project name.</p>
 </section>
 <section id="records">
@@ -594,9 +597,10 @@ Every record has an <code class="docutils literal notranslate"><span class="pre"
 a field left out is either filled by the build or stays absent.</p>
 <p><strong>Places</strong> are the facility’s own tree. A place’s id is its path,
 <code class="docutils literal notranslate"><span class="pre">SR/SECT1</span></code> under <code class="docutils literal notranslate"><span class="pre">SR</span></code>; <code class="docutils literal notranslate"><span class="pre">level</span></code> is the facility’s word for that depth.
-A place with a <code class="docutils literal notranslate"><span class="pre">span</span></code> covers a stretch of one model’s deck, from one marker
-element to the next, and every device the deck puts inside it belongs to that
-place without saying so.</p>
+A place with a <code class="docutils literal notranslate"><span class="pre">span</span></code> covers a stretch of one model’s deck, from the
+<code class="docutils literal notranslate"><span class="pre">from_marker</span></code> element up to the <code class="docutils literal notranslate"><span class="pre">to_marker</span></code> element, or to the deck’s end
+without one. A device the deck puts inside it belongs to the deepest such
+place, unless the device states its own <code class="docutils literal notranslate"><span class="pre">place</span></code>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/SECT1</span>
 <span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sector</span>
 <span class="w">  </span><span class="nt">span</span><span class="p">:</span>
@@ -605,7 +609,7 @@ place without saying so.</p>
 <span class="w">    </span><span class="nt">to_marker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECT2</span>
 </pre></div>
 </div>
-<p><strong>Devices</strong> carry a <code class="docutils literal notranslate"><span class="pre">class</span></code>, either one of the shared vocabulary’s classes
+<p><strong>Devices</strong> name a <code class="docutils literal notranslate"><span class="pre">class</span></code>, either one of the shared vocabulary’s classes
 (<code class="docutils literal notranslate"><span class="pre">Quadrupole</span></code>, <code class="docutils literal notranslate"><span class="pre">BeamPositionMonitor</span></code>, <code class="docutils literal notranslate"><span class="pre">Gauge</span></code>) or one the facility adds
 in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>. A device may state its <code class="docutils literal notranslate"><span class="pre">place</span></code>, a <code class="docutils literal notranslate"><span class="pre">label</span></code>, other
 <code class="docutils literal notranslate"><span class="pre">names</span></code> people use for it, and a position: <code class="docutils literal notranslate"><span class="pre">s</span></code> in metres along the deck of
@@ -629,13 +633,18 @@ address means anything to OSPREY. What a channel is comes from its fields:</p>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pair</span></code></p></td>
 <td><p>On a setpoint, the address of its readback. Absent, the build pairs the
-setpoint with the one readback on the same device whose signal names the
-same quantity, else with itself.</p></td>
+setpoint with the readback that shares its <code class="docutils literal notranslate"><span class="pre">on</span></code>, or its
+<code class="docutils literal notranslate"><span class="pre">endpoint_of</span></code>, or neither, and whose signal names the same quantity
+(<code class="docutils literal notranslate"><span class="pre">gap_setpoint</span></code> with <code class="docutils literal notranslate"><span class="pre">gap_readback</span></code>). It does so only when exactly
+one setpoint and one readback of that quantity share it, no stated
+<code class="docutils literal notranslate"><span class="pre">pair</span></code> names the readback, and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>,
+<code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>; else it pairs the setpoint with itself.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tolerance</span></code></p></td>
 <td><p>On a float setpoint, how close its readback must come before a move
 counts as done: <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the channel’s unit or
-<code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code> of its seed’s <code class="docutils literal notranslate"><span class="pre">nominal</span></code>. The setpoint and
+its readback must both state a <code class="docutils literal notranslate"><span class="pre">unit</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">on</span></code></p></td>
 <td><p>The one device or place the channel belongs to, <code class="docutils literal notranslate"><span class="pre">{device:</span> <span class="pre">&lt;id&gt;}</span></code> or
@@ -646,7 +655,7 @@ counts as done: <code class="docutils literal notranslate"><span class="pre">{ab
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">signal</span></code></p></td>
 <td><p>A signal role of the shared vocabulary, such as <code class="docutils literal notranslate"><span class="pre">current_setpoint</span></code> or
-<code class="docutils literal notranslate"><span class="pre">position_x_readback</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">gap_readback</span></code>. A facility cannot add one.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unit</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
 <td><p>Free text. A channel that states no description and names a signal is
@@ -695,22 +704,23 @@ facility’s words and the <code class="docutils literal notranslate"><span clas
 together; what a channel means stays on the channel.</p>
 <p><code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> adds device classes the shared vocabulary lacks, each as the
 child of an existing class:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Kicker</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Undulator</span>
 <span class="w">  </span><span class="nt">parent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Magnet</span>
-<span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">injection kicker</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">insertion device</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">ID</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 </section>
 <section id="layers">
 <h2>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h2>
 <p>Records reach the build from several sources at once, and each source is a
-<em>layer</em>. <code class="docutils literal notranslate"><span class="pre">records/</span></code> and <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code> are the layer <code class="docutils literal notranslate"><span class="pre">authored</span></code>; each
-directory under <code class="docutils literal notranslate"><span class="pre">imported/</span></code> is the layer of that name. A layer states only
+<em>layer</em>. <code class="docutils literal notranslate"><span class="pre">records/</span></code>, <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement/</span></code>
+are the layer <code class="docutils literal notranslate"><span class="pre">authored</span></code>; each directory under <code class="docutils literal notranslate"><span class="pre">imported/</span></code> is the layer of
+that name. A layer states only
 the fields its source states.</p>
 <p>The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
-field stop the build with <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>, naming the record. A fix settles
-it (see <a class="reference internal" href="#fixes">Fixes</a>).</p>
+field stop the build with <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>, naming the record. A <code class="docutils literal notranslate"><span class="pre">set</span></code> fix
+settles it (see <a class="reference internal" href="#fixes">Fixes</a>).</p>
 <p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code>.</p>
 <section id="a-middle-layer-export">
@@ -739,9 +749,9 @@ families the model drives or reads. Per family it names the
 <code class="docutils literal notranslate"><span class="pre">element_field</span></code>, the family field the model wires; <code class="docutils literal notranslate"><span class="pre">engine</span></code>, the deck
 attribute, index or axis the field acts on; and <code class="docutils literal notranslate"><span class="pre">calibration</span></code>,
 <code class="docutils literal notranslate"><span class="pre">linear</span></code> or <code class="docutils literal notranslate"><span class="pre">table</span></code>. From it the import writes one wiring record per
-address into <code class="docutils literal notranslate"><span class="pre">imported/mml/models.yaml</span></code>, beside the deck the export
-saved, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies both into the simulator view the
-simulator serves.</p></li>
+address into <code class="docutils literal notranslate"><span class="pre">imported/mml/models.yaml</span></code>, and the deck it serves, its
+wired elements renamed, into <code class="docutils literal notranslate"><span class="pre">imported/mml/decks/&lt;model&gt;.json</span></code>;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies both into the simulator view the simulator serves.</p></li>
 <li><p><strong>Accept.</strong> Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>. For each model whose export
 carried a response matrix it compares that matrix with the one the
 imported model computes and prints one <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">…</span></code> line.
@@ -749,10 +759,12 @@ A failing check exits 1. A passing one is the acceptance: the calibrations,
 nominals and element bindings of the imported model agree with the machine
 the export was sampled on.</p></li>
 </ol>
-<p>The files under <code class="docutils literal notranslate"><span class="pre">imported/mml/</span></code> belong to the import and are rewritten by
-every run. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> when they
-do not exist, and never rewrites them afterwards. It refuses to run while
+<p>The record files under <code class="docutils literal notranslate"><span class="pre">imported/mml/</span></code> belong to the import and are
+rewritten by every run; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code> is yours and is only drafted when
+absent. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> when they do not exist, and never rewrites them
+afterwards. It refuses to run while
 authored record sources are present: every file of <code class="docutils literal notranslate"><span class="pre">records/</span></code> and
 <code class="docutils literal notranslate"><span class="pre">decks/</span></code>, <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>, and a <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
 <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code> or measurement file it did not create itself.</p>
@@ -799,9 +811,9 @@ source. Each fix names a record and gives the reason:</p>
 <p><code class="docutils literal notranslate"><span class="pre">set</span></code> replaces the fields it names, each whole; <code class="docutils literal notranslate"><span class="pre">add</span></code> adds a record;
 <code class="docutils literal notranslate"><span class="pre">drop</span></code> removes one. <code class="docutils literal notranslate"><span class="pre">kind</span></code> is <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">channel</span></code>,
 <code class="docutils literal notranslate"><span class="pre">wiring</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code> or <code class="docutils literal notranslate"><span class="pre">model</span></code>. A <code class="docutils literal notranslate"><span class="pre">set</span></code> states under <code class="docutils literal notranslate"><span class="pre">was</span></code> the value
-each layer held when the fix was written. When a later import changes that
-value, the build stops with <code class="docutils literal notranslate"><span class="pre">fix-stale</span></code> and prints the block to paste in its
-place, so a fix never silently outlives the fact it corrected. The result
+each layer held when the fix was written. When <code class="docutils literal notranslate"><span class="pre">was</span></code> is missing, or a later
+import changes that value, the build stops with <code class="docutils literal notranslate"><span class="pre">fix-stale</span></code> and prints the
+corrected fix to paste in its place, so a fix never silently outlives the fact it corrected. The result
 does not depend on the order of the fixes.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> lists the fixes applied to a record.</p>
 </section>
@@ -834,7 +846,7 @@ channel with no record is the deployment’s choice,
 <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code>: under <code class="docutils literal notranslate"><span class="pre">exclusive</span></code> the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under <code class="docutils literal notranslate"><span class="pre">optional</span></code> a channel without a record is written with no
-limits. Both presets ship <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p>
+limits. The hello-world and control-assistant presets ship <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p>
 </section>
 <section id="seeds">
 <h2>Seeds<a class="headerlink" href="#seeds" title="Link to this heading">#</a></h2>
@@ -850,8 +862,9 @@ wires it. It is keyed by address:</p>
 <span class="pre">&lt;sigma&gt;}</span></code> in the channel’s unit or <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code>; <code class="docutils literal notranslate"><span class="pre">drift</span></code> is
 <code class="docutils literal notranslate"><span class="pre">{amplitude,</span> <span class="pre">period_s}</span></code>; <code class="docutils literal notranslate"><span class="pre">clamp</span></code> is <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code>; <code class="docutils literal notranslate"><span class="pre">linear</span></code> makes the
 value a weighted sum of other channels. A wired channel starts from its deck
-and needs no seed. The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when a nominal lies
-outside the channel’s limits.</p>
+and needs no seed. The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when a nominal, or a
+wired channel’s operating point, lies outside the <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and
+<code class="docutils literal notranslate"><span class="pre">max_value</span></code> of the channel’s limits record.</p>
 <p><code class="docutils literal notranslate"><span class="pre">pulse</span></code> gives a waveform channel its trace. It names two other channels:
 <code class="docutils literal notranslate"><span class="pre">driver</span></code>, whose reading scales the trace, and <code class="docutils literal notranslate"><span class="pre">enable</span></code>, which switches it
 on. The trace’s shape is fixed in code, not in the seed; with <code class="docutils literal notranslate"><span class="pre">enable</span></code> off
@@ -887,8 +900,9 @@ have; or <code class="docutils literal notranslate"><span class="pre">gated</spa
 </ul>
 <p>A <code class="docutils literal notranslate"><span class="pre">pulse</span></code> or <code class="docutils literal notranslate"><span class="pre">gate</span></code> input that names no channel stops the build with
 <code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>.</p>
-<p>At run time the simulator applies a <code class="docutils literal notranslate"><span class="pre">gate</span></code> on every read, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
-sum and together with <code class="docutils literal notranslate"><span class="pre">noise</span></code> and <code class="docutils literal notranslate"><span class="pre">drift</span></code>. A gated float reads its value
+<p>At run time the <code class="docutils literal notranslate"><span class="pre">gate</span></code> acts on the channel’s held value, after a <code class="docutils literal notranslate"><span class="pre">linear</span></code>
+sum; <code class="docutils literal notranslate"><span class="pre">drift</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> are added on top and <code class="docutils literal notranslate"><span class="pre">clamp</span></code> applied. A gated
+float reads its value
 times the factor, so it keeps a small residual that still moves; a gated bool
 or enum reads the label <code class="docutils literal notranslate"><span class="pre">gated</span></code>; a gated int reads the integer <code class="docutils literal notranslate"><span class="pre">gated</span></code>.
 Each input is read as its own current value, its own gate included, so gates
@@ -924,8 +938,8 @@ and a <code class="docutils literal notranslate"><span class="pre">wiring</span>
 </div>
 <p>A wiring record’s <code class="docutils literal notranslate"><span class="pre">calibration</span></code> converts between the channel’s hardware
 value and the engine’s physics value, as a <code class="docutils literal notranslate"><span class="pre">linear</span></code> gain and offset or a
-<code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no model wires are served by the texture model from their
-seeds. Which models a deployment serves, and what a failed one looks like, is
+<code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no served model wires are served by the texture model from
+their seeds. Which models a deployment serves, and what a failed one looks like, is
 in <a class="reference internal" href="../architecture/facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>.</p>
 </section>
 <section id="measurement">
@@ -1007,7 +1021,8 @@ that run these measurements are in <a class="reference internal" href="measure-w
 <section id="scenarios">
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
 <p>Each file under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> is one way the simulated machine departs from
-its baseline: overrides, faults, archive history and logbook entries.
+its baseline: value overrides, model and channel faults, its own motion
+(drivers, couplings, noise), archive history and logbook entries.
 Writing and applying them is in <a class="reference internal" href="run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
 </section>
 <section id="knowledge">
@@ -1020,16 +1035,10 @@ device of the facility and goes on. The bundle’s format is in
 </section>
 <section id="build">
 <h2>Build<a class="headerlink" href="#build" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
-</pre></div>
-</div>
-<p>The build runs the same checks as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, in fixed
-stages, and stops at the first that fails: each file parses, the layers merge
-and the fixes apply, the result fits the schema, every id a record names
-exists, and the pair, value, limits and seed rules hold. Then it computes
-what no source states (each device’s place and position from the decks, each
-wiring record’s unit and range) and writes <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> and the
-views.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs the checks of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> but the
+response check, stops at the first that fails, and then writes
+<code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> and the views into the deployment’s render and each
+persona and image render.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
