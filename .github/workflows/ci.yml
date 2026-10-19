@@ -57,8 +57,8 @@ on:
           Publish the deployed-trajectory project's images instead of running
           anything else: at the dispatched sha, render the project
           tests/e2e/test_trajectory_deploy.py deploys, build every image it
-          runs (VA, project/trajectory, persona and auth sidecar of the web
-          tier, archiver), and push each as a private package to
+          runs (VA, project/trajectory, the web tier's persona, archiver),
+          and push each as a private package to
           ghcr.io/als-apg under its own name, tagged with the sha. Every
           other job stands down on this dispatch. Run with:
           gh workflow run ci.yml --ref <branch> -f push_acceptance_images=true
@@ -2978,7 +2978,8 @@ jobs:
             subprocess.run(["docker", "push", target], check=True)
             pushed[name] = target
 
-        required = {project, f"{project}-va", lane.PERSONA_PROJECT, f"{project}-auth"}
+        # Token logins run no auth sidecar, so the project carries none to push.
+        required = {project, f"{project}-va", lane.PERSONA_PROJECT}
         missing = sorted(required - pushed.keys())
         if missing:
             sys.exit(f"::error::no image pushed for {missing}; pushed {sorted(pushed)}")

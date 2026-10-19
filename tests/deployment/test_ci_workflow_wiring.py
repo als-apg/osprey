@@ -11259,12 +11259,11 @@ TRAJECTORY_DEPLOY_MODULE = "tests.e2e.test_trajectory_deploy"
 TRAJECTORY_POST_INIT_EDITS = ("_shape_repo", "_author_corrector_limits")
 #: The images the acceptance stack cannot start without, as the push step names
 #: them: project (trajectory), VA (and the archiver recorder that reuses it),
-#: persona and auth sidecar of the web tier.
+#: the web tier's persona. Its token logins run no auth sidecar.
 IMAGE_PUSH_REQUIRED = (
     "project",
     'f"{project}-va"',
     "lane.PERSONA_PROJECT",
-    'f"{project}-auth"',
 )
 
 _EXPR_TOKEN_RE = re.compile(
@@ -11713,7 +11712,7 @@ def test_the_image_job_pushes_every_image_the_stack_needs(workflow: dict[str, An
 def test_the_image_job_pushes_every_image_the_stack_needs__mutation_drops_the_persona() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, IMAGE_PUSH_JOB, IMAGE_PUSH_STEP)
-    assert " lane.PERSONA_PROJECT," in step["run"], "persona not required; mutation is stale"
-    step["run"] = step["run"].replace(" lane.PERSONA_PROJECT,", "")
+    assert ", lane.PERSONA_PROJECT}" in step["run"], "persona not required; mutation is stale"
+    step["run"] = step["run"].replace(", lane.PERSONA_PROJECT}", "}")
     with pytest.raises(AssertionError, match="does not require"):
         test_the_image_job_pushes_every_image_the_stack_needs(mutated)
