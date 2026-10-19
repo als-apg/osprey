@@ -9371,6 +9371,60 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
+# A job's display name says what it tests; its `if:` alone says when it runs
+# ---------------------------------------------------------------------------
+#
+# A check name is read on every PR, but the condition that decides when the job
+# runs lives in its `if:`. A name that restates that condition goes stale the
+# moment the `if:` gains an arm, and then tells the reader something false. The
+# phrases below are trigger-scope wording only; product words such as "dispatch"
+# are deliberately absent.
+
+WORKFLOWS_DIR = CI_YML.parent
+
+_TRIGGER_SCOPE_PHRASE = re.compile(
+    r"PRs? into|\bon main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul",
+    re.IGNORECASE,
+)
+
+
+def _job_display_names(path: Path, wf: dict[str, Any]) -> dict[tuple[str, str], str]:
+    return {
+        (path.name, job_id): str(job["name"]) for job_id, job in _jobs(wf).items() if "name" in job
+    }
+
+
+def _assert_no_display_name_states_when_it_runs(names: dict[tuple[str, str], str]) -> None:
+    for (file, job_id), name in sorted(names.items()):
+        match = _TRIGGER_SCOPE_PHRASE.search(name)
+        assert match is None, (
+            f"{file}: job {job_id!r} is named {name!r}, which states when it runs "
+            f"({match.group(0)!r}); a job's `if:` is where when lives, its name says what it tests"
+        )
+
+
+def test_no_job_display_name_states_when_it_runs() -> None:
+    """Every job in every workflow is named for what it tests, never for the
+    events that run it."""
+    names: dict[tuple[str, str], str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        names.update(_job_display_names(path, yaml.safe_load(path.read_text())))
+    assert names, f"no job display names found under {WORKFLOWS_DIR}"
+    _assert_no_display_name_states_when_it_runs(names)
+
+
+def test_no_job_display_name_states_when_it_runs__mutation_restores_the_old_name() -> None:
+    """The regression this exists for: a lifecycle lane named for one trigger
+    while its `if:` also runs it on the revalidation dispatch."""
+    mutated = _load_workflow()
+    _jobs(mutated)["multi-user-deploy-lifecycle-e2e"]["name"] = (
+        "Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)"
+    )
+    with pytest.raises(AssertionError, match="PRs into"):
+        _assert_no_display_name_states_when_it_runs(_job_display_names(CI_YML, mutated))
+
+
+# ---------------------------------------------------------------------------
 # The publish uploads every member before the framework, and can be resumed
 # ---------------------------------------------------------------------------
 #

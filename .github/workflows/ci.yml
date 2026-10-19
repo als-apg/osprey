@@ -4274,7 +4274,7 @@ jobs:
         done
 
   multi-user-deploy-lifecycle-e2e:
-    name: Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)
+    name: Multi-User Deploy Lifecycle E2E (real container runtime)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Runs on every same-repo PR whose BASE is main — which is every ordinary
@@ -4800,7 +4800,7 @@ jobs:
         docker rmi -f osprey-e2e-jnb-qmd:local || true
 
   multi-user-deploy-lifecycle-e2e-podman:
-    name: Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)
+    name: Multi-User Deploy Lifecycle E2E (podman runtime)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Podman counterpart of multi-user-deploy-lifecycle-e2e above — same job,
