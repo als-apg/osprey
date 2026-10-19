@@ -204,13 +204,13 @@ def _write_result_stub(channel, reason):
     )
 
 
-async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
+async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None):
     """Drive the channel_write tool with a batch every op of which was refused.
 
     One reason refuses both writes alike; two give each write its own reason,
-    in operation order.
+    in operation order. A ``connector`` given in place of the reasons answers
+    the writes itself. Returns the envelope and the connector's results.
     """
-    first_reason, second_reason = reasons if len(reasons) == 2 else reasons * 2
     from unittest.mock import AsyncMock
 
     from osprey.mcp_server.control_system.server_context import initialize_server_context
@@ -225,11 +225,21 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
 
-    connector = AsyncMock()
-    connector.write_multiple_channels.return_value = [
-        _write_result_stub("PV:A", first_reason),
-        _write_result_stub("PV:B", second_reason),
-    ]
+    answered: list[ChannelWriteResult] = []
+    if connector is None:
+        first_reason, second_reason = reasons if len(reasons) == 2 else reasons * 2
+        connector = AsyncMock()
+        connector.write_multiple_channels.return_value = [
+            _write_result_stub("PV:A", first_reason),
+            _write_result_stub("PV:B", second_reason),
+        ]
+    write_multiple = connector.write_multiple_channels
+
+    async def _recording(*args, **kwargs):
+        answered.extend(await write_multiple(*args, **kwargs))
+        return answered
+
+    connector.write_multiple_channels = _recording
 
     fn = channel_write.fn if hasattr(channel_write, "fn") else channel_write
     with (
@@ -242,6 +252,7 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
             "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config),
         pytest.raises(ToolError) as excinfo,
     ):
         await fn(
@@ -250,7 +261,15 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
                 {"channel": "PV:B", "value": 1.0},
             ]
         )
-    return json.loads(str(excinfo.value))
+    return json.loads(str(excinfo.value)), answered
+
+
+def _row_facts(rows):
+    return [(row["channel"], row["outcome"], row["refusal_reason"], row["error"]) for row in rows]
+
+
+def _result_facts(results):
+    return [(r.channel_address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
 
 
 class TestAllBlockedBatchAttribution:
@@ -258,7 +277,7 @@ class TestAllBlockedBatchAttribution:
 
     @pytest.mark.asyncio
     async def test_control_system_refusals_name_the_control_system(self, tmp_path, monkeypatch):
-        envelope = await _run_all_blocked_batch(tmp_path, monkeypatch, "CONTROL_SYSTEM_REFUSED")
+        envelope, _ = await _run_all_blocked_batch(tmp_path, monkeypatch, "CONTROL_SYSTEM_REFUSED")
 
         assert envelope["error_type"] == "write_refused"
         assert (
@@ -268,7 +287,7 @@ class TestAllBlockedBatchAttribution:
 
     @pytest.mark.asyncio
     async def test_policy_refusals_still_name_the_reference_monitor(self, tmp_path, monkeypatch):
-        envelope = await _run_all_blocked_batch(tmp_path, monkeypatch, "WRITES_DISABLED")
+        envelope, _ = await _run_all_blocked_batch(tmp_path, monkeypatch, "WRITES_DISABLED")
 
         assert (
             "All 2 write(s) refused by the reference monitor: PV:A, PV:B"
@@ -277,11 +296,12 @@ class TestAllBlockedBatchAttribution:
 
     @pytest.mark.asyncio
     async def test_mixed_refusals_name_each_refuser(self, tmp_path, monkeypatch):
-        envelope = await _run_all_blocked_batch(
+        envelope, answered = await _run_all_blocked_batch(
             tmp_path, monkeypatch, "CONTROL_SYSTEM_REFUSED", "LIMITS"
         )
 
         assert envelope["error_type"] == "write_refused"
+        assert _row_facts(envelope["details"]["results"]) == _result_facts(answered)
         assert (
             "All 2 write(s) refused — by the control system: PV:A; "
             "by the reference monitor: PV:B" in envelope["error_message"]
@@ -291,7 +311,7 @@ class TestAllBlockedBatchAttribution:
     async def test_unknown_address_first_does_not_hide_a_limits_refusal(
         self, tmp_path, monkeypatch
     ):
-        envelope = await _run_all_blocked_batch(
+        envelope, _ = await _run_all_blocked_batch(
             tmp_path, monkeypatch, "CHANNEL_NOT_FOUND", "LIMITS"
         )
 
@@ -305,9 +325,28 @@ class TestAllBlockedBatchAttribution:
 
     @pytest.mark.asyncio
     async def test_a_refusal_without_a_reason_names_no_refuser(self, tmp_path, monkeypatch):
-        envelope = await _run_all_blocked_batch(tmp_path, monkeypatch, None)
+        envelope, _ = await _run_all_blocked_batch(tmp_path, monkeypatch, None)
 
         assert envelope["error_type"] == "write_refused"
         assert envelope["details"]["reason"] is None
         assert "All 2 write(s) refused — refused: PV:A, PV:B" in envelope["error_message"]
         assert "reference monitor" not in envelope["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_carries_every_row(self, tmp_path, monkeypatch):
+        envelope, answered = await _run_all_blocked_batch(tmp_path, monkeypatch, "WRITES_DISABLED")
+
+        assert _row_facts(envelope["details"]["results"]) == _result_facts(answered)
+        assert "missing" not in envelope["details"]
+
+    @pytest.mark.asyncio
+    async def test_an_access_denied_batch_carries_the_connector_rows(self, tmp_path, monkeypatch):
+        """Rows a real connector built from the IOC's denial reach the agent unchanged."""
+        envelope, answered = await _run_all_blocked_batch(
+            tmp_path, monkeypatch, connector=_make_connector()
+        )
+
+        assert envelope["error_type"] == "write_refused"
+        assert envelope["details"]["reason"] == "CONTROL_SYSTEM_REFUSED"
+        assert [r.outcome for r in answered] == [WriteOutcome.REFUSED] * 2
+        assert _row_facts(envelope["details"]["results"]) == _result_facts(answered)
