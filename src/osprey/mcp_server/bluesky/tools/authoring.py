@@ -34,6 +34,7 @@ import anyio
 from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import _http_post_json, bridge_error_message
 from osprey.mcp_server.bluesky.tools.draft import _plans_panel_id
+from osprey.mcp_server.bluesky.tools.queue import _relay_refusal
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity
 from osprey.services.bluesky_bridge.models import DRY_RUN_TIMEOUT_CEILING_SECONDS
@@ -169,7 +170,9 @@ async def validate_plan(
         name: Session plan name, as passed to write_plan.
         sample_args: Sample `PARAMS` field values used to build the dry run's
             generator and mock devices (e.g. device names, point counts).
-            Omit only for a `PARAMS` with no required fields.
+            Omit only for a `PARAMS` with no required fields. Name channels the
+            worker has (list_devices): a pass is held to them when a worker is
+            there to ask.
         dry_run_timeout: Seconds the dry-run subprocess is given to drive the
             plan to completion, at most ``DRY_RUN_TIMEOUT_CEILING_SECONDS``
             (300); a sample run that needs longer should sleep less.
@@ -184,6 +187,13 @@ async def validate_plan(
         server has nowhere to upload to), but the plan is not enqueueable until
         an upload lands, so ``reason``/``detail`` are what to relay if a later
         queue_add is refused with ``session_plan_not_in_namespace``.
+
+    Refusals:
+        - unknown_device: ``sample_args`` name a device the queue worker did not
+          build. ``details`` carry ``devices`` (every unknown name) and either
+          ``available_devices`` or ``available_count`` /
+          ``available_devices_url``. Read the names with list_devices, correct
+          ``sample_args`` and validate again. Nothing was recorded or uploaded.
     """
     if not 0 < dry_run_timeout <= DRY_RUN_TIMEOUT_CEILING_SECONDS:
         return make_error(
@@ -212,7 +222,7 @@ async def validate_plan(
             ["Call write_plan first to author this plan name."],
         )
     if status != 200:
-        return make_error("bluesky_bridge_error", bridge_error_message(resp_body, status))
+        return _relay_refusal(resp_body, status, fallback_hints=[])
 
     # A pass is what changes the plan's standing (loadable, enqueueable) and
     # what the panel re-renders; a failed validation leaves everything as it

@@ -248,6 +248,47 @@ async def test_validate_plan_unknown_name_maps_to_error_envelope(tmp_path, monke
     assert "unknown session plan" in ctx["envelope"]["error_message"]
 
 
+async def test_validate_plan_relays_an_unknown_device_refusal_under_its_code(tmp_path, monkeypatch):
+    """A structured bridge refusal keeps its code, its details and the hints
+    that say where the wrong name was supplied."""
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    refusal = {
+        "code": "unknown_device",
+        "detail": "session plan 'p' referenced device 'c9', which this worker did not build; "
+        "available devices: ['c1']",
+        "plan": "p",
+        "devices": ["c9"],
+        "available_devices": ["c1"],
+    }
+    with patch(f"{_MOD}._http_post_json", return_value=(400, {"detail": refusal})):
+        with assert_raises_error(error_type="unknown_device") as ctx:
+            await _validate_fn()(name="p", sample_args={"correctors": ["c9"]})
+
+    envelope = ctx["envelope"]
+    assert envelope["error_message"] == refusal["detail"]
+    assert envelope["details"]["available_devices"] == refusal["available_devices"]
+    assert any("list_devices" in s for s in envelope["suggestions"])
+    assert any("sample_args" in s for s in envelope["suggestions"])
+
+
+async def test_validate_plan_unstructured_refusal_stays_a_bridge_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    with patch(
+        f"{_MOD}._http_post_json",
+        return_value=(
+            400,
+            {"detail": "invalid plan name '1bad': must be a valid Python identifier"},
+        ),
+    ):
+        with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
+            await _validate_fn()(name="1bad")
+    assert "invalid plan name" in ctx["envelope"]["error_message"]
+
+
 # =========================================================================
 # Bridge-route level: real routes via TestClient, no HTTP mocking.
 # =========================================================================
