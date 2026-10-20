@@ -1575,12 +1575,17 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
     )
 
 
-def _figure(*, is_error: bool = False, run_id: str = "run-1") -> ToolTrace:
-    """A ``get_run_figure`` trace of ``run_id`` — the other way a run is read back."""
+def _figure(
+    *, is_error: bool = False, run_id: str = "run-1", result: str | None = None
+) -> ToolTrace:
+    """A ``get_run_figure`` trace of ``run_id`` — the other way a run is read back.
+    ``result`` replaces the placeholder payload when a test needs the real one."""
+    if result is None:
+        result = '{"code": "no_such_run"}' if is_error else '{"partial": false, "panels": []}'
     return ToolTrace(
         name=GET_RUN_FIGURE,
         input={"run_id": run_id},
-        result='{"code": "no_such_run"}' if is_error else '{"partial": false, "panels": []}',
+        result=result,
         is_error=is_error,
     )
 
@@ -1849,6 +1854,31 @@ def test_floor_takes_the_plan_figure_as_reading_the_run_back() -> None:
         _figure(run_id="run-7", is_error=True),
     ]
     assert not _floor_passes(refused_figure)
+
+
+# The shape of the envelope ``get_run_figure`` raises when the bridge could not
+# read the run's rows; the floor reads only its error flag, never its wording.
+_UNREADABLE_FIGURE_RESULT = json.dumps(
+    {
+        "error": True,
+        "error_type": "service_unavailable",
+        "error_message": "",
+        "suggestions": [],
+        "details": {"reason": "source_unavailable", "source": "tiled"},
+    }
+)
+
+
+@pytest.mark.harness_benchmark
+def test_floor_takes_a_remedy_after_a_refused_figure_as_reading_the_run_back() -> None:
+    """A refused figure read does not close the floor, but either remedy its
+    error names does: the same run's rows as a table, or the figure read again."""
+    refused = _figure(run_id="run-7", is_error=True, result=_UNREADABLE_FIGURE_RESULT)
+    launched = [_draft(patch=_ORM_ARGS), _add(run_id="run-7"), _start()]
+
+    assert not _floor_passes([*launched, refused])
+    assert _floor_passes([*launched, refused, _read(run_id="run-7")])
+    assert _floor_passes([*launched, refused, _figure(run_id="run-7")])
 
 
 # A ``queue_add`` result captured verbatim off a live deployed stack, with the
