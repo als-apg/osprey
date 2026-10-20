@@ -193,7 +193,7 @@ export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
 unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
 # Unit tests
-uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup -q
+uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock and not stack_regression" -n 4 --dist loadgroup -q
 
 rm -rf .venv-release-test
 ```
@@ -224,6 +224,12 @@ gets named in the release notes as untested rather than passed over.
 
 Also trigger the on-demand benchmark lane against the release tree, which no
 PR runs: `gh workflow run ci.yml -f run_benchmarks=true`.
+
+- [ ] The same dispatch runs the `trajectory-stack-regression` job: the frozen
+  manual steps of the trajectory panel replayed in a real browser against a
+  deployed stack (`stack_regression` marker). It must be green on the release
+  tree, with no test skipped; a red step is a release blocker, never a test to
+  delete.
 
 Budget most of a day. The bulk lane alone is 20-25 minutes in CI at four-way
 parallelism, and the Docker stacks around it are slower on a laptop than on a

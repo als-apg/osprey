@@ -6,6 +6,7 @@ import {
   PENDING_MESSAGE,
   canPutBack,
   createApi,
+  decodeRaw,
   parseRefusal,
   putBackBody,
 } from './api.js';
@@ -63,18 +64,23 @@ function everyCall(api) {
     () => api.release(),
     () => api.state(),
     () => api.stop(),
-    () => api.shot({ n_shots: 1, average: 'mean' }),
+    () => api.shot({ steps: ['arm'] }),
     () => api.step(),
     () => api.apply('digest'),
     () => api.putBack({ model: 'SR', values: [{ name: 'HCM1', before: 0.1 }] }),
-    () => api.setup(true),
-    () => api.continuous({ n_shots: 1, average: 'mean', max_shots: 10 }),
+    () => api.setup({ settings: { pilot_tone: 'off' } }),
+    () => api.setupReadbacks(),
+    () => api.solve({}),
+    () => api.continuous({ steps: ['arm', 'inject', 'readout'] }),
     () => api.heartbeat(),
     () => api.references(),
     () => api.saveReference('golden'),
     () => api.loadReference('golden'),
+    () => api.referenceReadings('golden'),
+    () => api.importReference({ name: 'golden', readings: {}, readout: 'tbt' }),
     () => api.selectReference('golden'),
     () => api.shots(),
+    () => api.shotRaw('s-1'),
   ];
 }
 
@@ -109,13 +115,18 @@ describe('request URLs', () => {
       'POST api/apply',
       'POST api/apply',
       'POST api/setup',
+      'GET api/setup',
+      'POST api/solve',
       'POST api/continuous',
       'POST api/continuous/heartbeat',
       'GET api/references',
       'POST api/references',
       'GET api/references/golden',
+      'GET api/references/golden/readings',
+      'POST api/references/import',
       'POST api/references/select',
       'GET api/shots',
+      'GET api/shots/s-1/raw',
     ]);
   });
 
@@ -136,11 +147,13 @@ describe('client header', () => {
 
   it.each([
     ['release', (/** @type {any} */ api) => api.release()],
-    ['shot', (/** @type {any} */ api) => api.shot({ n_shots: 2, average: 'median' })],
+    ['shot', (/** @type {any} */ api) => api.shot({ steps: ['readout'] })],
     ['apply', (/** @type {any} */ api) => api.apply('d')],
     ['put back', (/** @type {any} */ api) => api.putBack({ model: 'SR', values: [] })],
-    ['setup', (/** @type {any} */ api) => api.setup(false)],
-    ['continuous', (/** @type {any} */ api) => api.continuous({ n_shots: 1, average: 'mean', max_shots: null })],
+    ['setup', (/** @type {any} */ api) => api.setup({})],
+    ['solve', (/** @type {any} */ api) => api.solve()],
+    ['continuous', (/** @type {any} */ api) => api.continuous({ steps: ['readout'] })],
+    ['import reference', (/** @type {any} */ api) => api.importReference({ name: 'r', readings: {}, readout: 'tbt' })],
     ['heartbeat', (/** @type {any} */ api) => api.heartbeat()],
     ['select reference', (/** @type {any} */ api) => api.selectReference(null)],
   ])('%s sends the client id', async (_name, call) => {
@@ -155,14 +168,17 @@ describe('client header', () => {
     ['step', (/** @type {any} */ api) => api.step()],
     ['references', (/** @type {any} */ api) => api.references()],
     ['save reference', (/** @type {any} */ api) => api.saveReference('r')],
+    ['setup readbacks', (/** @type {any} */ api) => api.setupReadbacks()],
+    ['reference readings', (/** @type {any} */ api) => api.referenceReadings('r')],
     ['shots', (/** @type {any} */ api) => api.shots()],
+    ['shot raw', (/** @type {any} */ api) => api.shotRaw('s')],
   ])('%s sends no client id', async (_name, call) => {
     expect(await headerOf(call)).toBeUndefined();
   });
 
   it('without a client id the header is left off', async () => {
     const { calls, fetchImpl } = fakeFetch(async () => jsonResponse(200, {}));
-    await createApi({ fetchImpl, getClientId: () => null }).shot({ n_shots: 1, average: 'mean' });
+    await createApi({ fetchImpl, getClientId: () => null }).shot({ steps: ['arm'] });
     expect(headersOf(calls[0].init)[CLIENT_HEADER]).toBeUndefined();
   });
 
@@ -179,6 +195,31 @@ describe('client header', () => {
 });
 
 describe('request bodies', () => {
+  it('each button sends only the keys it passed', async () => {
+    const { calls, fetchImpl } = fakeFetch(async () => jsonResponse(200, {}));
+    const api = createApi({ fetchImpl, getClientId: () => 'c1' });
+    await api.solve({ gain: 0.5, alpha: undefined });
+    await api.solve({ excluded_cms: ['HCM2'] });
+    await api.solve();
+    await api.setup({ settings: { bpm_mode: 'low' } });
+    await api.setup({ excluded_bpms: ['BPM1'], settings: undefined });
+    await api.shot({ steps: ['clean'], n_shots: undefined });
+    expect(calls.map(({ init }) => bodyOf(init))).toEqual([
+      { gain: 0.5 },
+      { excluded_cms: ['HCM2'] },
+      {},
+      { settings: { bpm_mode: 'low' } },
+      { excluded_bpms: ['BPM1'] },
+      { steps: ['clean'] },
+    ]);
+  });
+
+  it('no chain body carries a shot cap', async () => {
+    const { calls, fetchImpl } = fakeFetch(async () => jsonResponse(200, {}));
+    await createApi({ fetchImpl, getClientId: () => 'c1' }).continuous({ steps: ['readout'], n_shots: 2 });
+    expect(bodyOf(calls[0].init)).toEqual({ steps: ['readout'], n_shots: 2 });
+  });
+
   it('session, take-over, release and stop send no body', async () => {
     const { calls, fetchImpl } = fakeFetch(async () => jsonResponse(200, {}));
     const api = createApi({ fetchImpl, getClientId: () => 'c1' });
@@ -194,21 +235,27 @@ describe('request bodies', () => {
   it('action bodies carry exactly their fields as JSON', async () => {
     const { calls, fetchImpl } = fakeFetch(async () => jsonResponse(200, {}));
     const api = createApi({ fetchImpl, getClientId: () => 'c1' });
-    await api.shot({ n_shots: 3, average: 'median' });
+    const chain = { steps: ['arm', 'inject', 'readout'], readout: /** @type {const} */ ('pseudo_orbit'),
+      n_turns: 4, n_shots: 3, average: /** @type {const} */ ('nanmean') };
+    const imported = { name: 'g', readings: { BPM1: { x: 0.1, y: null } },
+      readout: /** @type {const} */ ('tbt'), select: true };
+    await api.shot(chain);
     await api.apply('abc');
-    await api.setup(true);
-    await api.continuous({ n_shots: 2, average: 'mean', max_shots: null });
+    await api.setup({ settings: { attenuation: 12, pilot_tone: 'off' }, excluded_bpms: ['BPM3'] });
+    await api.continuous({ steps: ['readout'] });
     await api.saveReference('r1');
     await api.saveReference('r2', 'shot-7');
     await api.selectReference(null);
+    await api.importReference(imported);
     expect(calls.map(({ init }) => bodyOf(init))).toEqual([
-      { n_shots: 3, average: 'median' },
+      chain,
       { step_digest: 'abc' },
-      { bunch_clean: true },
-      { n_shots: 2, average: 'mean', max_shots: null },
+      { settings: { attenuation: 12, pilot_tone: 'off' }, excluded_bpms: ['BPM3'] },
+      { steps: ['readout'] },
       { name: 'r1' },
       { name: 'r2', shot_id: 'shot-7' },
       { name: null },
+      imported,
     ]);
     expect(headersOf(calls[0].init)['Content-Type']).toBe('application/json');
   });
@@ -253,7 +300,7 @@ describe('answers', () => {
         detail: { code: 'action_stopped', detail: 'stopped', commands_fired: ['arm'] },
       }),
     );
-    const result = await createApi({ fetchImpl }).shot({ n_shots: 1, average: 'mean' });
+    const result = await createApi({ fetchImpl }).shot({ steps: ['readout'] });
     expect(result).toMatchObject({ kind: 'refused', extras: { commands_fired: ['arm'] } });
   });
 
@@ -277,12 +324,12 @@ describe('answers', () => {
 
   it('a non-JSON success body is outcome pending', async () => {
     const { fetchImpl } = fakeFetch(async () => new Response('ok', { status: 200 }));
-    expect(await createApi({ fetchImpl }).setup(false)).toMatchObject({ kind: 'pending', status: 200 });
+    expect(await createApi({ fetchImpl }).setup({})).toMatchObject({ kind: 'pending', status: 200 });
   });
 
   it('an error body that is not a refusal is outcome pending', async () => {
     const { fetchImpl } = fakeFetch(async () => jsonResponse(422, { detail: [{ msg: 'bad' }] }));
-    expect(await createApi({ fetchImpl }).shot({ n_shots: 1, average: 'mean' })).toMatchObject({
+    expect(await createApi({ fetchImpl }).shot({ steps: ['readout'] })).toMatchObject({
       kind: 'pending',
       status: 422,
     });
@@ -322,14 +369,15 @@ describe('one action in flight', () => {
   it('a second action is refused locally while one is in flight', async () => {
     const { calls, releases, fetchImpl } = heldFetch();
     const api = createApi({ fetchImpl, getClientId: () => 'c' });
-    const first = api.shot({ n_shots: 1, average: 'mean' });
+    const first = api.shot({ steps: ['readout'] });
     expect(api.actionInFlight).toBe(true);
     for (const second of [
       api.apply('d'),
       api.putBack({ model: 'SR', values: [{ name: 'A', before: 1 }] }),
-      api.setup(true),
-      api.continuous({ n_shots: 1, average: 'mean', max_shots: 1 }),
-      api.shot({ n_shots: 1, average: 'mean' }),
+      api.setup({ excluded_bpms: [] }),
+      api.solve({ gain: 0.5 }),
+      api.continuous({ steps: ['readout'] }),
+      api.shot({ steps: ['readout'] }),
     ]) {
       expect(await second).toMatchObject({ kind: 'busy' });
     }
@@ -342,7 +390,7 @@ describe('one action in flight', () => {
   it('stop and the heartbeat are sent while an action is in flight', async () => {
     const { calls, releases, fetchImpl } = heldFetch();
     const api = createApi({ fetchImpl, getClientId: () => 'c' });
-    const action = api.continuous({ n_shots: 1, average: 'mean', max_shots: null });
+    const action = api.continuous({ steps: ['readout'] });
     const stop = api.stop();
     const beat = api.heartbeat();
     expect(calls.map(({ url }) => url)).toEqual(['api/continuous', 'api/stop', 'api/continuous/heartbeat']);
@@ -419,5 +467,66 @@ describe('put back', () => {
     expect(calls[0].url).toBe('api/apply');
     expect(headersOf(calls[0].init)[CLIENT_HEADER]).toBe('c9');
     expect(bodyOf(calls[0].init)).toEqual(body);
+  });
+});
+
+/**
+ * The bytes the raw route serves for *header* and *samples*.
+ * @param {Record<string, unknown>} header
+ * @param {number[]} samples
+ */
+function rawBytes(header, samples) {
+  let text = JSON.stringify(header);
+  while (text.length % 4) text += ' ';
+  const encoded = new TextEncoder().encode(text);
+  const buffer = new ArrayBuffer(4 + encoded.length + 4 * samples.length);
+  new DataView(buffer).setUint32(0, encoded.length, true);
+  new Uint8Array(buffer, 4, encoded.length).set(encoded);
+  const floats = new DataView(buffer, 4 + encoded.length);
+  samples.forEach((value, i) => floats.setFloat32(4 * i, value, true));
+  return buffer;
+}
+
+describe('refusals', () => {
+  it('every refusal is handed to onRefused, other answers are not', async () => {
+    /** @type {string[]} */
+    const codes = [];
+    let answer = jsonResponse(409, { detail: { code: 'not_session_holder', detail: 'no' } });
+    const { fetchImpl } = fakeFetch(async () => answer);
+    const api = createApi({ fetchImpl, onRefused: (r) => codes.push(r.code) });
+    await api.shot({ steps: ['readout'] });
+    answer = jsonResponse(500, { message: 'boom' });
+    await api.references();
+    answer = jsonResponse(200, {});
+    await api.state();
+    expect(codes).toEqual(['not_session_holder']);
+  });
+});
+
+describe('raw buffers', () => {
+  const HEADER = { shape: [1, 3, 1, 2], trigger_sample: 0, units: { x: 'mm', y: 'mm', sum: null } };
+
+  it('decodes the header and the float32 samples', () => {
+    const raw = decodeRaw(rawBytes(HEADER, [1, 2, 3, 4, 5, 6]));
+    expect(raw.header).toEqual(HEADER);
+    expect(Array.from(raw.samples)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('the raw route answers the decoded buffer', async () => {
+    const bytes = rawBytes(HEADER, [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]);
+    const { calls, fetchImpl } = fakeFetch(async () =>
+      /** @type {Response} */ (/** @type {unknown} */ ({ ok: true, status: 200, arrayBuffer: async () => bytes })));
+    const result = await createApi({ fetchImpl }).shotRaw('s/1');
+    expect(calls[0].url).toBe('api/shots/s%2F1/raw');
+    expect(result.kind).toBe('ok');
+    const body = /** @type {any} */ (result).body;
+    expect(body.header.shape).toEqual([1, 3, 1, 2]);
+    expect(Array.from(body.samples)).toEqual([0.5, 1.5, 2.5, 3.5, 4.5, 5.5]);
+  });
+
+  it('an evicted buffer is a refusal with its code', async () => {
+    const { fetchImpl } = fakeFetch(async () =>
+      jsonResponse(410, { detail: { code: 'raw_evicted', detail: 'pruned' } }));
+    expect(await createApi({ fetchImpl }).shotRaw('s-1')).toMatchObject({ kind: 'refused', code: 'raw_evicted' });
   });
 });

@@ -4,7 +4,10 @@
  * literals anywhere in this file.
  *
  * Layout, outside in: the panel chrome (the standalone header), then the
- * panel body the views render into.
+ * panel body the shell renders into — the header strip, the status strip, and
+ * the three-column grid: left (setup tabs, Beam Injection chain), centre (the
+ * Raw / Trajectory Correction tabs and their plots), right (the showing tab's
+ * controls). Narrow screens stack the right column under the plots.
  */
 
 /* Containers that carry `display: flex/grid` would otherwise win over the
@@ -66,4 +69,285 @@ body.embedded .panel-chrome { display: none; }
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* --- shell ------------------------------------------------------------- */
+
+.traj-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.header-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.area-notices { flex: 1 1 100%; }
+.area-notices:empty,
+.notices:empty { display: none; }
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.fact { display: inline-flex; gap: var(--space-1); align-items: baseline; }
+.fact-label { color: var(--text-muted); }
+.fact-value { font-family: var(--font-mono); }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.status-strip .status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.status-line [data-control="stop"] { margin-left: auto; }
+
+.connection-connected { color: var(--color-success); }
+.connection-disconnected { color: var(--color-error); }
+
+/* Control buttons, following the Bluesky panel's `.btn`; a disabled one
+ * keeps its reason in its tooltip. */
+.traj-shell button[data-control]:not([role="tab"]),
+.drawer button[data-control] {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-accent);
+  background: var(--color-accent-light);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.traj-shell button[data-control]:not([role="tab"]):hover:not(:disabled),
+.traj-shell button[data-control]:not([role="tab"]):focus-visible:not(:disabled),
+.drawer button[data-control]:hover:not(:disabled),
+.drawer button[data-control]:focus-visible:not(:disabled) {
+  background: var(--color-accent);
+}
+.traj-shell button[data-control]:not([role="tab"]):disabled,
+.drawer button[data-control]:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border-color: var(--border-default);
+}
+
+.notice {
+  margin: var(--space-1) 0;
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid var(--border-accent);
+  font-size: var(--text-sm);
+}
+.notice-refused,
+.notice-ended { border-left-color: var(--color-error); background: var(--error-tint-08); }
+.notice-stopped,
+.notice-pending,
+.notice-busy { border-left-color: var(--color-warning); }
+
+/* --- the three columns ------------------------------------------------- */
+
+.traj-grid {
+  display: grid;
+  grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(15rem, 20rem);
+  grid-template-areas: "left centre right";
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.col-left { grid-area: left; }
+.col-centre { grid-area: centre; }
+.col-right { grid-area: right; }
+
+.area-setup,
+.area-chain,
+.col-right .area:not(:empty) {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+.area-setup:empty,
+.area-chain:empty { display: none; }
+
+@media (max-width: 70rem) {
+  .traj-grid {
+    grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+    grid-template-areas: "left centre" "left right";
+  }
+}
+
+@media (max-width: 45rem) {
+  .traj-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "left" "centre" "right";
+  }
+}
+
+/* --- centre tabs and plots --------------------------------------------- */
+
+.centre-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.centre-tabs button {
+  padding: var(--space-1) var(--space-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.centre-tabs button[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--color-accent);
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tab-panel h3 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.plot {
+  min-height: 12rem;
+  background: var(--chart-paper-bg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+/* Embedded and not Simple, the hub's tile bar carries the session controls
+ * and the centre tabs (contributeHeader); the in-body copies are hidden in
+ * exactly that case. Standalone and in Simple mode the tile bar does not
+ * exist, so they stay. The status strip is never contributed. */
+html:not([data-ui-mode="simple"]) body.embedded .session-controls,
+html:not([data-ui-mode="simple"]) body.embedded .centre-tabs { display: none; }
+
+/* The BPM Control drawer, in the ariel drawer's shape: a fixed panel sliding
+ * in from the right over a backdrop, both direct children of <body>. */
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 560px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-accent);
+  box-shadow: var(--shadow-panel);
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform var(--duration-base) ease;
+}
+.drawer[open] { transform: translateX(0); }
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-black-50);
+  z-index: calc(var(--z-modal) - 1);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-base) ease, visibility var(--duration-base) ease;
+}
+.drawer-backdrop[open] {
+  opacity: 1;
+  visibility: visible;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--neutral-tint-10);
+  flex-shrink: 0;
+}
+.drawer-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.drawer-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: var(--text-2xl);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--duration-instant) ease, border-color var(--duration-instant) ease;
+}
+.drawer-close-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+.drawer-body h3 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.bpm-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .drawer {
+    width: 100vw;
+    max-width: 100vw;
+  }
 }

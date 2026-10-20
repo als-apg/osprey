@@ -24,6 +24,8 @@
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="panel.css">
+<!-- Plotly, vendored beside the page; the render adapter reads the global. -->
+<script src="vendor/plotly-3.3.1.min.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trajectory</title>
 <script type="module">
@@ -44,8 +46,21 @@
     <h1>Trajectory</h1>
     <span class="panel-kicker">OSPREY trajectory correction</span>
   </header>
+  <!-- panel.js builds the layout here: header and status strips, then the
+       left / centre / right columns, one `data-area` host per area. -->
   <main class="panel-body" id="panel-body"></main>
 </div>
+<!-- The BPM Control drawer and its backdrop are direct children of <body>:
+     while open, <osprey-drawer> makes every other top-level child inert.
+     drawer.js fills the drawer body. -->
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<osprey-drawer class="drawer" id="bpm-control-drawer">
+  <div class="drawer-header">
+    <span class="drawer-title" id="bpm-control-title">BPM Control</span>
+    <button type="button" class="drawer-close-btn" aria-label="Close BPM Control">&times;</button>
+  </div>
+  <div class="drawer-body"></div>
+</osprey-drawer>
 <script type="module" src="panel.js"></script>
 </body>
 </html>

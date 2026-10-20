@@ -38,7 +38,7 @@ echo "→ Running fast unit tests..."
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
 # The bound stops a pytest that outlives its last test (a teardown hang) instead of
 # holding the terminal; 900 s is far above this check's healthy runtime.
-uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m "not slow and not pty and not wallclock" -n auto --dist loadgroup --maxfail=1 --tb=line -q
+uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m "not slow and not pty and not wallclock and not stack_regression" -n auto --dist loadgroup --maxfail=1 --tb=line -q
 
 echo ""
 echo "✅ Quick checks passed! Safe to commit."

@@ -1,46 +1,36 @@
 // @ts-check
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PENDING_MESSAGE } from './api.js';
-import { HEARTBEAT_MS, startPanel } from './panel.js';
+
+const contributed = vi.hoisted(() => vi.fn());
+vi.mock('/design-system/js/header-contrib.js', async (importOriginal) => ({
+  .../** @type {object} */ (await importOriginal()),
+  contributeHeader: contributed,
+}));
+
+import { AREA_MODULES, HEARTBEAT_MS, startPanel } from './panel.js';
 import { sessionControls } from './session.js';
 import {
+  AREAS,
+  CENTRE_TABS_ITEM,
   END_REASONS,
-  actionView,
+  PLOT_HOSTS,
+  VIEW_DEFAULTS,
+  control,
+  createView,
   describeEnd,
+  headerItems,
   headerView,
-  loopArgs,
-  loopControls,
-  loopForm,
   noticeFromEvent,
   noticeFromResult,
   noticeView,
-  referencesView,
-  setLoopEnabled,
+  sessionButtons,
+  shellView,
   shouldHeartbeat,
+  showTab,
   statusView,
-  stepView,
 } from './views.js';
-
-const STEP = {
-  digest: 'd-1',
-  deltas: { HCM2: -0.25, HCM1: 0.5 },
-  factor: 0.5,
-  reason: 'OK',
-  status: 'solved with rank 2',
-  all_zero: false,
-  zeroed_h: ['HCM9'],
-  zeroed_v: [],
-  no_response_names: ['VCM4'],
-  unsolved: ['VCM7', 'VCM8'],
-  rank_discarded: 1,
-  singular_values: [1, 0.1],
-  inverse_weights: [1, 0],
-  spectrum_kind: ['LIVE', 'RANK_DISCARDED'],
-  n_discard: 1,
-  shot_id: 's-1',
-  reference: null,
-};
 
 const MOVED = [
   { name: 'HCM1', before: 1.5, outcome: 'verified' },
@@ -75,59 +65,192 @@ function snapshot(over = {}) {
     reference: null,
     last_action: null,
     continuous: null,
+    chain: [],
+    families: null,
+    machine: { rf_on: 'on', stored_current: 12.5 },
+    setup: null,
+    solve: null,
+    retention: 20,
+    n_shots_max: 5,
+    notices: [],
     ...over,
   };
 }
 
 const NOOP = () => {};
 
-describe('loopControls', () => {
-  it('shows Stop to every admitted owner, holding or not, running or not', () => {
-    expect(loopControls(snapshot(), { holding: false }).stop).toBe(true);
-    expect(loopControls(snapshot({ mode: 'continuous' }), { holding: true }).stop).toBe(true);
-  });
+const ALICE = { owner: 'alice', kind: 'panel' };
 
-  it('shows no Stop without an admitted operator or a snapshot', () => {
-    expect(loopControls(snapshot({ caller: null }), { holding: true }).stop).toBe(false);
-    expect(loopControls(null, { holding: true }).stop).toBe(false);
-  });
+/** @param {any} s @param {boolean} holding @param {boolean} [pending] */
+function buttonsFor(s, holding, pending = false) {
+  return Object.fromEntries(sessionButtons(s, sessionControls(s, { holding, pending }))
+    .map((b) => [b.name, b.reason]));
+}
 
-  it('enables the writing controls only to the holder while idle', () => {
-    const s = snapshot({ step: STEP, last_action: { name: 'apply', stopped: false, moved: MOVED } });
-    expect(loopControls(s, { holding: true })).toMatchObject({
-      setup: true, shot: true, apply: true, putBack: true, continuous: true, selectReference: true,
-    });
-    expect(loopControls(s, { holding: false })).toMatchObject({
-      setup: false, shot: false, apply: false, putBack: false, continuous: false,
-    });
-    expect(loopControls({ ...s, mode: 'action' }, { holding: true })).toMatchObject({
-      setup: false, shot: false, apply: false, putBack: false, continuous: false,
-    });
-  });
-
-  it('offers no apply without a step or on an all-zero step', () => {
-    expect(loopControls(snapshot(), { holding: true }).apply).toBe(false);
-    expect(loopControls(snapshot({ step: { ...STEP, all_zero: true } }), { holding: true }).apply).toBe(false);
-  });
-
-  it('offers no Put back after a put-back or a shot', () => {
-    for (const name of ['put_back', 'shot']) {
-      const s = snapshot({ last_action: { name, stopped: false, moved: MOVED } });
-      expect(loopControls(s, { holding: true }).putBack).toBe(false);
+describe('the shell', () => {
+  it('has one host per area, each named by data-area', () => {
+    const { root, areas } = shellView(NOOP);
+    for (const name of AREAS) {
+      expect(root.querySelectorAll(`[data-area="${name}"]`)).toHaveLength(1);
+      expect(areas[name]?.getAttribute('data-area')).toBe(name);
     }
-    const stoppedSetup = snapshot({ last_action: { name: 'setup', stopped: true, moved: MOVED } });
-    expect(loopControls(stoppedSetup, { holding: true }).putBack).toBe(true);
   });
 
-  it('offers no shot or continuous without a trajectory model', () => {
-    const c = loopControls(snapshot({ model: null, model_kind: 'none' }), { holding: true });
-    expect(c).toMatchObject({ shot: false, continuous: false, saveReference: false, setup: true });
+  it('names every plot host by id and data-control, the correction results under dy', () => {
+    const { root } = shellView(NOOP);
+    for (const id of [...PLOT_HOSTS.raw, ...PLOT_HOSTS.correction, 'plot-sv']) {
+      const host = root.querySelector(`#${id}`);
+      expect(host?.getAttribute('data-control')).toBe(id);
+    }
+    const centre = /** @type {HTMLElement} */ (root.querySelector('[data-column="centre"]'));
+    const order = [...centre.querySelectorAll('[id], [data-area="correction-results"]')]
+      .map((n) => n.id || n.getAttribute('data-area'));
+    expect(order.slice(order.indexOf('plot-diff-y'))).toEqual(['plot-diff-y', 'correction-results']);
+  });
+
+  it('puts the setup tabs and the chain left, the plots centre, the per-tab controls and SV right', () => {
+    const { root } = shellView(NOOP);
+    /** @param {string} column */
+    const inColumn = (column) =>
+      [...root.querySelectorAll(`[data-column="${column}"] [data-area], [data-column="${column}"] [id]`)]
+        .map((n) => n.getAttribute('data-area') ?? n.id);
+    expect(inColumn('left')).toEqual(['setup', 'chain']);
+    expect(inColumn('centre')).toEqual(expect.arrayContaining(['plot-raw-sum', 'plot-traj-x', 'correction-results']));
+    expect(inColumn('right')).toEqual(['plots', 'records', 'references', 'correction', 'plot-sv']);
+  });
+
+  it('shows one centre tab at a time and announces what became visible', () => {
+    /** @type {string[]} */
+    const tabs = [];
+    const shell = shellView((tab) => tabs.push(tab));
+    /** @type {string[]} */
+    const shownPanels = [];
+    shell.root.addEventListener('tab:show', (e) =>
+      shownPanels.push(/** @type {HTMLElement} */ (e.target).getAttribute('data-tab-panel') ?? ''));
+    showTab(shell, 'correction');
+    expect(shell.tabPanels.raw.every((p) => p.hidden)).toBe(true);
+    expect(shell.tabPanels.correction.every((p) => !p.hidden)).toBe(true);
+    expect(shownPanels).toEqual(['correction', 'correction']);
+    const selected = shell.tabStrip.querySelector('[aria-selected="true"]');
+    expect(selected?.getAttribute('data-control')).toBe('tab-correction');
+    /** @type {HTMLButtonElement} */ (shell.tabStrip.querySelector('[data-control="tab-raw"]')).click();
+    expect(tabs).toEqual(['raw']);
+  });
+});
+
+describe('the view store', () => {
+  it('starts from the defaults and tells a key\'s listeners of a change only', () => {
+    const view = createView();
+    expect(view.get('plotRaw')).toBe(VIEW_DEFAULTS.plotRaw);
+    /** @type {boolean[]} */
+    const seen = [];
+    const off = view.on('plotRaw', (v) => seen.push(v));
+    view.on('plotCmStep', () => seen.push(true));
+    view.set('plotRaw', false);
+    view.set('plotRaw', false);
+    off();
+    view.set('plotRaw', true);
+    expect(seen).toEqual([false]);
+    expect(view.get('plotRaw')).toBe(true);
+  });
+
+  it('a redraw request bumps the counter every time', () => {
+    const view = createView();
+    /** @type {number[]} */
+    const seen = [];
+    view.on('redraw', (n) => seen.push(n));
+    view.requestRedraw();
+    view.requestRedraw();
+    expect(seen).toEqual([1, 2]);
+  });
+});
+
+describe('disabled controls', () => {
+  it('a control with a reason is disabled and shows the reason', () => {
+    const off = control('x', 'X', NOOP, 'Setup BPMs first');
+    expect(off.disabled).toBe(true);
+    expect(off.title).toBe('Setup BPMs first');
+    expect(off.getAttribute('data-reason')).toBe('Setup BPMs first');
+    const on = control('x', 'X', NOOP);
+    expect(on.disabled).toBe(false);
+    expect(on.hasAttribute('data-reason')).toBe(false);
+  });
+
+  it('the session controls are always all three, each disabled with its reason', () => {
+    expect(buttonsFor(snapshot(), false)).toEqual({
+      'session-open': null,
+      'session-takeover': 'Nobody holds the session; open it.',
+      'session-end': 'This tab holds no session.',
+    });
+    const held = snapshot({ holder: { owner: 'bob', kind: 'agent' } });
+    expect(buttonsFor(held, false)).toMatchObject({
+      'session-open': 'Held by agent of bob; take over instead.', 'session-takeover': null });
+    const running = snapshot({ holder: { owner: 'bob', kind: 'agent' }, mode: 'action',
+      action: { name: 'shot', stopping: false } });
+    expect(buttonsFor(running, false)['session-takeover']).toBe('Wait for shot to end, or Stop it.');
+    expect(buttonsFor(snapshot({ holder: ALICE }), true)).toEqual({
+      'session-open': 'This tab holds the session.',
+      'session-takeover': 'This tab holds the session.',
+      'session-end': null,
+    });
+    expect(buttonsFor(snapshot(), false, true)['session-open']).toBe('A session request is in flight.');
+    expect(buttonsFor(null, false)['session-open']).toBe('Waiting for the service.');
+  });
+
+  it('Stop says why when nothing runs and is offered while something does', () => {
+    const idle = statusView(snapshot(), 'connected', sessionControls(snapshot(), { holding: false }), NOOP);
+    expect(idle.querySelector('[data-control="stop"]')?.getAttribute('data-reason')).toBe('Nothing is running.');
+    const s = snapshot({ holder: { owner: 'bob', kind: 'agent' }, mode: 'action',
+      action: { name: 'apply', stopping: true } });
+    const busy = statusView(s, 'connected', sessionControls(s, { holding: false }), NOOP);
+    expect(busy.querySelector('[data-running]')?.textContent).toBe('Running: apply (agent of bob) — stopping');
+    expect(/** @type {HTMLButtonElement} */ (busy.querySelector('[data-control="stop"]')).disabled).toBe(false);
+  });
+});
+
+describe('the hub tile bar', () => {
+  it('hands over the session controls, then the centre tabs last', () => {
+    const items = headerItems(sessionButtons(snapshot(), sessionControls(snapshot(), { holding: false })),
+      'correction');
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual([
+      'button:session-open', 'button:session-takeover', 'button:session-end', `nav:${CENTRE_TABS_ITEM}`,
+    ]);
+    expect(items[1]).toMatchObject({ disabled: true, title: 'Nobody holds the session; open it.' });
+    expect(items[0]).toMatchObject({ disabled: false });
+    expect(/** @type {any} */ (items[3]).items).toEqual([
+      { id: 'tab-raw', label: 'Raw BPM Signal', active: false },
+      { id: 'tab-correction', label: 'Trajectory Correction', active: true },
+    ]);
+  });
+});
+
+describe('the header', () => {
+  it('shows target, holder, writes, RF and the stored current', () => {
+    const s = snapshot({ holder: ALICE, writes_enabled: false,
+      taken_over: { previous: { owner: 'bob', kind: 'agent' }, by: ALICE } });
+    const node = headerView(s, true);
+    expect(node.querySelector('[data-control="stored-current"]')?.textContent).toBe('12.50 mA');
+    for (const part of ['va', 'panel of alice (this tab)', 'readwrite (writes disabled)', 'on',
+      'Taken over by panel of alice from agent of bob']) {
+      expect(node.textContent).toContain(part);
+    }
+  });
+
+  it('shows a dash for an unread stored current', () => {
+    const node = headerView(snapshot({ machine: null }), false);
+    expect(node.querySelector('[data-control="stored-current"]')?.textContent).toBe('—');
+  });
+
+  it('writes service strings as text, never as markup', () => {
+    const node = headerView(snapshot({ target: '<img src=x onerror=alert(1)>' }), false);
+    expect(node.querySelector('img')).toBeNull();
+    expect(node.textContent).toContain('<img');
   });
 });
 
 describe('shouldHeartbeat', () => {
   it('beats only while a run is in progress and this tab holds', () => {
-    const running = snapshot({ continuous: { shots: 1, max_shots: 10, lease_expires_in_s: 12 } });
+    const running = snapshot({ continuous: { shots: 1, lease_expires_in_s: 12 } });
     expect(shouldHeartbeat(running, true)).toBe(true);
     expect(shouldHeartbeat(running, false)).toBe(false);
     expect(shouldHeartbeat(snapshot(), true)).toBe(false);
@@ -181,85 +304,6 @@ describe('notices', () => {
   });
 });
 
-describe('views', () => {
-  it('renders the header facts, the holder and the take-over notice', () => {
-    const s = snapshot({
-      holder: { owner: 'alice', kind: 'panel' },
-      taken_over: { previous: { owner: 'bob', kind: 'agent' }, by: { owner: 'alice', kind: 'panel' } },
-      writing_available: false,
-    });
-    const text = headerView(s, 'connected', true).textContent;
-    for (const part of ['va', 'readwrite', 'optional', 'unavailable', 'SR (single_pass)',
-      'panel of alice (this tab)', 'Taken over by panel of alice from agent of bob', 'Stream: connected']) {
-      expect(text).toContain(part);
-    }
-  });
-
-  it('names the running action, its stopping state, the budgets and Stop', () => {
-    const s = snapshot({ holder: { owner: 'bob', kind: 'agent' }, mode: 'action',
-      action: { name: 'apply', stopping: true, armed_stragglers: [] } });
-    const node = actionView(s, sessionControls(s, { holding: false }), loopControls(s, { holding: false }),
-      { onOpen: NOOP, onTakeOver: NOOP, onRelease: NOOP, onStop: NOOP });
-    expect(node.querySelector('[data-running]')?.textContent).toBe('Running: apply (agent of bob) — stopping');
-    expect(node.querySelector('[data-control="stop"]')).not.toBeNull();
-    expect(node.querySelector('[data-control="takeover"]')).toBeNull();
-    expect(node.textContent).toContain('65 s');
-  });
-
-  it('renders the step with deltas, rank and zeroed info, and the unsolved correctors named', () => {
-    const node = stepView(STEP);
-    expect(node.querySelector('[data-view="unsolved"]')?.textContent).toBe('Not solved: VCM7, VCM8');
-    const rows = [...node.querySelectorAll('.deltas tbody tr')].map((tr) => tr.textContent);
-    expect(rows).toEqual(['HCM10.5', 'HCM2-0.25']);
-    for (const part of ['d-1', '0.5', 'solved with rank 2', '1 (n_discard 1)', 'HCM9', 'VCM4']) {
-      expect(node.textContent).toContain(part);
-    }
-    expect(stepView(null).textContent).toContain('No step pending');
-  });
-
-  it('shows the last action moved list and the continuous lease', () => {
-    const s = snapshot({ last_action: { name: 'setup', stopped: true, moved: MOVED },
-      continuous: { shots: 2, max_shots: 50, lease_expires_in_s: 11.6 } });
-    const node = statusView(s);
-    expect(node.querySelector('[data-view="last-action"]')?.textContent).toContain('setup (stopped)');
-    expect(node.querySelectorAll('[data-view="moved"] tbody tr')).toHaveLength(2);
-    expect(node.querySelector('[data-view="continuous"]')?.textContent).toBe(
-      'Running: 2 of 50 shot(s); lease expires in 12 s');
-  });
-
-  it('reads the loop form and disables what the controls forbid', () => {
-    const form = loopForm({ onSetup: NOOP, onShot: NOOP, onApply: NOOP, onPutBack: NOOP, onContinuous: NOOP });
-    form.nShots.value = '4';
-    form.average.value = 'nanmean';
-    expect(loopArgs(form)).toEqual({ n_shots: 4, average: 'nanmean', max_shots: null });
-    form.maxShots.value = '20';
-    expect(loopArgs(form).max_shots).toBe(20);
-    setLoopEnabled(form, loopControls(snapshot(), { holding: false }));
-    expect(form.buttons.shot.disabled).toBe(true);
-  });
-
-  it('lists references and shots, and saves under a typed name', () => {
-    /** @type {[string, string | undefined][]} */
-    const saved = [];
-    const shots = [{ shot_id: 's-2', shots_included: 3, shots_failed: [], last_bpm: 'BPM9', lost: [] }];
-    const node = referencesView({ names: ['golden', 'other'], current: 'golden' }, shots, snapshot(),
-      loopControls(snapshot(), { holding: true }),
-      { onSave: (n, s) => saved.push([n, s]), onSelect: NOOP, onRefresh: NOOP });
-    const pick = /** @type {HTMLSelectElement} */ (node.querySelector('select[name="reference"]'));
-    expect(pick.value).toBe('golden');
-    expect(node.querySelectorAll('[data-view="shots"] tbody tr')).toHaveLength(1);
-    /** @type {HTMLInputElement} */ (node.querySelector('input[name="reference_name"]')).value = ' new ';
-    /** @type {HTMLButtonElement} */ (node.querySelector('[data-control="save-reference"]')).click();
-    expect(saved).toEqual([['new', undefined]]);
-  });
-
-  it('writes service strings as text, never as markup', () => {
-    const node = headerView(snapshot({ target: '<img src=x onerror=alert(1)>' }), 'connected', false);
-    expect(node.querySelector('img')).toBeNull();
-    expect(node.textContent).toContain('<img');
-  });
-});
-
 /** A fake EventSource the test drives. */
 class FakeSource {
   /** @type {FakeSource[]} */
@@ -290,11 +334,35 @@ class FakeSource {
 /** Let pending promise callbacks run. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** @param {HTMLElement} root @param {string} name */
+function click(root, name) {
+  const button = /** @type {HTMLButtonElement | null} */ (root.querySelector(`[data-control="${name}"]`));
+  if (!button) throw new Error(`no ${name} control`);
+  button.click();
+}
+
+/**
+ * Mounts that record what they were handed, one per area module.
+ * @returns {{ modules: Record<string, import('./panel.js').Mount>, mounted: Record<string, [HTMLElement, any]> }}
+ */
+function recordingModules() {
+  /** @type {Record<string, [HTMLElement, any]>} */
+  const mounted = {};
+  /** @type {Record<string, import('./panel.js').Mount>} */
+  const modules = {};
+  for (const name of Object.keys(AREA_MODULES)) {
+    modules[name] = (host, ctx) => {
+      mounted[name] = [host, ctx];
+    };
+  }
+  return { modules, mounted };
+}
+
 /**
  * Start a panel against a fake service answering by route.
  * @param {Record<string, (init: RequestInit) => [number, unknown]>} routes
  */
-function harness(routes) {
+function harness(routes = {}) {
   FakeSource.instances = [];
   /** @type {{ url: string, init: RequestInit }[]} */
   const calls = [];
@@ -308,6 +376,7 @@ function harness(routes) {
     return /** @type {Response} */ ({ ok: status < 300, status, json: async () => body });
   };
   const root = document.createElement('div');
+  const { modules, mounted } = recordingModules();
   const panel = startPanel({
     root,
     EventSourceCtor: /** @type {any} */ (FakeSource),
@@ -318,99 +387,183 @@ function harness(routes) {
       return timers.length;
     },
     clearIntervalImpl: () => timers.splice(0),
+    adapter: { stub: true },
+    modules,
   });
-  return { panel, root, calls, timers, source: FakeSource.instances[0] };
+  const source = FakeSource.instances[0];
+  /** @param {Record<string, unknown>} [over] */
+  const emitSnapshot = (over) => source.emit('snapshot', { type: 'snapshot', snapshot: snapshot(over) });
+  return { panel, root, calls, timers, source, mounted, emitSnapshot };
 }
 
-/** @param {HTMLElement} root @param {string} name */
-function click(root, name) {
-  const button = /** @type {HTMLButtonElement | null} */ (root.querySelector(`[data-control="${name}"]`));
-  if (!button) throw new Error(`no ${name} control`);
-  button.click();
+/** Open the session as alice and see it held. */
+async function opened(/** @type {ReturnType<typeof harness>} */ h) {
+  h.emitSnapshot();
+  click(h.root, 'session-open');
+  await flush();
+  h.emitSnapshot({ holder: ALICE });
 }
+
+const GRANT = { 'POST api/session': () => /** @type {[number, unknown]} */ ([200, { client_id: 'c-1', owner: 'alice', target: 'va' }]) };
+
 
 describe('startPanel', () => {
-  it('threads open session, shot and apply with relative URLs and the client header', async () => {
-    const { panel, root, calls, source } = harness({
-      'POST api/session': () => [200, { client_id: 'c-1', owner: 'alice', target: 'va' }],
-    });
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot() });
-    click(root, 'open');
-    await flush();
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot({ holder: { owner: 'alice', kind: 'panel' } }) });
-    expect(root.textContent).toContain('panel of alice (this tab)');
-    click(root, 'shot');
-    await flush();
-    source.emit('snapshot', { type: 'snapshot',
-      snapshot: snapshot({ holder: { owner: 'alice', kind: 'panel' }, step: STEP }) });
-    click(root, 'apply');
-    await flush();
-    const apply = calls.find((c) => c.url === 'api/apply');
-    expect(apply?.init.body).toBe(JSON.stringify({ step_digest: 'd-1' }));
-    const headers = /** @type {Record<string, string>} */ (apply?.init.headers ?? {});
-    expect(headers['X-Trajectory-Client']).toBe('c-1');
-    expect(calls.every((c) => !c.url.startsWith('/'))).toBe(true);
+  it('mounts every area module once, into its own host, with the whole context', () => {
+    const { panel, mounted } = harness();
+    expect(Object.keys(mounted).sort()).toEqual(Object.keys(AREA_MODULES).sort());
+    for (const [name, [host, ctx]] of Object.entries(mounted)) {
+      expect(host.getAttribute('data-area')).toBe(name);
+      for (const key of ['api', 'snapshot', 'onSnapshot', 'onEvent', 'adapter', 'view', 'notify',
+        'startContinuous', 'stopContinuous']) {
+        expect(ctx).toHaveProperty(key);
+      }
+      expect(ctx.adapter).toEqual({ stub: true });
+      expect(ctx.area('correction-results')?.getAttribute('data-area')).toBe('correction-results');
+    }
+    expect(mounted.chain[1]).toBe(mounted.plots[1]);
     panel.close();
   });
 
-  it('drops the session on a lost-session refusal and shows the code', async () => {
-    const { panel, root, source } = harness({
-      'POST api/session': () => [200, { client_id: 'c-1', owner: 'alice', target: 'va' }],
-      'POST api/shot': () => [409, { detail: { code: 'session_taken_over', detail: 'taken over' } }],
-    });
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot() });
-    click(root, 'open');
-    await flush();
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot({ holder: { owner: 'alice', kind: 'panel' } }) });
-    click(root, 'shot');
-    await flush();
-    expect(root.querySelector('[data-code]')?.textContent).toBe('session_taken_over');
-    expect(root.querySelector('[data-control="takeover"]')).not.toBeNull();
+  it('hands the areas each snapshot and each event of the type they asked for', () => {
+    const { panel, mounted, source, emitSnapshot } = harness();
+    const ctx = mounted.plots[1];
+    /** @type {any[]} */
+    const snaps = [];
+    /** @type {any[]} */
+    const shots = [];
+    const off = ctx.onSnapshot((/** @type {any} */ s) => snaps.push(s.mode));
+    ctx.onEvent('shot', (/** @type {any} */ p) => shots.push(p.shot.shot_id));
+    emitSnapshot();
+    source.emit('shot', { type: 'shot', shot: { shot_id: 's-1' } });
+    source.emit('step', { type: 'step', step: null });
+    off();
+    emitSnapshot({ mode: 'action' });
+    expect(snaps).toEqual(['idle']);
+    expect(shots).toEqual(['s-1']);
+    expect(ctx.snapshot().mode).toBe('action');
     panel.close();
+  });
+
+  it('opens and ends the session from the header strip, with the client header', async () => {
+    const h = harness(GRANT);
+    await opened(h);
+    expect(h.root.textContent).toContain('panel of alice (this tab)');
+    expect(h.mounted.chain[1].holding()).toBe(true);
+    click(h.root, 'session-end');
+    await flush();
+    const release = h.calls.find((c) => c.init.method === 'DELETE');
+    expect(/** @type {Record<string, string>} */ (release?.init.headers ?? {})['X-Trajectory-Client']).toBe('c-1');
+    expect(h.calls.every((c) => !c.url.startsWith('/'))).toBe(true);
+    h.panel.close();
+  });
+
+  it('drops the session on a lost-session refusal of an area call', async () => {
+    const h = harness({ ...GRANT,
+      'POST api/shot': () => [409, { detail: { code: 'session_taken_over', detail: 'taken over' } }] });
+    await opened(h);
+    const ctx = h.mounted.chain[1];
+    expect(ctx.holding()).toBe(true);
+    expect((await ctx.api.shot({ steps: ['readout'] })).kind).toBe('refused');
+    expect(ctx.holding()).toBe(false);
+    const takeOver = /** @type {HTMLButtonElement} */ (h.root.querySelector('[data-control="session-takeover"]'));
+    expect(takeOver.disabled).toBe(false);
+    h.panel.close();
+  });
+
+  it('a lost-session refusal of a context call drops the session', async () => {
+    const h = harness({ ...GRANT,
+      'POST api/stop': () => [409, { detail: { code: 'not_session_holder', detail: 'not yours' } }] });
+    await opened(h);
+    await h.mounted.chain[1].stopContinuous();
+    expect(h.mounted.chain[1].holding()).toBe(false);
+    expect(h.root.querySelector('[data-code]')?.textContent).toBe('not_session_holder');
+    h.panel.close();
   });
 
   it('heartbeats while its continuous run lasts and shows lease_expired prominently', async () => {
-    const { panel, root, calls, timers, source } = harness({
-      'POST api/session': () => [200, { client_id: 'c-1', owner: 'alice', target: 'va' }],
-      'POST api/continuous': () => [200, { shots: 0, max_shots: 10, lease_expires_in_s: 15 }],
-    });
-    const held = { holder: { owner: 'alice', kind: 'panel' } };
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot() });
-    click(root, 'open');
+    const h = harness({ ...GRANT,
+      'POST api/continuous': () => [200, { shots: 0, lease_expires_in_s: 15 }] });
+    await opened(h);
+    const result = await h.mounted.chain[1].startContinuous({ steps: ['arm', 'inject', 'readout'] });
+    expect(result.kind).toBe('ok');
+    expect(h.panel.heartbeating()).toBe(true);
+    const start = h.calls.find((c) => c.url === 'api/continuous');
+    expect(JSON.parse(String(start?.init.body))).toEqual({ steps: ['arm', 'inject', 'readout'] });
+    h.emitSnapshot({ holder: ALICE, mode: 'continuous', continuous: { shots: 1, lease_expires_in_s: 14 } });
+    h.timers[0]();
     await flush();
-    click(root, 'continuous');
-    await flush();
-    expect(panel.heartbeating()).toBe(true);
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot({ ...held, mode: 'continuous',
-      continuous: { shots: 1, max_shots: 10, lease_expires_in_s: 14 } }) });
-    timers[0]();
-    await flush();
-    expect(calls.some((c) => c.url === 'api/continuous/heartbeat')).toBe(true);
-    source.emit('continuous_ended', { type: 'continuous_ended', end: 'lease_expired', shots: 1 });
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot(held) });
-    expect(panel.heartbeating()).toBe(false);
-    const banner = root.querySelector('[data-view="ended"]');
+    expect(h.calls.some((c) => c.url === 'api/continuous/heartbeat')).toBe(true);
+    h.source.emit('continuous_ended', { type: 'continuous_ended', end: 'lease_expired', shots: 1 });
+    h.emitSnapshot({ holder: ALICE });
+    expect(h.panel.heartbeating()).toBe(false);
+    const banner = h.root.querySelector('[data-view="ended"]');
     expect(banner?.textContent).toContain('lease_expired');
     expect(banner?.querySelector('[role="alert"]')).not.toBeNull();
+    h.panel.close();
+  });
+
+  it('a refused continuous start sends no heartbeat', async () => {
+    const h = harness({ ...GRANT,
+      'POST api/continuous': () => [409, { detail: { code: 'setup_required', detail: 'Setup BPMs first' } }] });
+    await opened(h);
+    await h.mounted.chain[1].startContinuous({ steps: ['readout'] });
+    expect(h.panel.heartbeating()).toBe(false);
+    expect(h.root.querySelector('[data-code]')?.textContent).toBe('setup_required');
+    h.panel.close();
+  });
+
+  it('shows the notices an area raises and the ones the service serves', () => {
+    const { panel, root, mounted, emitSnapshot } = harness();
+    emitSnapshot({ notices: ['setup voided: BPM mode changed'] });
+    mounted.records[1].notify({ kind: 'info', title: 'record s-3 evicted' });
+    const text = root.querySelector('[data-area="notices"]')?.textContent;
+    expect(text).toContain('setup voided: BPM mode changed');
+    expect(text).toContain('record s-3 evicted');
     panel.close();
   });
 
-  it('puts back the earliest before-value of what the last apply moved', async () => {
-    const { panel, root, calls, source } = harness({
-      'POST api/session': () => [200, { client_id: 'c-1', owner: 'alice', target: 'va' }],
-    });
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot() });
-    click(root, 'open');
+  it('Stop posts stop from the status strip', async () => {
+    const h = harness();
+    h.emitSnapshot({ holder: { owner: 'bob', kind: 'agent' }, mode: 'action',
+      action: { name: 'shot', stopping: false } });
+    click(h.root, 'stop');
     await flush();
-    const moved = [...MOVED, { name: 'HCM1', before: 9, outcome: 'verified' }];
-    source.emit('snapshot', { type: 'snapshot', snapshot: snapshot({ holder: { owner: 'alice', kind: 'panel' },
-      last_action: { name: 'apply', stopped: false, moved } }) });
-    click(root, 'put-back');
-    await flush();
-    const putBack = calls.find((c) => c.url === 'api/apply');
-    expect(JSON.parse(String(putBack?.init.body))).toEqual({
-      model: 'SR', values: [{ name: 'HCM1', before: 1.5 }, { name: 'HCM2', before: -2 }],
-    });
+    expect(h.calls.map((c) => c.url)).toContain('api/stop');
+    h.panel.close();
+  });
+
+  it('switches the centre tab from the strip and from the tile bar', () => {
+    const { panel, root } = harness();
+    expect(panel.tab()).toBe('raw');
+    click(root, 'tab-correction');
+    expect(panel.tab()).toBe('correction');
+    expect(/** @type {HTMLElement} */ (root.querySelector('[data-area="raw-plots"]')).hidden).toBe(true);
+    panel.headerAction(CENTRE_TABS_ITEM, 'tab-raw');
+    expect(panel.tab()).toBe('raw');
     panel.close();
+  });
+
+  it('a tile-bar session button calls the same function as the in-body one', async () => {
+    const h = harness(GRANT);
+    h.emitSnapshot();
+    h.panel.headerAction('session-open');
+    await flush();
+    expect(h.calls.map((c) => `${c.init.method} ${c.url}`)).toContain('POST api/session');
+    h.panel.close();
+  });
+
+  it('hands the tile bar the session controls and the centre tabs on every change', async () => {
+    contributed.mockClear();
+    const h = harness(GRANT);
+    h.emitSnapshot();
+    h.panel.showTab('correction');
+    let items = contributed.mock.calls.at(-1)?.[0];
+    expect(items.map((/** @type {any} */ i) => `${i.kind}:${i.id}`)).toEqual([
+      'button:session-open', 'button:session-takeover', 'button:session-end', 'nav:centre-tabs']);
+    expect(items[3].items.find((/** @type {any} */ e) => e.active).id).toBe('tab-correction');
+    await opened(h);
+    items = contributed.mock.calls.at(-1)?.[0];
+    expect(items.find((/** @type {any} */ i) => i.id === 'session-end').disabled).toBe(false);
+    h.panel.close();
   });
 });
