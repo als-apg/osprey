@@ -368,11 +368,25 @@ class ValidationResult:
     ``content_hash`` is always populated, computed before any stage runs, so a
     caller can key a validation record (or a rejection) against the exact
     body content regardless of which stage decided the outcome.
+
+    ``movable_channels`` and ``readable_channels`` are the channel names the
+    sample arguments supply under each role the body's ``PARAMS`` declares,
+    sorted. Both are empty unless ``passed``; a body that declares no role
+    reports none, whatever mocks the dry run drove it against.
+
+    Raises:
+        ValueError: if ``passed`` is false and either channel tuple is non-empty.
     """
 
     passed: bool
     reasons: list[str]
     content_hash: str
+    movable_channels: tuple[str, ...] = ()
+    readable_channels: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.passed and (self.movable_channels or self.readable_channels):
+            raise ValueError("a validation that did not pass reports no channels")
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +476,11 @@ def _render_dry_run_script(
     ``finally`` so the parent always has something to read even if construction
     itself raised.
 
+    On a successful drive the result also carries ``movable_channels`` and
+    ``readable_channels``: the names the validated params supply under each
+    declared role, before any fallback mock is added, so the parent can report
+    what the sample arguments named and never the dry run's own placeholders.
+
     On a successful drive the result also carries ``declared_points``: one entry
     per run the plan opened, holding what that run declared about its own size
     (`None` for a run that declared nothing usable). The script only *reports*
@@ -542,12 +561,10 @@ try:
     # string under a field that declared no role is a plain parameter that gets
     # no mock at all. A plan declaring neither role falls back to one of each so
     # a parameterless body still has something to drive.
-    _movable_names = list(collect_channels(params_cls, params, MOVABLE_ROLE)) or list(
-        _FALLBACK_MOVABLE
-    )
-    _readable_names = list(collect_channels(params_cls, params, READABLE_ROLE)) or list(
-        _FALLBACK_READABLE
-    )
+    _declared_movable = list(collect_channels(params_cls, params, MOVABLE_ROLE))
+    _declared_readable = list(collect_channels(params_cls, params, READABLE_ROLE))
+    _movable_names = _declared_movable or list(_FALLBACK_MOVABLE)
+    _readable_names = _declared_readable or list(_FALLBACK_READABLE)
 
     # `context_managers=[]` disables the RunEngine's default SIGINT handling,
     # which only works on the main thread -- required because `RE(...)` is
@@ -617,6 +634,8 @@ try:
     if "exc" in failure:
         raise failure["exc"]
 
+    result["movable_channels"] = sorted(set(_declared_movable))
+    result["readable_channels"] = sorted(set(_declared_readable))
     result["declared_points"] = _declared_points
     result["moved_unrecorded"] = sorted(_moved - _recorded)
     result["success"] = True
@@ -721,13 +740,28 @@ def _unrecorded_move_reasons(payload: dict[str, Any], *, plan_name: str) -> list
     ]
 
 
+@dataclass(frozen=True)
+class _DryRunOutcome:
+    """What stage 3 reports: its rejections, and on a clean run the channels.
+
+    ``movable_channels`` / ``readable_channels`` are the sorted names the
+    validated sample arguments supply under each declared role, read in the
+    subprocess (`_render_dry_run_script`); they are empty whenever ``reasons``
+    is not.
+    """
+
+    reasons: list[str]
+    movable_channels: tuple[str, ...] = ()
+    readable_channels: tuple[str, ...] = ()
+
+
 async def _dry_run(
     body: str,
     *,
     plan_name: str,
     sample_args: dict[str, Any],
     timeout: float,
-) -> list[str]:
+) -> _DryRunOutcome:
     """Stage 3: run the plan body to completion under a mock-device RunEngine.
 
     The mock devices are the ones the plan's own role declaration asks for —
@@ -745,7 +779,8 @@ async def _dry_run(
     (`_unrecorded_move_reasons`), and is then held to what its own
     ``PLAN_METADATA`` claims: a plan declaring that it moves channels must
     leave a declared point count behind on the run(s) it opened
-    (`_point_count_reasons`). A read-only plan is not asked for one.
+    (`_point_count_reasons`). A read-only plan is not asked for one. A run that
+    passes all of that reports the channels its sample arguments named.
     """
     with tempfile.TemporaryDirectory(prefix="osprey_plan_dry_run_") as tmp:
         tmp_path = Path(tmp)
@@ -790,25 +825,34 @@ async def _dry_run(
         except TimeoutError:
             proc.kill()
             await proc.wait()
-            return [f"Dry-run subprocess timed out after {timeout} seconds"]
+            return _DryRunOutcome([f"Dry-run subprocess timed out after {timeout} seconds"])
 
         if not result_path.exists():
             stderr_text = stderr.decode("utf-8", errors="replace").strip()
-            return [
-                f"Dry-run subprocess produced no result (exit code {proc.returncode}): {stderr_text}"
-            ]
+            return _DryRunOutcome(
+                [
+                    f"Dry-run subprocess produced no result "
+                    f"(exit code {proc.returncode}): {stderr_text}"
+                ]
+            )
 
         try:
             payload = json.loads(result_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            return [f"Dry-run result file unreadable: {exc}"]
+            return _DryRunOutcome([f"Dry-run result file unreadable: {exc}"])
 
         if not payload.get("success"):
-            return [f"Dry-run failed: {payload.get('error', 'unknown error')}"]
+            return _DryRunOutcome([f"Dry-run failed: {payload.get('error', 'unknown error')}"])
         reasons = _unrecorded_move_reasons(payload, plan_name=plan_name)
         if _declares_writes(body):
             reasons += _point_count_reasons(payload, plan_name=plan_name)
-        return reasons
+        if reasons:
+            return _DryRunOutcome(reasons)
+        return _DryRunOutcome(
+            [],
+            movable_channels=tuple(sorted(payload.get("movable_channels") or ())),
+            readable_channels=tuple(sorted(payload.get("readable_channels") or ())),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -844,8 +888,9 @@ async def validate_plan(
 
     Returns:
         A `ValidationResult` with `content_hash` always populated (hashed
-        before any stage runs), and `passed`/`reasons` reflecting whichever
-        stage accepted or rejected the body.
+        before any stage runs), `passed`/`reasons` reflecting whichever
+        stage accepted or rejected the body, and on a pass the channels the
+        sample arguments supply under each declared role.
     """
     content_hash = hash_plan_body(body)
     resolved_sample_args = dict(sample_args) if sample_args is not None else {}
@@ -858,13 +903,19 @@ async def validate_plan(
     if reasons:
         return ValidationResult(passed=False, reasons=reasons, content_hash=content_hash)
 
-    reasons = await _dry_run(
+    outcome = await _dry_run(
         body,
         plan_name=plan_name,
         sample_args=resolved_sample_args,
         timeout=dry_run_timeout,
     )
-    if reasons:
-        return ValidationResult(passed=False, reasons=reasons, content_hash=content_hash)
+    if outcome.reasons:
+        return ValidationResult(passed=False, reasons=outcome.reasons, content_hash=content_hash)
 
-    return ValidationResult(passed=True, reasons=[], content_hash=content_hash)
+    return ValidationResult(
+        passed=True,
+        reasons=[],
+        content_hash=content_hash,
+        movable_channels=outcome.movable_channels,
+        readable_channels=outcome.readable_channels,
+    )

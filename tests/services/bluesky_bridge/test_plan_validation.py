@@ -830,6 +830,91 @@ class TestDryRunRoleMocks:
         assert result.passed is False
         assert "available mock devices: ['rb1', 'sp1']" in result.reasons[0]
 
+    async def test_a_pass_reports_the_channels_the_sample_args_supply_per_role(self):
+        """The dry run reads which strings are channels off the plan's own
+        declaration; a pass hands those names back so a caller can hold them
+        to a real worker without re-walking the body."""
+        body = _role_mock_body(
+            textwrap.dedent(
+                """\
+                class PARAMS(BaseModel):
+                    correctors: MovableChannels = Field(..., min_length=1)
+                    readbacks: ReadableChannels = Field(..., min_length=1)
+                    monitors: ReadableChannels = Field(..., min_length=1)
+                    label: str = Field(...)
+                """
+            ),
+            "def build_plan(devices, params):\n" + _DRIVE_ONE_POINT,
+        )
+        sample_args = {
+            "correctors": ["c2", "c1"],
+            "readbacks": ["b1"],
+            "monitors": ["m1"],
+            "label": "not_a_channel",
+        }
+        result = await validate_plan(body, plan_name="role_mocks", sample_args=sample_args)
+
+        assert result.passed is True, result.reasons
+        assert result.movable_channels == tuple(sorted(sample_args["correctors"]))
+        assert result.readable_channels == tuple(
+            sorted(sample_args["readbacks"] + sample_args["monitors"])
+        )
+
+    async def test_a_pass_with_no_declared_role_reports_no_channels(self):
+        """The fallback mocks a role-less body is driven against are the dry
+        run's own, never names the sample arguments supplied."""
+        body = textwrap.dedent(
+            """\
+            from bluesky import plan_stubs as bps
+            from bluesky import preprocessors as bpp
+            from pydantic import BaseModel
+
+            PLAN_METADATA = {
+                "name": "no_roles",
+                "description": "Declares no channel roles and moves nothing.",
+                "writes": False,
+            }
+
+
+            class PARAMS(BaseModel):
+                pass
+
+
+            def build_plan(devices, params):
+                @bpp.run_decorator()
+                def _noop():
+                    yield from bps.null()
+
+                return _noop()
+            """
+        )
+        result = await validate_plan(body, plan_name="no_roles", sample_args={})
+
+        assert result.passed is True, result.reasons
+        assert result.movable_channels == ()
+        assert result.readable_channels == ()
+
+    async def test_a_failure_reports_no_channels(self):
+        body = _role_mock_body(
+            _GATE_PARAMS,
+            "def build_plan(devices, params):\n" + _DRIVE_ONE_POINT_UNDECLARED,
+        )
+        result = await validate_plan(body, plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS)
+
+        assert result.passed is False
+        assert result.movable_channels == ()
+        assert result.readable_channels == ()
+
+    def test_a_failed_result_cannot_carry_channels(self):
+        with pytest.raises(ValueError):
+            plan_validation.ValidationResult(
+                passed=False, reasons=["x"], content_hash="h", movable_channels=("a",)
+            )
+        with pytest.raises(ValueError):
+            plan_validation.ValidationResult(
+                passed=False, reasons=["x"], content_hash="h", readable_channels=("a",)
+            )
+
     def test_fallback_mock_names_are_the_mock_factory_defaults(self):
         """The fallback names the render seam injects are the ones
         `devices/mock.build_devices` builds by default — the failure message
@@ -1119,11 +1204,11 @@ class TestDryRunEnvScrub:
         monkeypatch.setenv("EPICS_CA_SERVER_PORT", "5064")
         captured_env = self._capture_dry_run_env(monkeypatch)
 
-        reasons = await plan_validation._dry_run(
+        outcome = await plan_validation._dry_run(
             BENIGN_PLAN_BODY, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS, timeout=5.0
         )
 
-        assert reasons == []
+        assert outcome.reasons == []
         assert captured_env["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
         assert captured_env["EPICS_CA_ADDR_LIST"] == ""
         assert captured_env["EPICS_CA_NAME_SERVERS"] == ""
@@ -1146,11 +1231,11 @@ class TestDryRunEnvScrub:
         monkeypatch.setenv("EPICS_PVA_SERVER_PORT", "5075")
         captured_env = self._capture_dry_run_env(monkeypatch)
 
-        reasons = await plan_validation._dry_run(
+        outcome = await plan_validation._dry_run(
             BENIGN_PLAN_BODY, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS, timeout=5.0
         )
 
-        assert reasons == []
+        assert outcome.reasons == []
         assert captured_env["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
         assert captured_env["EPICS_PVA_ADDR_LIST"] == ""
         assert captured_env["EPICS_PVA_NAME_SERVERS"] == ""

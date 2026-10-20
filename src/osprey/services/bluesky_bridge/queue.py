@@ -67,7 +67,9 @@ start documents, live rows, and Tiled results all key back to it. One check is
 new rather than inherited: a plan whose role-typed channel parameters name
 something the worker's namespace lacks is refused at add time
 (`_check_devices_exist`), because that mistake would otherwise only surface as
-a failed run.
+a failed run. Session-plan validation holds the channels its sample arguments
+name to the same check (`_check_channel_names_built`), so a validated plan run
+with those arguments is never refused for a missing device.
 
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
@@ -499,7 +501,9 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 # has no device for is not caught by any schema, and surfaces only as a failed
 # run after an enqueue and a start. Checking the names against the worker's own
 # `devices_allowed` before the add turns that into one legible refusal at the
-# moment the name was chosen.
+# moment the name was chosen. Session-plan validation runs the same check on
+# the channels its sample arguments name, so the two points refuse the same
+# mistake with the same body.
 #
 # WHICH strings in the params are channel names is the plan's own declaration,
 # never a guess this module makes: an author annotates each channel field with
@@ -683,13 +687,13 @@ async def _built_device_names(
     tree is refetched only when the uid says the cached names are no longer
     the worker's.
 
-    ``status`` is the document the enqueue already read under the arming lock
-    — a ``reload=True`` read, so it is the manager's current answer rather than
-    the client's ~0.5 s cache or whatever the SSE poller (which runs only while
-    a subscriber is connected) last left behind. Reading it here again would
-    put a second round trip in the add path for the same document; a status
-    that could not be read never reaches this point, because the enqueue is
-    refused on it first.
+    ``status`` is the document the caller already read; only its uid is used,
+    to key the cache. The enqueue hands it the ``reload=True`` read it made
+    under the arming lock — the manager's current answer rather than the
+    client's ~0.5 s cache or whatever the SSE poller last left behind — so the
+    add path makes no second round trip for the same document. Session-plan
+    validation hands it a plain read: a stale uid costs at most one refetch of
+    the tree, never a wrong answer about it.
 
     Returns the built names, or ``None`` when there is nothing certain to check
     against: a status carrying no uid just costs the fetch this cache saves
@@ -781,6 +785,37 @@ async def _check_devices_exist(
         return
 
     movable, readable = _referenced_channel_names(spec, plan_args)
+    await _check_channel_names_built(
+        backend,
+        plan_name,
+        movable,
+        readable,
+        status,
+        session_tier=spec.provenance in ("session", "unreviewed"),
+    )
+
+
+async def _check_channel_names_built(
+    backend: QueueBackend,
+    plan_name: str,
+    movable: AbstractSet[str],
+    readable: AbstractSet[str],
+    status: Mapping[str, Any],
+    *,
+    session_tier: bool,
+) -> None:
+    """Refuse (400 ``unknown_device``) channel names the worker did not build.
+
+    The one check both the enqueue (`_check_devices_exist`, over the draft's
+    arguments) and session-plan validation (over its sample arguments) run, so
+    the two refuse the same mistake with the same body and sentence
+    (`_refuse_unknown_devices`). ``movable`` and ``readable`` are the names the
+    plan's declared roles collected; ``session_tier`` picks the sentence's noun.
+
+    Fail-open where the answer is not certain: no names to check, or a worker
+    whose device tree cannot be read or is empty (`_built_device_names`),
+    returns without a refusal.
+    """
     if not movable and not readable:
         return
 
@@ -788,10 +823,9 @@ async def _check_devices_exist(
     if built is None:
         return
 
-    unknown_movable = movable - built
-    unknown_readable = readable - built
+    unknown_movable = set(movable) - built
+    unknown_readable = set(readable) - built
     if unknown_movable or unknown_readable:
-        session_tier = spec.provenance in ("session", "unreviewed")
         _refuse_unknown_devices(
             plan_name, unknown_movable, unknown_readable, built, session_tier=session_tier
         )
