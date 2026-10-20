@@ -283,7 +283,7 @@ class ChannelWriteResult:
     channel_address: str  # Channel that was written
     value_written: Any  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
-    # One of ``ChannelWriteBlockedError._VALID_REASONS`` when refused, else None
+    # A ``RefusalReason`` when refused, else None
     refusal_reason: str | None = None
     error_message: str | None = None  # Set iff refused, failed or unconfirmed
     observed_value: Any = None  # What the confirming re-read returned

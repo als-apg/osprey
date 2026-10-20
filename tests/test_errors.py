@@ -1,5 +1,8 @@
 """Unit tests for typed exceptions in osprey_connectors.errors."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 from osprey_connectors.control_system import WriteOutcome
@@ -7,6 +10,7 @@ from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    RefusalReason,
 )
 
 
@@ -30,27 +34,52 @@ class TestChannelWriteBlockedError:
             raise ChannelWriteBlockedError("chan", "VALIDATION_ERROR")
 
     def test_valid_reasons_reference(self):
-        assert ChannelWriteBlockedError._VALID_REASONS == (
+        assert [reason.value for reason in RefusalReason] == [
             "WRITES_DISABLED",
             "LIMITS",
             "VALIDATION_ERROR",
             "CONTROL_SYSTEM_REFUSED",
             "RAW_CLIENT_WRITE",
             "CHANNEL_NOT_FOUND",
-        )
+        ]
 
     def test_unknown_reason_permitted(self):
-        # Constructor does not validate against _VALID_REASONS (permissive by design).
+        # The exception keeps an unknown reason as given (permissive by design).
         err = ChannelWriteBlockedError("chan", "SOMETHING_ELSE")
         assert err.reason == "SOMETHING_ELSE"
         assert str(err) == "Write to 'chan' refused (SOMETHING_ELSE)"
 
-    def test_every_reason_has_a_refuser_entry(self):
-        assert tuple(ChannelWriteBlockedError._REFUSERS) == ChannelWriteBlockedError._VALID_REASONS
+    def test_a_known_reason_is_stored_as_its_member(self):
+        err = ChannelWriteBlockedError("chan", "LIMITS")
+        assert err.reason is RefusalReason.LIMITS
+
+    def test_every_reason_has_a_refuser_and_a_remedy_entry(self):
+        for reason in RefusalReason:
+            assert ChannelWriteBlockedError.refuser(reason) == reason.refuser
+            assert ChannelWriteBlockedError.remedy(reason) == reason.remedy
+            assert ChannelWriteBlockedError.remedy(reason.value) == reason.remedy
+            # A reason that denies a write names its refuser and says what to do;
+            # only an address outside the facility names neither.
+            if reason is RefusalReason.CHANNEL_NOT_FOUND:
+                assert (reason.refuser, reason.remedy) == (None, ())
+            else:
+                assert reason.refuser
+                assert reason.remedy
+                assert all(isinstance(sentence, str) and sentence for sentence in reason.remedy)
+
+    def test_the_control_system_remedy_names_the_control_system(self):
+        remedy = RefusalReason.CONTROL_SYSTEM_REFUSED.remedy
+        assert RefusalReason.CONTROL_SYSTEM_REFUSED.refuser == "the control system"
+        assert "no value was written" in remedy[0]
+        assert "never sent" not in " ".join(remedy)
 
     def test_unknown_reason_names_no_refuser(self):
         assert ChannelWriteBlockedError.refuser("SOMETHING_ELSE") is None
         assert ChannelWriteBlockedError.refuser(None) is None
+
+    def test_unknown_reason_has_no_remedy(self):
+        assert ChannelWriteBlockedError.remedy("SOMETHING_ELSE") == ()
+        assert ChannelWriteBlockedError.remedy(None) == ()
 
 
 class TestChannelNotFoundError:
@@ -62,7 +91,7 @@ class TestChannelNotFoundError:
         assert ChannelNotFoundError("NO:SUCH:CHANNEL").channel_address == "NO:SUCH:CHANNEL"
 
     def test_reason(self):
-        assert ChannelNotFoundError.reason == "CHANNEL_NOT_FOUND"
+        assert ChannelNotFoundError.reason is RefusalReason.CHANNEL_NOT_FOUND
 
     def test_is_a_lookup_error(self):
         assert isinstance(ChannelNotFoundError("X"), LookupError)
@@ -137,3 +166,13 @@ class TestChannelWriteFailedError:
     def test_non_mismatch_reason_keeps_the_generic_message(self):
         err = ChannelWriteFailedError("chan", "UNCONFIRMED", value_written=1.7)
         assert str(err) == "Write to 'chan' failed (UNCONFIRMED)"
+
+
+def test_the_readme_lists_every_refusal_reason():
+    """The package README names the refusal reasons the enum declares, in its order."""
+    readme = (
+        Path(__file__).resolve().parents[1] / "packages" / "osprey-connectors" / "README.md"
+    ).read_text()
+    paragraph = readme.split("- `ChannelWriteBlockedError`", 1)[1].split("\n- ", 1)[0]
+    listed = paragraph.split("one of", 1)[1].split(";", 1)[0]
+    assert re.findall(r"`([A-Z_]+)`", listed) == [reason.value for reason in RefusalReason]
