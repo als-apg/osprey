@@ -29,6 +29,13 @@ Setting a key in ``.env`` is how one host departs from a shared default, and
 there is nothing else to do about it — unless the profile has declared that
 variable the shared file's to decide (see :ref:`deployment-pinned-env`).
 
+**Launch variables come from the shell only.** ``PATH``, ``HOME``, ``SHELL``,
+the variables that point a shell at its start-up files, the Python and Node
+load-path variables, and every ``LD_`` or ``DYLD_`` variable are never taken
+from either file: they decide which program runs and what code it loads. OSPREY
+ignores such a line and warns, naming the variables. Export them in your shell
+instead.
+
 Both files stay on the host. Neither ever enters a container image: they are
 read at run time and handed to the container runtime, which uses them to fill
 in the ``${VAR}`` placeholders in the rendered compose files. A variable reaches
