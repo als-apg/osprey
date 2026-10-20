@@ -48,6 +48,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.deploy_summary import log_endpoint_summary
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     ComposeInterpolationError,
@@ -6160,6 +6161,15 @@ def _start_stack(
     # first container-touching step: every step below would act on that copy's
     # containers as if they were this one's.
     _refuse_foreign_checkout(config, repo_root)
+
+    # Written before the first step that touches this project's containers: a start
+    # refused earlier leaves the previous record, and any start that gets this far —
+    # attached or detached, refused later or not — has recorded the runtime and
+    # project it acts on.
+    write_deployment_record(
+        Path(repo_root),
+        DeploymentRecord(get_runtime_command(config)[0], resolve_project_name(config)),
+    )
 
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
     # or dropped from the roster keeps running on the host network, holding
