@@ -567,3 +567,87 @@ describe('startPanel', () => {
     h.panel.close();
   });
 });
+
+/**
+ * Every rule of `sheet` (media blocks included) whose selector matches `el`,
+ * flattened to the property names it sets.
+ * @param {CSSStyleSheet} sheet
+ * @param {Element} el
+ */
+function styledProps(sheet, el) {
+  /** @type {Set<string>} */
+  const props = new Set();
+  /** @param {CSSRuleList} rules */
+  const walk = (rules) => {
+    for (const rule of Array.from(rules)) {
+      const nested = /** @type {any} */ (rule).cssRules;
+      if (nested && !(/** @type {any} */ (rule).selectorText)) { walk(nested); continue; }
+      const selector = /** @type {any} */ (rule).selectorText;
+      if (!selector) continue;
+      let hit = false;
+      try { hit = el.matches(selector); } catch { hit = false; }
+      if (!hit) continue;
+      const style = /** @type {CSSStyleRule} */ (rule).style;
+      for (let i = 0; i < style.length; i += 1) props.add(style[i]);
+    }
+  };
+  walk(sheet.cssRules);
+  return [...props];
+}
+
+describe('panel.css styles every control the panel renders', () => {
+  it('no button, field, checkbox or disclosure the real areas mount is left to browser defaults', async () => {
+    // The stylesheet exactly as index.html links it (vitest runs from the repo root).
+    const { readFileSync } = await import('node:fs');
+    const { cwd } = await import('node:process');
+    const css = readFileSync(`${cwd()}/src/osprey/services/trajectory/panel/panel.css`, 'utf8');
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.append(style);
+    const sheet = /** @type {CSSStyleSheet} */ (style.sheet);
+
+    // The real panel: every area module mounted, the drawer included, so a
+    // control a later area adds is checked without this test naming it.
+    FakeSource.instances = [];
+    const root = document.createElement('div');
+    document.body.append(root);
+    const panel = startPanel({
+      root,
+      EventSourceCtor: /** @type {any} */ (FakeSource),
+      fetchImpl: async () => /** @type {Response} */ ({ ok: true, status: 200, json: async () => ({}) }),
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+      // Plotly is not loaded here; every adapter call is a no-op.
+      adapter: /** @type {any} */ (new Proxy({}, { get: () => () => true })),
+    });
+    FakeSource.instances[0].emit('snapshot', { type: 'snapshot', snapshot: snapshot() });
+    await flush();
+
+    /** @type {string[]} */
+    const bare = [];
+    /** @param {Element} el @param {string[]} needs */
+    const check = (el, needs) => {
+      const props = styledProps(sheet, el);
+      const missing = needs.filter((n) => !props.some((p) => p.startsWith(n)));
+      if (missing.length) {
+        const name = el.getAttribute('data-control') ?? el.getAttribute('aria-label') ?? el.textContent?.trim();
+        bare.push(`${el.tagName.toLowerCase()}${el.getAttribute('type') ? `[${el.getAttribute('type')}]` : ''} "${name}" lacks ${missing.join(', ')}`);
+      }
+    };
+    const controls = Array.from(root.querySelectorAll('button, input, select, summary'))
+      .filter((el) => !(el instanceof HTMLInputElement && el.type === 'file'));
+    expect(controls.length).toBeGreaterThan(10);
+    for (const el of controls) {
+      const type = el.getAttribute('type');
+      if (el.tagName === 'INPUT' && (type === 'checkbox' || type === 'radio')) check(el, ['accent-color']);
+      else if (el.tagName === 'SUMMARY') check(el, ['cursor', 'font']);
+      else if (el.tagName === 'BUTTON') check(el, ['font', 'border', 'cursor']);
+      else check(el, ['font', 'border', 'background']);
+    }
+    expect(bare).toEqual([]);
+
+    panel.close();
+    root.remove();
+    style.remove();
+  });
+});

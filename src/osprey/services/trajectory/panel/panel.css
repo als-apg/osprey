@@ -153,6 +153,73 @@ body.embedded .panel-chrome { display: none; }
   border-color: var(--border-default);
 }
 
+/* Fields, checkboxes and disclosures. Form controls do not inherit the page
+ * font or colors, so every one the areas render is styled here, by element,
+ * not by class: a control a later area adds is styled without a new rule. */
+.traj-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.traj-shell select,
+.drawer input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.drawer select {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-0) var(--space-2);
+  min-width: 0;
+}
+.traj-shell input[type="number"],
+.drawer input[type="number"] { width: 6rem; }
+.traj-shell select,
+.drawer select { font-family: var(--font-display); cursor: pointer; }
+.traj-shell input:focus-visible,
+.traj-shell select:focus-visible,
+.drawer input:focus-visible,
+.drawer select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent);
+}
+.traj-shell input:disabled,
+.traj-shell select:disabled,
+.drawer input:disabled,
+.drawer select:disabled {
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  cursor: not-allowed;
+}
+.traj-shell input[type="checkbox"],
+.traj-shell input[type="radio"],
+.drawer input[type="checkbox"],
+.drawer input[type="radio"] {
+  accent-color: var(--color-accent);
+  width: 1rem;
+  height: 1rem;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.traj-shell label,
+.drawer label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.traj-shell summary,
+.drawer summary {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.traj-shell summary:hover,
+.drawer summary:hover { color: var(--text-primary); }
+.traj-shell fieldset,
+.drawer fieldset {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
 .notice {
   margin: var(--space-1) 0;
   padding: var(--space-1) var(--space-2);
@@ -212,13 +279,18 @@ body.embedded .panel-chrome { display: none; }
 
 /* --- centre tabs and plots --------------------------------------------- */
 
-.centre-tabs {
+/* The two tab strips — the centre Raw / Trajectory Correction tabs and the
+ * left column's Setup BPMs / Setup CMs — draw alike: underlined, not boxed. */
+.centre-tabs,
+.setup-tabs {
   display: flex;
   gap: var(--space-1);
   border-bottom: 1px solid var(--border-default);
 }
+.setup-tabs { margin-bottom: var(--space-2); }
 
-.centre-tabs button {
+.centre-tabs button,
+.setup-tabs button {
   padding: var(--space-1) var(--space-3);
   background: none;
   border: none;
@@ -227,7 +299,12 @@ body.embedded .panel-chrome { display: none; }
   font: inherit;
   cursor: pointer;
 }
-.centre-tabs button[aria-selected="true"] {
+.centre-tabs button:hover,
+.setup-tabs button:hover { color: var(--text-primary); }
+.centre-tabs button:focus-visible,
+.setup-tabs button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.centre-tabs button[aria-selected="true"],
+.setup-tabs button[aria-selected="true"] {
   color: var(--text-primary);
   border-bottom-color: var(--color-accent);
 }
