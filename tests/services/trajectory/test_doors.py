@@ -468,12 +468,16 @@ SUMS = ("SR:BPM1:SUM", "SR:BPM2:SUM", "SR:BPM3:SUM")
 HCM1, HCM2, VCM1 = "SR:HCM1", "SR:HCM2", "SR:VCM1"
 
 
+#: The corrector setpoints a fresh machine holds.
+SETPOINTS: dict[str, float] = {HCM1: 1.0, HCM2: -2.0, VCM1: 0.5}
+
+
 class _Machine(_Connector):
     """Holds channel values; a checked write lands and is listed."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.values: dict[str, Any] = {HCM1: 1.0, HCM2: -2.0, VCM1: 0.5}
+        self.values: dict[str, Any] = dict(SETPOINTS)
         self.writes: list[tuple[str, Any]] = []
         self.batches: list[list[str]] = []
 
@@ -537,7 +541,7 @@ TOOL = TrajectoryTool(
 
 
 def _shot(shot_id: str = "20260101T000000000000Z-shot0001") -> ShotResult:
-    """A shot keyed the way the service's own row layout keys one."""
+    """A shot keyed the way the service's own row layout keys one, on a fresh machine."""
     return ShotResult(
         shot_id=shot_id,
         model="SR",
@@ -553,6 +557,7 @@ def _shot(shot_id: str = "20260101T000000000000Z-shot0001") -> ShotResult:
         shots_included=1,
         shots_failed=[],
         commands_fired=[],
+        setpoints=dict(SETPOINTS),
     )
 
 

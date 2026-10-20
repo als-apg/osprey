@@ -405,6 +405,10 @@ async def test_two_iterations_start_at_least_the_minimum_period_apart() -> None:
     asked: list[float] = []
 
     async def sleep(seconds: float) -> None:
+        if seconds > 5.0:
+            # The lease watcher's wait: the lease never expires here, and the
+            # clock moves for the pacing alone.
+            await asyncio.Event().wait()
         asked.append(seconds)
         clock.now += seconds
         await asyncio.sleep(0)
