@@ -2,7 +2,7 @@
 
 Written to ``<render>/data/``::
 
-    facility_facts.json   {schema: osprey.facility.facility_facts/4, identity,
+    facility_facts.json   {schema: osprey.facility.facility_facts/5, identity,
                            place_levels, places, unplaced_devices,
                            device_classes, vocabulary, models,
                            measurement_models, trajectory_slots,
@@ -28,8 +28,9 @@ path under the render and its digest, and the digest of each other file of the
 view by its name in the view's directory; the facts view is written after the
 pyAML view and reads it from disk. ``trajectory_slots`` holds, for each model
 whose measurement file lists the ``trajectory`` kind and for no other model,
-the channels the measurement arms, fires and watches and the ``tags`` map of
-every signal its monitor devices carry to their addresses, as
+the declaration of its trajectory surface: the device table of its monitor
+devices, the trigger sample, the injection request and busy flag, the machine
+readings, the operator settings and the ordered chain of steps, as
 :func:`osprey.facility.views.pyaml.trajectory_slots` answers; it is read from
 the facility file, whether or not the render carries a pyAML view.
 ``channel_count`` counts the channels, and ``snapshot`` is ``null``.
@@ -73,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 FACTS_FILE = "facility_facts.json"
 FACTS_PAGE = "facility_facts.md"
-FACTS_SCHEMA = "osprey.facility.facility_facts/4"
+FACTS_SCHEMA = "osprey.facility.facility_facts/5"
 
 #: The measurement kind whose channel slots the facts carry.
 SLOTS_KIND = "trajectory"

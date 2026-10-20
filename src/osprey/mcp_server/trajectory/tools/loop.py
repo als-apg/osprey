@@ -1,6 +1,6 @@
 """MCP tools: trajectory_shot, trajectory_step, trajectory_apply.
 
-A shot fires the injection chain and an apply writes correctors, so both are
+A shot runs the facility's declared default chain and an apply writes correctors, so both are
 put to a human by the approval hook, which binds the call to what the prompt
 showed: the trajectory service's own target, and on an apply either the step's
 digest or the put-back's values digest. Before either writes, the call is
@@ -63,9 +63,13 @@ async def trajectory_shot(
 ) -> dict[str, Any]:
     """Take a trajectory shot and compute the correction step from it.
 
-    Fires the injection chain *n_shots* times, averages the BPM readings, and
-    leaves a pending step (read it with ``trajectory_step``). The call waits
-    for the shot to finish, however long the service's budgets allow.
+    Runs the facility's declared default chain (arm, inject, every command
+    step ticked by default such as bunch cleaning, readout) once per
+    injection, *n_shots* times, averages the first-turn BPM readings, and
+    leaves a pending step (read it with ``trajectory_step``). The chain itself
+    is the facility's; this call chooses only the shots and the averaging. The
+    call waits for the shot to finish, however long the service's budgets
+    allow.
 
     Args:
         n_shots: How many shots to take and average (at least 1).

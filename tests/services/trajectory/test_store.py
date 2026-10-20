@@ -398,3 +398,70 @@ async def test_a_failed_write_leaves_no_temporary_file_and_the_old_content(
     directory = store.root / "references" / MODEL
     assert [p.name for p in directory.iterdir()] == ["gold.json"]
     assert (await store.load_reference(MODEL, "gold", ["BPM1"])).load.sha256 == sha
+
+
+# --- layout keyed by target and model ------------------------------------------------
+
+
+async def test_a_target_bound_store_keeps_its_files_under_the_target(tmp_path: Path) -> None:
+    store = TrajectoryStore(tmp_path, target="va")
+    await store.save_shot(_shot("s1"))
+    await store.save_reference(MODEL, "gold", {"BPM1": (0.0, 0.0)})
+    await store.set_current(MODEL, "gold")
+    assert store.directory == tmp_path / "va"
+    assert (tmp_path / "va" / "shots" / MODEL / "s1.json").is_file()
+    assert (tmp_path / "va" / "references" / MODEL / "gold.json").is_file()
+    assert (tmp_path / "va" / "references" / MODEL / "current.json").is_file()
+    assert not (tmp_path / "shots").exists()
+    assert not (tmp_path / "references").exists()
+
+
+async def test_two_targets_sharing_a_state_dir_never_see_each_others_files(
+    tmp_path: Path,
+) -> None:
+    va = TrajectoryStore(tmp_path, target="va")
+    standin = TrajectoryStore(tmp_path, target="standin")
+    await va.save_shot(_shot("s1"))
+    await va.save_reference(MODEL, "gold", {"BPM1": (0.0, 0.0)})
+    await va.set_current(MODEL, "gold")
+    assert await standin.list_shots(MODEL) == []
+    assert await standin.list_references(MODEL) == []
+    assert await standin.current(MODEL) is None
+    with pytest.raises(LookupError):
+        await standin.load_shot(MODEL, "s1")
+    with pytest.raises(ReferenceNotFound):
+        await standin.load_reference(MODEL, "gold", ["BPM1"])
+    with pytest.raises(ReferenceNotFound):
+        await standin.set_current(MODEL, "gold")
+
+
+async def test_pruning_counts_one_target_and_model_at_a_time(tmp_path: Path) -> None:
+    va = TrajectoryStore(tmp_path, target="va", shots_per_model=2)
+    live = TrajectoryStore(tmp_path, target="live", shots_per_model=2)
+    for i in range(3):
+        await va.save_shot(_shot(f"v{i}"))
+    await live.save_shot(_shot("l0"))
+    assert [shot.shot_id for shot in await va.list_shots(MODEL)] == ["v2", "v1"]
+    assert [shot.shot_id for shot in await live.list_shots(MODEL)] == ["l0"]
+
+
+@pytest.mark.parametrize("target", ["", "../escape", "a/b", "..", "."])
+def test_a_bad_target_name_is_refused_at_construction(tmp_path: Path, target: str) -> None:
+    with pytest.raises(InvalidName, match="target"):
+        TrajectoryStore(tmp_path, target=target)
+
+
+def test_the_target_reaches_the_store_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(STATE_DIR_ENV_VAR, str(tmp_path))
+    store = TrajectoryStore.from_env(target="standin")
+    assert store.root == tmp_path
+    assert store.target == "standin"
+    assert store.directory == tmp_path / "standin"
+
+
+def test_a_store_bound_to_no_target_keeps_its_files_at_the_root(tmp_path: Path) -> None:
+    store = TrajectoryStore(tmp_path)
+    assert store.target is None
+    assert store.directory == tmp_path

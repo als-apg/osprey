@@ -28,14 +28,14 @@ from osprey.services.trajectory import constants, startup
 from osprey.services.trajectory.constants import (
     ACTION_TIMEOUT_KEY,
     ARMED_TIMEOUT_KEY,
-    CONTINUOUS_MAX_SHOTS_KEY,
-    LOSS_SUM_CUTOFF_KEY,
+    CONTINUOUS_MIN_PERIOD_KEY,
+    LOSS_CUTOFF_FRACTION_KEY,
     MAX_PAUSE_CEILING_S,
     RAW_WINDOW_TURNS_KEY,
     SEQUENCE_DIR_ENV_VAR,
     SEQUENCE_DIR_KEY,
     SEQUENCE_MOUNT,
-    SHOT_SUM_THRESHOLD_KEY,
+    SHOT_THRESHOLD_FRACTION_KEY,
     VA_SEQUENCE_DIR,
 )
 from osprey.services.trajectory.startup import (
@@ -44,6 +44,7 @@ from osprey.services.trajectory.startup import (
     TARGET_KEY,
     StartupRefused,
     TrajectoryCommands,
+    TrajectoryDevice,
     TrajectorySettings,
     resolve_sequence_dir,
     select_commands,
@@ -63,10 +64,22 @@ REQUEST = "SR:INJ:REQ"
 BUSY = "SR:INJ:BUSY"
 LIMITS = Path("data") / "channel_limits.json"
 FACTS = Path("data") / "facility_facts.json"
+#: The trigger sample the tree's measurement file declares.
+TRIGGER_SAMPLE = 10
+#: The trajectory block the tree's measurement file declares: the trigger
+#: sample and the chain, arm and readout service-owned around the inject.
+DECLARATION = {
+    "trigger_sample": TRIGGER_SAMPLE,
+    "steps": [
+        {"id": step, "label": step.title(), "description": f"The {step}.", "default": True}
+        for step in ("arm", "inject", "readout")
+    ],
+}
 
 
 def _tree() -> dict[str, Any]:
     tree = with_trajectory(with_correctors(measured_tree()), MODEL, "SR/BPM1", marker="M1")
+    tree[f"measurement/{MODEL}.yaml"]["trajectory"] = DECLARATION
     with_shot_wiring(tree, MODEL, "BPM1")
     tree["limits.yaml"] = {
         "records": [
@@ -184,9 +197,15 @@ async def test_starts_on_the_baseline_with_the_one_models_commands(
         assert started.target == "va"
         assert started.connector._control_target == "va"
         assert started.connector._connector_type == "virtual_accelerator"
+        (device,) = started.commands.devices
         assert started.commands == TrajectoryCommands(
-            model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY, armed=(ARMED,)
+            model=MODEL,
+            devices=(device,),
+            injection_request=REQUEST,
+            injection_busy=BUSY,
+            trigger_sample=TRIGGER_SAMPLE,
         )
+        assert (device.arm, device.armed) == (ARM, ARMED)
         assert started.commands.commands == frozenset({ARM, REQUEST})
         assert started.writing_available
         assert started.guarded_run_dir == repo / "var" / "guarded_run" / "va"
@@ -206,13 +225,13 @@ async def test_the_tunable_keys_and_the_sequence_dir_reach_the_started_service(
     _deploy(
         repo,
         monkeypatch,
-        service={"armed_timeout_s": 2.5, "continuous_max_shots": 7, "sequence_dir": "seq"},
+        service={"armed_timeout_s": 2.5, "continuous_min_period_s": 7, "sequence_dir": "seq"},
     )
 
     started = await _started()
 
     assert started.settings.armed_timeout_s == 2.5
-    assert started.settings.continuous_max_shots == 7
+    assert started.settings.continuous_min_period_s == 7.0
     assert started.sequence_dir == repo / "seq"
 
 
@@ -287,96 +306,50 @@ async def test_no_trajectory_model_starts_with_writing_unavailable(
     assert armed == [1]
 
 
-# -- the tag map ----------------------------------------------------------------
-
-SEQUENCES = Path(__file__).parent / "sequences"
-#: Tags ``bpm_tbt_x``, which the built BPM carries.
-TAGGED_DIR = SEQUENCES / "tagged"
-#: Tags ``bpm_acquisition_mode``, which the built BPM does not carry.
-UNTAGGED_DIR = SEQUENCES / "fixture"
+# -- the declaration --------------------------------------------------------------
 
 
-def _built_tags(repo: Path) -> dict[str, list[str]]:
+def _built_devices(repo: Path) -> dict[str, dict[str, Any]]:
     facts = json.loads((repo / "build" / FACTS).read_text(encoding="utf-8"))
-    return facts["trajectory_slots"][MODEL]["tags"]
+    devices: dict[str, dict[str, Any]] = facts["trajectory_slots"][MODEL]["devices"]
+    return devices
 
 
-async def test_the_models_tag_map_reaches_the_started_service(repo: Path) -> None:
-    tags = _built_tags(repo)
-    assert {"bpm_tbt_x", "bpm_arm_command", "bpm_armed_status"} <= set(tags)
+async def test_the_models_device_table_and_trigger_sample_reach_the_started_service(
+    repo: Path,
+) -> None:
+    table = _built_devices(repo)
 
     started = await _started()
 
-    assert started.tag_addresses == {signal: tuple(found) for signal, found in tags.items()}
+    assert started.commands is not None
+    assert started.commands.trigger_sample == TRIGGER_SAMPLE
+    assert started.commands.devices == tuple(
+        TrajectoryDevice(
+            name=name,
+            x_row=row["x_row"],
+            y_row=row["y_row"],
+            sum_row=row["sum_row"],
+            arm=row["arm"],
+            armed=row["armed"],
+        )
+        for name, row in table.items()
+    )
 
 
-async def test_a_module_tagging_a_carried_signal_starts(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+async def test_a_model_declaring_no_trigger_sample_refuses_the_start(
+    repo: Path, armed: list[int]
 ) -> None:
-    _deploy(repo, monkeypatch, service={"sequence_dir": str(TAGGED_DIR)})
+    slots = _slots("SR")
+    del slots["trigger_sample"]
+    _write_slots(repo, {MODEL: slots})
 
-    started = await _started()
-
-    assert started.sequence is not None
-    assert started.sequence.metadata.slots["turn_by_turn_x"].tag == "bpm_tbt_x"
-    assert started.tag_addresses["bpm_tbt_x"] == tuple(_built_tags(repo)["bpm_tbt_x"])
-    assert started.tag_addresses["bpm_tbt_x"]
-
-
-async def test_a_module_tagging_a_signal_no_bpm_carries_is_refused_naming_both(
-    repo: Path, monkeypatch: pytest.MonkeyPatch, armed: list[int]
-) -> None:
-    _deploy(repo, monkeypatch, service={"sequence_dir": str(UNTAGGED_DIR)})
-
-    with pytest.raises(StartupRefused) as refused:
+    with pytest.raises(StartupRefused, match=f"model {MODEL!r}.*trigger sample"):
         await _start()
-
-    message = str(refused.value)
-    assert "'acquisition_mode'" in message
-    assert "'bpm_acquisition_mode'" in message
-    assert str(UNTAGGED_DIR / "sequence.py") in message
     assert armed == []
 
 
-async def test_a_model_with_no_tag_map_refuses_any_tagged_slot(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    slots = _slots("SR")
-    _write_slots(repo, {MODEL: slots})
-    _deploy(repo, monkeypatch, service={"sequence_dir": str(TAGGED_DIR)})
-
-    with pytest.raises(StartupRefused, match="'turn_by_turn_x'.*'bpm_tbt_x'"):
-        await _start()
-
-
-@pytest.mark.parametrize(
-    "tags",
-    [["bpm_tbt_x"], {"bpm_tbt_x": "SR:BPM1:X"}, {"bpm_tbt_x": [""]}, {"bpm_tbt_x": [3]}],
-    ids=["list", "string", "blank", "number"],
-)
-async def test_a_malformed_tag_map_is_refused_naming_the_model(repo: Path, tags: Any) -> None:
-    _write_slots(repo, {MODEL: {**_slots("SR"), "tags": tags}})
-
-    with pytest.raises(StartupRefused, match=f"model {MODEL!r}.*'tags'"):
-        await _start()
-
-
-async def test_zero_source_facts_keep_the_warning_and_load_any_tagged_module(
-    repo: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    _write_slots(repo, {})
-    _deploy(repo, monkeypatch, service={"sequence_dir": str(UNTAGGED_DIR)})
-
-    with caplog.at_level("WARNING", logger=startup.__name__):
-        started = await _started()
-
-    assert not started.writing_available
-    assert started.tag_addresses == {}
-    assert started.sequence is not None
-    assert any("no trajectory model" in record.getMessage() for record in caplog.records)
-
-
-# -- the target -----------------------------------------------------------------
+# -- the target -----------------------------------------------------------------# -- the target -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("target", ["sim", "", "LIVE", 3])
@@ -512,10 +485,23 @@ async def test_a_guarded_run_dir_that_is_not_the_targets_parent_is_refused(
 # -- the command set ------------------------------------------------------------
 
 
+def _device(prefix: str, name: str = "BPM") -> dict[str, Any]:
+    stem = f"{prefix}:{name}"
+    return {
+        "x_row": f"{stem}:X",
+        "y_row": f"{stem}:Y",
+        "sum_row": f"{stem}:SUM",
+        "arm": f"{stem}:ARM",
+        "armed": f"{stem}:ARMED",
+        "units": {"x": "m", "y": "m", "sum": None},
+        "tags": {},
+    }
+
+
 def _slots(prefix: str) -> dict[str, Any]:
     return {
-        "arm": [f"{prefix}:BPM:ARM"],
-        "armed": [f"{prefix}:BPM:ARMED"],
+        "devices": {f"{prefix}/BPM": _device(prefix)},
+        "trigger_sample": TRIGGER_SAMPLE,
         "injection_request": f"{prefix}:INJ:REQ",
         "injection_busy": f"{prefix}:INJ:BUSY",
     }
@@ -542,10 +528,19 @@ def test_the_named_model_is_selected_among_several() -> None:
 
     assert selected == TrajectoryCommands(
         model="BR",
-        arm=("BR:BPM:ARM",),
+        devices=(
+            TrajectoryDevice(
+                name="BR/BPM",
+                x_row="BR:BPM:X",
+                y_row="BR:BPM:Y",
+                sum_row="BR:BPM:SUM",
+                arm="BR:BPM:ARM",
+                armed="BR:BPM:ARMED",
+            ),
+        ),
         injection_request="BR:INJ:REQ",
         injection_busy="BR:INJ:BUSY",
-        armed=("BR:BPM:ARMED",),
+        trigger_sample=TRIGGER_SAMPLE,
     )
     assert selected.commands == frozenset({"BR:BPM:ARM", "BR:INJ:REQ"})
 
@@ -559,11 +554,6 @@ def test_a_named_model_without_slots_is_refused_naming_it(slots: dict[str, Any])
 @pytest.mark.parametrize(
     ("slot", "value"),
     [
-        ("arm", []),
-        ("arm", None),
-        ("armed", []),
-        ("armed", None),
-        ("armed", [""]),
         ("injection_request", None),
         ("injection_request", ""),
         ("injection_busy", None),
@@ -586,22 +576,53 @@ def test_an_empty_slot_of_the_selected_model_is_refused_naming_both(
     assert "'SR'" in message and repr(slot) in message
 
 
-def test_an_armed_flag_count_unlike_the_arm_count_is_refused() -> None:
+@pytest.mark.parametrize("value", [None, -1, 2.5, True, "10"])
+def test_a_trigger_sample_that_is_not_a_count_is_refused_naming_the_model(value: Any) -> None:
+    slots = {**_slots("SR"), "trigger_sample": value}
+
+    with pytest.raises(StartupRefused, match="'SR' states the trigger sample"):
+        select_commands({"trajectory_slots": {"SR": slots}}, None)
+
+
+@pytest.mark.parametrize("slot", ["x_row", "y_row", "sum_row", "arm", "armed"])
+def test_a_device_stating_part_of_its_rows_and_flags_is_refused_naming_it(slot: str) -> None:
     slots = _slots("SR")
-    slots["armed"] = ["SR:BPM:ARMED", "SR:BPM2:ARMED"]
+    slots["devices"]["SR/BPM"][slot] = None
 
     with pytest.raises(StartupRefused) as refused:
         select_commands({"trajectory_slots": {"SR": slots}}, None)
 
     message = str(refused.value)
-    assert "'SR'" in message and "'arm'" in message and "'armed'" in message
+    assert "'SR/BPM'" in message and slot in message
+
+
+def test_a_device_without_turn_by_turn_readings_is_left_out() -> None:
+    slots = _slots("SR")
+    slots["devices"]["SR/BPM0"] = {
+        **dict.fromkeys(("x_row", "y_row", "sum_row", "arm", "armed")),
+        "units": {"x": None, "y": None, "sum": None},
+        "tags": {"bpm_mode_setpoint": ["SR:BPM0:MODE:SP"]},
+    }
+
+    selected = select_commands({"trajectory_slots": {"SR": slots}}, None)
+
+    assert selected is not None
+    assert [device.name for device in selected.devices] == ["SR/BPM"]
+
+
+@pytest.mark.parametrize("devices", [None, {}, []], ids=["absent", "empty", "list"])
+def test_a_model_with_no_turn_by_turn_device_is_refused(devices: Any) -> None:
+    slots = {**_slots("SR"), "devices": devices}
+
+    with pytest.raises(StartupRefused, match="'SR' states no"):
+        select_commands({"trajectory_slots": {"SR": slots}}, None)
 
 
 def test_the_armed_flags_are_watched_never_commanded() -> None:
     selected = select_commands({"trajectory_slots": {"SR": _slots("SR")}}, None)
 
     assert selected is not None
-    assert selected.armed == ("SR:BPM:ARMED",)
+    assert [device.armed for device in selected.devices] == ["SR:BPM:ARMED"]
     assert "SR:BPM:ARMED" not in selected.commands
 
 
@@ -662,7 +683,7 @@ async def test_starts_against_the_degraded_example_ring(
         assert started.target == "va"
         assert started.commands is not None
         assert started.commands.model == MODEL
-        assert started.commands.arm and started.commands.injection_request
+        assert started.commands.devices and started.commands.injection_request
         assert model_status(started.connector, MODEL) == NO_CLOSED_ORBIT
         assert armed == [1]
     finally:
@@ -683,41 +704,41 @@ def test_an_unstated_tunable_key_takes_its_default() -> None:
     settings = _settings_of({})
 
     assert settings == TrajectorySettings(
-        loss_sum_cutoff=constants.DEFAULT_LOSS_SUM_CUTOFF,
-        shot_sum_threshold=constants.DEFAULT_SHOT_SUM_THRESHOLD,
+        loss_cutoff_fraction=constants.DEFAULT_LOSS_CUTOFF_FRACTION,
+        shot_threshold_fraction=constants.DEFAULT_SHOT_THRESHOLD_FRACTION,
         armed_timeout_s=constants.DEFAULT_ARMED_TIMEOUT_S,
         raw_window_turns=constants.DEFAULT_RAW_WINDOW_TURNS,
-        continuous_max_shots=constants.DEFAULT_CONTINUOUS_MAX_SHOTS,
+        continuous_min_period_s=constants.DEFAULT_CONTINUOUS_MIN_PERIOD_S,
         sequence_dir=None,
         action_timeout_s=constants.DEFAULT_ACTION_TIMEOUT_S,
     )
 
 
-def test_the_va_example_sum_thresholds_are_the_defaults() -> None:
-    """The VA's sum reads 1.0 with beam and 0 without; halfway is its example."""
-    assert constants.DEFAULT_LOSS_SUM_CUTOFF == 0.5
-    assert constants.DEFAULT_SHOT_SUM_THRESHOLD == 0.5
+def test_the_extraction_fractions_default_to_half_the_scale() -> None:
+    """Both fractions default to half the shot's injected-charge scale."""
+    assert constants.DEFAULT_LOSS_CUTOFF_FRACTION == 0.5
+    assert constants.DEFAULT_SHOT_THRESHOLD_FRACTION == 0.5
 
 
 def test_stated_tunable_keys_are_read() -> None:
     settings = _settings_of(
         {
-            "loss_sum_cutoff": 0,
-            "shot_sum_threshold": "1.5",
+            "loss_cutoff_fraction": 0,
+            "shot_threshold_fraction": "0.75",
             "armed_timeout_s": 3,
             "raw_window_turns": "40",
-            "continuous_max_shots": 2,
+            "continuous_min_period_s": 2,
             "sequence_dir": "./facility/sequence",
             "action_timeout_s": 12.5,
         }
     )
 
     assert settings == TrajectorySettings(
-        loss_sum_cutoff=0.0,
-        shot_sum_threshold=1.5,
+        loss_cutoff_fraction=0.0,
+        shot_threshold_fraction=0.75,
         armed_timeout_s=3.0,
         raw_window_turns=40,
-        continuous_max_shots=2,
+        continuous_min_period_s=2.0,
         sequence_dir="./facility/sequence",
         action_timeout_s=12.5,
     )
@@ -726,10 +747,12 @@ def test_stated_tunable_keys_are_read() -> None:
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        (LOSS_SUM_CUTOFF_KEY, -0.1),
-        (LOSS_SUM_CUTOFF_KEY, True),
-        (LOSS_SUM_CUTOFF_KEY, "high"),
-        (SHOT_SUM_THRESHOLD_KEY, float("nan")),
+        (LOSS_CUTOFF_FRACTION_KEY, -0.1),
+        (LOSS_CUTOFF_FRACTION_KEY, True),
+        (LOSS_CUTOFF_FRACTION_KEY, "high"),
+        (LOSS_CUTOFF_FRACTION_KEY, 1.5),
+        (SHOT_THRESHOLD_FRACTION_KEY, float("nan")),
+        (SHOT_THRESHOLD_FRACTION_KEY, 2),
         (ARMED_TIMEOUT_KEY, 0),
         (ARMED_TIMEOUT_KEY, float("inf")),
         (ACTION_TIMEOUT_KEY, -1),
@@ -737,8 +760,8 @@ def test_stated_tunable_keys_are_read() -> None:
         (RAW_WINDOW_TURNS_KEY, 0),
         (RAW_WINDOW_TURNS_KEY, 2.5),
         (RAW_WINDOW_TURNS_KEY, True),
-        (CONTINUOUS_MAX_SHOTS_KEY, -3),
-        (CONTINUOUS_MAX_SHOTS_KEY, "many"),
+        (CONTINUOUS_MIN_PERIOD_KEY, 0),
+        (CONTINUOUS_MIN_PERIOD_KEY, "many"),
         (SEQUENCE_DIR_KEY, ""),
         (SEQUENCE_DIR_KEY, 3),
     ],
@@ -856,11 +879,11 @@ def test_the_build_leaves_a_live_target_without_a_module(tmp_path: Path) -> None
 
 def test_the_build_carries_the_authored_tunable_keys(tmp_path: Path) -> None:
     authored = {
-        "loss_sum_cutoff": 120.0,
-        "shot_sum_threshold": 80.0,
+        "loss_cutoff_fraction": 0.3,
+        "shot_threshold_fraction": 0.4,
         "armed_timeout_s": 2.0,
         "raw_window_turns": 50,
-        "continuous_max_shots": 10,
+        "continuous_min_period_s": 10.0,
         "sequence_dir": "./facility/sequence",
         "action_timeout_s": 30.0,
     }

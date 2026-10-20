@@ -6,7 +6,10 @@ read from one snapshot fetched through the web terminal's proxy with the panel
 token and no session. An apply of the pending step renders that step and binds
 its digest; a put-back renders from the call body and binds the values digest,
 which the hook restates from the shared stamp module and which is pinned here.
-A prompt that cannot show what the call would act on is not asked.
+A shot and a step apply also state the SolveConfig in force, read from the
+same snapshot's published solve; the ``solve.config`` names are pinned to the
+service's model here. A prompt that cannot show what the call would act on is
+not asked.
 
 The hook ships standalone, so it is imported in-process and pointed at a real
 stdlib HTTP server standing in for the terminal.
@@ -28,6 +31,7 @@ import pytest
 
 from osprey.mcp_server import approval_stamp
 from osprey.mcp_server.trajectory import client as trajectory_client
+from osprey.services.trajectory.state import Snapshot, Solve, SolveConfig
 
 TOKEN = "panel-token-123"
 
@@ -97,8 +101,30 @@ def fake_terminal(monkeypatch, routes):
         thread.join()
 
 
-def _state(step=_STEP, target="va"):
-    return {f"{trajectory_client.BASE_PATH}/state": (200, {"target": target, "step": step})}
+_SOLVE = {
+    "sha": "5" * 64,
+    "singular_values": [3.0, 1.0],
+    "inverse_weights": [0.3, 0.0],
+    "kind": ["LIVE", "DISCARDED"],
+    "L": 2,
+    "live_rank": 2,
+    "rm": {"source": "model", "rows": 6, "h_cols": 1, "v_cols": 1, "computed_at": 1.0},
+    "config": {
+        "alpha": 0.002,
+        "keep_live": 1,
+        "n_discard": 1,
+        "gain": 0.5,
+        "excluded_bpms": ["BPM4"],
+        "excluded_cms": ["HCM2", "VCM9"],
+        "loss_cutoff": 0.25,
+        "overridden": ["alpha", "excluded_cms"],
+    },
+}
+
+
+def _state(step=_STEP, target="va", solve=_SOLVE):
+    body = {"target": target, "step": step, "solve": solve}
+    return {f"{trajectory_client.BASE_PATH}/state": (200, body)}
 
 
 def _lines(hook, short_name, tool_input):
@@ -147,6 +173,61 @@ def test_put_back_digest_rejects_what_the_shared_module_rejects(hook) -> None:
             hook._approved_values_sha256("t", "m", values)
 
 
+def test_restated_solve_config_names_are_the_services() -> None:
+    """The prompt states every field of the service's SolveConfig, by its own name."""
+    hook = _import_approval()
+    assert set(hook._SOLVE_CONFIG_FIELDS) == set(SolveConfig.model_fields)
+    assert "solve" in Snapshot.model_fields
+    assert {"config", "L", "live_rank"} <= set(Solve.model_fields)
+
+
+def test_the_fixture_solve_is_a_valid_published_solve() -> None:
+    Solve.model_validate(_SOLVE)
+
+
+# -- the SolveConfig lines -------------------------------------------------------
+
+
+def _solve_text(lines) -> str:
+    return "\n".join(lines)
+
+
+def test_the_solve_lines_state_every_setting_in_force(hook) -> None:
+    text = _solve_text(hook._trajectory_solve_lines(_SOLVE))
+
+    assert "SolveConfig in force:" in text
+    assert "alpha: 0.002, gain: 0.5" in text
+    assert "keep_live: 1 (n_discard 1 of L 2, live rank 2)" in text
+    assert "loss_cutoff: 0.25" in text
+    assert 'Excluded BPMs: "BPM4"' in text
+    assert 'Excluded correctors: "HCM2", "VCM9"' in text
+    assert 'Operator overrides: "alpha", "excluded_cms"' in text
+
+
+def test_file_defaults_state_no_override(hook) -> None:
+    solve = {**_SOLVE, "config": {**_SOLVE["config"], "overridden": [], "excluded_cms": []}}
+
+    text = _solve_text(hook._trajectory_solve_lines(solve))
+
+    assert "Operator overrides: none" in text
+    assert "Excluded correctors: none" in text
+
+
+@pytest.mark.parametrize("solve", [None, {}, {"config": None}, "x"])
+def test_no_published_solve_is_stated(hook, solve) -> None:
+    assert hook._trajectory_solve_lines(solve) == [
+        "SolveConfig: none published (the service solves with no model matrix)"
+    ]
+
+
+def test_solve_names_are_quoted_as_prompt_text(hook) -> None:
+    solve = {**_SOLVE, "config": {**_SOLVE["config"], "excluded_bpms": ["B\nPM"]}}
+
+    text = _solve_text(hook._trajectory_solve_lines(solve))
+
+    assert 'Excluded BPMs: "B\\nPM"' in text
+
+
 # -- the step apply -----------------------------------------------------------
 
 
@@ -162,6 +243,7 @@ def test_apply_renders_the_step_and_binds_target_and_digest(hook, monkeypatch) -
     assert 'Zeroed horizontal correctors: "HCM9"' in text
     assert "Zeroed vertical correctors: none" in text
     assert 'Unsolved correctors: "VCM7"' in text
+    assert "SolveConfig in force:" in text and "alpha: 0.002, gain: 0.5" in text
     assert binding == {"approved_target": "va", "approved_step_digest": _STEP["digest"]}
 
     # One GET of the snapshot, with the panel token and no session header.
@@ -261,7 +343,17 @@ def test_shot_binds_the_services_target(hook, monkeypatch) -> None:
         lines, binding = _lines(hook, "trajectory_shot", {"n_shots": 3, "average": "nanmean"})
     assert 'Trajectory service target: "va"' in lines
     assert 'Shots: 3, averaged by "nanmean"' in lines
+    assert "SolveConfig in force:" in lines
+    assert 'Excluded correctors: "HCM2", "VCM9"' in "\n".join(lines)
     assert binding == {"approved_target": "va"}
+
+
+def test_put_back_states_no_solve_config(hook, monkeypatch) -> None:
+    """A put-back writes recorded values; no solve is involved."""
+    values = [{"name": "HCM1", "before": 0.25}]
+    with fake_terminal(monkeypatch, _state()):
+        lines, _binding = _lines(hook, "trajectory_apply", {"model": "ring", "values": values})
+    assert not any("SolveConfig" in line for line in lines)
 
 
 def test_shot_refuses_when_the_fetch_fails(hook, monkeypatch) -> None:

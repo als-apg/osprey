@@ -14,6 +14,12 @@ the deck repeats it, ``engine-invalid`` when the deck lacks it
 ``FacilityBuildError`` that carries ``element`` and ``count`` (0 absent, above 1
 repeated). Every engine stop on a wiring record names the file that states the
 record as its source.
+
+The engine reads a model's settings as the simulator view hands them on
+(:func:`~osprey.facility.views.simulator.engine_settings`): the measurement
+file's declared trigger sample written into the injection block. A model whose
+own settings state that trigger sample stops ``engine-invalid``: the
+measurement file is the one place it is declared.
 """
 
 from __future__ import annotations
@@ -110,6 +116,25 @@ def _fill_model(
                 detail=f"engine {name} is not registered under {ENTRY_POINT_GROUP}",
             )
         ]
+    from osprey.facility.views.simulator import TRIGGER_SAMPLE_KEY, engine_settings
+
+    authored = _injection_block(model.get("settings"), name)
+    if TRIGGER_SAMPLE_KEY in authored:
+        return [
+            FacilityBuildError(
+                "engine-invalid",
+                model["name"],
+                stating_files(model, None, fallback=_MODELS_FILE),
+                f"remove settings.{name}.injection.{TRIGGER_SAMPLE_KEY} and declare "
+                f"trajectory.{TRIGGER_SAMPLE_KEY} in the model's measurement file",
+                record_kind="model",
+                detail=(
+                    f"settings key {name}.injection.{TRIGGER_SAMPLE_KEY} is stated with the "
+                    "model; the build writes it from the measurement file's trajectory "
+                    "declaration"
+                ),
+            )
+        ]
     engine = engines[name].load()
     records = [r for r in model.get("wiring", []) if r["address"] in channels]
     readbacks = {
@@ -121,7 +146,7 @@ def _fill_model(
         values = engine.start_values(
             facility_dir / model["deck"],
             model.get("wiring", []),
-            model.get("settings"),
+            engine_settings(model),
             readbacks=readbacks,
             value_types={
                 r["address"]: str(channels[r["address"]].get("value_type", "float"))
@@ -167,6 +192,13 @@ def _fill_model(
             continue
         _fill_record(record, channels[address], limits.get(address), values[address])
     return errors
+
+
+def _injection_block(settings: Any, engine: str) -> Mapping[str, Any]:
+    """The ``injection`` block of a model's settings for its engine; empty when none."""
+    block = settings.get(engine) if isinstance(settings, Mapping) else None
+    injection = block.get("injection") if isinstance(block, Mapping) else None
+    return injection if isinstance(injection, Mapping) else {}
 
 
 def element_stop(

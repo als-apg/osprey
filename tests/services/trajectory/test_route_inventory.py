@@ -7,11 +7,12 @@ to an exact set of ``(method, path)`` pairs read from the app's OpenAPI
 document, so the inventory is the app's own, not a second hand-written list
 that could agree with itself.
 
-The surface is the one the threading loop hands the panel: setup, shot
+The surface is the one the threading loop hands the panel: shot
 (``n_shots``, ``average``), ``GET step``, apply (a step or a put-back), the
 continuous run (start and heartbeat), Stop, the references (save, load,
-select), the shots listing and the state stream — beside the session routes
-both doors serve and the gate-exempt ``GET /health``.
+select, import, readings), the SolveConfig update, the setup (apply and read back), the
+shots listing, a shot's raw buffer and the state stream — beside the session routes both doors serve and the
+gate-exempt ``GET /health``.
 """
 
 from __future__ import annotations
@@ -32,14 +33,19 @@ _BOTH_DOORS = {
 
 #: What only the panel door serves.
 _PANEL_ONLY = {
-    ("POST", "setup"),
     ("POST", "continuous"),
     ("POST", "continuous/heartbeat"),
     ("GET", "references"),
     ("POST", "references"),
     ("GET", "references/{name}"),
+    ("GET", "references/{name}/readings"),
+    ("POST", "references/import"),
     ("POST", "references/select"),
+    ("POST", "solve"),
+    ("POST", "setup"),
+    ("GET", "setup"),
     ("GET", "shots"),
+    ("GET", "shots/{shot_id}/raw"),
     ("GET", "events"),
 }
 

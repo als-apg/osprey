@@ -1,32 +1,38 @@
-"""Continuous mode: the holder's shots, one after another, until something ends them.
+"""Continuous mode: the holder's chain, run again and again until something ends it.
 
 A :class:`ContinuousRun` belongs to the service's
 :class:`~osprey.services.trajectory.sessions.Sessions`, which starts it for the
-holder and keeps at most one. Its driver task submits one shot action per
-iteration through :meth:`Sessions.shot`, so the post-shot hook recomputes the
-step after every shot, and each shot is its own turn of the action layer: the
-run lock is taken for the shot and released before the next is submitted,
-which lets any other queued action run in between. The run fires shots only;
-it never applies a step.
+holder and keeps at most one: the run is the only occupant of the run slot, and
+a second start while one runs is refused. Its driver task submits one chain
+action per iteration through :meth:`Sessions.shot`, each built from the chain
+body the run was started with, so every iteration runs the same steps and its
+own setup re-check before it injects, and the post-shot hook recomputes the
+step after every stored shot. Each iteration is its own turn of the action
+layer: the run lock is taken for the iteration and released before the next is
+submitted, which lets any other queued action run in between. The run fires
+chains only; it never applies a step.
+
+Two iterations start at least ``min_period_s`` apart, measured start to start;
+the wait between them ends early on the run's end.
 
 The run ends, first cause wins, when:
 
 - the holder stop event current at its start is set (``stopped``): a Stop, a
   take-over or a release set it, and an iteration queued after it is refused
   by the layer or stopped mid-shot;
-- it submitted ``max_shots`` shot actions (``max_shots``);
-- the step the latest shot left pending is all zero (``zero_step``), the
-  ended event then carrying that step's reason and status;
 - its lease lapsed (``lease_expired``): only a continuous run holds a lease,
   moved forward by each heartbeat, and a lease no heartbeat renewed within
   ``lease_s`` ends the run, voids the pending step and renews the holder stop
   event, so a shot in flight stops at its next checkpoint;
-- a shot raised anything else while the stop event was clear (``failed``);
-- the owner of the sessions ended it by name (:meth:`ContinuousRun.end`) or
-  cancelled it (:meth:`ContinuousRun.cancel`).
+- an iteration raised anything else while the stop event was clear, or every
+  injection of an iteration's shot failed (``failed``);
+- the owner of the sessions ended it by name (:meth:`ContinuousRun.end`:
+  ``taken_over``, ``released``) or cancelled it (:meth:`ContinuousRun.cancel`,
+  ``shutdown``).
 
-Its end is published once as a :class:`~.state.ContinuousEndedEvent`, handed
-to the ``on_end`` callback and kept on :attr:`ContinuousRun.ended`.
+A zero step ends nothing, and no count of shots does. The end is published once
+as a :class:`~.state.ContinuousEndedEvent`, handed to the ``on_end`` callback
+and kept on :attr:`ContinuousRun.ended`.
 """
 
 from __future__ import annotations
@@ -37,7 +43,9 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.trajectory.actions import ACTION_STOPPED, Action, ActionRefused
+from osprey.services.trajectory.constants import DEFAULT_CONTINUOUS_MIN_PERIOD_S
 from osprey.services.trajectory.state import (
+    ChainResult,
     ContinuousEnd,
     ContinuousEndedEvent,
     ContinuousStatus,
@@ -62,18 +70,19 @@ DEFAULT_LEASE_S = 10.0
 
 
 class ContinuousRun:
-    """One continuous run of the holder's shots.
+    """One continuous run of the holder's chain.
 
     Attributes:
         owner: The holder's owner the shots are submitted for.
         kind: The holder's door.
         client_id: The holder's session token.
-        max_shots: The most shot actions the run submits.
+        min_period_s: Seconds at least between the starts of two iterations.
         heartbeat_s: Seconds between two heartbeats a client sends.
         lease_s: Seconds the lease lasts without a heartbeat.
-        shots: Shot actions submitted so far.
+        shots: Iterations submitted so far.
         ended: The ended event, once the run ended.
-        error: What a shot raised when the run ended ``failed``.
+        error: What an iteration raised when the run ended ``failed``, else
+            ``None``.
     """
 
     def __init__(
@@ -83,17 +92,17 @@ class ContinuousRun:
         kind: str,
         client_id: str,
         store: TrajectoryStore,
-        build: Callable[[PostShotHook], Action[ShotResult]],
+        build: Callable[[PostShotHook], Action[Any]],
         *,
-        max_shots: int,
+        min_period_s: float = DEFAULT_CONTINUOUS_MIN_PERIOD_S,
         heartbeat_s: float = DEFAULT_HEARTBEAT_S,
         lease_s: float = DEFAULT_LEASE_S,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         on_end: Callable[[ContinuousEndedEvent], Any] | None = None,
     ) -> None:
-        if max_shots < 1:
-            raise ValueError(f"a continuous run takes at least one shot, not {max_shots}")
+        if not min_period_s >= 0:
+            raise ValueError(f"the minimum period must be at least 0 s, not {min_period_s}")
         if not 0 < heartbeat_s < lease_s:
             raise ValueError(
                 f"the heartbeat interval ({heartbeat_s} s) must be positive and shorter "
@@ -102,7 +111,7 @@ class ContinuousRun:
         self.owner = owner
         self.kind = kind
         self.client_id = client_id
-        self.max_shots = max_shots
+        self.min_period_s = min_period_s
         self.heartbeat_s = heartbeat_s
         self.lease_s = lease_s
         self.shots = 0
@@ -144,11 +153,9 @@ class ContinuousRun:
         return self.status()
 
     def status(self) -> ContinuousStatus:
-        """The run's shots so far, its limit, and the seconds its lease has left."""
+        """The run's iterations so far and the seconds its lease has left."""
         expires_in = max(0.0, self._deadline - self._clock()) if self.running else None
-        return ContinuousStatus(
-            shots=self.shots, max_shots=self.max_shots, lease_expires_in_s=expires_in
-        )
+        return ContinuousStatus(shots=self.shots, lease_expires_in_s=expires_in)
 
     def end(self, end: ContinuousEnd) -> bool:
         """Name the run's end, unless one is named already.
@@ -194,9 +201,10 @@ class ContinuousRun:
                 if stop.is_set():
                     self.end("stopped")
                     break
+                started = self._clock()
                 self.shots += 1
                 try:
-                    await sessions.shot(
+                    result = await sessions.shot(
                         self.owner, self.kind, self.client_id, self._store, self._build
                     )
                 except ActionRefused as exc:
@@ -208,16 +216,29 @@ class ContinuousRun:
                 except Exception as exc:  # a stopped shot, or one that failed
                     self._fail(exc, stop)
                     break
-                step = sessions.step.step
-                if step is not None and step.all_zero:
-                    self.end("zero_step")
-                elif self.shots >= self.max_shots:
-                    self.end("max_shots")
+                if _every_injection_failed(result):
+                    self.end("failed")
+                    break
+                await self._pace(started, stop)
         except asyncio.CancelledError:
             self.end("shutdown")
             raise
         finally:
             self._finish()
+
+    async def _pace(self, started: float, stop: asyncio.Event) -> None:
+        """Wait out the rest of the minimum period from *started*, or until the run ends."""
+        while self._end is None and not stop.is_set():
+            remaining = started + self.min_period_s - self._clock()
+            if remaining <= 0:
+                return
+            pause = asyncio.ensure_future(self._sleep(remaining))
+            stopped = asyncio.ensure_future(stop.wait())
+            try:
+                await asyncio.wait({pause, stopped}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                pause.cancel()
+                stopped.cancel()
 
     def _fail(self, exc: BaseException, stop: asyncio.Event) -> None:
         from osprey.services.trajectory.acquisition import ShotStopped
@@ -238,13 +259,7 @@ class ContinuousRun:
         if end == "lease_expired":
             # A shot that finished after the expiry may have installed a step.
             sessions.step.void()
-        step = sessions.step.step if end == "zero_step" else None
-        self.ended = ContinuousEndedEvent(
-            end=end,
-            shots=self.shots,
-            step_reason=step.reason if step is not None else None,
-            step_status=step.status if step is not None else None,
-        )
+        self.ended = ContinuousEndedEvent(end=end, shots=self.shots)
         sessions.continuous_ended(self)
         if self._on_end is not None:
             self._on_end(self.ended)
@@ -259,3 +274,9 @@ class ContinuousRun:
                     self._sessions.expire_lease(self)
                 return
             await self._sleep(min(remaining, self.heartbeat_s))
+
+
+def _every_injection_failed(result: Any) -> bool:
+    """Whether an iteration's stored shot included no injection at all."""
+    shot = result.shot if isinstance(result, ChainResult) else result
+    return isinstance(shot, ShotResult) and shot.shots_included == 0

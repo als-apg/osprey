@@ -1,17 +1,39 @@
-"""The trajectory service's files: shot results and named references, per resolved model.
+"""The trajectory service's files: shot results and named references, per target and model.
 
-Everything lives under the directory ``OSPREY_TRAJECTORY_STATE_DIR`` names::
+Everything lives under the directory ``OSPREY_TRAJECTORY_STATE_DIR`` names, in
+one directory per control target the service is bound to::
 
-    shots/<model>/<shot_id>.json        one ShotResult each, newest kept
-    references/<model>/<name>.json      one reference each
-    references/<model>/current.json     {"name": <reference>} or {"name": null}
+    <target>/shots/<model>/<shot_id>.json        one ShotResult each, newest kept
+    <target>/raw/<model>/<root_shot_id>.raw      one raw buffer per root shot (:mod:`.raw`)
+    <target>/raw/<model>/evicted.json            the ids pruned most recently
+    <target>/references/<model>/<name>.json      one reference each
+    <target>/references/<model>/current.json     {"name": <reference>} or {"name": null}
 
-Every model, shot id and reference name matches :data:`NAME_PATTERN` and is
-neither ``.`` nor ``..``, so no name can leave its directory; ``current`` is
-not a reference name because its file is the pointer. A model keeps at most
-``shots_per_model`` shot files; saving one more deletes the oldest.
+A store bound to no target keeps the same tree at the state directory itself.
+Two targets sharing a state directory never see each other's files: a shot or
+reference stored for one target is not found by the other.
 
-A reference holds one ``(x, y)`` reading per BPM name. NaN is written as JSON
+Every target, model, shot id and reference name matches :data:`NAME_PATTERN`
+and is neither ``.`` nor ``..``, so no name can leave its directory;
+``current`` is not a reference name because its file is the pointer.
+
+A shot a chain made is a **root shot**; a shot derived from one names it as its
+``parent_id`` and reads its root's raw buffer. Shots and raw buffers are kept
+and pruned together, keyed by root shot: a target and model keep the
+``shots_per_model`` root shots most recently saved or derived from — the raw
+retention (``services.trajectory.raw_retention``) — each with its raw buffer
+and every shot derived from it; saving past that deletes the oldest root's
+shot files and buffer at once, so the latest shot is always kept. A pruned id
+is remembered (the latest :data:`EVICTED_KEPT`) and its raw buffer answers
+:class:`~.raw.RawEvicted`. A raw buffer is written before its shot file, so a
+stored root shot that has a buffer never lacks it.
+
+A reference holds one ``(x, y)`` reading per BPM name, the readout mode it
+was taken in (a reference is never used across modes), the target it belongs
+to and the target and model it was taken on (``source_target`` and
+``source_model``; an imported reference belongs to the target it was imported
+on and keeps where it came from). A stored reference whose file names another
+target is refused (:class:`ForeignReference`). NaN is written as JSON
 ``null`` (every file is strict JSON) and read back as NaN. Loading a reference
 matches it over the current BPM selection: :class:`ReferenceLoad` names the
 matched BPMs, the selected BPMs the reference lacks (they read NaN) and the
@@ -40,15 +62,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.services.trajectory.state import ReferenceLoad, ShotResult
+from osprey.services.trajectory.constants import DEFAULT_RAW_RETENTION
+from osprey.services.trajectory.raw import (
+    RAW_SUFFIX,
+    RawBuffer,
+    RawEvicted,
+    decode_raw,
+    encode_raw,
+)
+from osprey.services.trajectory.state import (
+    Readout,
+    ReferenceImport,
+    ReferenceLoad,
+    ReferenceReading,
+    ShotResult,
+)
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
     "CURRENT_FILE",
     "FILE_MODE",
     "NAME_PATTERN",
-    "SHOTS_PER_MODEL",
+    "EVICTED_KEPT",
     "STATE_DIR_ENV_VAR",
+    "ForeignReference",
     "InvalidName",
     "LoadedReference",
     "NoMatchingBpms",
@@ -63,8 +100,8 @@ STATE_DIR_ENV_VAR = "OSPREY_TRAJECTORY_STATE_DIR"
 #: Every model, shot id and reference name matches this.
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
-#: How many shot files each model keeps by default.
-SHOTS_PER_MODEL = 100
+#: How many pruned shot ids each model remembers as evicted.
+EVICTED_KEPT = 1000
 
 #: The pointer to a model's current reference, beside the references.
 CURRENT_FILE = "current.json"
@@ -77,6 +114,7 @@ FILE_MODE = 0o640
 
 _CURRENT_NAME = CURRENT_FILE.removesuffix(".json")
 _SUFFIX = ".json"
+_EVICTED_FILE = "evicted.json"
 
 
 class StoreUnconfigured(RuntimeError):
@@ -89,6 +127,10 @@ class InvalidName(ValueError):
 
 class ReferenceNotFound(LookupError):
     """No reference of that name is stored for the model."""
+
+
+class ForeignReference(ReferenceNotFound):
+    """The stored reference file names another target than the store's."""
 
 
 class NoMatchingBpms(ValueError):
@@ -156,25 +198,59 @@ def _dumps(data: Any) -> bytes:
     return json.dumps(data, indent=2, sort_keys=True, allow_nan=False).encode()
 
 
+def _parent_of(path: Path) -> str | None:
+    """The ``parent_id`` a shot file names, ``None`` for a root shot or an unreadable file."""
+    try:
+        parent = json.loads(path.read_bytes()).get("parent_id")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return parent if isinstance(parent, str) and parent else None
+
+
+def _root_of(shot_id: str, parents: Mapping[str, str | None]) -> str:
+    """The root shot of ``shot_id``, following ``parent_id`` through the stored shots."""
+    seen = {shot_id}
+    while (parent := parents.get(shot_id)) is not None and parent not in seen:
+        seen.add(parent)
+        shot_id = parent
+    return shot_id
+
+
 class TrajectoryStore:
-    """Shot files and references under one state directory.
+    """Shot files and references of one target under one state directory.
 
     Args:
         root: The state directory; created on the first write.
-        shots_per_model: How many shot files each model keeps, at least 1.
+        target: The control target the files belong to, ``None`` to keep them
+            at ``root`` itself.
+        shots_per_model: How many root shots each model keeps, with their raw
+            buffers and derived shots, at least 1: the raw retention.
+
+    Raises:
+        InvalidName: ``target`` does not match :data:`NAME_PATTERN`.
     """
 
-    def __init__(self, root: Path | str, *, shots_per_model: int = SHOTS_PER_MODEL) -> None:
+    def __init__(
+        self,
+        root: Path | str,
+        *,
+        target: str | None = None,
+        shots_per_model: int = DEFAULT_RAW_RETENTION,
+    ) -> None:
         if shots_per_model < 1:
             raise ValueError(f"shots_per_model must be at least 1, not {shots_per_model}")
         self.root = Path(root)
+        self.target = None if target is None else _check_name(target, "target")
+        self.directory = self.root if self.target is None else self.root / self.target
         self.shots_per_model = shots_per_model
         self._lock = asyncio.Lock()
         self._last_stamp_ns = 0
 
     @classmethod
-    def from_env(cls, *, shots_per_model: int = SHOTS_PER_MODEL) -> TrajectoryStore:
-        """The store rooted at ``OSPREY_TRAJECTORY_STATE_DIR``.
+    def from_env(
+        cls, *, target: str | None = None, shots_per_model: int = DEFAULT_RAW_RETENTION
+    ) -> TrajectoryStore:
+        """The store of ``target`` rooted at ``OSPREY_TRAJECTORY_STATE_DIR``.
 
         Raises:
             StoreUnconfigured: The variable is unset or empty.
@@ -185,15 +261,18 @@ class TrajectoryStore:
                 f"{STATE_DIR_ENV_VAR} is unset; the service keeps its shot files and "
                 "references in that directory"
             )
-        return cls(Path(value), shots_per_model=shots_per_model)
+        return cls(Path(value), target=target, shots_per_model=shots_per_model)
 
     # --- paths -----------------------------------------------------------------------
 
     def _shot_dir(self, model: str) -> Path:
-        return self.root / "shots" / _check_name(model, "model")
+        return self.directory / "shots" / _check_name(model, "model")
+
+    def _raw_dir(self, model: str) -> Path:
+        return self.directory / "raw" / _check_name(model, "model")
 
     def _reference_dir(self, model: str) -> Path:
-        return self.root / "references" / _check_name(model, "model")
+        return self.directory / "references" / _check_name(model, "model")
 
     async def _run(self, fn: Any, *args: Any) -> Any:
         async with self._lock:
@@ -201,30 +280,78 @@ class TrajectoryStore:
 
     # --- shots -----------------------------------------------------------------------
 
-    async def save_shot(self, shot: ShotResult) -> Path:
-        """Write ``shot`` as ``shots/<model>/<shot_id>.json`` and prune the model's oldest.
+    async def save_shot(self, shot: ShotResult, raw: RawBuffer | None = None) -> Path:
+        """Write ``shot`` as ``shots/<model>/<shot_id>.json`` under the target, pruning the oldest.
 
-        Re-saving a shot id replaces its file and makes it the newest.
+        ``raw`` is a root shot's raw buffer, written first as
+        ``raw/<model>/<shot_id>.raw``. Re-saving a shot id replaces its file
+        and makes it the newest.
 
         Returns:
             The shot file's path.
         """
         directory = self._shot_dir(shot.model)
-        path = directory / f"{_check_name(shot.shot_id, 'shot id')}{_SUFFIX}"
+        name = _check_name(shot.shot_id, "shot id")
+        path = directory / f"{name}{_SUFFIX}"
         payload = shot.model_dump_json(indent=2).encode()
-        await self._run(self._save_shot_sync, path, payload)
+        raw_path = self._raw_dir(shot.model) / f"{name}{RAW_SUFFIX}"
+        raw_payload = None if raw is None else encode_raw(raw)
+        await self._run(self._save_shot_sync, path, payload, raw_path, raw_payload)
         return path
 
-    def _save_shot_sync(self, path: Path, payload: bytes) -> None:
+    def _save_shot_sync(
+        self, path: Path, payload: bytes, raw_path: Path, raw_payload: bytes | None
+    ) -> None:
+        if raw_payload is not None:
+            _write_atomic(raw_path, raw_payload)
         _write_atomic(path, payload)
         # Order by a stamp this store makes strictly increasing, so two saves in
         # one clock tick still prune in the order they were made.
         stamp = max(time.time_ns(), self._last_stamp_ns + 1)
         self._last_stamp_ns = stamp
         os.utime(path, ns=(stamp, stamp))
-        for stale in self._shot_files_newest_first(path.parent)[self.shots_per_model :]:
-            with suppress(FileNotFoundError):
-                stale.unlink()
+        self._prune_sync(path.parent, raw_path.parent)
+
+    def _prune_sync(self, shot_dir: Path, raw_dir: Path) -> None:
+        """Keep the newest ``shots_per_model`` root shots, their buffers and derived shots."""
+        files = self._shot_files_newest_first(shot_dir)
+        parents: dict[str, str | None] = {}
+        for file in files:
+            parents[file.stem] = _parent_of(file)
+        kept: list[str] = []
+        evicted: list[str] = []
+        for file in files:
+            root = _root_of(file.stem, parents)
+            if root not in kept and len(kept) < self.shots_per_model:
+                kept.append(root)
+            if root not in kept:
+                with suppress(FileNotFoundError):
+                    file.unlink()
+                evicted.append(file.stem)
+        if raw_dir.is_dir():
+            for buffer in raw_dir.iterdir():
+                if buffer.suffix != RAW_SUFFIX or buffer.name.startswith("."):
+                    continue
+                if buffer.stem not in kept:
+                    with suppress(FileNotFoundError):
+                        buffer.unlink()
+                    evicted.append(buffer.stem)
+        stored = {file.stem for file in files} - set(evicted)
+        before = self._evicted_sync(raw_dir)
+        if evicted or stored.intersection(before):
+            remembered = [
+                shot_id for shot_id in before if shot_id not in evicted and shot_id not in stored
+            ]
+            listing = [*remembered, *dict.fromkeys(evicted)][-EVICTED_KEPT:]
+            _write_atomic(raw_dir / _EVICTED_FILE, _dumps(listing))
+
+    @staticmethod
+    def _evicted_sync(raw_dir: Path) -> list[str]:
+        try:
+            listing = json.loads((raw_dir / _EVICTED_FILE).read_bytes())
+        except FileNotFoundError:
+            return []
+        return [str(shot_id) for shot_id in listing] if isinstance(listing, list) else []
 
     @staticmethod
     def _shot_files_newest_first(directory: Path) -> list[Path]:
@@ -248,6 +375,49 @@ class TrajectoryStore:
             raise LookupError(f"no shot {shot_id!r} is stored for model {model!r}") from None
         return ShotResult.model_validate_json(text)
 
+    async def load_raw(self, model: str, shot_id: str) -> tuple[str, RawBuffer]:
+        """The raw buffer ``shot_id`` of ``model`` was made from, and its root shot's id.
+
+        A derived shot reads its root shot's buffer.
+
+        Raises:
+            RawEvicted: The shot, or its root, was pruned.
+            LookupError: No such shot is stored, or its chain included no
+                injection and so kept no buffer.
+        """
+        shot_dir = self._shot_dir(model)
+        raw_dir = self._raw_dir(model)
+        _check_name(shot_id, "shot id")
+
+        def read() -> tuple[str, bytes]:
+            evicted = set(self._evicted_sync(raw_dir))
+            current = shot_id
+            seen: set[str] = set()
+            while True:
+                path = shot_dir / f"{current}{_SUFFIX}"
+                if not path.is_file():
+                    if current in evicted:
+                        raise RawEvicted(
+                            f"the raw buffer of shot {shot_id!r} (model {model!r}) was pruned: "
+                            "the store keeps only the raw retention's newest shots"
+                        )
+                    raise LookupError(f"no shot {shot_id!r} is stored for model {model!r}")
+                parent = _parent_of(path)
+                if parent is None or parent in seen:
+                    break
+                seen.add(current)
+                current = parent
+            try:
+                return current, (raw_dir / f"{current}{RAW_SUFFIX}").read_bytes()
+            except FileNotFoundError:
+                raise LookupError(
+                    f"shot {shot_id!r} of model {model!r} has no raw buffer: its chain "
+                    "included no injection"
+                ) from None
+
+        root, payload = await self._run(read)
+        return root, decode_raw(payload)
+
     async def list_shots(self, model: str) -> list[ShotResult]:
         """Every stored shot of ``model``, newest first."""
         directory = self._shot_dir(model)
@@ -260,12 +430,21 @@ class TrajectoryStore:
     # --- references ------------------------------------------------------------------
 
     async def save_reference(
-        self, model: str, name: str, readings: Mapping[str, tuple[float | None, float | None]]
+        self,
+        model: str,
+        name: str,
+        readings: Mapping[str, tuple[float | None, float | None]],
+        *,
+        readout: Readout = "tbt",
+        source_target: str | None = None,
+        source_model: str | None = None,
     ) -> str:
         """Write the reference ``name`` of ``model``: one ``(x, y)`` reading per BPM.
 
-        NaN or ``None`` readings are stored as ``null``; an infinite reading or
-        an empty reference is refused.
+        The file belongs to this store's target; ``source_target`` and
+        ``source_model`` record where its readings were taken, ``None`` when
+        unknown. NaN or ``None`` readings are stored as ``null``; an infinite
+        reading or an empty reference is refused.
 
         Returns:
             The sha256 of the written file's bytes.
@@ -277,6 +456,10 @@ class TrajectoryStore:
         body = {
             "model": model,
             "name": name,
+            "readout": readout,
+            "target": self.target,
+            "source_target": source_target,
+            "source_model": source_model,
             "readings": {
                 str(bpm): {
                     "x": _to_json_reading(x, f"x at {bpm}"),
@@ -289,14 +472,12 @@ class TrajectoryStore:
         await self._run(_write_atomic, directory / f"{name}{_SUFFIX}", payload)
         return hashlib.sha256(payload).hexdigest()
 
-    async def load_reference(
-        self, model: str, name: str, selection: Iterable[str]
-    ) -> LoadedReference:
-        """The reference ``name`` of ``model``, matched over the selected BPMs.
+    async def _read_reference(self, model: str, name: str) -> tuple[bytes, dict[str, Any]]:
+        """The stored file of reference ``name``: its bytes and its body.
 
         Raises:
             ReferenceNotFound: No such reference is stored.
-            NoMatchingBpms: The reference names none of the selected BPMs.
+            ForeignReference: The file names another target than this store's.
         """
         path = self._reference_dir(model) / f"{_check_reference_name(name)}{_SUFFIX}"
         try:
@@ -305,7 +486,30 @@ class TrajectoryStore:
             raise ReferenceNotFound(
                 f"no reference {name!r} is stored for model {model!r}"
             ) from None
-        readings: dict[str, dict[str, Any]] = json.loads(payload)["readings"]
+        body: dict[str, Any] = json.loads(payload)
+        owner = body.get("target")
+        if owner != self.target:
+            raise ForeignReference(
+                f"reference {name!r} of model {model!r} belongs to target {owner!r}, "
+                f"not {self.target!r}; a reference is never used on another target"
+            )
+        return payload, body
+
+    async def load_reference(
+        self, model: str, name: str, selection: Iterable[str]
+    ) -> LoadedReference:
+        """The reference ``name`` of ``model``, matched over the selected BPMs.
+
+        The load carries the reference's readout mode and its reading by
+        selected BPM (``None`` where the reference lacks the BPM or holds NaN).
+
+        Raises:
+            ReferenceNotFound: No such reference is stored.
+            ForeignReference: The file names another target than this store's.
+            NoMatchingBpms: The reference names none of the selected BPMs.
+        """
+        payload, body = await self._read_reference(model, name)
+        readings: dict[str, dict[str, Any]] = body["readings"]
         selected = list(dict.fromkeys(selection))
         chosen = set(selected)
         matched = [bpm for bpm in selected if bpm in readings]
@@ -331,8 +535,38 @@ class TrajectoryStore:
             nan_count=sum(
                 value is None for entry in readings.values() for value in (entry["x"], entry["y"])
             ),
+            readout=body.get("readout"),
+            readings={
+                bpm: ReferenceReading(
+                    x=readings[bpm]["x"] if bpm in readings else None,
+                    y=readings[bpm]["y"] if bpm in readings else None,
+                )
+                for bpm in selected
+            },
         )
         return LoadedReference(load=load, x=x, y=y)
+
+    async def reference_file(self, model: str, name: str) -> ReferenceImport:
+        """The stored reference ``name`` of ``model`` in full, as an import body.
+
+        Importing the answer stores the same readings, readout and provenance
+        under the same name.
+
+        Raises:
+            ReferenceNotFound: No such reference is stored.
+            ForeignReference: The file names another target than this store's.
+        """
+        _payload, body = await self._read_reference(model, name)
+        return ReferenceImport(
+            name=name,
+            readings={
+                bpm: ReferenceReading(x=entry["x"], y=entry["y"])
+                for bpm, entry in body["readings"].items()
+            },
+            readout=body["readout"],
+            source_target=body.get("source_target"),
+            source_model=body.get("source_model"),
+        )
 
     async def list_references(self, model: str) -> list[str]:
         """The names of ``model``'s stored references, sorted."""

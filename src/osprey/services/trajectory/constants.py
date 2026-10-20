@@ -15,12 +15,12 @@ render cannot disagree about how long an action or a stop may take.
 
 Units:
 
-- ``loss_sum_cutoff`` and ``shot_sum_threshold`` are in the units of the BPM
-  sum record, after its calibration. The defaults fit the virtual accelerator,
-  whose sum reads 1.0 at a BPM the beam reaches and 0 elsewhere; a facility
-  sets both in its own units.
+- ``loss_cutoff_fraction`` and ``shot_threshold_fraction`` are fractions in
+  ``[0, 1]`` of a shot's injected-charge scale, the largest rise of any BPM's
+  sum (:mod:`~osprey.services.trajectory.extraction`), so they hold in any
+  facility's sum units.
 - ``*_s`` keys are seconds.
-- ``raw_window_turns`` counts turns, ``continuous_max_shots`` shot actions.
+- ``raw_window_turns`` counts turns.
 """
 
 from __future__ import annotations
@@ -36,22 +36,24 @@ __all__ = [
     "ARMED_TIMEOUT_KEY",
     "CHECKPOINT_POLL_S",
     "CLIENT_HEADER",
-    "CONTINUOUS_MAX_SHOTS_KEY",
+    "CONTINUOUS_MIN_PERIOD_KEY",
     "DEFAULT_ACTION_TIMEOUT_S",
     "DEFAULT_ARMED_TIMEOUT_S",
-    "DEFAULT_CONTINUOUS_MAX_SHOTS",
-    "DEFAULT_LOSS_SUM_CUTOFF",
+    "DEFAULT_CONTINUOUS_MIN_PERIOD_S",
+    "DEFAULT_LOSS_CUTOFF_FRACTION",
+    "DEFAULT_RAW_RETENTION",
     "DEFAULT_RAW_WINDOW_TURNS",
-    "DEFAULT_SHOT_SUM_THRESHOLD",
-    "LOSS_SUM_CUTOFF_KEY",
+    "DEFAULT_SHOT_THRESHOLD_FRACTION",
+    "LOSS_CUTOFF_FRACTION_KEY",
     "MAX_PAUSE_CEILING_S",
     "PANEL_DOOR",
+    "RAW_RETENTION_KEY",
     "RAW_WINDOW_TURNS_KEY",
     "SEQUENCE_DIR_ENV_VAR",
     "SEQUENCE_DIR_KEY",
     "SEQUENCE_MOUNT",
     "SERVICE_KEY",
-    "SHOT_SUM_THRESHOLD_KEY",
+    "SHOT_THRESHOLD_FRACTION_KEY",
     "SHUTDOWN_MARGIN_S",
     "VA_SEQUENCE_DIR",
     "Budgets",
@@ -70,27 +72,33 @@ CLIENT_HEADER = "X-Trajectory-Client"
 #: The service's block in the rendered ``config.yml``.
 SERVICE_KEY = "services.trajectory"
 
-#: The rise of a BPM's sum, in sum units, above which the beam reached it.
-LOSS_SUM_CUTOFF_KEY = f"{SERVICE_KEY}.loss_sum_cutoff"
-#: The first BPM's first-turn sum, in sum units, below which a shot failed.
-SHOT_SUM_THRESHOLD_KEY = f"{SERVICE_KEY}.shot_sum_threshold"
+#: The rise of a BPM's sum, as a fraction of the injected-charge scale, above
+#: which the beam reached it: the SolveConfig's default ``loss_cutoff``.
+LOSS_CUTOFF_FRACTION_KEY = f"{SERVICE_KEY}.loss_cutoff_fraction"
+#: The first BPM's first-turn level, as a fraction of the injected-charge
+#: scale, below which a shot failed.
+SHOT_THRESHOLD_FRACTION_KEY = f"{SERVICE_KEY}.shot_threshold_fraction"
 #: Seconds each wait on the BPMs' ``armed`` flags may take.
 ARMED_TIMEOUT_KEY = f"{SERVICE_KEY}.armed_timeout_s"
 #: Turns of raw waveform kept after the first turn.
 RAW_WINDOW_TURNS_KEY = f"{SERVICE_KEY}.raw_window_turns"
-#: Shot actions a continuous run submits before it ends on its own.
-CONTINUOUS_MAX_SHOTS_KEY = f"{SERVICE_KEY}.continuous_max_shots"
 #: The host directory holding the facility's sequence module.
 SEQUENCE_DIR_KEY = f"{SERVICE_KEY}.sequence_dir"
 #: Seconds one admitted action may run before it is asked to stop.
 ACTION_TIMEOUT_KEY = f"{SERVICE_KEY}.action_timeout_s"
+#: Shots whose raw buffers the service keeps, the latest always among them.
+RAW_RETENTION_KEY = f"{SERVICE_KEY}.raw_retention"
+#: Seconds at least between the starts of two continuous iterations; set it no
+#: shorter than the facility's injector cycle.
+CONTINUOUS_MIN_PERIOD_KEY = f"{SERVICE_KEY}.continuous_min_period_s"
 
-DEFAULT_LOSS_SUM_CUTOFF = 0.5
-DEFAULT_SHOT_SUM_THRESHOLD = 0.5
-DEFAULT_ARMED_TIMEOUT_S = 5.0
+DEFAULT_LOSS_CUTOFF_FRACTION = 0.5
+DEFAULT_SHOT_THRESHOLD_FRACTION = 0.5
+DEFAULT_ARMED_TIMEOUT_S = 10.0
 DEFAULT_RAW_WINDOW_TURNS = 20
-DEFAULT_CONTINUOUS_MAX_SHOTS = 100
-DEFAULT_ACTION_TIMEOUT_S = 60.0
+DEFAULT_ACTION_TIMEOUT_S = 300.0
+DEFAULT_RAW_RETENTION = 100
+DEFAULT_CONTINUOUS_MIN_PERIOD_S = 1.0
 
 #: The longest pause, in seconds, a sequence module may declare (``max_pause_s``).
 MAX_PAUSE_CEILING_S = 10.0

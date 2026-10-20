@@ -27,7 +27,7 @@ from packaging.version import Version
 from osprey.services.trajectory import step
 from osprey.services.trajectory.admit import Admission
 from osprey.services.trajectory.sessions import NOT_SESSION_HOLDER, SessionRefused, Sessions
-from osprey.services.trajectory.state import ReferenceLoad, ShotResult, Step
+from osprey.services.trajectory.state import ReferenceLoad, ShotResult, SolveConfig, Step
 from osprey.services.trajectory.step import (
     MAX_STEP_MARGIN,
     REFERENCE_UNUSABLE,
@@ -39,10 +39,15 @@ from osprey.services.trajectory.step import (
     TrajectoryTool,
     build_tool,
     compute_step,
+    keep_live_default,
     max_steps,
+    n_discard_for,
+    per_call_settings,
     require_tool,
+    solve_sha,
     step_digest,
     step_factor,
+    step_for_shot,
 )
 from osprey.services.trajectory.store import LoadedReference, ReferenceNotFound
 
@@ -75,10 +80,8 @@ def _rm(goldens: Any) -> dict[str, Any]:
 
 def _index(goldens: Any) -> dict[str, Any]:
     rows = _case(goldens, "bpm_index").tolist()
-    names = _case(goldens, "observable_names").tolist()
     return {
         "bpm_index": [*rows, *rows],
-        "sum_names": [name.replace(":X", ":SUM").replace(":Y", ":SUM") for name in names],
         "hcorr_index": _case(goldens, "hcorr_index").tolist(),
         "vcorr_index": _case(goldens, "vcorr_index").tolist(),
         "unsolved": {},
@@ -161,7 +164,6 @@ def test_the_builder_builds_the_tool_from_the_matrix_and_its_sidecar(
     assert built.layout.vcorr_names == tuple(columns[n_h:])
     index = _index(goldens)
     assert built.bpm_index == tuple(index["bpm_index"])
-    assert built.sum_names == tuple(index["sum_names"])
     assert built.hcorr_index == tuple(index["hcorr_index"])
     assert built.vcorr_index == tuple(index["vcorr_index"])
     assert dict(built.unsolved) == {}
@@ -275,7 +277,7 @@ def test_the_builder_refusal_names_a_model_with_no_view(tmp_path: Path) -> None:
     assert "'BOOSTER'" in detail and "missing" in detail
 
 
-@pytest.mark.parametrize("key", ["hcorr_index", "vcorr_index", "bpm_index", "sum_names"])
+@pytest.mark.parametrize("key", ["hcorr_index", "vcorr_index", "bpm_index"])
 def test_the_builder_refusal_names_a_sidecar_list_that_is_missing(
     tmp_path: Path, goldens: Any, key: str
 ) -> None:
@@ -316,7 +318,7 @@ def test_the_builder_refusal_names_a_sidecar_that_is_not_json(tmp_path: Path, go
 
 @pytest.mark.parametrize(
     ("key", "trim"),
-    [("bpm_index", 1), ("sum_names", 1), ("hcorr_index", 1), ("vcorr_index", 2)],
+    [("bpm_index", 1), ("hcorr_index", 1), ("vcorr_index", 2)],
 )
 def test_the_builder_refusal_names_a_sidecar_that_does_not_describe_the_matrix(
     tmp_path: Path, goldens: Any, key: str, trim: int
@@ -487,6 +489,13 @@ class _Correct:
         self.reason = reason
         self.status = status
         self.calls: list[dict[str, Any]] = []
+        self.response_matrix = SimpleNamespace(
+            matrix=[[1.0, 0.0, 0.0]] * 6,
+            observable_names=[*X_ROWS, *Y_ROWS],
+            variable_names=[*H_CORR, *V_CORR],
+            observable_planes=["x"] * 3 + ["y"] * 3,
+            variable_planes=["x", "x", "y"],
+        )
 
     def correct(self, x: Any, y: Any, reference: Any = None, **kwargs: Any) -> Any:
         self.calls.append({"x": list(x), "y": list(y), "reference": reference, **kwargs})
@@ -519,10 +528,14 @@ def _fake_tool(fake: _Correct, *, unsolved: dict[str, str] | None = None) -> Tra
         model=MODEL,
         tool=fake,
         layout=SimpleNamespace(
-            bpm_names_h=X_ROWS, bpm_names_v=Y_ROWS, hcorr_names=H_CORR, vcorr_names=V_CORR
+            bpm_names_h=X_ROWS,
+            bpm_names_v=Y_ROWS,
+            hcorr_names=H_CORR,
+            vcorr_names=V_CORR,
+            L=3,
+            k_live=3,
         ),
         bpm_index=(1.0, 2.0, 3.0, 1.0, 2.0, 3.0),
-        sum_names=("S1", "S2", "S3", "S1", "S2", "S3"),
         hcorr_index=(0.5, 1.5),
         vcorr_index=(2.5,),
         unsolved=unsolved or {},
@@ -577,10 +590,14 @@ def _reference(name: str = "golden", sha: str = "a" * 64, offset: float = 0.0) -
     )
 
 
+SOLVE_SHA = "5" * 64
+
+
 def _compute(tool: TrajectoryTool, shot: ShotResult | None = None, **kwargs: Any) -> Step:
     kwargs.setdefault("target", TARGET)
     kwargs.setdefault("client_id", CLIENT)
     kwargs.setdefault("bounds", {})
+    kwargs.setdefault("solve_sha", SOLVE_SHA)
     return compute_step(tool, shot or _shot(), kwargs.pop("reference", None), **kwargs)
 
 
@@ -666,17 +683,57 @@ def test_no_reference_solves_to_zero() -> None:
     assert got.reference is None
 
 
-def test_the_step_names_no_response_and_unsolved_correctors_and_counts_rank_discarded() -> None:
+def test_the_step_names_no_response_and_unsolved_correctors_and_carries_no_spectrum() -> None:
+    """The spectrum is the published solve's; a step carries none of it."""
     tool = _fake_tool(_Correct([1.0, 0.0, 1.0]), unsolved={"SR:HCM2": "no closed orbit"})
 
     got = _compute(tool)
 
     assert got.no_response_names == ["SR:HCM2"]
     assert got.unsolved == ["SR:HCM2"]
-    assert got.rank_discarded == 2 and isinstance(got.rank_discarded, int)
-    assert got.spectrum_kind == ["LIVE", "LIVE", "STRUCTURAL"]
-    assert got.singular_values == [3.0, 1.0, 0.0]
+    assert not {
+        "rank_discarded",
+        "singular_values",
+        "inverse_weights",
+        "spectrum_kind",
+        "n_discard",
+    } & set(got.model_dump())
     assert got.shot_id == "shot-1"
+
+
+def test_the_step_passes_the_settings_per_call() -> None:
+    fake = _Correct([1.0, 1.0, 1.0])
+    tool = _fake_tool(fake)
+
+    _compute(tool, settings={"alpha": 0.25, "n_discard": 2, "gain": 0.5})
+
+    call = fake.calls[-1]
+    assert (call["alpha"], call["n_discard"], call["gain"]) == (0.25, 2, 0.5)
+
+
+def test_without_settings_the_step_leaves_the_tool_its_configured_values() -> None:
+    fake = _Correct([1.0, 1.0, 1.0])
+    tool = _fake_tool(fake)
+
+    _compute(tool)
+
+    assert not {"alpha", "n_discard", "gain"} & set(fake.calls[-1])
+
+
+def test_ignored_rows_leave_the_shot_before_it_is_matched() -> None:
+    fake = _Correct([1.0, 1.0, 1.0])
+    tool = _fake_tool(fake)
+    shot = ShotResult.model_validate(
+        {
+            **_shot().model_dump(),
+            "x": {**_shot().x, "SR:BPM9:X": None},
+            "y": {**_shot().y, "SR:BPM9:Y": None},
+        }
+    )
+
+    _compute(tool, shot, ignore={"SR:BPM9:X", "SR:BPM9:Y"})
+
+    assert fake.calls[-1]["y"] == [-0.1, -0.2, -0.3]
 
 
 def test_an_all_zero_step_is_reported_with_its_status() -> None:
@@ -759,6 +816,7 @@ _DIGEST = {
     "client_id": CLIENT,
     "shot_id": "shot-1",
     "reference": ("golden", "a" * 64),
+    "solve_sha": SOLVE_SHA,
     "deltas": {"SR:HCM1": -1.0, "SR:VCM1": 0.5},
 }
 
@@ -773,6 +831,7 @@ _DIGEST = {
         ("reference", ("other", "a" * 64)),
         ("reference", ("golden", "b" * 64)),
         ("reference", None),
+        ("solve_sha", "6" * 64),
         ("deltas", {"SR:HCM1": -1.0, "SR:VCM1": 0.25}),
     ],
 )
@@ -801,6 +860,7 @@ def test_the_steps_digest_binds_the_reference_content_and_the_holder() -> None:
         client_id=CLIENT,
         shot_id="shot-1",
         reference=("golden", "a" * 64),
+        solve_sha=SOLVE_SHA,
         deltas=first.deltas,
     )
 
@@ -822,6 +882,19 @@ def test_step_state_replaces_voids_and_consumes_by_identity() -> None:
     assert state.consume(second) is False
     state.void()
     assert state.step is None and state.shot is None and state.consumed is False
+
+
+def test_a_void_that_keeps_the_shot_drops_only_the_step() -> None:
+    state = StepState()
+    tool = _fake_tool(_Correct([1.0, 1.0, 1.0]))
+    step_, shot = _compute(tool), _shot()
+    state.replace(step_, shot)
+    state.consume(step_)
+
+    state.void(keep_shot=True)
+
+    assert state.step is None and state.shot is shot and state.consumed is False
+    assert state.consume(step_) is False
 
 
 # -- the step on the sessions -------------------------------------------------------
@@ -916,16 +989,18 @@ async def test_a_holders_shot_computes_the_step_onto_the_sessions() -> None:
 
     await sessions.shot("alice", "panel", client, store, _shooting(_shot()))
 
-    step = sessions.step.step
-    assert step is not None and step.shot_id == "shot-1"
-    assert step.deltas == {"SR:HCM1": -2.0, "SR:HCM2": 1.0, "SR:VCM1": -0.5}
-    assert step.digest == step_digest(
+    step_ = sessions.step.step
+    assert step_ is not None and step_.shot_id == "shot-1"
+    assert step_.deltas == {"SR:HCM1": -2.0, "SR:HCM2": 1.0, "SR:VCM1": -0.5}
+    # Sessions without a SolveConfig solve outside any published solve.
+    assert step_.digest == step_digest(
         target=TARGET,
         model=MODEL,
         client_id=client,
         shot_id="shot-1",
         reference=None,
-        deltas=step.deltas,
+        solve_sha=None,
+        deltas=step_.deltas,
     )
 
 
@@ -1070,3 +1145,199 @@ async def test_a_tool_unavailable_refuses_the_step() -> None:
 
     assert caught.value.code == TOOL_UNAVAILABLE
     assert sessions.step.step is None
+
+
+# -- keep_live and the discard count -------------------------------------------------
+
+
+def _counted(L: int, k_live: int, n_discard: int = 0) -> TrajectoryTool:
+    tool = _fake_tool(_Correct([1.0, 1.0, 1.0]))
+    layout = SimpleNamespace(**{**vars(tool.layout), "L": L, "k_live": k_live})
+    return TrajectoryTool(**{**vars(tool), "layout": layout, "n_discard": n_discard})
+
+
+def test_the_file_default_keep_live_is_l_minus_the_files_discard_count() -> None:
+    assert keep_live_default(_counted(144, 144, n_discard=4)) == 140
+    assert keep_live_default(_counted(10, 8, n_discard=0)) == 10
+    assert keep_live_default(_counted(10, 8, n_discard=10)) == 0
+
+
+@pytest.mark.parametrize(
+    ("L", "k_live", "keep_live", "n_discard"),
+    [
+        (144, 144, 144, 0),
+        (144, 144, 140, 4),
+        (142, 142, 140, 2),  # an exclusion shortened the spectrum: the count follows
+        (144, 140, 144, 4),  # structural zeros are always discarded
+        (144, 140, 130, 14),
+        (10, 10, 0, 10),
+        (10, 10, 50, 0),
+        (10, 10, -3, 10),
+    ],
+)
+def test_the_discard_count_keep_live_stands_for(
+    L: int, k_live: int, keep_live: int, n_discard: int
+) -> None:
+    assert n_discard_for(_counted(L, k_live), keep_live) == n_discard
+
+
+# -- the step on the selection --------------------------------------------------------
+
+
+@pytest.fixture
+def real(render: Path) -> TrajectoryTool:
+    step._RESTRICTED.clear()
+    built = build_tool(render, MODEL)
+    assert isinstance(built, TrajectoryTool)
+    return built
+
+
+def _real_shot(tool: TrajectoryTool, *, excluded_bpms: tuple[str, ...] = ()) -> ShotResult:
+    layout = tool.layout
+    xs = list(layout.bpm_names_h)
+    ys = list(layout.bpm_names_v)
+    return ShotResult(
+        shot_id="real-1",
+        model=MODEL,
+        x={
+            name: (None if name in excluded_bpms else 1e-4 * (i % 7 - 3))
+            for i, name in enumerate(xs)
+        },
+        y={
+            name: (None if xs[i] in excluded_bpms else 1e-4 * (i % 5 - 2))
+            for i, name in enumerate(ys)
+        },
+        sum=dict.fromkeys(xs, 1.0),
+        bpm_order=xs,
+        lost=[],
+        last_bpm=xs[-1],
+        i0=0,
+        window=(0, 10),
+        per_shot_lost_at=[None],
+        shots_included=1,
+        shots_failed=[],
+        commands_fired=[],
+        excluded_bpms=list(excluded_bpms),
+    )
+
+
+def _config(**overrides: Any) -> SolveConfig:
+    values: dict[str, Any] = {
+        "alpha": 0.001,
+        "keep_live": 140,
+        "n_discard": 4,
+        "gain": 0.5,
+        "excluded_bpms": [],
+        "excluded_cms": [],
+        "loss_cutoff": 0.5,
+        "overridden": [],
+    }
+    values.update(overrides)
+    return SolveConfig(**values)
+
+
+class _NoReferences:
+    async def current(self, _model: str) -> None:
+        return None
+
+
+def _startup(tool: TrajectoryTool) -> Any:
+    return SimpleNamespace(
+        target=TARGET, connector=SimpleNamespace(_limits_validator=None), tool=tool
+    )
+
+
+async def test_a_step_solves_on_the_shots_bpms_and_the_configs_correctors(
+    real: TrajectoryTool,
+) -> None:
+    bpm = real.layout.bpm_names_h[3]
+    hcm, vcm = real.layout.hcorr_names[2], real.layout.vcorr_names[7]
+    config = _config(excluded_cms=[hcm, vcm])
+    shot = _real_shot(real, excluded_bpms=(bpm,))
+
+    got = await step_for_shot(
+        _startup(real),
+        _NoReferences(),
+        shot,
+        client_id=CLIENT,
+        config=config,  # type: ignore[arg-type]
+    )
+
+    assert hcm not in got.deltas and vcm not in got.deltas
+    assert len(got.deltas) == len(real.layout.hcorr_names) + len(real.layout.vcorr_names) - 2
+    restricted = step.restricted_tool(real, {bpm, hcm, vcm})
+    settings = per_call_settings(
+        restricted, alpha=0.001, n_discard=n_discard_for(restricted, 140), gain=0.5
+    )
+    assert got.digest == step_digest(
+        target=TARGET,
+        model=MODEL,
+        client_id=CLIENT,
+        shot_id="real-1",
+        reference=None,
+        solve_sha=solve_sha(real, {bpm, hcm, vcm}, settings),
+        deltas=got.deltas,
+    )
+
+
+async def test_the_step_is_the_restricted_tools_correct_with_the_configs_settings(
+    real: TrajectoryTool,
+) -> None:
+    hcm = real.layout.hcorr_names[0]
+    config = _config(excluded_cms=[hcm], alpha=0.002, keep_live=120, gain=0.75)
+    shot = _real_shot(real)
+
+    got = await step_for_shot(
+        _startup(real),
+        _NoReferences(),
+        shot,
+        client_id=CLIENT,
+        config=config,  # type: ignore[arg-type]
+    )
+
+    restricted = step.restricted_tool(real, {hcm})
+    n_discard = n_discard_for(restricted, 120)
+    expected = restricted.tool.correct(
+        [shot.x[name] for name in restricted.layout.bpm_names_h],
+        [shot.y[name] for name in restricted.layout.bpm_names_v],
+        None,
+        bpm_index=list(restricted.bpm_index),
+        hcorr_index=list(restricted.hcorr_index),
+        vcorr_index=list(restricted.vcorr_index),
+        alpha=0.002,
+        n_discard=n_discard,
+        gain=0.75,
+    )
+    for name, value in zip(expected.names, expected.step, strict=True):
+        assert got.deltas[name] == pytest.approx(-float(value), abs=1e-15)
+
+
+async def test_the_shared_tool_is_never_changed_by_a_step(real: TrajectoryTool) -> None:
+    settings_before = real.tool._settings
+    layout_before = real.layout
+
+    await step_for_shot(
+        _startup(real),
+        _NoReferences(),  # type: ignore[arg-type]
+        _real_shot(real, excluded_bpms=(real.layout.bpm_names_h[0],)),
+        client_id=CLIENT,
+        config=_config(excluded_cms=[real.layout.vcorr_names[0]], alpha=0.5, gain=0.25),
+    )
+
+    assert real.tool._settings is settings_before
+    assert real.layout is layout_before
+
+
+async def test_a_config_naming_a_corrector_the_build_lacks_refuses_the_step(
+    real: TrajectoryTool,
+) -> None:
+    with pytest.raises(StepRefused) as caught:
+        await step_for_shot(
+            _startup(real),
+            _NoReferences(),  # type: ignore[arg-type]
+            _real_shot(real),
+            client_id=CLIENT,
+            config=_config(excluded_cms=["NOT:A:CM"]),
+        )
+
+    assert caught.value.code == step.SELECTION_UNKNOWN

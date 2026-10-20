@@ -40,8 +40,14 @@ from osprey.runtime.guarded_run import ENV_CONTROL_IDENTITY
 from osprey.services.trajectory import actions
 from osprey.services.trajectory.__main__ import service_port
 from osprey.services.trajectory.app import CLIENT_HEADER, LAUNCH_TOKEN_ENV, create_app
-from osprey.services.trajectory.startup import TrajectoryCommands, TrajectoryStartup
+from osprey.services.trajectory.startup import (
+    TrajectoryCommands,
+    TrajectoryDevice,
+    TrajectoryStartup,
+)
 from osprey.services.trajectory.state import (
+    ChainResult,
+    SetupState,
     ShotResult,
     Snapshot,
     SnapshotEvent,
@@ -66,7 +72,21 @@ BOB_SECRET = "bob-secret-" + "b" * 32
 UNNAMED_SECRET = "unnamed-secret-" + "u" * 32
 REFUSED_SECRET = "refused-secret-" + "r" * 32
 COMMANDS = TrajectoryCommands(
-    model="SR", arm=("SR:BPM:ARM",), injection_request="SR:INJ:REQ", injection_busy="SR:INJ:BUSY"
+    model="SR",
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm="SR:BPM:ARM",
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request="SR:INJ:REQ",
+    injection_busy="SR:INJ:BUSY",
+    trigger_sample=10,
 )
 DOORS = ("/panel/api", "/api")
 
@@ -455,11 +475,18 @@ class _Machine(_Connector):
         super().__init__()
         self.values: dict[str, Any] = {HCM1: 1.0, HCM2: -2.0, VCM1: 0.5}
         self.writes: list[tuple[str, Any]] = []
+        self.batches: list[list[str]] = []
 
     async def read_channel(self, address: str, timeout: float | None = None) -> Any:  # noqa: ARG002
         if isinstance(self.outcome, BaseException):
             raise self.outcome
         return ChannelValue(value=self.values.get(address, 0), timestamp=datetime.now(UTC))
+
+    async def read_multiple_channels(
+        self, addresses: list[str], timeout: float | None = None
+    ) -> dict[str, Any]:
+        self.batches.append(list(addresses))
+        return {address: await self.read_channel(address, timeout) for address in addresses}
 
     async def write_channel_checked(self, address: str, value: Any, **_: Any) -> Any:
         self.writes.append((address, value))
@@ -500,7 +527,6 @@ TOOL = TrajectoryTool(
         bpm_names_h=X_ROWS, bpm_names_v=Y_ROWS, hcorr_names=(HCM1, HCM2), vcorr_names=(VCM1,)
     ),
     bpm_index=(1.0, 2.0, 3.0, 1.0, 2.0, 3.0),
-    sum_names=(*SUMS, *SUMS),
     hcorr_index=(0.5, 1.5),
     vcorr_index=(2.5,),
     unsolved={},
@@ -781,14 +807,22 @@ def test_the_shots_are_listed(loop_client: TestClient, state_dir: Path) -> None:
     assert [shot["shot_id"] for shot in body["shots"]] == [_shot().shot_id]
 
 
+def _set_up(client: TestClient) -> None:
+    """Give the target a current setup, as the setup route records one."""
+    client.app.state.feed.setup = SetupState(  # type: ignore[attr-defined]
+        applied_at=0.0, by="alice", settings_sha="sha", turns_tracked=4
+    )
+
+
 def test_a_continuous_run_the_service_cannot_shoot_is_refused_at_start(
     loop_client: TestClient, records: list[dict[str, Any]]
 ) -> None:
+    _set_up(loop_client)
     grant = loop_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")).json()
     response = loop_client.post(
         "/panel/api/continuous",
         headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
-        json={"max_shots": 3},
+        json={"steps": ["arm", "inject", "readout"]},
     )
     assert response.status_code == 503
     assert _code(response) == "no_sequence_module"
@@ -796,6 +830,240 @@ def test_a_continuous_run_the_service_cannot_shoot_is_refused_at_start(
     assert state["continuous"] is None
     (line,) = [r for r in _ours(records) if r["subject"] == "continuous_start"]
     assert (line["actor"], line["reason"]) == ("alice", "no_sequence_module")
+
+
+def test_a_continuous_body_is_the_chain_body_without_max_shots(loop_client: TestClient) -> None:
+    _set_up(loop_client)
+    grant = loop_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    response = loop_client.post(
+        "/panel/api/continuous",
+        headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
+        json={"steps": ["arm", "inject", "readout"], "max_shots": 3},
+    )
+    assert response.status_code == 400
+    assert _code(response) == "bad_request"
+
+
+@pytest.mark.parametrize("route", ["/panel/api/shot", "/panel/api/continuous"])
+def test_a_panel_chain_without_a_current_setup_is_refused_setup_required(
+    loop_client: TestClient, records: list[dict[str, Any]], route: str
+) -> None:
+    grant = loop_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    headers = _as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]})
+    body = {"steps": ["arm", "inject", "readout"]}
+
+    response = loop_client.post(route, headers=headers, json=body)
+    assert response.status_code == 409
+    assert _code(response) == "setup_required"
+    assert _ours(records)[-1]["reason"] == "setup_required"
+
+    # A void setup is no current setup either.
+    _set_up(loop_client)
+    feed = loop_client.app.state.feed  # type: ignore[attr-defined]
+    feed.setup = feed.setup.model_copy(update={"void": True})
+    response = loop_client.post(route, headers=headers, json=body)
+    assert (response.status_code, _code(response)) == (409, "setup_required")
+
+
+def test_the_agent_door_is_never_refused_for_setup(loop_client: TestClient) -> None:
+    grant = loop_client.post("/api/session", headers=_as(ALICE_SECRET, "/api")).json()
+    response = loop_client.post(
+        "/api/shot",
+        headers=_as(ALICE_SECRET, "/api", **{CLIENT_HEADER: grant["client_id"]}),
+        json={"n_shots": 1},
+    )
+    # Refused only because the service has no sequence module, never for setup.
+    assert (response.status_code, _code(response)) == (503, "no_sequence_module")
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        ({"steps": ["arm", "wash"]}, "unknown_step"),
+        ({"steps": []}, "bad_request"),
+        ({"steps": ["readout"], "n_shots": 2}, "invalid_chain"),
+        ({"steps": ["readout"], "readout": "orbit"}, "bad_request"),
+        ({"steps": ["readout"], "owner": "x"}, "owner_in_body"),
+    ],
+)
+def test_a_bad_chain_body_is_refused(loop_client: TestClient, body: dict, code: str) -> None:
+    _set_up(loop_client)
+    grant = loop_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    response = loop_client.post(
+        "/panel/api/shot",
+        headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
+        json=body,
+    )
+    assert response.status_code == 400
+    assert _code(response) == code
+
+
+def test_a_lone_readout_answers_a_chain_result_stores_the_shot_and_makes_no_step(
+    loop_client: TestClient, machine: _Machine, state_dir: Path
+) -> None:
+    _set_up(loop_client)
+    for row in (*X_ROWS, *Y_ROWS, *SUMS):
+        machine.values[row] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+    grant = loop_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    _pend(loop_client, grant["client_id"])
+
+    response = loop_client.post(
+        "/panel/api/shot",
+        headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
+        json={"steps": ["readout"]},
+    )
+
+    assert response.status_code == 200, response.text
+    result = ChainResult.model_validate(response.json())
+    assert result.steps_run == ["readout"] and result.commands_fired == []
+    shot = result.shot
+    assert shot is not None and not shot.fresh and shot.shots_included == 1
+    assert (state_dir / "shots" / "SR" / f"{shot.shot_id}.json").is_file()
+    # A newer reading that makes no step voids the pending one.
+    sessions = loop_client.app.state.sessions  # type: ignore[attr-defined]
+    assert sessions.step.step is None
+    assert sessions.latest_shot_id == shot.shot_id
+
+
+def test_the_snapshot_publishes_the_chain_families_retention_and_budget(
+    loop_client: TestClient,
+) -> None:
+    state = Snapshot.model_validate(
+        loop_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    )
+    assert [step.id for step in state.chain] == ["arm", "inject", "readout"]
+    assert state.families is not None
+    assert state.families.bpms == list(X_ROWS)
+    assert (state.families.hcms, state.families.vcms) == ([HCM1, HCM2], [VCM1])
+    assert state.retention == 100
+    assert state.setup is None
+    # No sequence module: no chain can inject, so there is no shot count to publish.
+    assert state.n_shots_max is None
+
+
+RF, CURRENT, CLEAN = "SR:RF:ON:RB", "SR:DCCT:CURRENT", "SR:DIAG:CLEANING:REQUEST"
+SLOTS = {
+    "machine": {"rf_on": RF, "stored_current": CURRENT},
+    "settings": [],
+    "steps": [
+        {
+            "id": step,
+            "label": step,
+            "description": None,
+            "command": None,
+            "default": True,
+            "position": 0,
+            "timeout_s": None,
+        }
+        for step in ("arm", "inject")
+    ]
+    + [
+        {
+            "id": "clean",
+            "label": "Clean",
+            "description": None,
+            "default": True,
+            "position": 2,
+            "command": {"address": CLEAN, "value": 1},
+            "timeout_s": 5.0,
+        },
+        {
+            "id": "readout",
+            "label": "Readout",
+            "description": None,
+            "command": None,
+            "default": True,
+            "position": 3,
+            "timeout_s": None,
+        },
+    ],
+}
+
+
+@pytest.fixture
+def declared_client(machine: _Machine, state_dir: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
+    from osprey.services.trajectory import app as app_module
+
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(app_module, "_trajectory_slots", lambda _config, model: SLOTS)
+    machine.values.update({RF: 1, CURRENT: 12.5})
+    with TestClient(_app(machine, tool=TOOL)) as test_client:
+        yield test_client
+
+
+def test_the_declared_chain_is_published_with_its_command_step(
+    declared_client: TestClient,
+) -> None:
+    state = Snapshot.model_validate(
+        declared_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    )
+    assert [step.id for step in state.chain] == ["arm", "inject", "clean", "readout"]
+    clean = state.chain[2]
+    assert clean.command is not None and clean.command.address == CLEAN
+    assert clean.timeout_s == 5.0 and clean.position == 2
+
+
+def test_the_machine_is_read_in_one_batch_on_open_and_on_take_over(
+    declared_client: TestClient, machine: _Machine
+) -> None:
+    before = Snapshot.model_validate(
+        declared_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    )
+    assert before.machine is None
+
+    declared_client.post("/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api"))
+    assert machine.batches == [[RF, CURRENT]]
+    state = Snapshot.model_validate(
+        declared_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    )
+    assert state.machine is not None
+    assert (state.machine.rf_on, state.machine.stored_current) == (1, 12.5)
+
+    machine.values[CURRENT] = 3.0
+    declared_client.post("/api/takeover", headers=_as(BOB_SECRET, "/api"))
+    assert machine.batches == [[RF, CURRENT], [RF, CURRENT]]
+    state = Snapshot.model_validate(
+        declared_client.get("/panel/api/state", headers=_as(BOB_SECRET, "/panel/api")).json()
+    )
+    assert state.machine is not None and state.machine.stored_current == 3.0
+
+
+def test_the_machine_is_read_after_a_chains_last_step(
+    declared_client: TestClient, machine: _Machine
+) -> None:
+    _set_up(declared_client)
+    grant = declared_client.post(
+        "/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")
+    ).json()
+    machine.batches.clear()
+    machine.values[CURRENT] = 7.0
+
+    response = declared_client.post(
+        "/panel/api/shot",
+        headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
+        json={"steps": ["readout"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert machine.batches[-1] == [RF, CURRENT]
+    state = Snapshot.model_validate(
+        declared_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    )
+    assert state.machine is not None and state.machine.stored_current == 7.0
+
+
+def test_a_malformed_declared_chain_refuses_the_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    from osprey.services.trajectory import app as app_module
+    from osprey.services.trajectory.startup import StartupRefused
+
+    monkeypatch.setattr(
+        app_module, "_trajectory_slots", lambda _config, _model: {"steps": [SLOTS["steps"][0]]}
+    )
+    startup = TrajectoryStartup(
+        target=TARGET, connector=None, commands=COMMANDS, guarded_run_dir=Path("/unused")
+    )
+    with pytest.raises(StartupRefused, match="declares no inject, readout"):
+        app_module._declaration({}, startup)
 
 
 def test_a_heartbeat_without_a_run_answers_none(loop_client: TestClient) -> None:
@@ -933,3 +1201,55 @@ async def test_a_stream_ends_on_the_shutdown_signal_only(served: FastAPI) -> Non
     served.state.shutdown_signal.set()
     await asyncio.wait_for(stream.task, 5)
     stream.close()
+
+
+@pytest.mark.usefixtures("state_dir")
+async def test_the_machine_is_reread_while_a_stream_is_open_and_not_after(
+    machine: _Machine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.services.trajectory import app as app_module
+
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(app_module, "_trajectory_slots", lambda _config, _model: SLOTS)
+    monkeypatch.setattr(app_module, "_MACHINE_REFRESH_S", 0.01)
+    machine.values.update({RF: 1, CURRENT: 12.5})
+    app = _app(machine, tool=TOOL)
+    async with app.router.lifespan_context(app):
+        stream = _Stream(app, ALICE_SECRET)
+        first = await stream.event()
+        assert isinstance(first, SnapshotEvent)
+        # The periodic read publishes a snapshot carrying the readings it took.
+        while True:
+            event = await stream.event()
+            if isinstance(event, SnapshotEvent) and event.snapshot.machine is not None:
+                break
+        assert event.snapshot.machine.stored_current == 12.5
+        machine.values[CURRENT] = 4.0
+        while True:
+            event = await stream.event()
+            machine_now = getattr(event, "snapshot", None)
+            if machine_now is not None and machine_now.machine.stored_current == 4.0:
+                break
+        stream.close()
+        await asyncio.wait_for(stream.task, 5)
+        # With no stream open the periodic read stops.
+        await asyncio.sleep(0.05)
+        read = len(machine.batches)
+        await asyncio.sleep(0.05)
+        assert len(machine.batches) == read
+
+
+def test_a_heartbeat_reads_the_machine(declared_client: TestClient, machine: _Machine) -> None:
+    grant = declared_client.post(
+        "/panel/api/session", headers=_as(ALICE_SECRET, "/panel/api")
+    ).json()
+    machine.batches.clear()
+
+    response = declared_client.post(
+        "/panel/api/continuous/heartbeat",
+        headers=_as(ALICE_SECRET, "/panel/api", **{CLIENT_HEADER: grant["client_id"]}),
+    )
+
+    assert response.status_code == 200, response.text
+    assert machine.batches == [[RF, CURRENT]]

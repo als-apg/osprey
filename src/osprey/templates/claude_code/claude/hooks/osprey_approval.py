@@ -3231,9 +3231,11 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
 # through the web terminal's proxy with the panel token and no session. An apply
 # of the pending step renders that step from the same snapshot and binds its
 # digest; a put-back renders from the call's own values and binds their digest.
-# A prompt that cannot show what the call would act on is not asked: the call is
-# denied. The path, the field names and the put-back digest are the trajectory
-# server's (`osprey.mcp_server.trajectory`, `osprey.mcp_server.approval_stamp`),
+# A shot and a step apply also state the SolveConfig in force, from the same
+# snapshot's published solve. A prompt that cannot show what the call would act
+# on is not asked: the call is denied. The path, the field names and the
+# put-back digest are the trajectory server's (`osprey.mcp_server.trajectory`,
+# `osprey.mcp_server.approval_stamp`, `osprey.services.trajectory.state`),
 # restated because this hook is deployed standalone;
 # tests/templates/test_approval_trajectory.py pins them.
 
@@ -3244,6 +3246,18 @@ _TRAJECTORY_BASE_PATH = "/panel/trajectory/api"
 _TRAJECTORY_SHOT = "trajectory_shot"
 _TRAJECTORY_APPLY = "trajectory_apply"
 _TRAJECTORY_TOOLS = frozenset({_TRAJECTORY_SHOT, _TRAJECTORY_APPLY})
+
+#: The fields of the snapshot's ``solve.config`` a prompt states.
+_SOLVE_CONFIG_FIELDS = (
+    "alpha",
+    "keep_live",
+    "n_discard",
+    "gain",
+    "excluded_bpms",
+    "excluded_cms",
+    "loss_cutoff",
+    "overridden",
+)
 
 #: The apply's two digest bindings; exactly one is set per call.
 _APPROVED_STEP_DIGEST_KEY = "approved_step_digest"
@@ -3398,6 +3412,28 @@ def _trajectory_step_lines(step: object, step_digest) -> list[str]:
     return lines
 
 
+def _trajectory_solve_lines(solve: object) -> list[str]:
+    """The prompt lines stating the SolveConfig in force, from the snapshot's ``solve``."""
+    config = solve.get("config") if isinstance(solve, dict) else None
+    if not isinstance(config, dict):
+        return ["SolveConfig: none published (the service solves with no model matrix)"]
+    values = {name: config.get(name) for name in _SOLVE_CONFIG_FIELDS}
+    overridden = [str(name) for name in values["overridden"] or []]
+    lines = [
+        "SolveConfig in force:",
+        f"  alpha: {_prompt_text(values['alpha'])}, gain: {_prompt_text(values['gain'])}",
+        f"  keep_live: {_prompt_text(values['keep_live'])} "
+        f"(n_discard {_prompt_text(values['n_discard'])} of L {_prompt_text(solve.get('L'))}, "
+        f"live rank {_prompt_text(solve.get('live_rank'))})",
+        f"  loss_cutoff: {_prompt_text(values['loss_cutoff'])}",
+        "  " + _names_line("Excluded BPMs", values["excluded_bpms"]),
+        "  " + _names_line("Excluded correctors", values["excluded_cms"]),
+        "  Operator overrides: "
+        + (", ".join(_prompt_text(name) for name in overridden) if overridden else "none"),
+    ]
+    return lines
+
+
 def _trajectory_put_back_lines(target: str, model, values) -> tuple[list[str], str]:
     """The prompt lines of a put-back and the digest that binds it.
 
@@ -3456,12 +3492,14 @@ def _trajectory_call_lines(config: dict, short_name: str, tool_input: dict, dead
         n_shots = tool_input.get("n_shots", 1)
         average = tool_input.get("average", "mean")
         lines.append(f"Shots: {_prompt_text(n_shots)}, averaged by {_prompt_text(average)}")
+        lines.extend(_trajectory_solve_lines(snapshot.get("solve")))
     elif put_back:
         put_back_lines, digest = _trajectory_put_back_lines(target, model, values)
         lines.extend(put_back_lines)
         binding[_APPROVED_VALUES_SHA256_KEY] = digest
     else:
         lines.extend(_trajectory_step_lines(snapshot.get("step"), step_digest))
+        lines.extend(_trajectory_solve_lines(snapshot.get("solve")))
         binding[_APPROVED_STEP_DIGEST_KEY] = step_digest
     return lines, binding
 

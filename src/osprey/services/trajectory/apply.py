@@ -6,9 +6,11 @@ An apply body carries exactly one of two shapes, anything else is 400
 - ``{"step_digest": str}`` writes the pending step that digest names: each
   corrector with ``δ ≠ 0`` is set to its value read just before plus ``δ``.
 - ``{"model": str, "values": [{"name": str, "before": value}, ...]}`` is a
-  put-back: each named setting is set back to its ``before``. A name is an RM
-  column of the service's tool or an address of a module slot the sequence
-  module declares; ``model`` must be the service's own (409 ``model_mismatch``).
+  put-back: each named setting is set back to its ``before``. A name is one
+  of :func:`putback_names` — an RM column of the service's tool or an address
+  of a declared setup setting; ``model`` must be the service's own (409
+  ``model_mismatch``). A put-back naming a setting address voids the current
+  setup before its first write: the setup no longer holds what it set.
   Nothing about a put-back is stored by the service: its values arrive in the
   call.
 
@@ -26,9 +28,19 @@ names.
 The action, run under the run lock, then refuses the whole apply before the
 first write when:
 
+- for a step, the machine moved since its shot (409 ``machine_moved``): the
+  action re-reads the shot's setpoint snapshot — the full RM-column corrector
+  vector — together with the setup re-check's readbacks in one batch, and a
+  setpoint that differs from the snapshot by more than
+  :data:`~.acquisition.SNAPSHOT_TOLERANCE` × its ``max_step`` (exactly, for a
+  corrector stating none), a shot with no snapshot, or a setup identity other
+  than the shot's ``setup_sha`` refuses it. A recompute on the same shot stays
+  appliable while the machine is unmoved and the step unconsumed; once a step
+  is applied, the correctors it moved refuse every later step of that shot;
 - a value to write breaks the limits validator the turn resolved for the
   service target — its ``[min, max]``, its ``max_step`` measured against the
-  values just read — (409 ``limits_violation``);
+  values just read (for a step, the snapshot batch) — (409
+  ``limits_violation``);
 - a Bluesky plan runs on a bridge serving the target (409 ``plan_running``),
   or a bridge deployed for the target does not answer (503 ``plan_running``);
 - the action's stop event is set (409 ``action_stopped``);
@@ -39,8 +51,8 @@ Only then is the step marked consumed, and the settings are written one at a
 time through :func:`~.calls.guarded_call` with the checked write, the stop
 event and the deadline (``action_timeout_s`` from the action's start) checked
 between writes. Every write that was not refused is listed in ``moved`` in
-put-back shape, ``before`` being the value read just before it, also a write
-that raised (it may have landed). A stop answers a
+put-back shape, ``before`` being the value read just before it and ``after``
+the value written, also a write that raised (it may have landed). A stop answers a
 :class:`~.state.LastAction` with ``stopped`` set; a write that fails or is
 refused, and a deadline passed, raise :class:`ApplyFailed` carrying ``moved``.
 A write blocking past the deadline is awaited to its end with the run lock
@@ -56,15 +68,17 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.trajectory.acquisition import SetupCheck, moved_setpoints
 from osprey.services.trajectory.actions import ACTION_STOPPED
 from osprey.services.trajectory.admit import Admission
 from osprey.services.trajectory.calls import guarded_call, read_value
 from osprey.services.trajectory.refusal import Refused
-from osprey.services.trajectory.state import LastAction, Moved, SettingValue, Step
-from osprey.services.trajectory.step import TrajectoryTool, model_of
+from osprey.services.trajectory.state import LastAction, Moved, SettingValue, ShotResult, Step
+from osprey.services.trajectory.step import TrajectoryTool, max_steps, model_of
 
 if TYPE_CHECKING:
     from osprey.services.trajectory.sessions import Sessions
+    from osprey.services.trajectory.setup import DeclaredSetting, SetupKeeper
     from osprey.services.trajectory.startup import TrajectoryStartup
 
 __all__ = [
@@ -73,6 +87,7 @@ __all__ = [
     "CONTINUOUS_RUNNING",
     "DIGEST_MISMATCH",
     "LIMITS_VIOLATION",
+    "MACHINE_MOVED",
     "MODEL_MISMATCH",
     "PLAN_RUNNING",
     "PUT_BACK",
@@ -88,6 +103,7 @@ __all__ = [
     "bridge_plan_running",
     "parse_body",
     "putback_names",
+    "settings_addresses",
 ]
 
 #: The name an apply carries in the service state.
@@ -104,6 +120,7 @@ ZERO_STEP = "zero_step"
 LIMITS_VIOLATION = "limits_violation"
 PLAN_RUNNING = "plan_running"
 CONTINUOUS_RUNNING = "continuous_running"
+MACHINE_MOVED = "machine_moved"
 
 #: The HTTP status each refusal raised here answers with; a bridge that does
 #: not answer turns ``plan_running`` into a 503 (:meth:`ApplyRefused.bridge_silent`).
@@ -118,6 +135,7 @@ _STATUS = {
     PLAN_RUNNING: 409,
     ACTION_STOPPED: 409,
     CONTINUOUS_RUNNING: 409,
+    MACHINE_MOVED: 409,
 }
 
 #: Seconds one bridge gets to answer whether a plan runs.
@@ -236,28 +254,32 @@ def parse_body(body: Any) -> StepApply | PutBack:
 
 
 def putback_names(
-    startup: TrajectoryStartup, *, tag_addresses: Mapping[str, Sequence[str]] | None = None
+    startup: TrajectoryStartup, declared: Sequence[DeclaredSetting] = ()
 ) -> frozenset[str]:
-    """Every name a put-back may set: the tool's RM columns and the declared module-slot addresses.
+    """Every name a put-back may set: the tool's RM columns and every setting address.
 
     Args:
         startup: The started service.
-        tag_addresses: Facility signal to its addresses, one per BPM, for the
-            module's per-BPM slots; the same mapping setup is given.
+        declared: The model's declared setup settings.
     """
     names: set[str] = set()
     tool = startup.tool
     if isinstance(tool, TrajectoryTool):
         names.update(tool.layout.hcorr_names)
         names.update(tool.layout.vcorr_names)
-    module = startup.sequence
-    if module is not None:
-        for slot in module.metadata.slots.values():
-            if slot.address is not None:
-                names.add(slot.address)
-            elif slot.tag is not None and tag_addresses is not None:
-                names.update(tag_addresses.get(slot.tag, ()))
-    return frozenset(names)
+    return frozenset(names | settings_addresses(declared))
+
+
+def settings_addresses(declared: Sequence[DeclaredSetting]) -> frozenset[str]:
+    """The address each declared setting writes: a device setting's over the whole
+    device table, a global setting's once."""
+    addresses: set[str] = set()
+    for setting in declared:
+        if isinstance(setting.setting, Mapping):
+            addresses.update(setting.setting.values())
+        else:
+            addresses.add(setting.setting)
+    return frozenset(addresses)
 
 
 # -- whether a plan runs ---------------------------------------------------------
@@ -331,7 +353,8 @@ async def apply(
     body: Any,
     *,
     plan_running: PlanProbe = bridge_plan_running,
-    tag_addresses: Mapping[str, Sequence[str]] | None = None,
+    setup_check: SetupCheck | None = None,
+    setup: SetupKeeper | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> LastAction:
     """Apply the pending step or put settings back, as the holder's worker call.
@@ -343,12 +366,15 @@ async def apply(
         client_id: The caller's session token.
         body: The apply body.
         plan_running: Asks whether a Bluesky plan runs for the target.
-        tag_addresses: Facility signal to its per-BPM addresses, for the
-            module's per-BPM slots a put-back may name.
+        setup_check: The current setup's re-check; its readbacks join the
+            snapshot batch and the identity it answers must be the shot's
+            ``setup_sha``. Without one the current setup identity is ``None``.
+        setup: The current setup's keeper; its declared settings join what a
+            put-back may name, and a put-back naming one voids its setup.
         clock: Seconds, monotonic; bounds the writes by ``action_timeout_s``.
 
     Returns:
-        A :class:`~.state.LastAction` named ``apply`` listing what moved;
+        A :class:`~.state.LastAction` named ``apply`` or ``put_back`` listing what moved;
         ``stopped`` when the stop event ended it between writes.
 
     Raises:
@@ -361,8 +387,10 @@ async def apply(
         AdmitRefused, ActionRefused: As any worker action.
     """
     asked = parse_body(body)
+    name = APPLY if isinstance(asked, StepApply) else PUT_BACK
     startup = sessions.layer.startup
-    matched: list[Step] = []
+    declared = setup.declared if setup is not None else ()
+    matched: list[tuple[Step, ShotResult | None]] = []
 
     def check_step(asked: StepApply) -> None:
         step = sessions.step.step
@@ -383,7 +411,7 @@ async def apply(
             raise ApplyRefused(STEP_CONSUMED, "the pending step was already applied")
         if step.all_zero:
             raise ApplyRefused(ZERO_STEP, step.status or str(step.reason))
-        matched.append(step)
+        matched.append((step, sessions.step.shot))
 
     def check_putback(asked: PutBack) -> None:
         sessions.step.void()
@@ -393,22 +421,27 @@ async def apply(
                 MODEL_MISMATCH,
                 f"the put-back is for model {asked.model!r}; this service drives {model!r}",
             )
-        allowed = putback_names(startup, tag_addresses=tag_addresses)
+        allowed = putback_names(startup, declared)
         unknown = [name for name, _ in asked.values if name not in allowed]
         if unknown:
             raise ApplyRefused(
                 BAD_REQUEST,
-                f"a put-back sets RM columns and declared module-slot addresses only; "
-                f"not {', '.join(unknown)}",
+                f"a put-back sets RM columns and setup settings only; not {', '.join(unknown)}",
             )
 
     async def action(_admission: Admission, stop: asyncio.Event) -> LastAction:
         deadline = clock() + startup.settings.action_timeout_s
         connector = startup.connector
         if isinstance(asked, StepApply):
-            step = matched[-1]
+            step, shot = matched[-1]
             planned = [(name, delta) for name, delta in step.deltas.items() if delta != 0]
-            current = {name: await read_value(connector, name) for name, _ in planned}
+            current = await _unmoved(
+                connector,
+                shot,
+                [name for name, _ in planned],
+                setup_check,
+                call_timeout_s=sessions.call_timeout_s,
+            )
             writes = [
                 _Write(name, _increment(name, current[name], delta), current[name])
                 for name, delta in planned
@@ -427,7 +460,15 @@ async def apply(
             raise ApplyRefused(
                 DIGEST_MISMATCH, "the step was replaced or voided before the apply ran"
             )
-        return await _write_all(connector, writes, stop, clock, deadline)
+        if setup is not None:
+            held = settings_addresses(declared)
+            touched = [write.name for write in writes if write.name in held]
+            if touched:
+                await setup.void(
+                    f"The setup was voided: a put-back set {', '.join(touched[:5])}"
+                    f"{' and more' if len(touched) > 5 else ''}."
+                )
+        return await _write_all(connector, writes, stop, clock, deadline, name)
 
     def precondition(_admission: Admission) -> None:
         if sessions.continuous_running:
@@ -440,8 +481,58 @@ async def apply(
         else:
             check_putback(asked)
 
-    name = APPLY if isinstance(asked, StepApply) else PUT_BACK
     return await sessions.call(owner, kind, client_id, action, precondition=precondition, name=name)
+
+
+async def _unmoved(
+    connector: Any,
+    shot: ShotResult | None,
+    planned: list[str],
+    setup_check: SetupCheck | None,
+    *,
+    call_timeout_s: float,
+) -> dict[str, Any]:
+    """Re-read *shot*'s setpoint snapshot in one batch and refuse when the machine moved.
+
+    Returns:
+        The value just read of every snapshot and planned name.
+
+    Raises:
+        ApplyRefused: ``machine_moved`` when the shot carries no snapshot, a
+            setpoint no longer matches it, or the setup identity changed.
+    """
+    snapshot = shot.setpoints if shot is not None else None
+    if shot is None or snapshot is None:
+        raise ApplyRefused(
+            MACHINE_MOVED,
+            "the step's shot carries no setpoint snapshot to check the machine against; "
+            "take a new shot",
+        )
+    setup = setup_check.addresses() if setup_check is not None else []
+    addresses = list(dict.fromkeys([*snapshot, *planned, *setup]))
+    values: Mapping[str, Any] = await guarded_call(
+        lambda: connector.read_multiple_channels(addresses, timeout=call_timeout_s),
+        record=lambda _: None,
+    )
+    current = {
+        name: getattr(values[name], "value", None) if name in values else None
+        for name in [*snapshot, *planned]
+    }
+    bounds = max_steps(getattr(connector, "_limits_validator", None))
+    moved = moved_setpoints(snapshot, current, bounds)
+    if moved:
+        raise ApplyRefused(
+            MACHINE_MOVED,
+            f"nothing was written: {', '.join(moved)} moved since shot {shot.shot_id!r}; "
+            "take a new shot",
+        )
+    identity = await setup_check.check(values) if setup_check is not None else None
+    if identity != shot.setup_sha:
+        raise ApplyRefused(
+            MACHINE_MOVED,
+            f"nothing was written: the setup changed since shot {shot.shot_id!r}; take a new shot",
+        )
+    return current
 
 
 def _increment(name: str, before: Any, delta: float) -> float:
@@ -486,12 +577,13 @@ async def _write_all(
     stop: asyncio.Event,
     clock: Callable[[], float],
     deadline: float,
+    name: str = APPLY,
 ) -> LastAction:
     moved: list[Moved] = []
     for index, write in enumerate(writes):
         if index:
             if stop.is_set():
-                return LastAction(name=APPLY, stopped=True, moved=moved)
+                return LastAction(name=name, stopped=True, moved=moved)
             if clock() >= deadline:
                 raise ApplyFailed(
                     f"action_timeout_s passed after {index} of {len(writes)} writes", moved
@@ -501,7 +593,7 @@ async def _write_all(
             await _write_one(connector, write, moved)
         except Exception as exc:
             raise ApplyFailed(f"{write.name}: {exc}", moved) from exc
-    return LastAction(name=APPLY, stopped=False, moved=moved)
+    return LastAction(name=name, stopped=False, moved=moved)
 
 
 async def _write_one(connector: Any, write: _Write, moved: list[Moved]) -> None:
@@ -516,7 +608,9 @@ async def _write_one(connector: Any, write: _Write, moved: list[Moved]) -> None:
             word = getattr(outcome, "outcome", None) or "failed"
         else:
             word = outcome.outcome
-        moved.append(Moved(name=write.name, before=write.before, outcome=str(word)))
+        moved.append(
+            Moved(name=write.name, before=write.before, after=write.value, outcome=str(word))
+        )
 
     await guarded_call(
         lambda: connector.write_channel_checked(write.name, write.value), record=record
