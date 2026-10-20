@@ -25,7 +25,8 @@ alone (this is why they are cheap and never flake):
    error.
 3. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
    through ``var(--…)`` design tokens, never raw ``#rgb``/``#rrggbb``
-   color literals. Each hex-color-shaped literal is flagged with its file
+   color literals. Third-party builds under the panel's ``vendor/``
+   directory are not panel source and are skipped. Each hex-color-shaped literal is flagged with its file
    and line (see :data:`_HEX_COLOR_PATTERN` for exactly what counts as a
    color shape, and the false-positive caveat documented there).
 
@@ -129,6 +130,11 @@ _HEX_COLOR_PATTERN = re.compile(
 
 #: File suffixes scanned (alongside the entry HTML) for raw hex colors.
 _HEX_SCAN_SUFFIXES = (".css", ".js")
+
+#: A directory segment (relative to the panel dir) whose files are third-party
+#: builds fetched by ``osprey vendor fetch`` rather than panel source; they
+#: carry their own colour literals and are not scanned.
+_VENDOR_SEGMENT = "vendor"
 
 
 class PanelRule(StrEnum):
@@ -334,13 +340,19 @@ def _hex_scan_files(panel_dir: Path, entry_path: Path | None) -> list[Path]:
     """Collect the files to scan for raw hex colors, in a stable order.
 
     The entry HTML (if resolved) plus every sibling ``.css``/``.js`` under
-    the panel dir. Deduplicated and sorted so error order is deterministic.
+    the panel dir, except files under a ``vendor/`` segment of the panel dir
+    (see :data:`_VENDOR_SEGMENT`). Deduplicated and sorted so error order is
+    deterministic.
     """
     files: set[Path] = set()
     if entry_path is not None:
         files.add(entry_path)
     for suffix in _HEX_SCAN_SUFFIXES:
-        files.update(panel_dir.rglob(f"*{suffix}"))
+        files.update(
+            path
+            for path in panel_dir.rglob(f"*{suffix}")
+            if _VENDOR_SEGMENT not in path.relative_to(panel_dir).parts[:-1]
+        )
     return sorted(files)
 
 

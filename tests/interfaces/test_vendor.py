@@ -393,3 +393,172 @@ def test_html_has_plotly_bundle(html: bytes, expected: bool) -> None:
 )
 def test_html_needs_plotly(html: bytes, expected: bool) -> None:
     assert html_needs_plotly(html) is expected
+
+
+# --- Package-relative targets and the target filter ---------------------------
+
+#: The trajectory panel's vendor dir, relative to the ``osprey`` package. The
+#: panel loads Plotly from ``vendor/`` beside its own page, so the fetched file
+#: must land inside the service's bundle rather than under ``interfaces/``.
+TRAJECTORY_TARGET = "services/trajectory/panel/vendor/"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _plotly() -> dict:
+    return next(a for a in _load_manifest()["assets"] if a["name"] == "Plotly.js")
+
+
+def _recording_fetch(calls: list[Path]):
+    def fake(_url, dest, _sha, insecure=False):  # noqa: ARG001
+        calls.append(dest)
+
+    return fake
+
+
+class TestPackageRelativeTarget:
+    def test_plotly_ships_to_the_trajectory_panel_with_a_package_base(self) -> None:
+        targets = _plotly()["targets"]
+        assert {"dir": TRAJECTORY_TARGET, "base": "package"} in targets
+        assert _plotly()["filename"] == "plotly-3.3.1.min.js"
+
+    def test_every_object_target_names_a_known_base(self) -> None:
+        for asset in _load_manifest()["assets"]:
+            for target in asset["targets"]:
+                if isinstance(target, dict):
+                    assert set(target) == {"dir", "base"}, target
+                    assert target["base"] in {"package", "interfaces"}, target
+
+    def test_a_package_target_resolves_against_the_package_dir(self, tmp_path) -> None:
+        calls: list[Path] = []
+        interfaces, package = tmp_path / "pkg" / "interfaces", tmp_path / "pkg"
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=interfaces, package_dir=package, quiet=True, targets=[TRAJECTORY_TARGET]
+            )
+        assert calls == [package / TRAJECTORY_TARGET / "plotly-3.3.1.min.js"]
+
+    def test_the_default_package_dir_is_the_installed_osprey_package(self) -> None:
+        import osprey
+
+        assert vendor_mod.PACKAGE_DIR == Path(osprey.__file__).parent
+
+    def test_verify_all_reports_the_package_target(self, tmp_path) -> None:
+        ok, problems = vendor_mod.verify_all(base_dir=tmp_path / "i", package_dir=tmp_path / "p")
+        assert not ok
+        assert f"MISSING: {Path(TRAJECTORY_TARGET) / 'plotly-3.3.1.min.js'}" in problems
+
+
+class TestTargetFilter:
+    def test_the_filter_fetches_only_the_named_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            downloaded = vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["services/trajectory/panel/vendor"],
+            )
+        assert calls == [tmp_path / "p" / TRAJECTORY_TARGET / "plotly-3.3.1.min.js"]
+        assert downloaded == [str(calls[0])]
+
+    def test_an_interfaces_target_still_resolves_against_base_dir(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["tuning/static/vendor/"],
+            )
+        assert calls == [tmp_path / "i" / "tuning/static/vendor/plotly-3.3.1.min.js"]
+
+    def test_a_font_bundle_target_is_filtered_like_an_asset_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["artifacts/static/css/vendor/fonts/"],
+            )
+        assert calls and all(
+            p.parent == tmp_path / "i/artifacts/static/css/vendor/fonts" for p in calls
+        )
+
+    def test_no_filter_fetches_every_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(base_dir=tmp_path / "i", package_dir=tmp_path / "p", quiet=True)
+        assert tmp_path / "p" / TRAJECTORY_TARGET / "plotly-3.3.1.min.js" in calls
+        assert tmp_path / "i" / "tuning/static/vendor/plotly-3.3.1.min.js" in calls
+
+    def test_an_unknown_target_fails_before_fetching_anything(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            with pytest.raises(ValueError, match="services/trajectory/panel/vendor"):
+                vendor_mod.fetch_all(
+                    base_dir=tmp_path / "i",
+                    package_dir=tmp_path / "p",
+                    quiet=True,
+                    targets=[TRAJECTORY_TARGET, "services/trajectory/panel/vendr/"],
+                )
+        assert calls == []
+
+
+class TestFetchCommand:
+    def test_the_target_option_reaches_fetch_all(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        with patch.object(vendor_mod, "fetch_all", return_value=[]) as fetch_all:
+            result = CliRunner().invoke(vendor, ["fetch", "--quiet", "--target", TRAJECTORY_TARGET])
+        assert result.exit_code == 0, result.output
+        assert fetch_all.call_args.kwargs["targets"] == (TRAJECTORY_TARGET,)
+
+    def test_no_target_option_fetches_everything(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        with patch.object(vendor_mod, "fetch_all", return_value=[]) as fetch_all:
+            result = CliRunner().invoke(vendor, ["fetch", "--quiet"])
+        assert result.exit_code == 0, result.output
+        assert fetch_all.call_args.kwargs["targets"] is None
+
+    def test_an_unknown_target_exits_nonzero(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        result = CliRunner().invoke(vendor, ["fetch", "--quiet", "--target", "no/such/dir/"])
+        assert result.exit_code == 1
+
+
+class TestDelivery:
+    """The trajectory panel's Plotly is delivered by the image and by CI, never at runtime."""
+
+    FETCH = f"osprey vendor fetch --target {TRAJECTORY_TARGET}"
+
+    def test_the_image_fetches_the_trajectory_target_unconditionally(self) -> None:
+        text = (REPO_ROOT / "src/osprey/templates/project/Dockerfile.j2").read_text()
+        lines = [line for line in text.splitlines() if self.FETCH in line]
+        assert len(lines) == 1, lines
+        assert lines[0].startswith("RUN "), lines[0]
+        assert "OSPREY_OFFLINE" not in lines[0] and "if " not in lines[0], lines[0]
+
+    def test_the_gitignore_keeps_the_fetched_file_out_of_the_repo(self) -> None:
+        lines = (REPO_ROOT / ".gitignore").read_text().splitlines()
+        assert f"src/osprey/{TRAJECTORY_TARGET}" in lines
+
+    def test_the_browser_lane_fetches_before_its_first_browser_test(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())
+        steps = workflow["jobs"]["visual-theming"]["steps"]
+        runs = [step.get("run", "") or "" for step in steps]
+        fetch_at = [i for i, run in enumerate(runs) if f"uv run {self.FETCH}" in run]
+        pytest_at = [i for i, run in enumerate(runs) if "pytest" in run]
+        assert len(fetch_at) == 1, runs
+        assert pytest_at and fetch_at[0] < min(pytest_at)
+        assert "if" not in steps[fetch_at[0]]

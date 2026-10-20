@@ -218,3 +218,75 @@ def test_the_agent_door_serves_no_panel_only_route(route: str) -> None:
     """The panel door's own routes have no agent-door twin to reach on the token."""
     agent_paths = {path for _, path in _service_routes() if path.startswith(_AGENT_DOOR)}
     assert not [path for path in agent_paths if path.startswith(f"/api/{route}")]
+
+
+#: The vendored Plotly build the panel loads from ``vendor/`` beside its page.
+_VENDORED_PLOTLY = "plotly-3.3.1.min.js"
+_IMMUTABLE = "public, max-age=31536000, immutable"
+
+
+@pytest.fixture
+def served_bundle(tmp_path, monkeypatch):
+    """The trajectory app over a panel dir holding a fetched vendor file.
+
+    The fetched file is gitignored and absent from a fresh checkout, so the
+    bundle the app mounts is a temporary one rather than the source tree.
+    """
+    from fastapi.testclient import TestClient
+
+    import osprey.services.trajectory.app as app_module
+
+    panel = tmp_path / "panel"
+    (panel / "vendor").mkdir(parents=True)
+    (panel / "index.html").write_text("<!doctype html><title>t</title>", encoding="utf-8")
+    (panel / "panel.js").write_text("export {};\n", encoding="utf-8")
+    (panel / "vendor" / _VENDORED_PLOTLY).write_text("/* plotly.js v3.3.1 */\n", encoding="utf-8")
+    monkeypatch.setattr(app_module, "_PANEL_DIR", panel)
+    app = create_app()
+    secret = app.state.web_credentials.operator_secret
+    return TestClient(app, headers={common_middleware.OPERATOR_SECRET_HEADER: secret})
+
+
+def test_the_vendored_plotly_is_served_beside_the_panel_and_cached_for_good(served_bundle) -> None:
+    """``vendor/`` under ``/panel/`` is a relative URL from the page, and immutable.
+
+    The file name carries the version, so a cached copy can never be stale.
+    """
+    resp = served_bundle.get(f"/panel/vendor/{_VENDORED_PLOTLY}")
+    assert resp.status_code == 200
+    assert resp.text.startswith("/* plotly.js v3.3.1")
+    assert resp.headers["Cache-Control"] == _IMMUTABLE
+
+
+def test_the_panel_source_beside_the_vendor_dir_is_not_cached_for_good(served_bundle) -> None:
+    resp = served_bundle.get("/panel/panel.js")
+    assert resp.status_code == 200
+    assert resp.headers.get("Cache-Control") != _IMMUTABLE
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("/static/vendor/plotly-3.3.1.min.js", _IMMUTABLE),
+        ("/panel/vendor/plotly-3.3.1.min.js", _IMMUTABLE),
+        ("/panel/trajectory/panel/vendor/plotly-3.3.1.min.js", _IMMUTABLE),
+        ("/api/vendor/lib.js", "no-cache, no-store, must-revalidate"),
+        ("/static/vendored/app.js", "no-cache, no-store, must-revalidate"),
+        ("/panel/vendor-notes.js", None),
+    ],
+)
+def test_the_one_cache_rule_matches_any_vendor_segment(path: str, expected: str | None) -> None:
+    """One immutable rule for every ``/vendor/`` path segment outside an API."""
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(common_middleware.NoCacheStaticMiddleware)
+
+    @app.get("/{rest:path}")
+    async def anything(rest: str) -> PlainTextResponse:
+        return PlainTextResponse(rest)
+
+    resp = TestClient(app).get(path)
+    assert resp.headers.get("Cache-Control") == expected

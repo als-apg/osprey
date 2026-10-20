@@ -156,7 +156,11 @@
       "targets": [
         "artifacts/static/js/vendor/",
         "tuning/static/vendor/",
-        "lattice_dashboard/static/vendor/"
+        "lattice_dashboard/static/vendor/",
+        {
+          "dir": "services/trajectory/panel/vendor/",
+          "base": "package"
+        }
       ]
     }
   ],

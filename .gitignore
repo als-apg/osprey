@@ -178,6 +178,7 @@ src/osprey/interfaces/web_terminal/static/vendor/
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
+src/osprey/services/trajectory/panel/vendor/
 tests/e2e/claude_code/benchmark_results/
 
 # Benchmark results accidentally produced inside the packaged template tree

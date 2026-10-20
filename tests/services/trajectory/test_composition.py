@@ -90,7 +90,6 @@ def _write_render(root: Path, case: _Case, *, scale: float = 1.0) -> Path:
     rows = case["bpm_index"].tolist()
     index = {
         "bpm_index": [*rows, *rows],
-        "sum_names": [f"{bpm}:SUM" for bpm in case.bpms] * 2,
         "hcorr_index": case["hcorr_index"].tolist(),
         "vcorr_index": case["vcorr_index"].tolist(),
         "unsolved": {},

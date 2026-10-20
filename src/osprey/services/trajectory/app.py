@@ -13,25 +13,59 @@ sits innermost):
 
 Both doors serve ``POST session``, ``POST takeover``, ``DELETE session``,
 ``GET state``, ``POST stop``, ``POST shot``, ``GET step`` and ``POST apply``.
-The panel door alone also serves ``POST setup``, ``POST continuous`` and
+The panel door alone also serves ``POST continuous`` and
 ``POST continuous/heartbeat``, the references (``GET``/``POST references``,
-``GET references/{name}``, ``POST references/select``), ``GET shots`` and the
-state stream ``GET events``. The door is the route, never the request; the
+``GET references/{name}``, ``POST references/select``), ``POST solve``,
+``GET shots``, ``GET shots/{shot_id}/raw``, ``GET``/``POST setup`` and the state
+stream ``GET events``. The door is
+the route, never the request; the
 owner is the account the gate minted from the credential that admitted the
 request, read through :func:`owner_from_header` on both doors — a name it
 refuses is no owner, and an action with no owner is refused by ``admit``. The
 panel door never checks the launch token.
 
-A holder's call names its session in the ``X-Trajectory-Client`` header. Shots
-go through :class:`Sessions`, which binds the post-shot hook that computes the
-step. ``GET step`` reads the pending step with only the door owner: no session,
+A holder's call names its session in the ``X-Trajectory-Client`` header. A
+shot runs the declared chain (:mod:`~.acquisition`): the panel door's body is a
+:class:`~.state.ChainBody` naming the ticked steps, the readout mode, turns,
+shots and averaging, refused 409 ``setup_required`` without a current setup,
+and answered with a :class:`~.state.ChainResult`; the agent door's body
+chooses only ``n_shots`` and ``average``, runs the declared default chain, is
+never refused for setup, and is answered with the chain's shot. A continuous
+run starts with the panel door's chain body. Shots go through
+:class:`Sessions`, which binds the post-shot hook that computes the step.
+The header's machine readings (the declaration's RF-on and stored-current
+readbacks) are read in one batch outside the run slot after a chain's last
+step, on open, take-over and heartbeat, and periodically while a state stream
+is open. ``GET step`` reads the pending step with only the door owner: no session,
 never queued behind the worker. Stop answers 202 at once with the stop budget.
+
+``POST solve`` is the holder's SolveConfig update: its body is a
+:class:`~.state.SolveConfigPartial` (``keep_live``, never a discard count; an
+empty body is Calculate RM), written through the one writer
+(:mod:`~.solve_config`) inside a holder call, and answered with the published
+solve and the pending step.
+
+``POST setup`` is the holder's setup (:mod:`~.setup`): its body is a
+:class:`~.state.SetupBody`, a partial update of the declared settings plus the
+BPM exclusions it hands the SolveConfig writer, run as one holder action
+(refused 409 ``continuous_running`` during a run) and answered with a
+:class:`~.state.SetupResult`; the last action it publishes is ``setup`` with
+what it moved. ``GET setup`` answers the declared settings as read back, a
+:class:`~.state.SetupReadbacks`. The current setup is persisted per target and
+re-checked at start and before every inject and readout turn of a chain on
+both doors; a divergence voids the setup and the step with a notice.
+
+``GET shots/{shot_id}/raw`` answers the shot's raw buffer file
+(:mod:`~.raw`, ``application/octet-stream``); a derived shot answers its root
+shot's. The store keeps the snapshot's ``retention`` root shots with their
+buffers, so a shot pruned past it is refused 410 ``raw_evicted``. The snapshot's ``solve`` is that published solve on
+both doors, and its ``notices`` name the overrides the load dropped.
 
 A refusal is ``HTTPException(detail={code, detail})``. Each writing action is
 recorded once, by the route, on :data:`SURFACE_TRAJECTORY_SERVICE` with the
 owner as actor: a control-path action (take-over, release, Stop, continuous
-start) as it is decided at admission, a worker action (open, shot, setup,
-apply, reference select) after the worker answered, with what it moved. A
+start) as it is decided at admission, a worker action (open, shot,
+apply, reference select, solve, setup) after the worker answered, with what it moved. A
 release is never admitted, so its record carries only the owner, the target
 and the ``client_id``.
 
@@ -48,29 +82,45 @@ import asyncio
 import inspect
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+import math
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import OWNER_STATE_KEY
 from osprey.services.trajectory import reach
 from osprey.services.trajectory.acquisition import (
+    CHAIN_FAILED,
+    SETUP_REQUIRED,
     AcquisitionRefused,
-    SetupFailed,
+    ChainDeclaration,
+    ChainFailed,
+    ChainRun,
     ShotRows,
     ShotStopped,
-    shot_action,
+    chain_action,
+    chain_declaration,
+    chain_run,
+    default_run,
+    makes_step,
+    n_shots_max,
 )
 from osprey.services.trajectory.actions import ACTION_STOPPED, ActionLayer
-from osprey.services.trajectory.admit import NO_OPERATOR_IDENTITY, AdmitGate, AdmitRefused
+from osprey.services.trajectory.admit import (
+    NO_OPERATOR_IDENTITY,
+    Admission,
+    AdmitGate,
+    AdmitRefused,
+)
 from osprey.services.trajectory.apply import ApplyFailed, apply
+from osprey.services.trajectory.calls import guarded_call
 from osprey.services.trajectory.constants import (
     AGENT_DOOR,
     CLIENT_HEADER,
@@ -78,36 +128,57 @@ from osprey.services.trajectory.constants import (
     connector_call_timeout_s,
 )
 from osprey.services.trajectory.extraction import AVERAGE_MODES
+from osprey.services.trajectory.raw import RAW_EVICTED, RAW_MEDIA_TYPE, RawEvicted, encode_raw
 from osprey.services.trajectory.reach import REACHABLE, TRAJECTORY_UNAVAILABLE
 from osprey.services.trajectory.refusal import Refused
 from osprey.services.trajectory.sessions import (
     BAD_REQUEST,
+    CONTINUOUS_RUNNING,
     OWNER_IN_BODY,
     SessionRefused,
     Sessions,
 )
-from osprey.services.trajectory.startup import TrajectoryStartup
+from osprey.services.trajectory.setup import (
+    SETUP,
+    SETUP_FAILED,
+    SetupFailed,
+    SetupKeeper,
+    check_body,
+    declared_settings,
+    setup_action,
+)
+from osprey.services.trajectory.startup import StartupRefused, TrajectoryStartup
 from osprey.services.trajectory.state import (
     ApplyEvent,
+    ChainBody,
+    ChainResult,
     ContinuousEndedEvent,
+    Families,
     HolderView,
     LastAction,
     LimitsPosture,
+    Machine,
     Mode,
+    Readout,
+    ReferenceImport,
     ReferenceLoad,
+    SetupBody,
+    SetupState,
     ShotEvent,
     ShotResult,
     ShotSummary,
     Snapshot,
     SnapshotEvent,
+    SolveConfigPartial,
     Step,
     StepEvent,
     StoppedEvent,
     TakenOver,
     TakenOverEvent,
 )
-from osprey.services.trajectory.step import require_tool
+from osprey.services.trajectory.step import TOOL_UNAVAILABLE, StepRefused, require_tool
 from osprey.services.trajectory.store import (
+    ForeignReference,
     InvalidName,
     NoMatchingBpms,
     ReferenceNotFound,
@@ -120,6 +191,7 @@ from osprey.utils.owner_header import owner_from_header
 if TYPE_CHECKING:
     from osprey.services.trajectory.acquisition import PostShotHook
     from osprey.services.trajectory.actions import Action
+    from osprey.services.trajectory.solve_config import SolveConfigStore
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +219,8 @@ _SANDBOX_CODES = frozenset({"narrowing", "writes_disabled"})
 
 #: Seconds between two keep-alive comments on an idle state stream.
 _HEARTBEAT_S = 15.0
+#: Seconds between two machine reads while a state stream is open.
+_MACHINE_REFRESH_S = 5.0
 #: Frames a slow stream may fall behind by before frames are dropped for it.
 _STREAM_DEPTH = 256
 _KEEPALIVE = ": keep-alive\n\n"
@@ -160,7 +234,18 @@ REFERENCE_NOT_FOUND = "reference_not_found"
 SHOT_NOT_FOUND = "shot_not_found"
 NO_MATCHING_BPMS = "no_matching_bpms"
 APPLY_FAILED = "apply_failed"
-SETUP_FAILED = "setup_failed"
+SHOT_NOT_FRESH = "shot_not_fresh"
+READOUT_MISMATCH = "readout_mismatch"
+REFERENCE_FOREIGN = "reference_foreign"
+UNKNOWN_BPM = "unknown_bpm"
+READING_NOT_FINITE = "reading_not_finite"
+REFERENCE_TOO_LARGE = "reference_too_large"
+
+#: The largest reference import body accepted, in bytes.
+MAX_REFERENCE_IMPORT_BYTES = 1 << 20
+#: The readout mode a reference saved from a shot is taken in: only a fresh
+#: TbT shot becomes a reference.
+_SAVED_READOUT: Readout = "tbt"
 
 StartFn = Callable[[], Awaitable[TrajectoryStartup]]
 
@@ -175,10 +260,18 @@ class RouteRefused(Refused):
         INVALID_NAME: 400,
         REFERENCE_NOT_FOUND: 404,
         SHOT_NOT_FOUND: 404,
+        RAW_EVICTED: 410,
         NO_MATCHING_BPMS: 409,
         APPLY_FAILED: 502,
-        SETUP_FAILED: 502,
+        SHOT_NOT_FRESH: 409,
+        READOUT_MISMATCH: 409,
+        REFERENCE_FOREIGN: 409,
+        UNKNOWN_BPM: 400,
+        READING_NOT_FINITE: 400,
+        REFERENCE_TOO_LARGE: 413,
+        CHAIN_FAILED: 502,
         ACTION_STOPPED: 409,
+        SETUP_FAILED: 502,
     }
 
 
@@ -295,22 +388,38 @@ def _model(startup: TrajectoryStartup) -> str:
 
 
 def shot_rows(startup: TrajectoryStartup) -> ShotRows:
-    """The row layout a shot reads, from the started service's tool.
+    """The row layout a shot reads: the tool's monitors, rowed by the device table.
 
     The response matrix's x rows and y rows read the same monitors in the same
-    order (the build refuses any other), and its sidecar names each row's sum
-    reading, so the first half of ``sum_names`` is each monitor's sum row. A
+    order (the build refuses any other); each monitor's x row names the device
+    of the declaration's table whose y and sum rows the shot reads with it. A
     monitor is named by its x row, the name the tool's layout gives it.
 
     Raises:
         AcquisitionRefused: ``trajectory_unavailable`` without a trajectory model.
-        StepRefused: ``tool_unavailable`` without a tool.
+        StepRefused: ``tool_unavailable`` without a tool, or with a monitor the
+            device table states no device for.
     """
     _model(startup)
+    commands = startup.commands
+    assert commands is not None  # _model refuses a service without one
     tool = require_tool(startup.tool)
+    by_x = {device.x_row: device for device in commands.devices}
     x = tuple(tool.layout.bpm_names_h)
-    y = tuple(tool.layout.bpm_names_v)
-    return ShotRows(bpms=x, x=x, y=y, sum=tuple(tool.sum_names[: len(x)]))
+    unknown = [row for row in x if row not in by_x]
+    if unknown:
+        raise StepRefused(
+            TOOL_UNAVAILABLE,
+            f"model {commands.model!r}: the response matrix reads {', '.join(unknown)}, "
+            "which no device of the trajectory declaration carries",
+        )
+    devices = [by_x[row] for row in x]
+    return ShotRows(
+        bpms=x,
+        x=x,
+        y=tuple(device.y_row for device in devices),
+        sum=tuple(device.sum_row for device in devices),
+    )
 
 
 # -- audit ---------------------------------------------------------------------
@@ -391,8 +500,12 @@ def _store_refusals() -> Iterator[None]:
         raise RouteRefused(INVALID_NAME, str(exc)) from exc
     except NoMatchingBpms as exc:
         raise RouteRefused(NO_MATCHING_BPMS, str(exc)) from exc
+    except ForeignReference as exc:
+        raise RouteRefused(REFERENCE_FOREIGN, str(exc)) from exc
     except ReferenceNotFound as exc:
         raise RouteRefused(REFERENCE_NOT_FOUND, str(exc)) from exc
+    except RawEvicted as exc:
+        raise RouteRefused(RAW_EVICTED, str(exc)) from exc
     except LookupError as exc:
         raise RouteRefused(SHOT_NOT_FOUND, str(exc)) from exc
     except ValueError as exc:
@@ -430,26 +543,68 @@ def _frame(event: BaseModel) -> str:
 class _Feed:
     """The service's state view and its fan-out to the open state streams.
 
-    Holds what the sessions do not: the latest take-over, the last shot, the
-    last finished writing action and the current reference's match. A stream
-    ends only when :attr:`shutdown` is set.
+    Holds what the sessions do not: the declared chain, the build's families,
+    the latest take-over, the last shot, the last finished writing action, the
+    current reference's match, the machine readings and the current setup. A
+    stream ends only when :attr:`shutdown` is set. While a stream is open the
+    machine readings are re-read every :data:`_MACHINE_REFRESH_S`.
 
     Attributes:
         sessions: The started service's sessions.
         store: Its shot files and references, ``None`` without a state dir.
+        declaration: The model's declared chain and readbacks.
+        families: The build's BPM and corrector families, ``None`` without a
+            tool.
+        machine: The latest machine readings, ``None`` until read.
+        setup_keeper: Holds, persists and re-checks the current setup.
         shutdown: The service-shutdown signal, the sessions' own; set once, it
             ends every stream.
     """
 
-    def __init__(self, sessions: Sessions, store: TrajectoryStore | None) -> None:
+    def __init__(
+        self,
+        sessions: Sessions,
+        store: TrajectoryStore | None,
+        declaration: ChainDeclaration | None = None,
+        setup_keeper: SetupKeeper | None = None,
+    ) -> None:
+        from osprey.services.trajectory.acquisition import DEFAULT_DECLARATION
+
         self.sessions = sessions
         self.store = store
+        self.declaration = declaration or DEFAULT_DECLARATION
+        self.families = _families(sessions.layer.startup)
+        self.machine: Machine | None = None
+        self.setup_keeper = setup_keeper or SetupKeeper()
+        self.setup_keeper.on_void = self._setup_voided
         self.shutdown = sessions.shutdown_signal
         self.taken_over: TakenOver | None = None
         self.last_shot: ShotSummary | None = None
         self.last_action: LastAction | None = None
         self.reference: ReferenceLoad | None = None
         self._subscribers: set[_Subscriber] = set()
+        self._machine_loop: asyncio.Future[None] | None = None
+
+    # -- the setup -------------------------------------------------------------
+
+    @property
+    def setup(self) -> SetupState | None:
+        """The current setup, ``None`` when none was applied."""
+        return self.setup_keeper.state
+
+    @setup.setter
+    def setup(self, state: SetupState | None) -> None:
+        self.setup_keeper.state = state
+
+    def _setup_voided(self) -> None:
+        """A re-check voided the setup: the step it was made under goes with it."""
+        self.sessions.step.void()
+        self.publish(StepEvent(step=None))
+
+    def notices(self) -> list[str]:
+        """What the service voided or dropped, for the operator."""
+        solve = self.sessions.solve
+        return [*(solve.notices if solve is not None else ()), *self.setup_keeper.notices]
 
     # -- the snapshot ----------------------------------------------------------
 
@@ -492,7 +647,92 @@ class _Feed:
             reference=self.reference,
             last_action=self.last_action,
             continuous=run.status() if run is not None and run.running else None,
+            chain=list(self.declaration.steps),
+            families=self.families,
+            machine=self.machine,
+            setup=self.setup,
+            solve=sessions.solve.solve if sessions.solve is not None else None,
+            retention=startup.settings.raw_retention,
+            n_shots_max=self.n_shots_max(),
+            notices=self.notices(),
         )
+
+    def n_shots_max(self) -> int | None:
+        """The most default-chain injections one action admits; ``None`` when none can run."""
+        startup = self.sessions.layer.startup
+        if startup.commands is None or startup.sequence is None:
+            return None
+        return n_shots_max(
+            self.declaration,
+            startup.settings,
+            max_pause_s=startup.sequence.metadata.max_pause_s,
+            call_timeout_s=self.sessions.call_timeout_s,
+        )
+
+    def require_setup(self) -> None:
+        """Refuse a panel chain while no current setup holds.
+
+        Raises:
+            AcquisitionRefused: ``setup_required`` when no setup was applied or
+                the current one is void.
+        """
+        setup = self.setup
+        if setup is None or setup.void:
+            state = "no setup was applied" if setup is None else "the setup is void"
+            raise AcquisitionRefused(
+                SETUP_REQUIRED, f"{state} on this target; apply the setup before a chain"
+            )
+
+    async def refresh_machine(self) -> bool:
+        """Read the declared machine readbacks in one batched read.
+
+        Reads outside the run slot; a read that fails keeps the last readings.
+
+        Returns:
+            Whether the readings changed.
+        """
+        addresses = self.declaration.machine
+        if not addresses:
+            return False
+        startup = self.sessions.layer.startup
+        try:
+            values = await guarded_call(
+                lambda: startup.connector.read_multiple_channels(
+                    list(addresses.values()), timeout=self.sessions.call_timeout_s
+                ),
+                record=lambda _: None,
+            )
+        except Exception:  # the header degrades; nothing else depends on it
+            logger.warning("trajectory service: the machine readings were not read", exc_info=True)
+            return False
+        read: dict[str, Any] = {}
+        for name, address in addresses.items():
+            reading = values.get(address)
+            value = getattr(reading, "value", None)
+            item = getattr(value, "item", None)
+            read[name] = item() if callable(item) else value
+        current = read.get("stored_current")
+        try:
+            machine = Machine(
+                rf_on=read.get("rf_on"),
+                stored_current=float(current) if current is not None else None,
+            )
+        except (TypeError, ValueError):
+            logger.warning("trajectory service: the machine readings are not readable values")
+            return False
+        changed = machine != self.machine
+        self.machine = machine
+        return changed
+
+    async def _refresh_while_watched(self) -> None:
+        """Re-read the machine every :data:`_MACHINE_REFRESH_S` while a stream is open."""
+        while self._subscribers and not self.shutdown.is_set():
+            if await self.refresh_machine():
+                self.publish()
+            try:
+                await asyncio.wait_for(self.shutdown.wait(), timeout=_MACHINE_REFRESH_S)
+            except TimeoutError:
+                continue
 
     async def refresh_reference(self) -> None:
         """Match the current reference over the service's BPMs, as the snapshot shows it."""
@@ -532,10 +772,15 @@ class _Feed:
         subscriber = _Subscriber(owner)
         subscriber.frames.put_nowait(_frame(SnapshotEvent(snapshot=self.snapshot(owner))))
         self._subscribers.add(subscriber)
+        if self.declaration.machine and (self._machine_loop is None or self._machine_loop.done()):
+            self._machine_loop = asyncio.ensure_future(self._refresh_while_watched())
         return subscriber
 
     def unsubscribe(self, subscriber: _Subscriber) -> None:
         self._subscribers.discard(subscriber)
+        if not self._subscribers and self._machine_loop is not None:
+            self._machine_loop.cancel()
+            self._machine_loop = None
 
     def publish(self, *events: BaseModel) -> None:
         """Send *events*, then a fresh snapshot, to every open stream."""
@@ -585,31 +830,32 @@ class _Feed:
 
     # -- shots -----------------------------------------------------------------
 
-    def shot_build(
-        self, store: TrajectoryStore, *, n_shots: int, average: str
-    ) -> Callable[[PostShotHook], Action[ShotResult]]:
-        """The shot-action factory :class:`Sessions` binds its post-shot hook into.
+    def chain_build(
+        self, store: TrajectoryStore, run: ChainRun
+    ) -> Callable[[PostShotHook], Action[ChainResult]]:
+        """The chain-action factory :class:`Sessions` binds its post-shot hook into.
 
         The hook it builds also publishes the shot and the step it produced.
 
         Raises:
-            AcquisitionRefused, StepRefused: The service cannot shoot.
+            AcquisitionRefused, StepRefused: The service cannot run *run*.
         """
         startup = self.sessions.layer.startup
         rows = shot_rows(startup)
         call_timeout_s = self.sessions.call_timeout_s
-        # Built once here so a shot the service cannot take is refused now,
-        # not by the first shot of a continuous run already answered.
-        shot_action(
+        declaration = self.declaration
+        # Built once here so a chain the service cannot run is refused now,
+        # not by the first iteration of a continuous run already answered.
+        chain_action(
             startup,
             store,
             rows=rows,
-            n_shots=n_shots,
-            average=average,
+            run=run,
+            declaration=declaration,
             call_timeout_s=call_timeout_s,
         )
 
-        def build(hook: PostShotHook) -> Action[ShotResult]:
+        def build(hook: PostShotHook) -> Action[ChainResult]:
             async def published(shot: ShotResult) -> Step | None:
                 answer = hook(shot)
                 if inspect.isawaitable(answer):
@@ -619,22 +865,45 @@ class _Feed:
                 self.publish(ShotEvent(shot=shot), StepEvent(step=step))
                 return step
 
-            return shot_action(
+            chained = chain_action(
                 startup,
                 store,
                 rows=rows,
-                n_shots=n_shots,
-                average=average,
+                run=run,
+                declaration=declaration,
                 post_shot=published,
                 call_timeout_s=call_timeout_s,
+                setup_check=self.setup_keeper,
             )
+
+            async def action(admission: Any, stop: asyncio.Event) -> ChainResult:
+                result = await chained(admission, stop)
+                if result.shot is not None and not makes_step(result.shot):
+                    self.shot_unhooked(result.shot)
+                return result
+
+            return action
 
         return build
 
     def shot_unhooked(self, shot: ShotResult) -> None:
-        """Publish a shot action whose every shot failed: no hook ran, no step."""
+        """Publish a stored shot that made no step: not fresh, not TbT, or nothing included."""
         self.last_shot = ShotSummary.of(shot)
         self.publish(ShotEvent(shot=shot), StepEvent(step=None))
+
+
+def _families(startup: TrajectoryStartup) -> Families | None:
+    """The build's BPM and corrector families from the tool's layout, ``None`` without one."""
+    try:
+        tool = require_tool(startup.tool)
+    except StepRefused:
+        return None
+    layout = tool.layout
+    return Families(
+        bpms=list(layout.bpm_names_h),
+        hcms=list(layout.hcorr_names),
+        vcms=list(layout.vcorr_names),
+    )
 
 
 def _writes_enabled(gate: AdmitGate) -> bool:
@@ -695,7 +964,9 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
         with _refusals_recorded(owner, "session_open", detail):
             grant = await sessions.open(owner, kind, await _body(request))
         _record(owner=owner, subject="session_open", refusal=None, detail=detail)
-        _feed(request).publish()
+        feed = _feed(request)
+        await feed.refresh_machine()
+        feed.publish()
         return grant.as_body()
 
     @router.post("/takeover")
@@ -717,6 +988,7 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
             )
             feed.taken_over = taken
             events.insert(0, TakenOverEvent(previous=taken.previous, by=taken.by))
+        await feed.refresh_machine()
         feed.publish(*events)
         return grant.as_body()
 
@@ -755,16 +1027,24 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
         feed = _feed(request)
         detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
         stopped: ShotStopped | None = None
+        failed: ChainFailed | None = None
         with _refusals_recorded(owner, "shot", detail):
             client_id = _client_id(request)
-            n_shots, average = _shot_args(_fields(await _body(request), _SHOT_FIELDS))
-            detail.update(n_shots=n_shots, average=average)
+            run = _door_run(kind, feed, await _body(request))
+            detail.update(
+                steps=",".join(run.steps),
+                readout=run.readout,
+                n_shots=run.n_shots,
+                average=run.average,
+            )
             store = _store(request)
-            build = feed.shot_build(store, n_shots=n_shots, average=average)
+            build = feed.chain_build(store, run)
             try:
                 result = await sessions.shot(owner, kind, client_id, store, build)
             except ShotStopped as exc:
                 stopped = exc
+            except ChainFailed as exc:
+                failed = exc
         if stopped is not None:
             stopper = sessions.stopper
             fired = ",".join(stopped.commands_fired)
@@ -784,13 +1064,37 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
                     "commands_fired": stopped.commands_fired,
                 },
             )
-        detail.update(shot_id=result.shot_id, commands_fired=",".join(result.commands_fired))
-        _record(owner=owner, subject="shot", refusal=None, detail=detail)
-        if result.shots_included == 0:
-            feed.shot_unhooked(result)
-        else:
-            # The hook published while the action ran; this snapshot shows it ended.
+        if failed is not None:
+            _record(
+                owner=owner,
+                subject="shot",
+                refusal=RouteRefused(CHAIN_FAILED, failed.reason),
+                detail={**detail, "commands_fired": ",".join(failed.commands_fired)},
+            )
+            await feed.refresh_machine()
             feed.publish()
+            raise HTTPException(
+                status_code=RouteRefused.statuses[CHAIN_FAILED],
+                detail={
+                    "code": CHAIN_FAILED,
+                    "detail": failed.reason,
+                    "steps_run": failed.steps_run,
+                    "commands_fired": failed.commands_fired,
+                },
+            )
+        shot = result.shot
+        detail.update(
+            shot_id=shot.shot_id if shot is not None else None,
+            commands_fired=",".join(result.commands_fired),
+        )
+        _record(owner=owner, subject="shot", refusal=None, detail=detail)
+        # The machine is read after the chain's last step; the hook published the
+        # shot while the action ran, and this snapshot shows the action ended.
+        await feed.refresh_machine()
+        feed.publish()
+        if kind == AGENT_DOOR:
+            assert shot is not None  # the agent door runs the default chain, which reads out
+            return shot.model_dump(mode="json")
         return result.model_dump(mode="json")
 
     @router.get("/step")
@@ -826,7 +1130,8 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
                     kind,
                     client_id,
                     body,
-                    tag_addresses=sessions.layer.startup.tag_addresses,
+                    setup_check=feed.setup_keeper,
+                    setup=feed.setup_keeper,
                 )
             except ApplyFailed as exc:
                 failed = exc
@@ -861,60 +1166,46 @@ def _door(kind: str, *, prefix: str, dependencies: list[Any]) -> APIRouter:
     return router
 
 
-#: The fields a shot body may carry.
+#: The fields an agent-door shot body may carry.
 _SHOT_FIELDS = frozenset({"n_shots", "average"})
+
+#: The fields a panel chain body may carry: a shot or a continuous start.
+_CHAIN_FIELDS = frozenset(ChainBody.model_fields)
+
+
+def _chain_body(body: Mapping[str, Any] | None) -> ChainBody:
+    """A panel chain body, refused as the door refuses a bad body."""
+    fields = _fields(body, _CHAIN_FIELDS)
+    try:
+        return ChainBody.model_validate(dict(fields))
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(map(str, error['loc'])) or 'body'}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise SessionRefused(BAD_REQUEST, f"the chain body is refused: {problems}") from exc
+
+
+def _door_run(kind: str, feed: _Feed, body: Mapping[str, Any] | None) -> ChainRun:
+    """The run a door's shot body asks for.
+
+    The panel door runs the ticked chain and needs a current setup; the agent
+    door runs the declared default chain, choosing only shots and averaging,
+    and is never refused for setup.
+    """
+    if kind == AGENT_DOOR:
+        n_shots, average = _shot_args(_fields(body, _SHOT_FIELDS))
+        return default_run(feed.declaration, n_shots=n_shots, average=average)
+    chain = _chain_body(body)
+    feed.require_setup()
+    return chain_run(feed.declaration, chain)
 
 
 def _panel_only() -> APIRouter:
-    """The routes only the panel door serves: setup, continuous, references,
-    shots and the state stream."""
+    """The routes only the panel door serves: continuous, references, shots
+    and the state stream."""
     kind = PANEL_DOOR
     router = APIRouter(prefix="/panel/api")
-
-    @router.post("/setup")
-    async def setup(request: Request, owner: str | None = Depends(door_owner)) -> dict[str, Any]:
-        sessions = _sessions(request)
-        feed = _feed(request)
-        detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
-        failed: SetupFailed | None = None
-        with _refusals_recorded(owner, "setup", detail):
-            client_id = _client_id(request)
-            fields = _fields(await _body(request), frozenset({"bunch_clean"}))
-            bunch_clean = fields.get("bunch_clean", False)
-            if not isinstance(bunch_clean, bool):
-                raise SessionRefused(
-                    BAD_REQUEST, f"bunch_clean is true or false, not {bunch_clean!r}"
-                )
-            detail["bunch_clean"] = bunch_clean
-            try:
-                done = await sessions.setup(owner, kind, client_id, bunch_clean=bunch_clean)
-            except SetupFailed as exc:
-                failed = exc
-        if failed is not None:
-            reason = str(failed)
-            _record(
-                owner=owner,
-                subject="setup",
-                refusal=RouteRefused(SETUP_FAILED, reason),
-                detail={**detail, "moved": _moved(failed.moved)},
-            )
-            feed.last_action = LastAction(name="setup", stopped=False, moved=failed.moved)
-            feed.publish(StepEvent(step=None))
-            raise _failed(SETUP_FAILED, reason, failed.moved)
-        _record(
-            owner=owner,
-            subject="setup",
-            refusal=None,
-            detail={**detail, "stopped": done.stopped, "moved": _moved(done)},
-        )
-        feed.last_action = done
-        events: list[BaseModel] = [StepEvent(step=None)]
-        if done.stopped:
-            events.insert(
-                0, StoppedEvent(action="setup", stopper=sessions.stopper, moved=done.moved)
-            )
-        feed.publish(*events)
-        return done.model_dump(mode="json")
 
     @router.post("/continuous")
     async def continuous(
@@ -925,19 +1216,21 @@ def _panel_only() -> APIRouter:
         detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
         with _refusals_recorded(owner, "continuous_start", detail):
             client_id = _client_id(request)
-            fields = _fields(await _body(request), _SHOT_FIELDS | {"max_shots"})
-            n_shots, average = _shot_args(fields)
-            max_shots = _count(fields, "max_shots", None)
-            detail.update(n_shots=n_shots, average=average, max_shots=max_shots)
+            chain = _door_run(kind, feed, await _body(request))
+            detail.update(
+                steps=",".join(chain.steps),
+                readout=chain.readout,
+                n_shots=chain.n_shots,
+                average=chain.average,
+            )
             store = _store(request)
-            build = feed.shot_build(store, n_shots=n_shots, average=average)
+            build = feed.chain_build(store, chain)
             run = sessions.start_continuous(
                 owner,
                 kind,
                 client_id,
                 store,
                 build,
-                max_shots=max_shots,
                 on_end=_published_end(feed),
             )
         _record(owner=owner, subject="continuous_start", refusal=None, detail=detail)
@@ -951,6 +1244,9 @@ def _panel_only() -> APIRouter:
         sessions = _sessions(request)
         with _answered():
             status = sessions.heartbeat(owner, kind, _client_id(request))
+        feed = _feed(request)
+        if await feed.refresh_machine():
+            feed.publish()
         return {"continuous": status.model_dump(mode="json") if status is not None else None}
 
     @router.get("/references")
@@ -983,7 +1279,15 @@ def _panel_only() -> APIRouter:
             model = _model(sessions.layer.startup)
             shot = await _reference_shot(sessions, store, model, fields.get("shot_id"))
             detail["shot_id"] = shot.shot_id
-            sha256 = await store.save_reference(model, name, _readings(shot))
+            _require_reference_shot(shot)
+            sha256 = await store.save_reference(
+                model,
+                name,
+                _readings(shot),
+                readout=shot.readout,
+                source_target=store.target,
+                source_model=model,
+            )
         detail["sha256"] = sha256
         _record(owner=owner, subject="reference_save", refusal=None, detail=detail)
         await feed.refresh_reference()
@@ -1001,7 +1305,83 @@ def _panel_only() -> APIRouter:
             startup = sessions.layer.startup
             model = _model(startup)
             loaded = await store.load_reference(model, name, _feed(request).selection())
-        return loaded.load.model_dump(mode="json")
+        return loaded.load.model_dump(mode="json", exclude={"readings"})
+
+    @router.get("/references/{name}/readings")
+    async def reference_readings(
+        name: str, request: Request, owner: str | None = Depends(door_owner)
+    ) -> dict[str, Any]:
+        with _answered(), _store_refusals():
+            _require_owner(owner)
+            store = _store(request)
+            model = _model(_sessions(request).layer.startup)
+            stored = await store.reference_file(model, name)
+        return stored.model_dump(mode="json")
+
+    @router.post("/references/import")
+    async def import_reference(
+        request: Request, owner: str | None = Depends(door_owner)
+    ) -> dict[str, Any]:
+        sessions = _sessions(request)
+        feed = _feed(request)
+        detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
+        step: Step | None = None
+        with _refusals_recorded(owner, "reference_import", detail), _store_refusals():
+            raw = await request.body()
+            if len(raw) > MAX_REFERENCE_IMPORT_BYTES:
+                raise RouteRefused(
+                    REFERENCE_TOO_LARGE,
+                    f"the reference is {len(raw)} bytes; an import takes at most "
+                    f"{MAX_REFERENCE_IMPORT_BYTES}",
+                )
+            body = await _body(request)
+            fields = _fields(body, _IMPORT_FIELDS)
+            detail["name"] = fields.get("name")
+            imported = _reference_import(fields)
+            detail.update(readout=imported.readout, select=imported.select)
+            store = _store(request)
+            startup = sessions.layer.startup
+            model = _model(startup)
+            _check_import(imported, shot_rows(startup).bpms)
+            if imported.select:
+                await _require_readout(sessions, store, model, imported.readout)
+            readings = {bpm: (reading.x, reading.y) for bpm, reading in imported.readings.items()}
+
+            async def save(_admission: Admission | None = None, _stop: Any = None) -> str:
+                return await store.save_reference(
+                    model,
+                    imported.name,
+                    readings,
+                    readout=imported.readout,
+                    source_target=imported.source_target,
+                    source_model=imported.source_model,
+                )
+
+            if imported.select:
+                # Selecting needs the holder: the save runs as the holder's call,
+                # so a non-holder's import stores nothing.
+                client_id = _client_id(request)
+                sha256 = await sessions.call(owner, kind, client_id, save, name="reference")
+                step = await sessions.select_reference(owner, kind, client_id, store, imported.name)
+            else:
+                sessions.layer.gate.admit(owner, kind)
+                sha256 = await save()
+        detail["sha256"] = sha256
+        _record(owner=owner, subject="reference_import", refusal=None, detail=detail)
+        await feed.refresh_reference()
+        if imported.select:
+            feed.publish(StepEvent(step=step))
+        else:
+            feed.publish()
+        return {
+            "model": model,
+            "name": imported.name,
+            "sha256": sha256,
+            "reference": feed.reference.model_dump(mode="json")
+            if imported.select and feed.reference
+            else None,
+            "step": step.model_dump(mode="json") if step is not None else None,
+        }
 
     @router.post("/references/select")
     async def select_reference(
@@ -1018,6 +1398,10 @@ def _panel_only() -> APIRouter:
             name = fields["name"]
             detail["name"] = name
             store = _store(request)
+            if name is not None:
+                model = _model(sessions.layer.startup)
+                stored = await store.reference_file(model, name)
+                await _require_readout(sessions, store, model, stored.readout)
             step = await sessions.select_reference(owner, kind, client_id, store, name)
         _record(owner=owner, subject="reference_select", refusal=None, detail=detail)
         await feed.refresh_reference()
@@ -1027,6 +1411,103 @@ def _panel_only() -> APIRouter:
             "step": step.model_dump(mode="json") if step is not None else None,
         }
 
+    @router.post("/solve")
+    async def solve(request: Request, owner: str | None = Depends(door_owner)) -> dict[str, Any]:
+        sessions = _sessions(request)
+        feed = _feed(request)
+        detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
+        with _refusals_recorded(owner, "solve", detail):
+            client_id = _client_id(request)
+            fields = _fields(await _body(request), _SOLVE_FIELDS)
+            try:
+                partial = SolveConfigPartial.model_validate(dict(fields))
+            except ValidationError as exc:
+                raise SessionRefused(
+                    BAD_REQUEST, f"the SolveConfig update does not validate: {exc}"
+                ) from exc
+            detail["keys"] = ",".join(sorted(fields)) or "recompute"
+            store = _store(request)
+            update, step = await sessions.solve_config(owner, kind, client_id, store, partial)
+        detail["changed"] = ",".join(sorted(update.changed)) or "none"
+        detail["solve_sha"] = update.solve.sha
+        _record(owner=owner, subject="solve", refusal=None, detail=detail)
+        feed.publish(StepEvent(step=step))
+        return {
+            "solve": update.solve.model_dump(mode="json"),
+            "step": step.model_dump(mode="json") if step is not None else None,
+        }
+
+    @router.post("/setup")
+    async def setup(request: Request, owner: str | None = Depends(door_owner)) -> dict[str, Any]:
+        sessions = _sessions(request)
+        feed = _feed(request)
+        detail: dict[str, Any] = {"owner": owner, "kind": kind, "target": sessions.target}
+        failed: SetupFailed | None = None
+        with _refusals_recorded(owner, SETUP, detail):
+            client_id = _client_id(request)
+            body = _setup_body(await _body(request))
+            detail["settings"] = ",".join(sorted(body.settings)) or "none"
+            if body.excluded_bpms is not None:
+                detail["excluded_bpms"] = ",".join(body.excluded_bpms) or "none"
+            keeper = feed.setup_keeper
+            check_body(keeper, body)
+            store = _store(request)
+            _refuse_while_running(sessions)
+
+            def precondition(_admission: Admission) -> None:
+                _refuse_while_running(sessions)
+
+            try:
+                done = await sessions.call(
+                    owner,
+                    kind,
+                    client_id,
+                    setup_action(keeper, sessions, store, body, owner=owner, client_id=client_id),
+                    precondition=precondition,
+                    name=SETUP,
+                )
+            except SetupFailed as exc:
+                failed = exc
+        if failed is not None:
+            _record(
+                owner=owner,
+                subject=SETUP,
+                refusal=RouteRefused(SETUP_FAILED, failed.reason),
+                detail={**detail, "moved": _moved(failed.moved)},
+            )
+            feed.last_action = LastAction(name=SETUP, stopped=False, moved=failed.moved)
+            feed.publish(StepEvent(step=sessions.step.step))
+            raise _failed(SETUP_FAILED, failed.reason, failed.moved)
+        result = done.result
+        detail.update(
+            stopped=done.stopped,
+            moved=_moved(result.moved),
+            unsettled=",".join(result.unsettled) or "none",
+            settings_sha=result.setup.settings_sha if result.setup is not None else None,
+        )
+        _record(owner=owner, subject=SETUP, refusal=None, detail=detail)
+        feed.last_action = LastAction(name=SETUP, stopped=done.stopped, moved=result.moved)
+        if done.stopped:
+            feed.publish(
+                StoppedEvent(action=SETUP, stopper=sessions.stopper, moved=result.moved),
+                StepEvent(step=sessions.step.step),
+            )
+        else:
+            feed.publish(StepEvent(step=sessions.step.step))
+        return result.model_dump(mode="json")
+
+    @router.get("/setup")
+    async def setup_readbacks(
+        request: Request, owner: str | None = Depends(door_owner)
+    ) -> dict[str, Any]:
+        sessions = _sessions(request)
+        with _answered():
+            _require_owner(owner)
+            read = await _feed(request).setup_keeper.readbacks(
+                sessions.layer.startup.connector, sessions.call_timeout_s
+            )
+        return read.model_dump(mode="json")
+
     @router.get("/shots")
     async def shots(request: Request, owner: str | None = Depends(door_owner)) -> dict[str, Any]:
         with _answered(), _store_refusals():
@@ -1035,6 +1516,17 @@ def _panel_only() -> APIRouter:
             model = _model(_sessions(request).layer.startup)
             listed = await store.list_shots(model)
         return {"model": model, "shots": [shot.model_dump(mode="json") for shot in listed]}
+
+    @router.get("/shots/{shot_id}/raw", response_class=Response)
+    async def shot_raw(
+        shot_id: str, request: Request, owner: str | None = Depends(door_owner)
+    ) -> Response:
+        with _answered(), _store_refusals():
+            _require_owner(owner)
+            store = _store(request)
+            model = _model(_sessions(request).layer.startup)
+            _root, buffer = await store.load_raw(model, shot_id)
+        return Response(content=encode_raw(buffer), media_type=RAW_MEDIA_TYPE)
 
     @router.get("/events")
     async def events(
@@ -1051,6 +1543,29 @@ def _panel_only() -> APIRouter:
         )
 
     return router
+
+
+#: The keys a SolveConfig update may carry.
+_SOLVE_FIELDS = frozenset(SolveConfigPartial.model_fields)
+
+#: The keys a setup body may carry.
+_SETUP_FIELDS = frozenset(SetupBody.model_fields)
+
+
+def _setup_body(body: Mapping[str, Any] | None) -> SetupBody:
+    """A setup body, refused as the door refuses a bad body."""
+    fields = _fields(body, _SETUP_FIELDS)
+    try:
+        return SetupBody.model_validate(dict(fields))
+    except ValidationError as exc:
+        raise SessionRefused(BAD_REQUEST, f"the setup body does not validate: {exc}") from exc
+
+
+def _refuse_while_running(sessions: Sessions) -> None:
+    if sessions.continuous_running:
+        raise SessionRefused(
+            CONTINUOUS_RUNNING, "a continuous run is in progress; stop it before the setup"
+        )
 
 
 def _published_end(feed: _Feed) -> Callable[[ContinuousEndedEvent], None]:
@@ -1077,6 +1592,81 @@ async def _reference_shot(
     return listed[0]
 
 
+def _require_reference_shot(shot: ShotResult) -> None:
+    """Refuse a shot that may not become a reference: only a fresh TbT shot does."""
+    if not shot.fresh:
+        raise RouteRefused(
+            SHOT_NOT_FRESH,
+            f"shot {shot.shot_id!r} is not fresh (its action did not arm and inject with the "
+            "machine held still), so it cannot become a reference",
+        )
+    if shot.readout != _SAVED_READOUT:
+        raise RouteRefused(
+            READOUT_MISMATCH,
+            f"shot {shot.shot_id!r} was read as {shot.readout}; a reference is saved from a "
+            f"{_SAVED_READOUT} shot",
+        )
+
+
+async def _require_readout(
+    sessions: Sessions, store: TrajectoryStore, model: str, readout: Readout
+) -> None:
+    """Refuse a reference of *readout* where the shown shot was read in another mode.
+
+    The shown shot is the pending step's (always TbT), else the newest stored
+    one; with neither, any mode is accepted.
+    """
+    shot = sessions.step.shot
+    if shot is None:
+        listed = await store.list_shots(model)
+        shot = listed[0] if listed else None
+    if shot is not None and shot.readout != readout:
+        raise RouteRefused(
+            READOUT_MISMATCH,
+            f"the reference was taken as {readout} and shot {shot.shot_id!r} was read as "
+            f"{shot.readout}; a reference is never used across readout modes",
+        )
+
+
+#: The fields a reference import takes.
+_IMPORT_FIELDS = frozenset(ReferenceImport.model_fields)
+
+
+def _reference_import(fields: Mapping[str, Any]) -> ReferenceImport:
+    """*fields* as a reference import, refusing a body of the wrong shape."""
+    name = fields.get("name")
+    if not isinstance(name, str):
+        raise RouteRefused(INVALID_NAME, f"a reference is imported under a name, not {name!r}")
+    try:
+        return ReferenceImport.model_validate(dict(fields))
+    except ValidationError as exc:
+        raise SessionRefused(BAD_REQUEST, f"the reference import does not validate: {exc}") from exc
+
+
+def _check_import(imported: ReferenceImport, bpms: Iterable[str]) -> None:
+    """Refuse an import naming no BPM, a BPM outside *bpms*, or a non-finite reading."""
+    known = set(bpms)
+    if not imported.readings:
+        raise SessionRefused(BAD_REQUEST, f"reference {imported.name!r} has no BPM readings")
+    unknown = [bpm for bpm in imported.readings if bpm not in known]
+    if unknown:
+        raise RouteRefused(
+            UNKNOWN_BPM,
+            f"the reference names {', '.join(unknown)}, which the tool does not read",
+        )
+    bad = [
+        f"{plane} at {bpm}"
+        for bpm, reading in imported.readings.items()
+        for plane, value in (("x", reading.x), ("y", reading.y))
+        if value is not None and not math.isfinite(value)
+    ]
+    if bad:
+        raise RouteRefused(
+            READING_NOT_FINITE,
+            f"readings {', '.join(bad)} are not finite; a reading is a finite number or null",
+        )
+
+
 def _readings(shot: ShotResult) -> dict[str, tuple[float | None, float | None]]:
     """Each BPM's ``(x, y)`` reading of *shot*, keyed by BPM in its order."""
     return {
@@ -1091,20 +1681,99 @@ async def _default_start() -> TrajectoryStartup:
     return await start()
 
 
+def _trajectory_slots(config: Mapping[str, Any], model: str) -> Mapping[str, Any] | None:
+    """The model's ``trajectory_slots`` entry of the build's facts, ``None`` without one."""
+    from osprey.services.trajectory.startup import _facts
+
+    slots = _facts(config).get("trajectory_slots")
+    entry = slots.get(model) if isinstance(slots, Mapping) else None
+    return entry if isinstance(entry, Mapping) else None
+
+
+def _declaration(config: Mapping[str, Any], startup: TrajectoryStartup) -> ChainDeclaration:
+    """The selected model's declared chain; the default chain without a model or a block.
+
+    Raises:
+        StartupRefused: The model's declared chain is malformed.
+    """
+    from osprey.services.trajectory.acquisition import DEFAULT_DECLARATION
+
+    commands = startup.commands
+    if commands is None:
+        return DEFAULT_DECLARATION
+    try:
+        return chain_declaration(_trajectory_slots(config, commands.model))
+    except ValueError as exc:
+        raise StartupRefused(f"model {commands.model!r}: {exc}") from exc
+
+
 def _load_config() -> Mapping[str, Any]:
     from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config()
 
 
-def _open_store() -> TrajectoryStore | None:
+def _open_store(startup: TrajectoryStartup) -> TrajectoryStore | None:
+    """The state directory's store, keeping the raw retention's root shots."""
     try:
-        return TrajectoryStore.from_env()
+        return TrajectoryStore.from_env(shots_per_model=startup.settings.raw_retention)
     except StoreUnconfigured:
         logger.warning(
             "trajectory service: no state directory; shots and references are unavailable"
         )
         return None
+
+
+async def _solve_config(
+    startup: TrajectoryStartup, store: TrajectoryStore | None
+) -> SolveConfigStore | None:
+    """The service's SolveConfig, its overrides read from the store.
+
+    ``None`` without a tool, or when the tool cannot publish a solve at all:
+    the service starts either way, and every step then solves with the tool's
+    configured values.
+    """
+    from osprey.services.trajectory.solve_config import SolveConfigStore
+    from osprey.services.trajectory.step import TrajectoryTool
+
+    tool = startup.tool
+    if not isinstance(tool, TrajectoryTool):
+        return None
+    try:
+        return await SolveConfigStore.load(
+            tool,
+            loss_cutoff=startup.settings.loss_sum_cutoff,
+            directory=store.directory if store is not None else None,
+        )
+    except Exception:  # the service starts without a published solve
+        logger.warning("trajectory service: no SolveConfig could be loaded", exc_info=True)
+        return None
+
+
+def _setup_keeper(
+    config: Mapping[str, Any],
+    startup: TrajectoryStartup,
+    sessions: Sessions,
+    store: TrajectoryStore | None,
+) -> SetupKeeper:
+    """The model's setup keeper, holding the setup persisted beside the SolveConfig."""
+    commands = startup.commands
+    if commands is None:
+        return SetupKeeper()
+
+    def excluded() -> list[str]:
+        solve = sessions.solve
+        return list(solve.values["excluded_bpms"]) if solve is not None else []
+
+    keeper = SetupKeeper(
+        declared_settings(_trajectory_slots(config, commands.model)),
+        model=commands.model,
+        directory=store.directory if store is not None else None,
+        devices={device.x_row: device.name for device in commands.devices},
+        excluded=excluded,
+    )
+    keeper.load()
+    return keeper
 
 
 def create_app(*, start: StartFn | None = None) -> FastAPI:
@@ -1126,12 +1795,16 @@ def create_app(*, start: StartFn | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         startup = await start_fn()
         config = _load_config()
+        declaration = _declaration(config, startup)
         gate = AdmitGate.from_config(config, startup.target)
         layer = ActionLayer(startup, gate)
         layer.start()
         sessions = Sessions(layer, call_timeout_s=connector_call_timeout_s(config, startup.target))
-        store = _open_store()
-        feed = _Feed(sessions, store)
+        store = _open_store(startup)
+        sessions.solve = await _solve_config(startup, store)
+        keeper = _setup_keeper(config, startup, sessions, store)
+        await keeper.recheck(startup.connector, sessions.call_timeout_s)
+        feed = _Feed(sessions, store, declaration, keeper)
         await feed.refresh_reference()
         app.state.startup = startup
         app.state.sessions = sessions
