@@ -31,6 +31,7 @@
  * @module correction
  */
 
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { canPutBack, putBackBody } from './api.js';
 import { cmStepFigure, svFigure } from './figures.js';
 import { control, h, noticeFromResult } from './views.js';
@@ -164,7 +165,7 @@ export function rmStatus(solve) {
   const rm = solve?.rm;
   if (!rm) return 'No response matrix yet';
   const when = typeof rm.computed_at === 'number'
-    ? `, computed ${new Date(rm.computed_at * 1000).toLocaleTimeString()}`
+    ? `, computed ${formatFacilityTime(rm.computed_at * 1000, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
     : '';
   return `RM from ${rm.source}: ${rm.rows} × ${rm.h_cols + rm.v_cols} (${rm.h_cols} HCM, ${rm.v_cols} VCM)${when}`;
 }

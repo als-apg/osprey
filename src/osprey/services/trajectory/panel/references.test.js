@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApi } from './api.js';
 import {
+  defaultName,
   fileName,
   importBody,
   mount,
@@ -102,6 +103,12 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('defaultName', () => {
+  it('names a reference by the facility clock, to the second', () => {
+    expect(defaultName(new Date())).toMatch(/^ref-\d{8}-\d{6}$/);
+  });
 });
 
 describe('Select Current as Reference', () => {

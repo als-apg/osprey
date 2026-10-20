@@ -23,6 +23,7 @@
  * @module references
  */
 
+import { facilityWallClock } from '/design-system/js/facility-time.js';
 import { control, h } from './views.js';
 
 /** The readout a reference is taken in. */
@@ -102,13 +103,13 @@ export function importBody(text) {
 }
 
 /**
- * A default reference name for the moment *now*.
+ * A default reference name for the moment *now*, on the facility's clock:
+ * `ref-YYYYMMDD-HHMMSS`.
  * @param {Date} now
  */
 export function defaultName(now) {
-  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  return `ref-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-`
-    + `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const [day, time] = facilityWallClock(now).split(' ');
+  return `ref-${day.replaceAll('-', '')}-${time.slice(0, 8).replaceAll(':', '')}`;
 }
 
 /**
