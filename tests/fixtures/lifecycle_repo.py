@@ -2677,13 +2677,17 @@ VERIFY_SH = """\
 #   ./scripts/verify.sh containers         # one group
 #   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
 #
+# The containers group lists the compose project `osprey up` recorded in
+# var/deployment.json, with the runtime it recorded. Before the first
+# `osprey up` there is no record: the script says so and checks nothing.
+#
 # Exits 0 unless run with --strict. A container that is not running or not
 # healthy, and a probe that gets no answer, is flagged: it tells an operator
 # where to look, and is never by itself the reason a deploy is reported as
 # failed. --strict exits 1 when anything is flagged, for a job that should fail
 # on it. A group or option the script does not have exits 2.
 #
-# Needs curl, and python3 to read the container runtime's JSON.
+# Needs curl, and python3 to read the record and the container runtime's JSON.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -2739,55 +2743,22 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 # The repo root: this script sits in scripts/ directly under it.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
-# build/config.yml. The built config is the source; the repo directory's
-# name is only a fallback for a repo that has no project_name there. Either is
-# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
-compose_project() {
-  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-    printf '%s' "$COMPOSE_PROJECT_NAME"
-    return
-  fi
-  local name=""
-  if [ -f "$REPO_ROOT/build/config.yml" ]; then
-    name="$(sed -n "s/^project_name:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z0-9_.-]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml" | head -n 1)"
-  fi
-  if [ -z "$name" ]; then
-    name="$(basename "$REPO_ROOT")"
-  fi
-  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
-    | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
-  printf '%s' "${name:-unnamed-project}"
-}
-
-# The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
-# build/config.yml, then docker before podman — the first whose compose
-# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
-# (podman-docker) is passed over, as `osprey up` passes over it.
-container_runtime() {
-  local pinned="${CONTAINER_RUNTIME:-}" runtime
-  if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
-    pinned="$(sed -n "s/^container_runtime:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z]*\\).*/\\1/p" \\
-      "$REPO_ROOT/build/config.yml")"
-  fi
-  case "$(printf '%s' "$pinned" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
-    docker) printf docker; return ;;
-    podman) printf podman; return ;;
-  esac
-  for runtime in docker podman; do
-    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \\
-      && docker --version 2>&1 \\
-        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
-      continue
-    fi
-    if command -v "$runtime" >/dev/null 2>&1 \\
-      && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
-      printf '%s' "$runtime"
-      return
-    fi
-  done
+# What `osprey up` recorded it drove, as one "runtime<TAB>project" line. No
+# output and status 0 when there is no record; no output and status 3 when the
+# file is there but is not a record.
+read_record() {
+  python3 -c '
+import json, os, sys
+path = sys.argv[1]
+if not os.path.lexists(path):
+    sys.exit(0)
+try:
+    with open(path, encoding="utf-8") as handle:
+        record = json.load(handle)
+    print("%s\\t%s" % (record["runtime"], record["compose_project"]))
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(3)
+' "$REPO_ROOT/var/deployment.json"
 }
 
 # Every container of the project as JSON, stopped ones included. podman-compose's
@@ -2828,17 +2799,11 @@ for row in sorted(rows):
     print("\\t".join(row))
 '
 
-# One line per container; a container not running, or running unhealthy, is
-# flagged. The loop reads a here-string, not a pipe, so the count survives it.
+# One line per container of the recorded project, listed with the recorded
+# runtime; a container not running, or running unhealthy, is flagged. The loop
+# reads a here-string, not a pipe, so the count survives it.
 check_containers() {
-  local runtime project listing rows name state health
-  runtime="$(container_runtime)"
-  if [ -z "$runtime" ]; then
-    printf '  %s✗%s no container runtime answers (docker, podman)\\n' "$RED" "$RESET"
-    FLAGGED=$((FLAGGED + 1))
-    return
-  fi
-  project="$(compose_project)"
+  local runtime="$1" project="$2" listing rows name state health
   if ! listing="$(list_containers "$runtime" "$project")" \\
     || ! rows="$(printf '%s' "$listing" | python3 -c "$PS_ROWS")"; then
     printf '  %s✗%s could not list project %s with %s\\n' "$RED" "$RESET" "$project" "$runtime"
@@ -2867,11 +2832,30 @@ check_containers() {
 
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
+# The deployment every group checks is the one the record names. With no record,
+# or one that cannot be read, that is the one thing flagged and no group runs.
+RECORD="$(read_record)"
+RECORD_STATUS=$?
+RUNTIME="${RECORD%%$'\\t'*}"
+PROJECT="${RECORD#*$'\\t'}"
+if [ "$RECORD_STATUS" -eq 0 ] && [ -z "$RECORD" ]; then
+  printf '\\n  %s✗%s nothing has been deployed from this repo yet — run osprey up\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+elif [ "$RECORD_STATUS" -ne 0 ] || [ -z "$PROJECT" ] \\
+  || { [ "$RUNTIME" != docker ] && [ "$RUNTIME" != podman ]; }; then
+  printf '\\n  %s✗%s var/deployment.json is unreadable — run osprey up to rewrite it\\n' \\
+    "$RED" "$RESET"
+  FLAGGED=1
+  PROBE_GROUPS=""
+fi
+
 # ── Containers ───────────────────────────────────────────────────────────────
-# Every container of this deployment's compose project, stopped ones included.
+# Every container of the recorded compose project, stopped ones included.
 if wants containers; then
   printf '\\n%s── Containers ──%s\\n\\n' "$BOLD" "$RESET"
-  check_containers
+  check_containers "$RUNTIME" "$PROJECT"
 fi
 
 # ── Deployed services ────────────────────────────────────────────────────────
