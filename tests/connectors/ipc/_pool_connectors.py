@@ -17,6 +17,10 @@ SLOW_PREFIX = "SLOW:"
 #: Channels the connector itself cannot reach: a read raises ConnectionError.
 GONE_PREFIX = "GONE:"
 
+#: Channels whose read hits a bug in the connector: a read raises an exception
+#: outside the IPC contract.
+BUG_PREFIX = "BUG:"
+
 #: Channels whose read blocks the child's event loop outright, so the child
 #: answers nothing at all from then on: a wedged child.
 WEDGE_PREFIX = "WEDGE:"
@@ -28,13 +32,16 @@ WRITE_LOG_ENV = "OSPREY_POOL_TEST_WRITE_LOG"
 
 class SlowInProcessConnector(VAInProcessConnector):
     """The mock, except ``SLOW:`` channels hang, ``GONE:`` channels are
-    unreachable, ``WEDGE:`` channels wedge the child, and every write is logged."""
+    unreachable, ``BUG:`` channels raise a connector bug, ``WEDGE:`` channels
+    wedge the child, and every write is logged."""
 
     async def read_channel(self, channel_address, timeout=None):
         if channel_address.startswith(WEDGE_PREFIX):
             time.sleep(3600)
         if channel_address.startswith(GONE_PREFIX):
             raise ConnectionError(f"pool test: {channel_address} is unreachable")
+        if channel_address.startswith(BUG_PREFIX):
+            raise KeyError(channel_address)
         if channel_address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
         return await super().read_channel(channel_address, timeout)

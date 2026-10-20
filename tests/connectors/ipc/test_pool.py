@@ -27,7 +27,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotFoundError, ConnectorInternalError
 from osprey_connectors.ipc import pool as pool_module
 from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.pool import (
@@ -39,6 +39,7 @@ from osprey_connectors.ipc.pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
+from osprey_connectors.ipc.proxy import raised_by_child
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -69,8 +70,9 @@ CHILD_START_TIMEOUT_S = 120.0
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
-#: ``SLOW:``, ``GONE:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+#: ``SLOW:``, ``GONE:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock serves them.
 SERVED = (
+    "BUG:X",
     "GONE:X",
     "SLOW:RB",
     "SLOW:SP",
@@ -468,6 +470,22 @@ async def test_a_connection_error_from_a_healthy_child_leaves_it_in_place(pools)
         await live.read_channel("GONE:X")
 
     assert not isinstance(caught.value, ConnectorHostLostError)
+    assert live.pid == pid
+    assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+async def test_a_connector_bug_in_a_healthy_child_crosses_as_the_contract_fault_and_leaves_it_in_place(
+    pools,
+):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorInternalError) as caught:
+        await live.read_channel("BUG:X")
+
+    assert raised_by_child(caught.value)
+    assert "KeyError" in str(caught.value)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
 
