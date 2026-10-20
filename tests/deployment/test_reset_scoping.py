@@ -45,7 +45,16 @@ from click.testing import CliRunner
 
 from osprey.cli.reset_cmd import reset as reset_command
 from osprey.deployment import reset as reset_mod
-from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.compose_generator import (
+    REPO_ID_LABEL,
+    repo_identity,
+    resolve_project_name,
+)
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from osprey.deployment.reset import (
     MINTED_ENV_BANNERS,
     ForeignCheckoutError,
@@ -1391,6 +1400,45 @@ def test_without_a_build_the_hosts_overlay_outranks_profile_yml(repo):
 
     assert plan.project == "uitf_assistant-scratch"
     assert plan.project_name_source == "from profiles/scratch.yml"
+
+
+def test_the_recorded_project_is_the_one_reset_plans_against(repo):
+    """The project ``osprey up`` recorded outranks the one the build names."""
+    recorded = resolve_project_name({"project_name": "recorded-elsewhere"})
+    assert recorded != resolve_project_name({"project_name": PROJECT})
+    write_deployment_record(repo, DeploymentRecord("docker", recorded))
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert plan.project == recorded
+    assert plan.project_name_source == f"from {DEPLOYMENT_RECORD_RELPATH.as_posix()}"
+
+
+@pytest.mark.usefixtures("no_down")
+def test_reset_removes_the_deployment_record(repo):
+    """The record names a deployment the reset ends, so it goes and is not recreated."""
+    path = write_deployment_record(repo, DeploymentRecord("docker", PROJECT))
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    run_reset(repo, FakeRuntime())
+
+    assert path in plan.paths
+    assert not path.exists()
+
+
+@pytest.mark.usefixtures("no_down")
+def test_a_corrupt_record_does_not_block_a_reset(repo):
+    """A damaged record is named, the build's name answers, and the record goes."""
+    path = repo / DEPLOYMENT_RECORD_RELPATH
+    path.write_text("{not json", encoding="utf-8")
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    run_reset(repo, FakeRuntime())
+
+    assert plan.project == resolve_project_name({"project_name": PROJECT})
+    assert "build/config.yml" in plan.project_name_source
+    assert f"({DEPLOYMENT_RECORD_RELPATH.as_posix()} unreadable)" in plan.project_name_source
+    assert not path.exists()
 
 
 # ---------------------------------------------------------------------------
