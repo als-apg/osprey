@@ -17,7 +17,6 @@ from pathlib import Path
 import yaml  # type: ignore[import-untyped]
 
 from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
-from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
 
 logger = logging.getLogger(__name__)
 
@@ -112,76 +111,19 @@ def load_write_tools(project_dir: Path) -> list[str]:
     return list(_FALLBACK_WRITE_TOOLS)
 
 
-# Substrings in a tool name that mark it as destroying stored state. Used to
-# auto-detect destructive tools that sit in an auto-approve (``allow``) list —
-# e.g. the workspace server's artifact_delete/artifact_delete_all,
-# which are safe-to-auto-approve *interactively* (a human drives) but must not
-# run in a headless read-only query. Sourced from the shared Bluesky tool-name
-# module so the marker vocabulary has a single home: a rename there (e.g.
-# clear_plan_draft → clear_draft) cannot silently detach a tool from this floor.
-_DESTRUCTIVE_MARKERS = DESTRUCTIVE_MARKERS
-
-
-def _is_destructive(tool: str) -> bool:
-    """True if a tool's name implies it removes/destroys stored state."""
-    lowered = tool.lower()
-    return any(marker in lowered for marker in _DESTRUCTIVE_MARKERS)
-
-
-def _server_side_effect_tools(server) -> list[str]:
-    """Side-effecting MCP tool names declared by ONE ServerDefinition.
-
-    Shared classifier for the framework-registry walk and the config-declared
-    ``extends`` clone path — one implementation, so the two can never drift.
-    Unions:
-
-    * ``permissions_ask`` + ``fixed_ask`` — the curated "needs approval because
-      it acts" sets (e.g. ``entry_create``, ``draft_concept``, ``setup_patch``,
-      ``channel_write``, ``execute``). Both render into the interactive ``ask``
-      list, so both are side-effecting.
-    * destructive-named tools in ``permissions_allow`` + ``fixed_allow`` — tools
-      auto-approved interactively but whose name implies destruction (e.g.
-      ``artifact_delete``). See ``_is_destructive``.
-    * every ``hooks_pre`` matcher gated by the writes-check hook (hardware
-      writes).
-
-    Deliberately NOT keyed on ``_APPROVAL``: that hook also wraps audited
-    *reads* (``channel_read``, ``archiver_read``), which a read-only query must
-    still be able to call.
-
-    This is the whole side-effect surface of a server: the python executor's
-    ``execute_file`` used to sit outside every registry list and needed a
-    hard-coded companion list here, which is exactly how one spelling of a
-    tool drifts from the other. It is now in the registry's ``permissions_ask``
-    and writes-check hooks alongside ``execute``, so this walk sees it — for
-    the template and, unchanged, for an ``extends`` clone.
-
-    Returns names as ``mcp__<server>__<tool>`` (writes-check matchers verbatim).
-    """
-    from osprey.registry.mcp import _WRITES_CHECK
-
-    out: list[str] = []
-    for tool in (*server.permissions_ask, *server.fixed_ask):
-        out.append(f"mcp__{server.name}__{tool}")
-    for tool in (*server.permissions_allow, *server.fixed_allow):
-        if _is_destructive(tool):
-            out.append(f"mcp__{server.name}__{tool}")
-    for rule in server.hooks_pre:
-        if _WRITES_CHECK in rule.hooks:
-            out.append(rule.matcher)
-    return out
-
-
 def _registry_side_effect_tools() -> list[str]:
     """Side-effecting MCP tool names declared in the framework registry.
 
-    Applies :func:`_server_side_effect_tools` to every framework server.
+    Applies the registry's classifier,
+    :func:`osprey.registry.mcp.server_side_effect_tools`, to every framework
+    server. The registry owns the classification; this floor and the plan-mode
+    deny list are its two consumers.
     """
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, server_side_effect_tools
 
     out: list[str] = []
     for server in FRAMEWORK_SERVERS.values():
-        for name in _server_side_effect_tools(server):
+        for name in server_side_effect_tools(server):
             if name not in out:
                 out.append(name)
     return out
@@ -211,7 +153,8 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     exact-name/server-level disallow engine.
 
     An ``extends`` spec (second instance of a framework server) is classified
-    from the RESOLVED clone via :func:`_server_side_effect_tools`, so it
+    from the RESOLVED clone via the registry's
+    :func:`~osprey.registry.mcp.server_side_effect_tools`, so it
     inherits the template's ask/destructive-allow/writes-check surface with the
     ``mcp__<template>__`` → ``mcp__<name>__`` matcher rewrite. If the extends
     target cannot be resolved (typo, version skew, config edited after build)
@@ -229,7 +172,12 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     except (OSError, ValueError):
         return []
 
-    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
+    from osprey.registry.mcp import (
+        FRAMEWORK_SERVERS,
+        build_extended_server,
+        is_destructive_tool,
+        server_side_effect_tools,
+    )
 
     servers = (cfg.get("claude_code") or {}).get("servers") or {}
     if not isinstance(servers, dict):
@@ -246,7 +194,7 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
             if clone is None:
                 out.append(f"mcp__{name}")  # fail closed (see docstring)
             else:
-                out.extend(_server_side_effect_tools(clone))
+                out.extend(server_side_effect_tools(clone))
             continue
         if not spec.get("command") and not spec.get("url"):
             # NONE of extends/command/url (e.g. 'phoebus2: {enabled: true}'):
@@ -262,7 +210,7 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
         # framework destructive-allow handling) — block them even though the
         # facility put them in ``allow``.
         for tool in perms.get("allow") or []:
-            if _is_destructive(tool):
+            if is_destructive_tool(tool):
                 out.append(f"mcp__{name}__{tool}")
         pre = (spec.get("hooks") or {}).get("pre_tool_use") or []
         if "writes_check" in pre:
@@ -290,11 +238,11 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
       Claude Code plugin's and claude.ai connector's MCP tools.
     * :func:`load_write_tools` — the project's hardware-write kill-switch tools
       (facility-custom writes included, fail-closed fallback).
-    * :func:`_registry_side_effect_tools` — every framework server's
-      approval-required actions (``permissions_ask`` + ``fixed_ask``),
-      destructive auto-allowed tools, and writes-check-gated tools (so the
-      side-effect surface tracks the registry as the single source of truth, not
-      a hand-maintained copy).
+    * :func:`_registry_side_effect_tools` — the registry classifier applied to
+      every framework server: approval-required actions (``permissions_ask`` +
+      ``fixed_ask``), destructive auto-allowed tools, and writes-check-gated
+      tools (so the side-effect surface tracks the registry as the single
+      source of truth, not a hand-maintained copy).
     * :func:`_custom_server_side_effect_tools` — write tools of facility-defined
       custom MCP servers declared in the project's ``config.yml``.
 
