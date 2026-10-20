@@ -151,7 +151,7 @@ def test_the_source_zone_copy_takes_no_credential_file(tmp_path: Path) -> None:
     _seed(repo / "data")
     image.mkdir()
 
-    build_cmd._stage_source_zone(repo, image)
+    build_cmd._stage_source_zone(repo, image, build_inputs=())
 
     copied = {path.name for path in image.rglob("*") if path.is_file()}
     assert "profile.yml" in copied

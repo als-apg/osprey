@@ -22,7 +22,14 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
-from osprey.cli.build_cmd import _prune_ignored_entries, _write_image_context_dockerignore
+import pytest
+
+from osprey.cli.build_cmd import (
+    _excluding_pattern,
+    _prune_ignored_entries,
+    _read_ignore_patterns,
+    _write_image_context_dockerignore,
+)
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: The four working-state subtrees this module pins. Stated literally rather
@@ -101,3 +108,40 @@ def test_context_root_dockerignore_names_all_four_working_state_entries(
     emitted = (image_root / ".dockerignore").read_text(encoding="utf-8")
     for entry in _EXCLUDED_WORKING_STATE:
         assert f"**/{entry}" in emitted, f"{entry!r} missing from the context-root .dockerignore"
+
+
+@pytest.mark.parametrize(
+    "patterns,path,excluded",
+    [
+        (["*.h5"], "x.h5", True),
+        (["*.h5"], "a/x.h5", False),
+        (["**/*.h5"], "x.h5", True),
+        (["**/*.h5"], "a/x.h5", True),
+        (["notebooks"], "notebooks/a/b.ipynb", True),
+        (["notebooks/"], "notebooks/a/b.ipynb", True),
+        (["/docs"], "docs", True),
+        (["/docs"], "docs/guide.md", True),
+        (["docs"], "docs/guide.md", True),
+        (["docs", "!docs/keep.md"], "docs/keep.md", False),
+        (["docs", "!docs/keep.md"], "docs/other.md", True),
+        (["!docs/keep.md", "docs"], "docs/keep.md", True),
+        (["a/**/b"], "a/b", True),
+        (["a/**/b"], "a/x/y/b", True),
+        (["a/**/b"], "a/x/y/c", False),
+        (["data?.csv"], "data1.csv", True),
+        (["data?.csv"], "data10.csv", False),
+        (["[ab].txt"], "a.txt", True),
+        (["[ab].txt"], "c.txt", False),
+        (["*.H5"], "x.h5", False),
+    ],
+)
+def test_one_matcher_reads_dockerignore_patterns_as_docker_does(
+    patterns: list[str], path: str, excluded: bool
+) -> None:
+    """Root-anchored patterns, one-segment globs, ``**`` across segments, last match wins."""
+    assert (_excluding_pattern(path, patterns) is not None) is excluded
+
+
+def test_ignore_file_text_carries_no_pattern_on_blank_or_comment_lines() -> None:
+    text = "# keep these out\n\nnotebooks/\n  *.h5  \n!keep.h5\n"
+    assert _read_ignore_patterns(text) == ["notebooks/", "*.h5", "!keep.h5"]

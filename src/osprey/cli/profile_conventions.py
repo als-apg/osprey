@@ -252,6 +252,10 @@ STATE_DIR = STATE_DIR_NAME
 #: other by a test rather than by an import.
 _SYSTEMD_UNIT_ENTRY = "osprey.service"
 
+#: The deployment repo's own root ``.dockerignore``: the repo files it names
+#: are kept out of the deployment's images when the build stages them.
+REPO_DOCKERIGNORE_FILENAME = ".dockerignore"
+
 #: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
 #: names, and the files a deployment's scaffolding verbs emit into the root:
 #: the CI pair (``scripts/verify.sh`` beside ``ci-extra.yml``;
@@ -278,6 +282,8 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         "scripts",
         "ci-extra.yml",
         _SYSTEMD_UNIT_ENTRY,
+        # The deployment's own list of repo files kept out of its image.
+        REPO_DOCKERIGNORE_FILENAME,
     }
 )
 

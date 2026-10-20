@@ -99,6 +99,8 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "triggers.yml",
     "ci-extra.yml",
     "osprey.service",
+    # The deployment's own list of repo files kept out of its image.
+    ".dockerignore",
     # Source directories at the repo root.
     "data",
     # The tier and app files laid over the profile, by location.

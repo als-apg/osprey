@@ -63,6 +63,32 @@ See :doc:`../build-profiles` for the profile's convention directories.
    worker, the ARIEL sync service or the record archive builds this same
    project image (tagged ``<project>:local``) for them to run.
 
+Keeping repo files out of the image
+===================================
+
+The image carries your deployment repo. To keep repo files out of it —
+notebooks, scratch directories, large analysis output — list them in a
+``.dockerignore`` at the repo root, beside ``profile.yml``. The syntax is
+Docker's, and patterns are anchored at the repo root:
+
+.. code-block:: text
+
+   # my-facility/.dockerignore
+   notebooks/
+   *.h5
+
+Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``; write
+``**/*.h5`` for every depth. Two rules hold whatever the file says:
+
+- it cannot bring back what OSPREY excludes: ``.env`` files, ``.git``,
+  ``build/`` and the repo's Claude Code files stay out;
+- a pattern that would remove a build input — ``data/``, the convention
+  directories, ``tiers/``, ``apps/``, the trigger file, ``profile.yml`` —
+  fails the build, naming the pattern.
+
+This file is yours; the rendered ``build/.dockerignore`` described above is
+OSPREY's list of what it always keeps out.
+
 Quickstart
 ==========
 
