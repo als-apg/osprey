@@ -49,6 +49,7 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.errors import make_error
 from osprey.services.bluesky_bridge.figure import (
     DEFAULT_MAX_POINTS,
+    REASON_SOURCE_UNAVAILABLE,
     BarsMark,
     Figure,
     HeatmapMark,
@@ -457,9 +458,6 @@ async def get_run_figure(run_id: str) -> str:
           plan's schema, so its view could not be built.
         - ``"plan_identity_unavailable"``: the run could not be tied back to a
           known plan at all.
-        - ``"source_unavailable"``: reading the rows failed. ``panels`` is
-          empty — that means "could not read", never "the run recorded
-          nothing". Try again, and get_run_data as the second opinion.
         - Anything else: still a default view. Report the reason verbatim
           rather than guessing at it.
 
@@ -503,6 +501,10 @@ async def get_run_figure(run_id: str) -> str:
         - unknown_run: neither the bridge's live buffer nor durable storage
           knows this run id. A run get_run no longer lists can still have a
           figure, so a 404 from get_run is never a reason to skip this.
+        - service_unavailable: the run's rows could not be read
+          (``details.reason`` is ``"source_unavailable"``). That means "could
+          not read", never "the run recorded nothing". Read the figure again,
+          and get_run_data as the second opinion.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}/figure")
     if status == 404:
@@ -514,7 +516,22 @@ async def get_run_figure(run_id: str) -> str:
         # of a mark claiming to have grown under decimation. Either way the
         # bridge sent a figure this projection cannot bound, and relaying it
         # unprojected is the one thing this tool promises never to do.
-        projected = _project_figure(Figure.model_validate(body))
+        figure = Figure.model_validate(body)
+        # Keyed on the bridge's reason, never on empty panels: a live run with
+        # no plottable column yet is an honest empty figure.
+        if figure.reason == REASON_SOURCE_UNAVAILABLE:
+            make_error(
+                "service_unavailable",
+                f"Run {run_id}'s rows could not be read from the {figure.source} store, "
+                f"so there is no figure. This says nothing about what the run recorded.",
+                [
+                    "Read the figure again shortly.",
+                    "get_run_data reads the same run's rows as a table; "
+                    "use it as the second opinion.",
+                ],
+                details={"reason": figure.reason, "source": figure.source},
+            )
+        projected = _project_figure(figure)
     except ValueError as exc:
         return make_error(
             "bluesky_bridge_error",
