@@ -41,7 +41,7 @@ from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candida
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey_connectors import yaml_loader
-from osprey_connectors.config import is_unresolved_placeholder
+from osprey_connectors.config import apply_env_chain, is_unresolved_placeholder
 from osprey_connectors.dotenv import chain_files
 
 logger = logging.getLogger(__name__)
@@ -387,9 +387,9 @@ def _load_dotenv(project_dir: Path) -> dict[str, str]:
     non-``None`` entries, or ``{}`` when no chain file is present or
     ``python-dotenv`` is not importable. Pure: it never touches ``os.environ``,
     applies no secret logic, and leaves the overlay, ``${VAR}`` expansion, and
-    auth handling to its callers. The single load shared by
-    :func:`inject_provider_env`, ``provider_env_for_project``, and
-    :func:`load_provider_spec`, so all three see the same chain the same way.
+    auth handling to its callers. The read-only view shared by
+    ``provider_env_for_project`` and :func:`load_provider_spec`, so both see
+    the same chain the same way.
 
     Each file is read with ``dotenv_values`` rather than the plain parser
     because these values reach a launched agent's environment, and the CLI's
@@ -501,8 +501,10 @@ def inject_provider_env(
     expands ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
-    system MCP addressing. The chain is merged local-over-shared before the
-    overlay, and the result wins over a stale shell export. An unparseable
+    system MCP addressing. The one exception is the shell-only launch
+    variables (:func:`osprey_connectors.config.is_shell_only_env_var`), which
+    keep the shell's value. The chain is applied local-over-shared, and the
+    result wins over a stale shell export. An unparseable
     ``HTTP_PROXY`` (from the chain or the shell) is carried straight through
     but reported via :func:`_warn_on_invalid_proxy_env` — #352.
 
@@ -517,8 +519,7 @@ def inject_provider_env(
     # Overlay the full project env chain onto environ (host-propagation
     # contract — see docstring). The chain wins over stale shell exports.
     if project_dir is not None:
-        for key, value in _load_dotenv(project_dir).items():
-            environ[key] = value
+        apply_env_chain(environ, chain_files(Path(project_dir)))
 
     # After the overlay, so it sees the effective value regardless of whether
     # it came from .env or a shell export. This is the chokepoint shared by all

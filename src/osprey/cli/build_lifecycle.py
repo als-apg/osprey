@@ -28,7 +28,8 @@ from typing import IO, Any
 
 from rich.text import Text
 
-from osprey_connectors.dotenv import chain_files, merge_chain
+from osprey_connectors.config import apply_env_chain
+from osprey_connectors.dotenv import chain_files
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
@@ -261,17 +262,16 @@ def _run_lifecycle_phase(
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
     """
-    # Auto-inject the project's env chain into the subprocess environment.
-    # `merge_chain` resolves `.env.shared` under `.env` first, so a key both
-    # files set arrives with the host-local value — the same local-wins
-    # precedence the launch paths apply.
+    # Apply the project's env chain to the subprocess environment through the
+    # one loader every launch path uses: `.env` wins over `.env.shared`, and
+    # the shell-only launch variables keep the shell's value.
     env_files = chain_files(project_path)
-    dotenv_vars = merge_chain(project_path)
-    sub_env = {**os.environ, **dotenv_vars}
+    sub_env = dict(os.environ)
+    applied = apply_env_chain(sub_env, env_files)
     if env_files:
         logger.info(
             "Loaded %d vars from %s into lifecycle environment",
-            len(dotenv_vars),
+            len(applied),
             ", ".join(str(path) for path in env_files),
         )
 

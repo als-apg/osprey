@@ -77,19 +77,16 @@ def _overlay_repo_env(repo_root: Path) -> None:
     The chain is loaded in ascending precedence — ``.env.shared`` then ``.env``,
     each with ``override=True`` — so the host-local file wins over the committed
     defaults, and both win over a stale shell export. That is the precedence
-    every other launch path applies. Every key is copied, not a declared subset:
+    every other launch path applies. Every key is copied, except the shell-only
+    launch variables, not a declared subset:
     the agent expands ``.mcp.json`` ``${VAR}`` references (Channel Access
     addressing among them) out of this environment, so a narrowed copy would
     silently mis-address the control system rather than fail.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
+    from osprey_connectors.config import apply_env_chain
     from osprey_connectors.dotenv import chain_files
 
-    for env_file in chain_files(repo_root):
-        load_dotenv(env_file, override=True)
+    apply_env_chain(os.environ, chain_files(repo_root))
 
 
 def _report_drift(repo_root: Path, build_dir: Path) -> None:

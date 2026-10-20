@@ -138,15 +138,12 @@ def _load_project_env(dotenv_paths: list[Path]) -> None:
     The chain is the source of truth for API keys and facility settings, so it
     overrides any pre-existing process environment — walked in ascending
     precedence (``.env.shared`` before ``.env``) so the local file wins. A
-    missing file or a missing ``python-dotenv`` is silently ignored.
+    missing file is skipped, and the shell-only launch variables are never
+    applied.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-    for dotenv_path in dotenv_paths:
-        if dotenv_path.exists():
-            load_dotenv(dotenv_path, override=True)
+    from osprey_connectors.config import apply_env_chain
+
+    apply_env_chain(os.environ, dotenv_paths)
 
 
 def _validate_categories(
