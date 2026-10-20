@@ -250,6 +250,17 @@ OPTICS_NAMES: frozenset[str] = LINEAR_OPTICS | {CHROMATICITY}
 #: The optics arrays a readback reads one plane of.
 PLANE_OPTICS: frozenset[str] = frozenset({TUNES, CHROMATICITY})
 
+#: What pyAT raises computing the optics of a lattice at the edge of stability:
+#: the solve found the closed orbit, but an off-momentum orbit the optics need
+#: is lost, and pyAT stops with its own error, a fit over no points, or an index
+#: into an empty result.
+_OPTICS_UNSOLVABLE: tuple[type[BaseException], ...] = (
+    at.AtError,
+    ArithmeticError,
+    IndexError,
+    ValueError,
+)
+
 #: The two solves: a closed orbit, and one tracked pass through a line.
 PERIODIC, SINGLE_PASS = SOLVES
 
@@ -1877,7 +1888,9 @@ class PyATLatticeModel(LUMEPyATModel):
 
         A single-pass model's beta functions are the ones its solve
         propagated from ``twiss_in``, and it has no tunes. A lattice with no
-        closed orbit has no optics either: every array is NaN.
+        closed orbit has no optics either: every array is NaN. Nor has a
+        lattice at the edge of stability whose closed orbit the solve found
+        but whose optics pyAT cannot compute: every array but the orbit is NaN.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -1886,15 +1899,15 @@ class PyATLatticeModel(LUMEPyATModel):
         if self._optics_memo is not None and self._optics_memo[0] is solution:
             return self._optics_memo[1]
         orbit = np.array([solution[element] for element in self._monitor_order], dtype=np.float64)
+        unsolved = {
+            TUNES: np.full((self._planes,), np.nan, dtype=np.float64),
+            BETA_AT_MONITORS: np.full((len(self._monitor_order), 2), np.nan, dtype=np.float64),
+            ORBIT_AT_MONITORS: orbit.reshape(len(self._monitor_order), 2),
+        }
         if self.no_closed_orbit:
             # pyAT raises on a lattice with no closed orbit, so it is not asked.
-            optics = {
-                TUNES: np.full((self._planes,), np.nan, dtype=np.float64),
-                BETA_AT_MONITORS: np.full((len(self._monitor_order), 2), np.nan, dtype=np.float64),
-                ORBIT_AT_MONITORS: orbit.reshape(len(self._monitor_order), 2),
-            }
-            self._optics_memo = (solution, optics)
-            return optics
+            self._optics_memo = (solution, unsolved)
+            return unsolved
         if self.solve == SINGLE_PASS:
             optics = {
                 BETA_AT_MONITORS: np.array(
@@ -1905,7 +1918,11 @@ class PyATLatticeModel(LUMEPyATModel):
             }
             self._optics_memo = (solution, optics)
             return optics
-        _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
+        try:
+            _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
+        except _OPTICS_UNSOLVABLE:
+            self._optics_memo = (solution, unsolved)
+            return unsolved
         optics = {
             TUNES: np.array(lattice_data.tune[: self._planes], dtype=np.float64),
             BETA_AT_MONITORS: np.array(element_data.beta, dtype=np.float64),
@@ -1920,7 +1937,8 @@ class PyATLatticeModel(LUMEPyATModel):
         Keyed on the simulator's last solution exactly as :meth:`_optics` is,
         and kept apart from it, so a read of the linear optics never pays for
         the chromatic solve. A lattice with no closed orbit has no
-        chromaticity: both planes are NaN.
+        chromaticity: both planes are NaN, as they are for a lattice at the
+        edge of stability whose chromaticity pyAT cannot compute.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -1928,11 +1946,15 @@ class PyATLatticeModel(LUMEPyATModel):
         solution = self.simulator.last_solution
         if self._chromaticity_memo is not None and self._chromaticity_memo[0] is solution:
             return self._chromaticity_memo[1]
+        unsolved = np.full((self._planes,), np.nan, dtype=np.float64)
         if self.no_closed_orbit:
-            chromaticity = np.full((self._planes,), np.nan, dtype=np.float64)
-            self._chromaticity_memo = (solution, chromaticity)
-            return chromaticity
-        _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
+            self._chromaticity_memo = (solution, unsolved)
+            return unsolved
+        try:
+            _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
+        except _OPTICS_UNSOLVABLE:
+            self._chromaticity_memo = (solution, unsolved)
+            return unsolved
         chromaticity = np.array(lattice_data.chromaticity[: self._planes], dtype=np.float64)
         self._chromaticity_memo = (solution, chromaticity)
         return chromaticity
