@@ -2245,6 +2245,9 @@ _ARM_COMMAND = "bpm_arm_command"
 #: The instrument slot naming the command that requests one injected shot.
 _REQUEST_SLOT = "injection_request"
 
+#: The instrument slot naming the command that empties the stored charge.
+_CLEAN_SLOT = "bunch_clean_enable"
+
 #: The bounds a limits record states for a command channel.
 _COMMAND_BOUNDS = ("min_value", "max_value")
 
@@ -2340,13 +2343,16 @@ def _trajectory_stops(
             )
 
 
-def _request_channels(models: Iterable[Mapping[str, Any]]) -> set[str]:
-    """The channels the measurement files of ``models`` name as the injection request."""
+def _request_channels(models: Iterable[Mapping[str, Any]], slot: str = _REQUEST_SLOT) -> set[str]:
+    """The channels the measurement files of ``models`` name in instrument ``slot``.
+
+    ``slot`` is the injection request unless the caller names another.
+    """
     named: set[str] = set()
     for model in models:
         measurement = model.get("measurement")
         instruments = measurement.get("instruments") if isinstance(measurement, dict) else None
-        request = instruments.get(_REQUEST_SLOT) if isinstance(instruments, dict) else None
+        request = instruments.get(slot) if isinstance(instruments, dict) else None
         if request is not None:
             named.add(str(request))
     return named
@@ -2449,11 +2455,12 @@ def _wiring_stops(
     On every device of the group ``groups.bpm`` names, each channel of a
     signal in :data:`_SERIES_PLANES` is wired by the model as a turn series
     of that signal's plane, and each channel of the arm signal as a command;
-    so is the channel ``instruments.injection_request`` names, once the
-    model wires it. The other way round, a record the model's engine
-    describes as a turn series sits on a channel of a signal of its plane,
-    and one it marks a command sits on a channel of the arm signal or on the
-    one the request names.
+    so are the channels ``instruments.injection_request`` and
+    ``instruments.bunch_clean_enable`` name, once the model wires them. The
+    other way round, a record the model's engine describes as a turn series
+    sits on a channel of a signal of its plane, and one it marks a command
+    sits on a channel of the arm signal or on one of those the two
+    instruments name.
 
     Args:
         document: The facility file.
@@ -2467,6 +2474,7 @@ def _wiring_stops(
     wired = {str(entry["address"]): entry for entry in simulator_wiring(dict(document), name)}
     channels = {str(channel["id"]): channel for channel in document.get("channels", [])}
     requests = _request_channels([model])
+    cleans = _request_channels([model], _CLEAN_SLOT)
     _, members = _bpm_members(document, model)
     command = {_COMMAND_MARK: True}
     # address -> (how the kind comes to the channel, the entry it needs)
@@ -2482,8 +2490,9 @@ def _wiring_stops(
             )
         elif signal == _ARM_COMMAND:
             needed[address] = (f"which carries signal `{signal}`", command)
-    for request in requests & set(wired):
-        needed[request] = (f"which `instruments.{_REQUEST_SLOT}` names", command)
+    for slot, named_channels in ((_REQUEST_SLOT, requests), (_CLEAN_SLOT, cleans)):
+        for request in named_channels & set(wired):
+            needed[request] = (f"which `instruments.{slot}` names", command)
     for address, (named, want) in sorted(needed.items()):
         entry = wired.get(address)
         if entry is not None and _wired_as(entry) == _wired_as(want):
@@ -2503,7 +2512,7 @@ def _wiring_stops(
     for address, entry in sorted(wired.items()):
         signal = channels.get(address, {}).get("signal")
         if entry.get(_COMMAND_MARK) is True:
-            if signal == _ARM_COMMAND or address in requests:
+            if signal == _ARM_COMMAND or address in requests or address in cleans:
                 continue
             lacks = (
                 f"the channel carries no signal `{_ARM_COMMAND}` and "

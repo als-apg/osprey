@@ -16,6 +16,59 @@ instruments:
   rf: SR:RF:CAVITY:01:FREQUENCY:SP
   injection_request: SR:DIAG:INJECTION:REQUEST
   injection_busy: SR:DIAG:INJECTION:BUSY
+  rf_status: SR:RF:ON:SP
+  beam_current: SR:DIAG:STORED_BEAM:CURRENT:RB
+  bunch_clean_enable: SR:DIAG:CLEANING:REQUEST
+trajectory:
+  trigger_sample: 10
+  settings:
+  - id: attenuation
+    label: Attenuation
+    description: Input attenuation of each BPM's electronics; more attenuation lowers the sum.
+    scope: device
+    signal: attenuation_setpoint
+    timeout_s: 5.0
+  - id: bpm_mode
+    label: BPM mode
+    description: Operating mode of each BPM's electronics, which sets the noise of the positions.
+    scope: device
+    signal: bpm_mode_setpoint
+    timeout_s: 5.0
+  - id: pilot_tone
+    label: Pilot tone
+    description: The calibration tone each BPM's electronics add to the button signals.
+    scope: device
+    signal: pilot_tone_setpoint
+    timeout_s: 5.0
+  - id: turns_tracked
+    label: Turns tracked
+    description: Turns after the trigger sample every BPM records beam on.
+    scope: global
+    address: SR:DIAG:TBT:TURNS:SP
+    timeout_s: 5.0
+  steps:
+  - id: arm
+    label: Arm
+    description: Arms every BPM's turn-by-turn acquisition for the next shot.
+    default: true
+  - id: inject
+    label: Inject
+    description: Fires one injected shot.
+    default: true
+  - id: clean
+    label: Bunch cleaning
+    description: >-
+      Clears the charge the shot left stored, so the next shot
+      starts empty.
+    default: true
+    command:
+      address: SR:DIAG:CLEANING:REQUEST
+      value: 1
+      timeout_s: 5.0
+  - id: readout
+    label: Readout
+    description: Reads every BPM's turn-by-turn buffers of the shot.
+    default: true
 n_step: 5
 n_avg_meas: 1
 fit_order: 2

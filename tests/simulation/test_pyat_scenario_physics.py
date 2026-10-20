@@ -7,10 +7,13 @@ the apertures on the model's own copy of the deck.
 
 from __future__ import annotations
 
+import os
 import random
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 at = pytest.importorskip("at")
 
@@ -20,6 +23,10 @@ from lume_pyat.utils import apply_misalignment  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_faults  # noqa: E402
+from osprey_connectors.control_system.va_in_process_connector import (  # noqa: E402
+    simulation_state_dir,
+)
+from osprey_connectors.simulation.composite import Composite  # noqa: E402
 
 MODEL = "SR"
 SEED = pyat_faults.MISALIGNMENT_SEED
@@ -68,9 +75,23 @@ class TestModelWideSlots:
             "aperture_elliptical_y",
             "aperture_rectangular_x",
             "aperture_rectangular_y",
+            "bunch_charge",
+            "bunch_emittance_x",
+            "bunch_emittance_y",
+            "bunch_particles",
+            "bunch_sigma_delta",
+            "bunch_sigma_z",
+            "centroid_jitter_x",
+            "centroid_jitter_y",
             "dipole_dx_sigma",
             "dipole_dy_sigma",
             "dipole_roll_sigma",
+            "launch_ct",
+            "launch_delta",
+            "launch_px",
+            "launch_py",
+            "launch_x",
+            "launch_y",
             "misalignment_seed",
             "quadrupole_dx_sigma",
             "quadrupole_dy_sigma",
@@ -78,6 +99,7 @@ class TestModelWideSlots:
             "sextupole_dx_sigma",
             "sextupole_dy_sigma",
             "sextupole_roll_sigma",
+            "stored_charge",
         ]
 
     def test_a_model_wide_slot_has_no_address_and_no_element(self):
@@ -252,3 +274,108 @@ class TestBuild:
     def test_an_addressed_seed_still_lands_beside_a_model_wide_one(self, demo):
         model = build(demo, {f"{MONITOR_X}/offset": 1.0e-4, "quadrupole_dx_sigma": 1.0e-6})
         assert model.simulator.element("BPM01").readout_offset_x == 1.0e-4
+
+
+# --- the trajectory-study injection ---------------------------------------------
+
+INJECTION = "txt-injection"
+INJECTION_FILE = (
+    Path(__file__).resolve().parents[2]
+    / "src/osprey/templates/facilities/example/scenarios"
+    / f"{INJECTION}.yaml"
+)
+STORED_CURRENT = "SR:DIAG:STORED_BEAM:CURRENT:RB"
+TURNS_SP = "SR:DIAG:TBT:TURNS:SP"
+TONE_SP = "SR:DIAG:BPM:01:PILOT_TONE:SP"
+ARM = "SR:DIAG:BPM:01:TBT:ARM"
+REQUEST = "SR:DIAG:INJECTION:REQUEST"
+#: The records a shot of the injection serves at the first BPM.
+SHOT_RECORDS = [f"SR:DIAG:BPM:01:TBT:{signal}" for signal in ("X", "Y", "SUM")]
+#: Records the injection's start state shows without a shot.
+STATE_RECORDS = [STORED_CURRENT, TURNS_SP, TONE_SP, MONITOR_X, "SR:DIAG:BPM:01:POSITION:Y"]
+T0 = 1_760_000_000.0
+
+
+def injection_faults() -> dict[str, Any]:
+    return yaml.safe_load(INJECTION_FILE.read_text(encoding="utf-8"))["faults"][MODEL]
+
+
+@pytest.fixture
+def demo_view(built_control_assistant: Any, tmp_path: Path) -> Path:
+    """The built demo's simulator view, staged into its own render."""
+    prefix = "data/simulator/"
+    view = tmp_path / "demo" / "data" / "simulator"
+    for name, data in built_control_assistant.outputs[0].files.items():
+        if name.startswith(prefix):
+            target = view / name[len(prefix) :]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    return view
+
+
+def activate(view: Path, *active: str) -> Path:
+    """Write the active set and move its modification time on, as an apply does."""
+    state = simulation_state_dir(view)
+    state.mkdir(parents=True, exist_ok=True)
+    path = state / "active_scenarios"
+    later = path.stat().st_mtime_ns + 1_000_000_000 if path.exists() else None
+    path.write_text("".join(f"{name}\n" for name in active))
+    if later is not None:
+        os.utime(path, ns=(later, later))
+    return state
+
+
+def composite(view: Path, instance: str = "inprocess") -> Composite:
+    return Composite(
+        view,
+        state_dir=simulation_state_dir(view),
+        instance=instance,
+        clock=lambda: T0,
+        model_log=False,
+    )
+
+
+def plain(read: dict[str, Any]) -> dict[str, Any]:
+    return {name: np.asarray(value).tolist() for name, value in read.items()}
+
+
+class TestInjection:
+    def test_the_injection_applies_to_a_built_model(self, demo):
+        model = build(demo, injection_faults())
+        for element in model.lattice:
+            if element.Length > 0:
+                np.testing.assert_array_equal(element.EApertures, [0.003, 0.005])
+            else:
+                assert not hasattr(element, "EApertures")
+        assert not set(injection_faults()) & set(model.supported_variables)
+
+    def test_the_injection_starts_with_a_stored_charge(self, demo):
+        nominal = build(demo).get([STORED_CURRENT])[STORED_CURRENT]
+        stored = build(demo, injection_faults()).get([STORED_CURRENT])[STORED_CURRENT]
+        assert nominal == 0.0
+        assert stored > 0.0
+
+    def test_either_instance_serves_the_same_records(self, demo_view):
+        activate(demo_view, INJECTION)
+        served = []
+        for instance in ("virtual_accelerator", "live_standin"):
+            serving = composite(demo_view, instance)
+            state = plain(serving.get(STATE_RECORDS))
+            serving.set({ARM: 1})
+            serving.set({REQUEST: 1})
+            served.append((state, plain(serving.get(SHOT_RECORDS))))
+        assert served[0] == served[1]
+        assert served[0][0][STORED_CURRENT] > 0.0
+        assert any(value != 0.0 for value in served[0][1][SHOT_RECORDS[2]])
+
+    def test_an_apply_drops_the_session_writes(self, demo_view):
+        activate(demo_view, INJECTION)
+        serving = composite(demo_view)
+        defaults = serving.get([TURNS_SP, TONE_SP])
+        assert defaults[TONE_SP] == "Off"
+        serving.set({TURNS_SP: defaults[TURNS_SP] + 1, TONE_SP: "On"})
+        assert serving.get([TURNS_SP, TONE_SP]) != defaults
+
+        activate(demo_view, INJECTION)
+
+        assert serving.get([TURNS_SP, TONE_SP]) == defaults

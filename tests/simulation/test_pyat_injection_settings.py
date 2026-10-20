@@ -2,7 +2,11 @@
 
 ``prepare`` checks the block against the deck and normalises it onto
 ``Prepared``. A periodic model states it; a single-pass model refuses it and
-launches from ``twiss_in.closed_orbit``.
+launches from ``twiss_in.closed_orbit``. The block states the marker and the
+trigger sample only: a periodic model's settings launch from the identity, a
+scenario's ``launch_<coordinate>`` faults are the one launch producer, and the
+trigger sample is the measurement file's, written into the block by the build
+(a model stating none keeps the engine's ten samples before the launch).
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ MODEL = "SR"
 
 TWISS = {"beta": [5.0, 3.0], "alpha": [0.1, -0.2]}
 
-#: The launch vector in the engine's coordinate order.
+#: A launch vector in the engine's coordinate order, as the block once stated it.
 LAUNCH = {"x": 1e-3, "px": 2e-4, "y": -5e-4, "py": 1e-4, "delta": 1e-3, "ct": -2e-3}
 
 
@@ -68,28 +72,32 @@ class TestNormalisedBlock:
     def test_injection_is_a_settings_key(self):
         assert "injection" in engine.SETTINGS_KEYS
 
-    def test_the_marker_alone_launches_on_axis_with_ten_pre_trigger_samples(self, deck: Path):
+    def test_the_marker_alone_launches_on_axis_with_ten_samples_before_the_trigger(
+        self, deck: Path
+    ):
         injection = _periodic(deck, {"marker": "INJ"}).injection
         assert injection.marker == "INJ"
         assert injection.index == 3
         assert injection.launch.dtype == float
         np.testing.assert_array_equal(injection.launch, np.zeros(6))
-        assert injection.pre_trigger_samples == 10
+        assert injection.trigger_sample == 10
 
-    def test_the_launch_vector_is_in_the_order_pyat_tracks(self, deck: Path):
-        injection = _periodic(deck, {"marker": "INJ", **LAUNCH}).injection
-        np.testing.assert_array_equal(injection.launch, [1e-3, 2e-4, -5e-4, 1e-4, 1e-3, -2e-3])
+    def test_the_block_holds_only_the_marker_and_the_trigger_sample(self):
+        assert engine.INJECTION_KEYS == {"marker", "trigger_sample"}
 
-    def test_an_unstated_coordinate_is_zero(self, deck: Path):
-        injection = _periodic(deck, {"marker": "INJ", "x": 2, "delta": 1e-3}).injection
-        np.testing.assert_array_equal(injection.launch, [2.0, 0.0, 0.0, 0.0, 1e-3, 0.0])
+    def test_the_launch_coordinates_keep_the_order_pyat_tracks(self):
+        assert engine.LAUNCH_KEYS == ("x", "px", "y", "py", "delta", "ct")
 
-    def test_pre_trigger_samples_is_taken_as_stated(self, deck: Path):
-        none = _periodic(deck, {"marker": "INJ", "pre_trigger_samples": 0}).injection
-        assert none.pre_trigger_samples == 0
-        injection = _periodic(deck, {"marker": "INJ", "pre_trigger_samples": 25}).injection
-        assert injection.pre_trigger_samples == 25
-        assert type(injection.pre_trigger_samples) is int
+    def test_every_settings_launch_is_the_identity(self, deck: Path):
+        prepared = _periodic(deck, {"marker": "INJ", "trigger_sample": 4})
+        np.testing.assert_array_equal(prepared.injection.launch, np.zeros(6))
+
+    def test_the_trigger_sample_is_taken_as_written(self, deck: Path):
+        none = _periodic(deck, {"marker": "INJ", "trigger_sample": 0}).injection
+        assert none.trigger_sample == 0
+        injection = _periodic(deck, {"marker": "INJ", "trigger_sample": 25}).injection
+        assert injection.trigger_sample == 25
+        assert type(injection.trigger_sample) is int
 
     def test_a_periodic_model_stating_no_injection_prepares_without_one(self, deck: Path):
         assert engine.prepare(deck, None, model=MODEL).injection is None
@@ -121,7 +129,7 @@ class TestRefusals:
         assert "unknown keys shape" in stop.detail
 
     def test_a_block_without_a_marker(self, deck: Path):
-        stop = _refusal(deck, {"injection": {"x": 1e-3}})
+        stop = _refusal(deck, {"injection": {"trigger_sample": 4}})
         assert stop.detail == "settings key pyat.injection lacks marker"
 
     @pytest.mark.parametrize("marker", [3, None, "", ["INJ"]])
@@ -141,15 +149,26 @@ class TestRefusals:
         assert (stop.element, stop.count) == ("TWICE", 2)
 
     @pytest.mark.parametrize("key", ["x", "px", "y", "py", "delta", "ct"])
-    @pytest.mark.parametrize("value", ["1e-3", True, float("nan"), float("inf"), [1e-3]])
-    def test_a_coordinate_that_is_not_a_finite_number(self, deck: Path, key: str, value: Any):
-        stop = _refusal(deck, {"injection": {"marker": "INJ", key: value}})
-        assert stop.detail == f"settings key pyat.injection.{key} is {value!r}"
+    def test_a_launch_coordinate_is_an_unknown_key(self, deck: Path, key: str):
+        stop = _refusal(deck, {"injection": {"marker": "INJ", key: LAUNCH[key]}})
+        assert stop.detail == f"settings key pyat.injection carries unknown keys {key}"
+        assert f"launch_{key}" in stop.remedy
+
+    def test_the_whole_launch_vector_is_refused_and_named(self, deck: Path):
+        stop = _refusal(deck, {"injection": {"marker": "INJ", **LAUNCH}})
+        assert stop.detail == (
+            "settings key pyat.injection carries unknown keys ct, delta, px, py, x, y"
+        )
 
     @pytest.mark.parametrize("value", [-1, 2.0, 2.5, True, "10", float("nan")])
-    def test_pre_trigger_samples_that_is_not_a_count(self, deck: Path, value: Any):
-        stop = _refusal(deck, {"injection": {"marker": "INJ", "pre_trigger_samples": value}})
-        assert stop.detail == f"settings key pyat.injection.pre_trigger_samples is {value!r}"
+    def test_a_trigger_sample_that_is_not_a_count(self, deck: Path, value: Any):
+        stop = _refusal(deck, {"injection": {"marker": "INJ", "trigger_sample": value}})
+        assert stop.detail == f"settings key pyat.injection.trigger_sample is {value!r}"
+
+    def test_the_retired_pre_trigger_key_is_an_unknown_key(self, deck: Path):
+        stop = _refusal(deck, {"injection": {"marker": "INJ", "pre_trigger_samples": 4}})
+        assert stop.detail == "settings key pyat.injection carries unknown keys pre_trigger_samples"
+        assert "trajectory declaration" in stop.remedy
 
     def test_an_unknown_settings_key_still_stops_and_the_remedy_names_injection(self, deck: Path):
         stop = _refusal(deck, {"injection": {"marker": "INJ"}, "kicker": "K1"})
@@ -181,7 +200,7 @@ class TestSinglePass:
         assert injection.marker is None
         assert injection.index == 0
         np.testing.assert_array_equal(injection.launch, [*orbit, 0.0, 0.0])
-        assert injection.pre_trigger_samples == 10
+        assert injection.trigger_sample == 10
 
     def test_an_unstated_closed_orbit_launches_on_axis(self, deck: Path):
         prepared = engine.prepare(

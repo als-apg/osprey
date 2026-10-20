@@ -3,10 +3,11 @@
 A record whose engine block carries ``series`` is a buffer of one reading per
 tracked sample; ``attribute: armed`` on no element is the flag that says a
 shot will fill the buffers; a write of ``arm`` or ``inject`` on no element is
-a command. ``describe`` names the three, ``start_values`` starts them at
-rest, and a series record is kept out of every path that takes an orbit
-monitor: the monitor rule, the monitor variable, the fault slots and the
-readout.
+a command; ``attribute: turns_tracked`` on no element is the global setting
+that sizes the turns a shot fills. ``describe`` names them, ``start_values``
+starts them at rest -- a series at zero, since no reading has been taken --
+and a series record is kept out of every path that takes an orbit monitor:
+the monitor rule, the monitor variable, the fault slots and the readout.
 """
 
 from __future__ import annotations
@@ -38,12 +39,13 @@ ARM = "BPM1:ARM"
 REQUEST = "INJ:REQUEST"
 QUADRUPOLE = "QF:SP"
 TUNE = "TUNE:X"
+TURNS = "TBT:TURNS"
 
 #: The samples each series buffer holds.
 LENGTH = 64
 
 #: A periodic model's settings with a launch and five samples before it.
-SETTINGS = {"pyat": {"injection": {"marker": "INJ", "pre_trigger_samples": 5}}}
+SETTINGS = {"pyat": {"injection": {"marker": "INJ", "trigger_sample": 5}}}
 
 #: The four keys every description carries; a command carries its mark as well.
 DESCRIPTION_KEYS = {"role", "plane", "refresh", "kind"}
@@ -197,8 +199,7 @@ class TestDescribe:
             engine.COMMAND_MARK: True,
         }
 
-    def test_the_commands_are_arm_and_inject(self):
-        assert engine.COMMAND_ATTRIBUTES == {"arm", "inject"}
+    def test_the_command_mark_is_command(self):
         assert engine.COMMAND_MARK == "command"
 
     @pytest.mark.parametrize(
@@ -209,6 +210,7 @@ class TestDescribe:
             {"address": "E:SP", "direction": "write", "engine": {"attribute": "energy"}},
             {"address": "E:RB", "direction": "read", "engine": {"attribute": "energy"}},
             {"address": TUNE, "direction": "read", "engine": {"attribute": "tune", "axis": "x"}},
+            command(TURNS, "turns_tracked"),
             {
                 "address": "QF:RB",
                 "direction": "read",
@@ -424,6 +426,20 @@ class TestChannelTypes:
         value_types = {a: t for a, t in VALUE_TYPES.items() if a != SERIES_X}
         shapes = {a: s for a, s in SHAPES.items() if a != SERIES_X}
         refusal(deck, SERIES_X, value_types=value_types, shapes=shapes)
+
+    def test_an_int_global_setting_is_admitted_and_starts_as_a_whole_number(self, deck: Path):
+        values = start(
+            deck,
+            wiring=[*WIRING, command(TURNS, "turns_tracked")],
+            value_types={**VALUE_TYPES, TURNS: "int"},
+        )
+        assert values[TURNS] == min(engine.TURNS_TRACKED_DEFAULT, LENGTH - 5)
+        assert type(values[TURNS]) is int
+
+    def test_the_series_start_at_their_rest_length_beside_the_global_setting(self, deck: Path):
+        values = start(deck, wiring=[*WIRING, command(TURNS, "turns_tracked")])
+        for address in SERIES:
+            assert values[address] == [0.0] * LENGTH
 
     def test_an_int_channel_that_is_no_flag_or_command_is_still_refused(self, deck: Path):
         stop = refusal(deck, QUADRUPOLE, value_types={**VALUE_TYPES, QUADRUPOLE: "int"})

@@ -353,15 +353,7 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
         "settings": {
             "pyat": {
                 "solve": "periodic",
-                "injection": {
-                    "marker": "INJ",
-                    "x": 0.0,
-                    "px": 0.0,
-                    "y": 0.0,
-                    "py": 0.0,
-                    "delta": 0.0,
-                    "ct": 0.0,
-                },
+                "injection": {"marker": "INJ", "trigger_sample": 10},
             }
         },
         "deck": "decks/SR.json",

@@ -31,9 +31,9 @@ MARKER_AFTER = 3
 #: The cells in the order a particle launched at the marker meets them.
 ROTATED_CELLS = (*CELLS[MARKER_AFTER:], *CELLS[:MARKER_AFTER])
 
-#: A launch off the axis in both planes.
-LAUNCH = {"x": 2.0e-4, "px": -3.0e-5, "y": -1.0e-4, "py": 2.0e-5}
-SETTINGS = {"pyat": {"injection": {"marker": MARKER, **LAUNCH}}}
+#: The settings launch from the identity: the matrix is linearised about it,
+#: whatever launch a scenario later gives the built model's shots.
+SETTINGS = {"pyat": {"injection": {"marker": MARKER}}}
 
 #: Hardware per metre of a turn-series record, and of an orbit record.
 SERIES_GAIN = 1.0e9
@@ -181,13 +181,13 @@ def _column_index(response: Any) -> list[int]:
 
 
 def _first_turn(deck: Path, element: str, plane: int, kick: float) -> np.ndarray:
-    """The turn pyAT itself tracks from the marker: every x, then every y, in metres."""
+    """The turn pyAT itself tracks from the marker, launched on axis: x then y, in metres."""
     lattice = _rotated(deck)
     angles = [0.0, 0.0]
     angles[plane] = kick
     lattice[_index(lattice, element)].KickAngle = angles
     monitors = lattice.get_uint32_index(at.Monitor)
-    start = np.array([LAUNCH.get(key, 0.0) for key in engine.LAUNCH_KEYS]).reshape(6, 1)
+    start = np.zeros((6, 1))
     r_out = at.lattice_track(lattice, start, nturns=1, refpts=monitors)[0]
     return np.concatenate([r_out[0, 0, :, 0], r_out[2, 0, :, 0]])
 

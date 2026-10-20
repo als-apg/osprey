@@ -76,6 +76,9 @@ def test_the_demo_sr_model_builds_the_five_kinds_and_trajectory(
         "rf",
         "injection_request",
         "injection_busy",
+        "rf_status",
+        "beam_current",
+        "bunch_clean_enable",
     }
 
 

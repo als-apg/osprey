@@ -44,7 +44,7 @@ import math
 import os
 import weakref
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -56,10 +56,14 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
 from osprey.simulation.engines.pyat_faults import (
     APERTURE_SHAPES,
+    LAUNCH_COORDINATES,
+    LAUNCH_FAULTS,
     MISALIGNED_MAGNETS,
     MISALIGNMENT_FIELDS,
     MISALIGNMENT_SEED,
     MODEL_WIDE_FAULTS,
+    READOUT_ATTRIBUTE_IDENTITY,
+    WHOLE_FAULTS,
     aperture_half_axis,
     fault_variables,
     is_series_record,
@@ -73,6 +77,11 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CONDITIONS",
+    "GLOBAL_ATTRIBUTES",
+    "GLOBAL_KIND",
+    "STORED_CURRENT_ATTRIBUTE",
+    "TURNS_TRACKED_ATTRIBUTE",
+    "TURNS_TRACKED_DEFAULT",
     "ElementStop",
     "Injection",
     "Prepared",
@@ -95,14 +104,18 @@ __all__ = [
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev", "injection"})
 
-#: The coordinates of the ``injection`` launch vector, in the order pyAT
-#: tracks them; each is zero when the block leaves it out.
-LAUNCH_KEYS: tuple[str, ...] = ("x", "px", "y", "py", "delta", "ct")
+#: The coordinates of a launch vector, in the order pyAT tracks them. A
+#: scenario states a periodic model's launch through the model-wide faults
+#: ``launch_<coordinate>``; the ``injection`` block states none.
+LAUNCH_KEYS: tuple[str, ...] = LAUNCH_COORDINATES
 
-#: The keys the ``injection`` block may carry.
-INJECTION_KEYS: frozenset[str] = frozenset({"marker", "pre_trigger_samples", *LAUNCH_KEYS})
+#: The keys the ``injection`` block may carry. ``trigger_sample`` is never
+#: authored with the model: the build writes it from the measurement file's
+#: ``trajectory`` declaration, the one place the trigger sample is stated.
+INJECTION_KEYS: frozenset[str] = frozenset({"marker", "trigger_sample"})
 
-#: The samples a turn series holds before the launch when the block states none.
+#: The samples a turn series holds before the launch when the block states no
+#: trigger sample: a model whose measurement file declares no trajectory.
 PRE_TRIGGER_SAMPLES: int = 10
 
 #: The ``solve`` values, the first one the default.
@@ -143,14 +156,37 @@ _INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 
 #: The kind of device an element attribute drives, for the attributes that
 #: are not a strength's polynomial coefficient.
-_ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf"}
+_ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf", "Voltage": "rf"}
 
-#: The engine-block attributes a write naming no element commands a shot
-#: with: ``arm`` readies the turn series, ``inject`` requests a launch.
-COMMAND_ATTRIBUTES: frozenset[str] = frozenset({"arm", "inject"})
+#: The engine-block attributes a write naming no element commands the model
+#: with: ``arm`` readies the turn series, ``inject`` requests a launch, and
+#: ``clear_stored_charge`` empties the charge the model has stored.
+COMMAND_ATTRIBUTES: frozenset[str] = frozenset({"arm", "inject", "clear_stored_charge"})
 
 #: The engine-block attribute a read naming no element reads the armed flag by.
 ARMED_ATTRIBUTE: str = "armed"
+
+#: The engine-block attribute a read naming no element reads the model's
+#: stored charge by, served as its current. Its engine block also carries the
+#: decay data of a stored beam with no RF: ``surviving_fraction`` per shot and
+#: ``charge_floor``.
+STORED_CURRENT_ATTRIBUTE: str = "stored_current"
+
+#: The engine-block attribute of the model's turns tracked: the turns after
+#: the trigger sample a shot tracks and its turn series read beam on.
+TURNS_TRACKED_ATTRIBUTE: str = "turns_tracked"
+
+#: The engine-block attributes a record naming no element sets or reads one
+#: model-wide engine value by: a global setting, held by the model and written
+#: to no element.
+GLOBAL_ATTRIBUTES: frozenset[str] = frozenset({TURNS_TRACKED_ATTRIBUTE})
+
+#: The kind a global setting and its readback are described with.
+GLOBAL_KIND: str = "global"
+
+#: The turns tracked of a model that wires no setting for it, or whose setting
+#: states no default, up to the samples its turn series hold after the trigger.
+TURNS_TRACKED_DEFAULT: int = 100
 
 #: The key a command's description carries, ``True``; no other description
 #: carries it.
@@ -182,15 +218,17 @@ class Injection:
             single-pass model, which launches at the start of the deck.
         index: That element's index in the deck.
         launch: The launch vector, six floats in pyAT's order ``x px y py
-            delta ct``.
-        pre_trigger_samples: The samples a turn series holds before the
+            delta ct``: zeros as a periodic model's settings give it -- the
+            identity launch its response matrix linearises about -- and the
+            scenario's ``launch_<coordinate>`` faults on a built model.
+        trigger_sample: The samples a turn series holds before the
             launch.
     """
 
     marker: str | None
     index: int
     launch: np.ndarray
-    pre_trigger_samples: int
+    trigger_sample: int
 
 
 @dataclass(frozen=True)
@@ -425,7 +463,7 @@ def _normalise_injection(injection: Any, loaded: _Loaded, deck: Deck, model_id: 
             model_id,
             "model",
             "settings key pyat.injection is not a map",
-            "state injection as a map of marker, x, px, y, py, delta, ct, pre_trigger_samples",
+            "state injection as a map holding the marker",
         )
     unknown = sorted(str(key) for key in set(injection) - INJECTION_KEYS)
     if unknown:
@@ -434,7 +472,10 @@ def _normalise_injection(injection: Any, loaded: _Loaded, deck: Deck, model_id: 
             model_id,
             "model",
             f"settings key pyat.injection carries unknown keys {', '.join(unknown)}",
-            "use only marker, x, px, y, py, delta, ct, pre_trigger_samples",
+            "use only marker (the build adds trigger_sample from the measurement "
+            "file's trajectory declaration); a scenario states the launch "
+            "as the model-wide faults launch_x, launch_px, launch_y, launch_py, "
+            "launch_delta, launch_ct",
         )
     if "marker" not in injection:
         raise _stop(
@@ -455,27 +496,16 @@ def _normalise_injection(injection: Any, loaded: _Loaded, deck: Deck, model_id: 
         )
     index = _element_index(loaded, deck, marker, model_id, "model")
     launch = np.zeros(len(LAUNCH_KEYS))
-    for position, key in enumerate(LAUNCH_KEYS):
-        value = injection.get(key, 0.0)
-        if not _number(value):
-            raise _stop(
-                deck,
-                model_id,
-                "model",
-                f"settings key pyat.injection.{key} is {value!r}",
-                f"give injection.{key} as a finite number",
-            )
-        launch[position] = value
-    samples = injection.get("pre_trigger_samples", PRE_TRIGGER_SAMPLES)
+    samples = injection.get("trigger_sample", PRE_TRIGGER_SAMPLES)
     if isinstance(samples, bool) or not isinstance(samples, int) or samples < 0:
         raise _stop(
             deck,
             model_id,
             "model",
-            f"settings key pyat.injection.pre_trigger_samples is {samples!r}",
-            "give pre_trigger_samples as a whole number of samples, zero or more",
+            f"settings key pyat.injection.trigger_sample is {samples!r}",
+            "declare trajectory.trigger_sample as a whole number of samples, zero or more",
         )
-    return Injection(marker=marker, index=index, launch=launch, pre_trigger_samples=samples)
+    return Injection(marker=marker, index=index, launch=launch, trigger_sample=samples)
 
 
 def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
@@ -485,7 +515,8 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
             rest_mass_gev?, injection?}}``, or ``None``. ``injection`` is
-            ``{marker, x?, px?, y?, py?, delta?, ct?, pre_trigger_samples?}``.
+            ``{marker, trigger_sample?}``; the build writes ``trigger_sample``
+            from the measurement file's ``trajectory`` declaration.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -502,7 +533,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             ``injection`` on a single-pass model, or an ``injection`` block
             with an unknown key, a ``marker`` the deck does not hold exactly
             once (an :class:`ElementStop`), a coordinate that is not a finite
-            number or a ``pre_trigger_samples`` that is not a count.
+            number or a ``trigger_sample`` that is not a count.
     """
     import at
 
@@ -624,7 +655,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             marker=None,
             index=0,
             launch=twiss_in["closed_orbit"].copy(),
-            pre_trigger_samples=PRE_TRIGGER_SAMPLES,
+            trigger_sample=PRE_TRIGGER_SAMPLES,
         )
     elif stated is not None:
         injection = _normalise_injection(stated, loaded, deck, model_id)
@@ -661,7 +692,7 @@ def _read_element(loaded: _Loaded, deck: Deck, record: Any, record_id: str) -> f
             "the engine block names no attribute to read a start value from",
             "name the element attribute in the engine block",
         )
-    raw = getattr(loaded.lattice[index], attribute, None)
+    raw: Any = getattr(loaded.lattice[index], attribute, READOUT_ATTRIBUTE_IDENTITY.get(attribute))
     if raw is None:
         raise _stop(
             deck,
@@ -715,6 +746,56 @@ def _hardware(
         ) from None
 
 
+def _labelled_readout(record: Any, deck: Deck, address: str) -> bool:
+    """Whether a record is a labelled readout setting whose table maps its label indices.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record when it is
+            marked ``discrete`` but its table is refused.
+    """
+    from osprey.simulation.engines.pyat_variables import (
+        is_readout_setting_record,
+        readout_setting_levels,
+    )
+
+    if not is_readout_setting_record(record):
+        return False
+    try:
+        readout_setting_levels(record)
+    except ValueError as exc:
+        raise _stop(
+            deck,
+            field(record, "id") or address,
+            "wiring",
+            str(exc),
+            "give the record a calibration table from each label index to its value",
+        ) from exc
+    return True
+
+
+def _readout_setting_default(record: Any, deck: Deck) -> int:
+    """The label index a labelled readout setting boots at: its stated default, else 0.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record when its
+            stated default is not one of its label indices.
+    """
+    from osprey.simulation.engines.pyat_variables import readout_setting_from_wiring
+
+    stated = field(record, "default")
+    try:
+        built = readout_setting_from_wiring(record, 0 if stated is None else stated)
+    except ValueError as exc:
+        raise _stop(
+            deck,
+            field(record, "id") or field(record, "address"),
+            "wiring",
+            str(exc),
+            "state a default that is one of the record's label indices",
+        ) from exc
+    return int(built.default_value)
+
+
 def start_values(
     deck: Deck,
     wiring: Iterable[Any],
@@ -732,7 +813,11 @@ def start_values(
     of :data:`DECK_PROPERTIES`, that property of the deck; it is mapped to
     hardware through ``calibration.inverse`` when present, else through the
     algebraic inverse of a ``linear`` curve; with no calibration the physics
-    value is the hardware value. A readback takes its paired setpoint's value
+    value is the hardware value. The RF-on switch (a cavity's ``Voltage``)
+    starts on, at its on index. A labelled readout setting (a readout
+    attribute on an element, its engine block marked ``discrete``) starts at
+    the label index its record states as ``default``, else at 0, the first
+    label. A readback takes its paired setpoint's value
     when that setpoint is in ``wiring``, else zero; a waveform readback wired
     to a whole optics output starts as one zero per plane. Any other record
     that names no element has no start value in the deck and is left out.
@@ -742,7 +827,11 @@ def start_values(
     armed flag (``attribute: armed`` on no element) and a command (one of
     :data:`COMMAND_ATTRIBUTES` on no element) as the whole number 0. Every
     turn series of a model holds the same number of samples, at least one
-    more than the model's pre-trigger samples.
+    more than the model's pre-trigger samples. The turns tracked (one of
+    :data:`GLOBAL_ATTRIBUTES` on no element) starts at the default its record
+    states, else at :data:`TURNS_TRACKED_DEFAULT` up to the samples the
+    series hold after the trigger; its readback takes its paired setting's
+    value like any readback, or that default when it has no pair.
 
     Args:
         deck: The lattice file.
@@ -755,7 +844,9 @@ def start_values(
         value_types: Each wired channel's ``value_type``; an address it
             does not name is float. pyat drives float channels only, but for
             a waveform readback wired to a whole optics output, a waveform
-            turn series, and an int armed flag or command.
+            turn series, an int armed flag, command or global setting, and a
+            bool or enum RF-on switch, labelled readout setting, or readback
+            of either.
         shapes: Each wired waveform channel's ``shape``; a readback wired to
             a whole optics output is as long as the deck has planes.
 
@@ -767,8 +858,11 @@ def start_values(
             first record, in record order, whose channel is a turn series
             that is not a waveform, a non-float setpoint that is not an int
             command, or a non-float readback that is neither a waveform
-            reading an optics output nor the int armed flag (raised before
-            the deck is read); for an element
+            reading an optics output nor the int armed flag, or a bool or
+            enum labelled readout setting whose table grid is not its label
+            indices (raised before the deck is read);
+            for a labelled readout setting whose stated default is no label
+            index; for an element
             absent from or repeated in the deck (an ``ElementStop``), an
             unreadable attribute, or a setpoint's or monitor's (a record whose
             engine block names an ``axis``) table calibration without an
@@ -780,6 +874,11 @@ def start_values(
             whatever :func:`prepare` raises for the settings of a model
             wiring a turn series.
     """
+    from osprey.simulation.engines.pyat_variables import (
+        RF_ON_INDEX,
+        is_readout_setting_record,
+        is_rf_switch_record,
+    )
     from osprey_connectors.simulation.values import is_waveform
 
     readbacks = readbacks or {}
@@ -798,10 +897,18 @@ def start_values(
                     "wire a waveform channel, or leave the channel unwired",
                 )
             continue
+        labelled = value_type in ("bool", "enum")
         if is_waveform(value_type):
             admitted = address in readbacks and _reads_an_output(record)
         else:
-            admitted = value_type == "float" or (value_type == "int" and _holds_shot_state(record))
+            admitted = (
+                value_type == "float"
+                or (value_type == "int" and (_holds_shot_state(record) or _is_global(record)))
+                or (
+                    labelled
+                    and (is_rf_switch_record(record) or _labelled_readout(record, deck, address))
+                )
+            )
         if not admitted:
             raise _stop(
                 deck,
@@ -821,6 +928,11 @@ def start_values(
             _check_whole_output(record, (shapes or {}).get(address, ()), deck, planes)
             whole_outputs.add(address)
     samples = _series_length(records, shapes or {}, deck, settings)
+    bound = (
+        _turns_bound(samples, prepare(deck, settings).injection)
+        if samples and any(_is_global(record) for record in records)
+        else None
+    )
     values: dict[str, float | list[float]] = {}
     pending: list[str] = []
     for record in records:
@@ -835,8 +947,18 @@ def start_values(
             values[address] = 0
             continue
         pair = readbacks.get(address)
+        if _is_global(record) and (address not in readbacks or pair is None):
+            turns = turns_tracked_default(field(record, "default"), bound)
+            values[address] = int(turns) if value_types.get(address) == "int" else float(turns)
+            continue
         if address in readbacks and pair != address:
             pending.append(address)
+            continue
+        if is_rf_switch_record(record):
+            values[address] = RF_ON_INDEX
+            continue
+        if is_readout_setting_record(record):
+            values[address] = _readout_setting_default(record, deck)
             continue
         physics = _read_element(loaded, deck, record, record_id)
         if physics is None:
@@ -918,7 +1040,7 @@ def _series_length(
                 f"{address} is a turn series on a model whose settings state no injection",
                 "state settings.pyat.injection, or leave the series unwired",
             )
-        least = injection.pre_trigger_samples + 1
+        least = injection.trigger_sample + 1
         shape = list(shapes.get(address, ()))
         length = shape[0] if len(shape) == 1 else None
         if isinstance(length, bool) or not isinstance(length, int) or length < least:
@@ -927,7 +1049,7 @@ def _series_length(
                 record_id,
                 "wiring",
                 f"{address} is a turn series of shape {shape}; a turn series holds the "
-                f"{injection.pre_trigger_samples} samples before the launch and at least one after",
+                f"{injection.trigger_sample} samples before the launch and at least one after",
                 f"give the channel a shape of one length, {least} or more",
             )
         if samples is None:
@@ -964,7 +1086,15 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
       plane the ``axis``, else the ``index`` (0 is ``x``, 1 is ``y``); a
       whole-output waveform has no plane;
     * a read naming no element whose engine ``attribute`` is ``armed`` is a
-      ``turn_series`` with no plane.
+      ``turn_series`` with no plane;
+    * a read naming no element whose engine ``attribute`` is
+      :data:`STORED_CURRENT_ATTRIBUTE` is an ``output`` with no plane and no
+      kind, refreshed ``periodic``: a shot, a clearing and a lost closed
+      orbit each move it, so the periodic pass publishes it;
+    * a record naming no element whose engine ``attribute`` is one of
+      :data:`GLOBAL_ATTRIBUTES` is a global setting: a ``setpoint`` when
+      written, else its ``readback``, of kind :data:`GLOBAL_KIND` and no
+      plane.
 
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
     index 0 is ``x`` and index 1 is ``y``. A chromaticity output refreshes
@@ -972,8 +1102,9 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     refreshes ``pass``, with each write's solve.
 
     The ``kind`` is the device a setpoint or readback drives or reads back:
-    ``kick`` for ``KickAngle``, ``rf`` for ``Frequency``, ``energy`` for the
-    deck energy, ``strength`` for any other element attribute. A monitor's
+    ``kick`` for ``KickAngle``, ``rf`` for ``Frequency`` and the RF-on
+    switch's ``Voltage``, ``energy`` for the deck energy, ``global`` for a
+    global setting, ``strength`` for any other element attribute. A monitor's
     kind is ``monitor``; an optics output, a turn series and a command have
     none.
 
@@ -985,7 +1116,7 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
         ``readback``, ``monitor``, ``output``, ``turn_series``; ``plane``
         ``x``, ``y`` or ``None``; ``refresh`` ``pass`` or ``periodic``;
         ``kind`` one of ``kick``, ``strength``, ``rf``, ``energy``,
-        ``monitor``, or ``None``. A command's description carries
+        ``global``, ``monitor``, or ``None``. A command's description carries
         :data:`COMMAND_MARK` as a fifth key.
 
     Raises:
@@ -1007,7 +1138,9 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
             return _description("monitor", axis if axis in OPTICS_AXES else None, "monitor")
         if attribute is not None:
             return _description("readback", _steered_plane(block), _setting_kind(wiring_record))
-    elif attribute in DECK_PROPERTIES:
+    elif _is_stored_current(wiring_record):
+        return _description("output", None, None, "periodic")
+    elif attribute in DECK_PROPERTIES or _is_global(wiring_record):
         return _description("readback", None, _setting_kind(wiring_record))
     elif attribute in OPTICS_ATTRIBUTES:
         refresh = "periodic" if OPTICS_ATTRIBUTES[attribute] == "chromaticity" else "pass"
@@ -1029,6 +1162,44 @@ def _is_command(record: Any) -> bool:
     )
 
 
+def _is_stored_current(record: Any) -> bool:
+    """Whether a record reads the stored charge: a read naming no element, its attribute."""
+    return (
+        field(record, "direction") != "write"
+        and not _names_element(record)
+        and field(field(record, "engine"), "attribute") == STORED_CURRENT_ATTRIBUTE
+    )
+
+
+def _is_global(record: Any) -> bool:
+    """Whether a record sets or reads a global setting: no element, a global attribute."""
+    attribute = field(field(record, "engine"), "attribute")
+    return (
+        not _names_element(record) and isinstance(attribute, str) and attribute in GLOBAL_ATTRIBUTES
+    )
+
+
+def turns_tracked_default(stated: Any, bound: int | None) -> float:
+    """The turns tracked a model starts at.
+
+    The default a setting's record states when it states one, else
+    :data:`TURNS_TRACKED_DEFAULT` up to ``bound``, the samples the model's
+    turn series hold after the trigger (``None`` for no bound).
+    """
+    if stated is not None:
+        return float(stated)
+    if bound is None:
+        return float(TURNS_TRACKED_DEFAULT)
+    return float(min(TURNS_TRACKED_DEFAULT, bound))
+
+
+def _turns_bound(samples: int, injection: Injection | None) -> int | None:
+    """The most turns a model's series hold after the trigger; ``None`` with no series."""
+    if not samples or injection is None:
+        return None
+    return samples - injection.trigger_sample
+
+
 def _holds_shot_state(record: Any) -> bool:
     """Whether a record is a command or the armed flag: a whole number, zero at rest."""
     return _is_command(record) or (
@@ -1044,10 +1215,13 @@ def _description(
 
 
 def _setting_kind(record: Any) -> str:
-    """The device a setting record drives: a deck property by its name, else by attribute."""
+    """The device a setting record drives: a deck property by its name, a global
+    setting as :data:`GLOBAL_KIND`, else by attribute."""
     attribute = field(field(record, "engine"), "attribute")
     if not isinstance(attribute, str):
         return "strength"
+    if _is_global(record):
+        return GLOBAL_KIND
     if attribute in DECK_PROPERTIES:
         return attribute
     return _ATTRIBUTE_KINDS.get(attribute, "strength")
@@ -1180,9 +1354,28 @@ def build(
       1 sets the model's one armed flag, and an ``inject`` request written
       above the last value the model saw is one shot;
     * a read naming no element whose attribute is ``armed`` reads that flag;
+    * a labelled readout setting (a readout attribute on an element, its
+      engine block marked ``discrete``) holds the index of one of its labels
+      and writes the value its calibration table states for that index onto
+      the element; its default is the active value when ``active`` names it,
+      else the entry's ``default``, else 0. A read of the same record answers
+      the index whose table value the element carries;
+    * a read naming no element whose attribute is ``stored_current`` reads the
+      charge the model has stored, as a current: the charge times the deck's
+      revolution frequency, through the entry's calibration. Its engine block
+      states the share of the stored charge a shot with every cavity off
+      leaves (``surviving_fraction``, 0 when unstated) and the charge at or
+      below which it is gone (``charge_floor``, 0 when unstated);
+    * a record naming no element whose attribute is ``turns_tracked`` is the
+      model's one turns tracked, a global setting: the turns after the
+      trigger sample a shot tracks, whole turns from 1 to the samples the
+      series hold after the trigger, :data:`TURNS_TRACKED_DEFAULT` up to that
+      bound unless the record states a default; a read of it is its readback;
     * a turn series (an element and an engine ``series``) holds one sample of
-      its monitor per tracked turn, as long as its ``shape``: zero until an
-      armed shot fills it, through the entry's calibration.
+      its monitor per sample, as long as its ``shape``: zero until an armed
+      shot fills it, through the entry's calibration; the turns tracked
+      after the trigger read beam, and every other sample the no-beam
+      reading.
 
     The settings' ``solve`` picks the solve: ``periodic`` solves the closed
     orbit; ``single_pass`` tracks one pass through the line from
@@ -1204,7 +1397,19 @@ def build(
     * ``aperture_elliptical_x`` and ``_y``, and ``aperture_rectangular_x`` and
       ``_y``, are the half-axes in metres of an aperture centred on the axis,
       written on every element of the copy that has a length; the two
-      half-axes of a shape are stated together.
+      half-axes of a shape are stated together;
+    * ``launch_x``, ``launch_px``, ``launch_y``, ``launch_py``,
+      ``launch_delta`` and ``launch_ct`` are the vector a shot is launched
+      from at the injection marker, each 0 when unstated; they apply to a
+      periodic model whose settings state an ``injection`` and stop on any
+      other. The response matrix is linearised about the identity launch
+      whatever they are;
+    * the bunch's shape, centroid jitter, particle count and the charges are
+      held for the shot path; a scenario that states ``bunch_particles``
+      declares a bunch, and without it a shot tracks one particle. A bunch
+      injects ``bunch_charge`` (1 when unstated) and the model holds
+      ``stored_charge`` (0 when unstated) at rest, which a bunch's shots
+      accumulate.
 
     Every other key of ``active`` is a fault seed, ``<address>/<field>``,
     written onto its element before the model adopts the variables. The
@@ -1231,7 +1436,9 @@ def build(
             the tunes or the chromaticity.
         FacilityBuildError: ``engine-invalid`` for a turn series
             :func:`start_values` would refuse for its shape or for a model
-            with no injection.
+            with no injection; for a turns-tracked record on a model with no
+            turn series, or whose ``value_range`` reaches outside 1 to the
+            samples the series hold after the trigger.
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
             ``active`` names no setpoint and no fault of the model, a
@@ -1252,9 +1459,15 @@ def build(
         PyATLatticeModel,
         ReadbackVariable,
         SeriesVariable,
+        StoredCurrentVariable,
         tune_planes,
     )
-    from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
+    from osprey.simulation.engines.pyat_variables import (
+        EV_PER_GEV,
+        is_readout_setting_record,
+        is_rf_switch_record,
+        variable_from_wiring,
+    )
 
     prepared = prepare(deck, settings, model=model)
     lattice = _load(deck).lattice.deepcopy()
@@ -1275,11 +1488,16 @@ def build(
         settings,
     )
 
+    bound = _turns_bound(samples, prepared.injection)
+
     channels: list[Any] = []
     for entry in entries:
         address = str(entry["address"])
         attribute = field(entry.get("engine"), "attribute")
         deck_property = not _names_element(entry) and attribute in DECK_PROPERTIES
+        if _is_global(entry):
+            channels.append(_global_variable(entry, deck, bound, setpoints, active))
+            continue
         if _is_command(entry):
             limits: dict[str, Any] = (
                 {"value_range": tuple(entry["value_range"])} if "value_range" in entry else {}
@@ -1296,6 +1514,9 @@ def build(
             continue
         if _holds_shot_state(entry) and entry.get("direction") == "read":
             channels.append(ArmedVariable(name=address, unit=entry.get("unit")))
+            continue
+        if _is_stored_current(entry):
+            channels.append(StoredCurrentVariable.from_wiring(entry))
             continue
         if _names_element(entry) and is_series_record(entry):
             channels.append(SeriesVariable.from_wiring(entry, samples))
@@ -1315,6 +1536,15 @@ def build(
                 )
             )
             continue
+        if entry.get("direction") == "read" and is_rf_switch_record(entry):
+            channels.append(_rf_switch(entry, lattice, deck, readback=True))
+            continue
+        if is_readout_setting_record(entry):
+            default = active.get(address, entry.get("default")) if address in writes else None
+            if address in writes and default is None:
+                default = 0
+            channels.append(_readout_setting(entry, deck, default))
+            continue
         if entry.get("direction") == "read" and (
             deck_property or (_names_element(entry) and attribute is not None)
         ):
@@ -1327,6 +1557,9 @@ def build(
                     unit=entry.get("unit"),
                 )
             )
+            continue
+        if address in writes and is_rf_switch_record(entry):
+            channels.append(_rf_switch(entry, lattice, deck))
             continue
         overrides: dict[str, Any] = {}
         if address in writes:
@@ -1352,10 +1585,163 @@ def build(
         element_misalignments=_misalignments(lattice, physics),
         solve=prepared.solve,
         twiss_in=prepared.twiss_in,
-        injection=prepared.injection,
+        injection=_launched(model, prepared, physics),
+        name=model,
+        bunch=physics,
     )
     built.reset()
     return built
+
+
+def _readout_setting(entry: Mapping[str, Any], deck: Deck, default: Any) -> Any:
+    """A labelled readout setting booting at index ``default``; its reading for ``None``.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record when its
+            table is not over its label indices, or ``default`` is no index.
+    """
+    from osprey.simulation.engines.pyat_variables import (
+        readout_setting_from_wiring,
+        readout_setting_readback_from_wiring,
+    )
+
+    try:
+        if default is None:
+            return readout_setting_readback_from_wiring(entry)
+        return readout_setting_from_wiring(entry, default)
+    except ValueError as exc:
+        raise _stop(
+            deck,
+            str(entry.get("id") or entry["address"]),
+            "wiring",
+            str(exc),
+            "give the record a calibration table from each label index to its value, "
+            "and boot it at one of those indices",
+        ) from exc
+
+
+def _rf_switch(
+    entry: Mapping[str, Any], lattice: Any, deck: Deck, *, readback: bool = False
+) -> Any:
+    """The RF-on switch of a cavity-voltage record, or with ``readback`` its reading.
+
+    Each bound cavity is weighted by the voltage it carries in ``lattice``,
+    read here, before any scenario touches it. A scenario never writes the
+    switch: it boots on whatever ``active`` names. The reading follows the
+    cavity itself rather than a held setpoint.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record when its
+            labels are not two, or a bound cavity carries no voltage, or zero.
+    """
+    from osprey.simulation.engines.pyat_variables import (
+        rf_switch_from_wiring,
+        rf_switch_readback_from_wiring,
+    )
+
+    voltages = {
+        str(element.FamName): float(element.Voltage)
+        for element in lattice
+        if hasattr(element, "Voltage")
+    }
+    try:
+        build = rf_switch_readback_from_wiring if readback else rf_switch_from_wiring
+        return build(entry, voltages)
+    except ValueError as exc:
+        raise _stop(
+            deck,
+            str(entry.get("id") or entry["address"]),
+            "wiring",
+            str(exc),
+            "bind the RF-on switch to a cavity carrying its voltage in the deck, "
+            "with two labels, off then on",
+        ) from exc
+
+
+def _global_variable(
+    entry: Mapping[str, Any],
+    deck: Deck,
+    bound: int | None,
+    setpoints: Mapping[tuple[Any, ...], str],
+    active: Mapping[str, Any],
+) -> Any:
+    """The variable of a global setting's record: the setting, or its readback.
+
+    The turns tracked ranges over whole turns from 1 to ``bound``, or over the
+    record's ``value_range`` inside that. Its default is the active value
+    when ``active`` names it, else the one :func:`turns_tracked_default`
+    gives. A readback follows the setting that drives the same attribute, or
+    reads that default when none does.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record on a model
+            whose turns are not tracked (no turn series), or for a
+            ``value_range`` reaching outside 1 to ``bound``.
+    """
+    from osprey.simulation.engines.pyat_model import ReadbackVariable, TurnsTrackedVariable
+
+    address = str(entry["address"])
+    record_id = str(entry.get("id") or address)
+    if bound is None:
+        raise _stop(
+            deck,
+            record_id,
+            "wiring",
+            f"{address} is the turns tracked of a model with no turn series",
+            "wire the model's turn series, or leave the record unwired",
+        )
+    default = turns_tracked_default(entry.get("default"), bound)
+    if entry.get("direction") != "write":
+        source = setpoints.get(_target(entry))
+        return ReadbackVariable(
+            name=address,
+            source=source,
+            default_value=None if source is not None else default,
+            unit=entry.get("unit"),
+        )
+    value_range: tuple[float, float] = (1, bound)
+    if "value_range" in entry:
+        low, high = entry["value_range"]
+        if low < 1 or high > bound:
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} ranges over [{low}, {high}]; the model's turn series hold "
+                f"{bound} turns after the trigger sample",
+                f"give a value_range inside [1, {bound}]",
+            )
+        value_range = (low, high)
+    return TurnsTrackedVariable(
+        name=address,
+        default_value=float(active.get(address, default)),
+        value_range=value_range,
+        unit=entry.get("unit"),
+    )
+
+
+def _launched(model: str, prepared: Prepared, physics: Mapping[str, float]) -> Injection | None:
+    """The model's injection, launched from the scenario's ``launch_<coordinate>`` faults.
+
+    Raises:
+        ValueError: when the scenario states a launch coordinate on a model
+            without an injection marker -- a single-pass model, or a periodic
+            one whose settings state no ``injection``.
+    """
+    stated = [name for name in LAUNCH_FAULTS if name in physics]
+    injection = prepared.injection
+    if not stated:
+        return injection
+    if injection is None or injection.marker is None:
+        raise ValueError(
+            f"model-wide fault {stated[0]} is set on model {model}, which launches at no "
+            "injection marker; state the launch on a periodic model whose settings "
+            "state pyat.injection"
+        )
+    import numpy as np
+
+    launch = np.array([physics.get(name, 0.0) for name in LAUNCH_FAULTS], dtype=np.float64)
+    return replace(injection, launch=launch)
 
 
 def _physics(active: Mapping[str, Any], writes: Iterable[str]) -> dict[str, float]:
@@ -1381,7 +1767,7 @@ def _physics(active: Mapping[str, Any], writes: Iterable[str]) -> dict[str, floa
             raise ValueError(
                 f"model-wide fault {name} is {raw!r}; give a number in [{low:g}, {high:g}]"
             )
-        if name == MISALIGNMENT_SEED and value != int(value):
+        if name in WHOLE_FAULTS and value != int(value):
             raise ValueError(f"model-wide fault {name} is {raw!r}; give a whole number")
         physics[name] = value
     return physics
@@ -1968,8 +2354,9 @@ def condition(model: Any) -> tuple[str, frozenset[str]] | None:
         every orbit reading, every readback of the tunes or the chromaticity,
         and the optics arrays (tunes, chromaticity, beta and orbit at the
         monitors). A setpoint, a readback of a setpoint, a fault, a turn
-        series, the armed flag and a command are never among them: each
-        holds what was written or tracked, closed orbit or none.
+        series, the armed flag, the stored current and a command are never
+        among them: each holds what was written, tracked or stored, closed
+        orbit or none.
     """
     if not getattr(model, "no_closed_orbit", False):
         return None

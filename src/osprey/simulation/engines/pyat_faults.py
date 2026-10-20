@@ -13,7 +13,10 @@ roll conventions are pySC's:
 
 **The faults live on the deck elements.** A monitor element carries
 ``readout_<field>_x`` and ``readout_<field>_y`` for ``offset``, ``gain``,
-``noise`` and ``polarity``, and one ``readout_roll``. A magnet setpoint's
+``noise`` and ``polarity``, and one ``readout_roll``. Beside them it carries
+the electronics' own attributes once, for both axes
+(:data:`READOUT_ATTRIBUTE_IDENTITY`): the noise at unit sum, a tone, a
+signal gain and a sum scale, which a facility binds its own settings to. A magnet setpoint's
 supply calibration sits on the first element it binds, under attributes named
 for the setpoint (:func:`supply_attribute`), so setpoints that share an
 element each keep their own. An attribute the element does not carry is its
@@ -54,6 +57,40 @@ READOUT_IDENTITY: dict[str, float] = {
     "noise": 0.0,
     "polarity": 1.0,
 }
+
+#: The readout attributes a monitor element carries once, for both axes, each
+#: at its identity -- what an element that does not carry one reads:
+#:
+#: * ``readout_noise_scale`` -- the electronics' position noise at unit sum, in
+#:   the deck's unit; a sample's sigma is it over the larger of the sample's
+#:   sum and :data:`SUM_FLOOR`.
+#: * ``readout_tone_amplitude`` -- a tone the electronics add, in the sum's
+#:   unit: it raises every sum sample and spikes the positions every
+#:   :data:`TONE_SPIKE_PERIOD` samples.
+#: * ``readout_gain`` -- the signal gain ahead of the electronics, on the sum.
+#: * ``readout_sum_scale`` -- the scale the sum is reported at.
+#:
+#: None of them is a per-axis fault: a position is a ratio of signals, so the
+#: gain and the scale reach the sum only.
+READOUT_ATTRIBUTE_IDENTITY: dict[str, float] = {
+    "readout_noise_scale": 0.0,
+    "readout_tone_amplitude": 0.0,
+    "readout_gain": 1.0,
+    "readout_sum_scale": 1.0,
+}
+
+#: The sum a monitor reads with no beam, in the sum's unit (the share of a
+#: shot's charge): the floor of every sum sample, and the sum a position's
+#: noise is divided by when less beam than it passed. No sample is ever read
+#: noisier than ``readout_noise_scale / SUM_FLOOR``.
+SUM_FLOOR = 0.03
+
+#: The samples between two of a tone's position spikes; a spike falls on
+#: every series index that is a multiple of it.
+TONE_SPIKE_PERIOD = 10
+
+#: The sigma of a tone's position spike per unit of tone amplitude, in metres.
+TONE_SPIKE_M = 2.0e-3
 
 #: The supply calibration fields a magnet setpoint carries, each at its
 #: identity: a supply that delivers exactly what it was commanded.
@@ -96,6 +133,13 @@ NOISE_SUBKEY = b":readout_noise"
 #: The subkey of a turn series' noise, which the shot count is appended to: a
 #: stream per series and shot, apart from the address's per-read one.
 SHOT_NOISE_SUBKEY = b":shot_noise:"
+
+#: The subkey of a turn series' electronic noise, which the shot count is
+#: appended to: a stream of its own beside the noise fault's.
+ELECTRONIC_NOISE_SUBKEY = b":electronic_noise:"
+
+#: The subkey of a turn series' tone spikes, which the shot count is appended to.
+TONE_SUBKEY = b":tone:"
 
 _AXES = ("x", "y")
 
@@ -295,6 +339,75 @@ def aperture_half_axis(shape: str, axis: str) -> str:
     return f"aperture_{shape}_{axis}"
 
 
+#: The coordinates of a tracked particle, in the order pyAT tracks them.
+LAUNCH_COORDINATES: tuple[str, ...] = ("x", "px", "y", "py", "delta", "ct")
+
+
+def launch_coordinate(coordinate: str) -> str:
+    """The model-wide fault naming one coordinate of the launch.
+
+    Args:
+        coordinate: One of :data:`LAUNCH_COORDINATES`.
+
+    Returns:
+        ``launch_<coordinate>``.
+    """
+    return f"launch_{coordinate}"
+
+
+#: The model-wide faults that launch a shot, one per coordinate in pyAT's
+#: order: the launch is their vector, each 0 when a scenario states none.
+LAUNCH_FAULTS: tuple[str, ...] = tuple(launch_coordinate(c) for c in LAUNCH_COORDINATES)
+
+#: The model-wide faults that shape a bunch: the horizontal and vertical
+#: emittances in metre-radians, the relative energy spread and the bunch
+#: length in metres.
+BUNCH_SHAPE_FAULTS: tuple[str, ...] = (
+    "bunch_emittance_x",
+    "bunch_emittance_y",
+    "bunch_sigma_delta",
+    "bunch_sigma_z",
+)
+
+#: The model-wide faults that jitter a bunch's centroid from shot to shot: the
+#: sigma of the horizontal and the vertical offset, in metres.
+CENTROID_JITTER_FAULTS: tuple[str, ...] = ("centroid_jitter_x", "centroid_jitter_y")
+
+#: The model-wide fault holding the charge already stored in the model.
+STORED_CHARGE = "stored_charge"
+
+#: The model-wide fault holding the charge one shot injects, in the unit of
+#: :data:`STORED_CHARGE`.
+BUNCH_CHARGE = "bunch_charge"
+
+#: The model-wide fault counting the particles a shot tracks: a whole number of
+#: one or more. A scenario that states it declares a bunch; without it a shot
+#: tracks one particle.
+BUNCH_PARTICLES = "bunch_particles"
+MAX_BUNCH_PARTICLES = float(2**53)
+
+#: The subkey of a bunch's per-shot draw, between the model's key and the shot.
+BUNCH_SUBKEY = b":bunch"
+
+
+def bunch_key(model: str, shot: int) -> bytes:
+    """The key of one shot's bunch draw on one model.
+
+    Every random number a bunch takes is a ``keyed_normals`` draw under this
+    key, so it is a pure function of the model, the shot and the counter.
+
+    Args:
+        model: The model's id.
+        shot: The count of the shot.
+
+    Returns:
+        ``channel_key_bytes(model) + b":bunch" + <shot>``.
+    """
+    from osprey_connectors.simulation.series import channel_key_bytes
+
+    return channel_key_bytes(model) + BUNCH_SUBKEY + str(int(shot)).encode("ascii")
+
+
 def _model_wide() -> dict[str, FaultSlot]:
     bounds: dict[str, tuple[float, float]] = {MISALIGNMENT_SEED: (0.0, MAX_MISALIGNMENT_SEED)}
     for magnet in MISALIGNED_MAGNETS:
@@ -303,13 +416,22 @@ def _model_wide() -> dict[str, FaultSlot]:
     for shape in APERTURE_SHAPES:
         for axis in ("x", "y"):
             bounds[aperture_half_axis(shape, axis)] = (MIN_APERTURE_HALF_AXIS_M, math.inf)
+    for name in LAUNCH_FAULTS:
+        bounds[name] = (-math.inf, math.inf)
+    for name in (*BUNCH_SHAPE_FAULTS, *CENTROID_JITTER_FAULTS, STORED_CHARGE, BUNCH_CHARGE):
+        bounds[name] = (0.0, math.inf)
+    bounds[BUNCH_PARTICLES] = (1.0, MAX_BUNCH_PARTICLES)
     return {name: FaultSlot(None, name, bounds[name]) for name in sorted(bounds)}
 
 
+#: The model-wide faults whose value is a whole number.
+WHOLE_FAULTS: frozenset[str] = frozenset({MISALIGNMENT_SEED, BUNCH_PARTICLES})
+
 #: Every model-wide fault, by name: the misalignment seed, a sigma per magnet
-#: class and field, and the two half-axes of each aperture shape. None is a
-#: variable of a built model: a model is built at them and holds them for its
-#: whole lifetime.
+#: class and field, the two half-axes of each aperture shape, the launch, the
+#: bunch's shape, centroid jitter and particle count, and the stored and
+#: injected charges. None is a variable of a built model: a model is built at
+#: them and holds them for its whole lifetime.
 MODEL_WIDE_FAULTS: dict[str, FaultSlot] = _model_wide()
 
 
@@ -583,6 +705,31 @@ def _samples_to_physics(plane: _Plane | None, published: Any) -> Any:
     )
 
 
+def _readout_attributes(element: Any) -> dict[str, float]:
+    """The readout attributes ``element`` holds, identity where absent."""
+    return {
+        name: float(getattr(element, name, identity))
+        for name, identity in READOUT_ATTRIBUTE_IDENTITY.items()
+    }
+
+
+def _shot_draws(address: str, subkey: bytes, shot: int, indexes: Any) -> Any:
+    """The standard normals of one series' ``subkey`` stream for ``shot``, at ``indexes``."""
+    from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals
+
+    key = channel_key_bytes(address) + subkey + str(int(shot)).encode("ascii")
+    return keyed_normals(key, indexes)
+
+
+def _beam_sums(seen: Any, sums: Any) -> Any:
+    """The physics sum per sample: ``sums`` as given, else 1 where seen and 0 elsewhere."""
+    import numpy as np
+
+    if sums is None:
+        return seen.astype(np.float64)
+    return np.asarray(sums, dtype=np.float64)
+
+
 def shot_read(
     model: Any,
     monitor: str,
@@ -593,6 +740,7 @@ def shot_read(
     address: str,
     shot: int,
     first: int,
+    sums: Any = None,
 ) -> Any:
     """What one monitor reports, on one axis, of the positions a shot tracked at it.
 
@@ -604,10 +752,18 @@ def shot_read(
     whatever unit its own record publishes. An axis with no orbit reading
     takes its attributes in the deck's unit.
 
-    The noise is a pure function of ``address``, ``shot`` and the sample's
-    index, never of a time: a series' samples are drawn once, when its shot is
-    tracked. A sample that is NaN on either tracked axis stays NaN, and a
-    monitor that carries no fault returns the tracked axis untouched.
+    The electronics act on the turned position, in the deck's unit, before
+    the faults do: a noise of sigma ``readout_noise_scale / max(sum,
+    SUM_FLOOR)`` per sample, and a tone's spike every
+    :data:`TONE_SPIKE_PERIOD` samples. The noise fault composes on top, from
+    its own stream.
+
+    A sample that is NaN on either tracked axis carries no beam: it reads as
+    a beam on axis, at the floor's sigma, so no sample is NaN. The noise and
+    the spikes are pure functions of ``address``, ``shot`` and the sample's
+    index, never of a time: a series' samples are drawn once, when its shot
+    is tracked. A monitor that carries no fault and no electronics reads the
+    tracked axis untouched, and 0 where no beam is.
 
     Args:
         model: The model the monitor belongs to, as :func:`readout` takes it.
@@ -618,53 +774,108 @@ def shot_read(
         address: The series' address, which keys its noise.
         shot: The count of the shot that tracked the samples.
         first: The index, in the series, of the first sample given.
+        sums: The physics sum per sample -- the share of the shot's charge
+            the monitor sees -- or ``None`` for 1 where both axes are a
+            number and 0 where either is NaN.
 
     Returns:
         The samples of ``axis`` as the monitor reports them, in the deck's
-        unit: a float64 array the length of ``x``.
+        unit: a float64 array the length of ``x``, with no NaN.
     """
     import numpy as np
 
-    faults = _readout_faults(model.simulator.element(monitor))
+    element = model.simulator.element(monitor)
+    faults = _readout_faults(element)
+    electronics = _readout_attributes(element)
     roll = faults.pop(ROLL)
     mine = {field: faults[f"{field}_{axis}"] for field in READOUT_IDENTITY}
-    pair: tuple[Any, Any] = (np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64))
-    samples = np.array(pair[_AXES.index(axis)], dtype=np.float64)
-    if roll == ROLL_IDENTITY and mine == READOUT_IDENTITY:
-        return samples
-    seen = ~(np.isnan(pair[0]) | np.isnan(pair[1]))
-    read = np.full(samples.shape, np.nan, dtype=np.float64)
-    if not seen.any():
-        return read
-    position: Any = samples[seen]
+    tracked_x = np.asarray(x, dtype=np.float64)
+    tracked_y = np.asarray(y, dtype=np.float64)
+    seen = ~(np.isnan(tracked_x) | np.isnan(tracked_y))
+    pair: tuple[Any, Any] = (np.where(seen, tracked_x, 0.0), np.where(seen, tracked_y, 0.0))
+    position: Any = np.array(pair[_AXES.index(axis)], dtype=np.float64)
+    sigma_e = electronics["readout_noise_scale"]
+    tone = electronics["readout_tone_amplitude"]
+    if roll == ROLL_IDENTITY and mine == READOUT_IDENTITY and sigma_e == 0.0 and tone == 0.0:
+        return position
     if roll != ROLL_IDENTITY:
-        position = rolled(pair[0][seen], pair[1][seen], roll)[_AXES.index(axis)]
+        position = rolled(pair[0], pair[1], roll)[_AXES.index(axis)]
+    indexes = first + np.arange(position.shape[0])
+    if sigma_e != 0.0:
+        sigma = sigma_e / np.maximum(_beam_sums(seen, sums), SUM_FLOOR)
+        position = position + sigma * _shot_draws(address, ELECTRONIC_NOISE_SUBKEY, shot, indexes)
+    if tone != 0.0:
+        on = indexes % TONE_SPIKE_PERIOD == 0
+        spikes = tone * TONE_SPIKE_M * _shot_draws(address, TONE_SUBKEY, shot, indexes)
+        position = position + np.where(on, spikes, 0.0)
+    if roll == ROLL_IDENTITY and mine == READOUT_IDENTITY:
+        return np.asarray(position, dtype=np.float64)
     plane = _monitors(model).get(monitor, {}).get(axis)
     published = _samples_to_published(plane, position)
     noise: Any = 0.0
     if mine["noise"] != 0.0:
-        from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals
-
-        key = channel_key_bytes(address) + SHOT_NOISE_SUBKEY + str(int(shot)).encode("ascii")
-        indexes = first + np.flatnonzero(seen)
-        noise = mine["noise"] * keyed_normals(key, indexes)
+        noise = mine["noise"] * _shot_draws(address, SHOT_NOISE_SUBKEY, shot, indexes)
     # bpm_read's order: offset, polarity, noise, then the gain.
     reading = ((published - mine["offset"]) * mine["polarity"] + noise) * mine["gain"]
-    read[seen] = _samples_to_physics(plane, reading)
-    return read
+    return np.asarray(_samples_to_physics(plane, reading), dtype=np.float64)
+
+
+def shot_sum(model: Any, monitor: str, sums: Any) -> Any:
+    """What one monitor reports as the sum of a shot, sample by sample.
+
+    The physics sum, floored at :data:`SUM_FLOOR` -- the no-beam reading --
+    raised by the element's tone, then multiplied by its signal gain and its
+    sum scale. No readout fault reaches the sum. At identity a sample the
+    whole shot passed reads exactly 1.
+
+    Args:
+        model: The model the monitor belongs to, as :func:`readout` takes it.
+        monitor: The monitor element's name.
+        sums: The physics sum per sample: the share of the shot's charge the
+            monitor sees, 0 with no beam.
+
+    Returns:
+        A float64 array the length of ``sums``, every sample at least the
+        floor's reading.
+    """
+    import numpy as np
+
+    electronics = _readout_attributes(model.simulator.element(monitor))
+    floored = np.maximum(np.asarray(sums, dtype=np.float64), SUM_FLOOR)
+    raised = floored + electronics["readout_tone_amplitude"]
+    return raised * electronics["readout_gain"] * electronics["readout_sum_scale"]
 
 
 __all__ = [
+    "BUNCH_CHARGE",
+    "BUNCH_PARTICLES",
+    "BUNCH_SHAPE_FAULTS",
+    "BUNCH_SUBKEY",
+    "CENTROID_JITTER_FAULTS",
+    "ELECTRONIC_NOISE_SUBKEY",
+    "LAUNCH_COORDINATES",
+    "LAUNCH_FAULTS",
+    "MAX_BUNCH_PARTICLES",
+    "READOUT_ATTRIBUTE_IDENTITY",
     "READOUT_IDENTITY",
+    "STORED_CHARGE",
+    "SUM_FLOOR",
     "SUPPLY_IDENTITY",
+    "TONE_SPIKE_M",
+    "TONE_SPIKE_PERIOD",
+    "TONE_SUBKEY",
+    "WHOLE_FAULTS",
     "bpm_read",
+    "bunch_key",
     "carries_series",
     "is_series_record",
+    "launch_coordinate",
     "magnet_cal",
     "readout",
     "rolled",
     "samples_to_hardware",
     "shot_read",
+    "shot_sum",
     "supply_attribute",
     "supply_calibration",
 ]
