@@ -2,8 +2,9 @@
 
 The wrapper's ``main`` is only ever run as a subprocess, never called here: it
 installs signal handlers and exits the process, neither of which belongs in the
-test process. Its ``stop_group`` is importable by path, since loading the
-module installs no handler.
+test process. The group stop it calls, ``stop_group``, lives in the product's
+``osprey.deployment.subprocess_capture``; the stopped groups here are probed
+with that module's ``group_is_gone``.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import group_is_gone
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
 GATE_SCRIPTS = ("quick_check.sh", "premerge_check.sh", "ci_check.sh", "gate.sh")
@@ -37,15 +40,10 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _pid_is_gone(pid: int, within: float) -> bool:
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        time.sleep(0.05)
-    return False
+def _kill_group(pgid_file: Path) -> None:
+    if pgid_file.exists() and pgid_file.read_text().strip():
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(int(pgid_file.read_text()), signal.SIGKILL)
 
 
 def test_the_command_exit_code_passes_through():
@@ -54,22 +52,20 @@ def test_the_command_exit_code_passes_through():
 
 
 def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
-    pid_file = tmp_path / "grandchild.pid"
+    group_file = tmp_path / "group.pid"
     # The bound is the child's readiness window as well as the stop stimulus:
     # a shell is ready in milliseconds on an idle host and within a few seconds
     # on a loaded one, so three seconds is the window every bounded test here
-    # gives its child.
-    command = ["sh", "-c", f"sleep 60 & echo $! > {shlex.quote(str(pid_file))}; wait"]
-    result = _run("3", "--", *command)
-    assert result.returncode == 124
-    assert "still running after 3 s" in result.stderr
-    assert pid_file.exists(), "the child was not ready inside the 3 s bound: no grandchild pid file"
-    pid = int(pid_file.read_text())
+    # gives its child. The shell leads the group, so its own pid names it.
+    command = ["sh", "-c", f"echo $$ > {shlex.quote(str(group_file))}; sleep 60 & wait"]
     try:
-        assert _pid_is_gone(pid, within=5.0)
+        result = _run("3", "--", *command)
+        assert result.returncode == 124
+        assert "still running after 3 s" in result.stderr
+        assert group_file.exists(), "the child was not ready inside the 3 s bound: no group file"
+        assert group_is_gone(int(group_file.read_text()))
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+        _kill_group(group_file)
 
 
 def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
@@ -115,16 +111,14 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
     """
     ready = tmp_path / "ready"
     dumped = tmp_path / "dumped"
-    pid_file = tmp_path / "child.pid"
     child = textwrap.dedent(
         f"""
-        import os, pathlib, signal, time
+        import pathlib, signal, time
         def on_abort(*_):
             time.sleep(1.0)
             pathlib.Path({str(dumped)!r}).touch()
         signal.signal(signal.SIGABRT, on_abort)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))
         pathlib.Path({str(ready)!r}).touch()
         while True:
             time.sleep(60)
@@ -132,21 +126,51 @@ def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
     )
     script = tmp_path / "child.py"
     script.write_text(child)
+    group_file = tmp_path / "group.pid"
     # The child's streams are not the wrapper's pipes, so a child that
     # outlives the stop fails the assertions below instead of holding the
-    # pipes open.
-    leader = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
-    result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
+    # pipes open. The leader records its own pid, the group's id, first.
+    leader = (
+        f"echo $$ > {shlex.quote(str(group_file))}; "
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
+    )
     try:
+        result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
         assert result.returncode == 124
         assert ready.exists(), "the child was not ready inside the 3 s bound"
         assert dumped.exists(), "SIGTERM was sent before the group's stacks were written"
-        pid = int(pid_file.read_text())
-        assert _pid_is_gone(pid, within=1.0), "a process that survived SIGTERM was never killed"
+        assert group_is_gone(int(group_file.read_text())), (
+            "a process that survived SIGTERM was never killed"
+        )
+        assert "still running after SIGKILL" not in result.stderr
     finally:
-        if pid_file.exists():
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        _kill_group(group_file)
+
+
+def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
+    marker = tmp_path / "ready"
+    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+    # The real stop runs, then reports a process it could not end.
+    wrapper = textwrap.dedent(
+        f"""
+        import runpy, sys
+        from osprey.deployment import subprocess_capture
+        real = subprocess_capture.stop_group
+        def stop_group(pgid, **kwargs):
+            real(pgid, **kwargs)
+            return [999999]
+        subprocess_capture.stop_group = stop_group
+        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
+                    {sys.executable!r}, "-c", {child!r}]
+        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 124
+    assert marker.exists(), "the child was not ready inside the 3 s bound"
+    assert "run_bounded: still running after SIGKILL, pids: 999999" in result.stderr
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
