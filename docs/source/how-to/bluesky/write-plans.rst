@@ -165,11 +165,11 @@ The build rewrites the file every time, so it is not a file to edit: to change
 the device set, change the channels under ``data/facility/`` and build again.
 
 A plan the agent writes during a session names channels from this same set.
-``list_devices`` reads it, and the pre-enqueue check refuses a plan that names
-a device the file does not declare — validation builds a mock for whatever the
-sample arguments name, so it says nothing about what the worker has. The
-channel finder answers for the whole facility; this file answers for the queue
-worker, and a plan's channels come from here.
+``list_devices`` reads it. When the queue worker is running, validation refuses
+sample arguments that name a device the file does not declare, and the
+pre-enqueue check refuses a plan's own arguments on the same rule; both answer
+``unknown_device``. The channel finder answers for the whole facility; this
+file answers for the queue worker, and a plan's channels come from here.
 
 When a plan drives a settable, the move waits for its readback to come within
 a bound of the demand. The bound is the setpoint's ``tolerance`` in the

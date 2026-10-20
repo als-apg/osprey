@@ -264,11 +264,11 @@ naming the devices that *were* built. If a plan cannot find its channels, the
 missing annotation is the first thing to check.
 
 **The channels a plan can name are the queue worker's devices**, which
-`list_devices` reads — not every address the channel finder knows. The dry run
-builds a mock for whatever `sample_args` name, so validation says nothing about
-whether those channels exist in the worker; the pre-enqueue check does, and it
-refuses a plan that names a device the worker never built. Choose the channels
-a plan moves and reads from `list_devices` before you validate with them.
+`list_devices` reads — not every address the channel finder knows. When a
+worker is running, validation checks the channels `sample_args` name against it
+and refuses one it never built with `unknown_device`; the pre-enqueue check
+holds the draft's own arguments to the same rule. Choose the channels a plan
+moves and reads from `list_devices` before you validate with them.
 
 ---
 
@@ -550,8 +550,9 @@ failure downgrades the figure instead of losing it.
 2. **Validate** — `validate_plan(name, sample_args=None,
    dry_run_timeout=30.0)`. Validates the file's CURRENT on-disk content
    (never a body you pass directly) through the three stages above.
-   `sample_args` should supply realistic `PARAMS` field values so the dry
-   run's mock devices match what your plan expects. A pass is what makes the
+   `sample_args` should supply realistic `PARAMS` field values, naming
+   channels the worker has, so the dry run's mock devices match what your
+   plan expects. A pass is what makes the
    plan usable at all — an unvalidated session plan is never listed, loaded,
    or queueable.
 
