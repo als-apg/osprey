@@ -3859,6 +3859,9 @@ def test_pymongo_preflight_aborts_before_any_container_work(monkeypatch, tmp_pat
         lambda *a, **k: (dict(ARCHIVER_CONFIG), ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "_build_project_image", lambda *a, **k: ran.append("build")
