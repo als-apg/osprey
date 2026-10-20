@@ -57,10 +57,11 @@ on:
           Publish the trajectory acceptance stack's images instead of running
           anything else: at the dispatched sha, render the stack through
           tests/e2e/trajectory_acceptance/shape.py, build every image it
-          runs (VA, project/trajectory, the web tier's persona, archiver),
-          and push each as a private package to
-          ghcr.io/als-apg under its own name, tagged with the sha. Every
-          other job stands down on this dispatch. Run with:
+          runs (VA, project/trajectory, the web tier's persona, archiver)
+          natively for linux/amd64 and linux/arm64, and push each as a
+          private package to ghcr.io/als-apg under its own name, tagged with
+          the sha as one manifest carrying both platforms. Every other job
+          stands down on this dispatch. Run with:
           gh workflow run ci.yml --ref <branch> -f push_acceptance_images=true
         required: false
         type: boolean
@@ -2907,32 +2908,47 @@ jobs:
           | xargs -r docker volume rm -f || true
 
 
-  # The one image-publishing job. A dispatch with `push_acceptance_images`
-  # runs this and nothing else: every other job's `if:` carries
+  # The image-publishing pair. A dispatch with `push_acceptance_images` runs
+  # these two jobs and nothing else: every other job's `if:` carries
   # `!inputs.push_acceptance_images`, and tests/deployment/test_ci_workflow_wiring.py
-  # evaluates every job's condition on that dispatch. It lives here rather
+  # evaluates every job's condition on that dispatch. They live here rather
   # than in a dispatch-only workflow file because GitHub dispatches only
-  # workflows that exist on the default branch, and this one has to run from
-  # a feature branch.
+  # workflows that exist on the default branch, and these have to run from a
+  # feature branch.
   #
-  # What it publishes is the trajectory acceptance stack, rendered by
+  # What they publish is the trajectory acceptance stack, rendered by
   # `shape.render` in tests/e2e/trajectory_acceptance -- the one render every
-  # consumer of that stack uses -- with the image tag set to the checkout sha,
-  # so the VA and project images are named ghcr.io/als-apg/<name>:<sha> as
-  # they are built. The checkout sha is the images' whole identity: no label
-  # restates it, and a consumer compares its checkout and its running
-  # containers against that one tag. The persona
-  # and auth-sidecar images are tagged `<name>:local` by the web tier whatever
-  # the axes say, so they are re-tagged onto the same registry and tag here.
+  # consumer of that stack uses. This job builds it once per architecture, each
+  # row on a runner of that architecture, so no image is built under
+  # emulation, and pushes every image as ghcr.io/als-apg/<name>:<sha>-<arch>.
+  # The manifest job after it joins each image's two architectures under
+  # ghcr.io/als-apg/<name>:<sha>, so a host of either architecture pulls its
+  # native image by the one tag. The checkout sha is the images' whole
+  # identity: no label restates it, and a consumer compares its checkout and
+  # its running containers against that one tag. The render's image tag is the
+  # per-architecture tag, so the VA and project images are named for it as they
+  # are built; the persona and auth-sidecar images are tagged `<name>:local` by
+  # the web tier whatever the axes say, so they are re-tagged onto the same
+  # registry and tag here.
   #
   # Built by `osprey up -d --dev`, then taken down: no render-only build mode
   # exists, and the web tier's compose document -- the one naming the persona
-  # and auth images -- is written by `up` itself. Not a need of
+  # and auth images -- is written by `up` itself. Neither job is a need of
   # all-checks-passed: that gate stands down on this dispatch too.
   push-acceptance-images:
-    name: Publish acceptance images (trajectory acceptance stack to ghcr, tagged by sha)
-    runs-on: ubuntu-latest
+    name: Publish acceptance images (${{ matrix.arch }}, trajectory acceptance stack to ghcr)
+    runs-on: ${{ matrix.runner }}
     if: github.event_name == 'workflow_dispatch' && inputs.push_acceptance_images
+    strategy:
+      # One architecture's images are no use without the other's: the manifest
+      # job needs both rows, so a failed row stops the other.
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     # packages: write is not in the default token; contents: read is restated
     # because a job-level block replaces the default rather than extending it.
     permissions:
@@ -2944,9 +2960,9 @@ jobs:
     env:
       # Read by the render (compose_generator.resolve_image_axes): every
       # OSPREY-built image the project names becomes
-      # ghcr.io/als-apg/<name>:<sha>.
+      # ghcr.io/als-apg/<name>:<sha>-<arch>.
       OSPREY_IMAGE_REGISTRY: ghcr.io/als-apg
-      OSPREY_IMAGE_TAG: ${{ github.sha }}
+      OSPREY_IMAGE_TAG: ${{ github.sha }}-${{ matrix.arch }}
 
     steps:
     - name: Checkout repository
@@ -3068,6 +3084,10 @@ jobs:
         listed = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-images.txt")
         with open(listed, "w", encoding="utf-8") as out:
             out.writelines(f"{pushed[name]}\n" for name in sorted(pushed))
+        names = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-image-names", "names.txt")
+        os.makedirs(os.path.dirname(names), exist_ok=True)
+        with open(names, "w", encoding="utf-8") as out:
+            out.writelines(f"{name}\n" for name in sorted(pushed))
         PY
 
     - name: Verify every pushed image resolves in the registry
@@ -3078,13 +3098,22 @@ jobs:
           echo "resolves: $image"
         done < "$RUNNER_TEMP/acceptance-images.txt"
 
+    # The names this row pushed, for the manifest job to join across rows.
+    - name: Hand the pushed image names to the manifest job
+      uses: actions/upload-artifact@v7
+      with:
+        name: acceptance-image-names-${{ matrix.arch }}
+        path: ${{ runner.temp }}/acceptance-image-names/names.txt
+        if-no-files-found: error
+        retention-days: 1
+
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: push-acceptance-images
+        name: push-acceptance-images-${{ matrix.arch }}
         engine: docker
 
     # Exact-named teardown: never a prune, an
@@ -3102,6 +3131,93 @@ jobs:
         docker compose -p trajectory-acceptance down || true
         docker volume ls -q --filter "name=^trajectory-acceptance_" \
           | xargs -r docker volume rm -f || true
+
+
+  # Joins each image the two rows above pushed into one manifest under the
+  # sha, ghcr.io/als-apg/<name>:<sha>, carrying linux/amd64 and linux/arm64.
+  # Registry-side only: `imagetools create` copies no layer, so this job builds
+  # nothing and checks nothing out.
+  publish-acceptance-manifests:
+    name: Publish acceptance manifests (one tag per image, both architectures)
+    runs-on: ubuntu-latest
+    needs: push-acceptance-images
+    if: github.event_name == 'workflow_dispatch' && inputs.push_acceptance_images
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 15
+    env:
+      OSPREY_IMAGE_REGISTRY: ghcr.io/als-apg
+      OSPREY_IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+    - name: Collect the image names each architecture pushed
+      uses: actions/download-artifact@v8
+      with:
+        pattern: acceptance-image-names-*
+        path: ${{ runner.temp }}/acceptance-image-names
+
+    - name: Log in to ghcr
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Both rows must have pushed the same images: one built on a single
+    # architecture would publish a tag that a host of the other cannot run.
+    - name: Join each image's architectures under the sha
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/acceptance-image-names"
+        if ! diff -u "$dir/acceptance-image-names-amd64/names.txt" \
+                     "$dir/acceptance-image-names-arm64/names.txt"; then
+          echo "::error::the amd64 and arm64 rows pushed different images"
+          exit 1
+        fi
+        registry="${OSPREY_IMAGE_REGISTRY%/}"
+        : > "$RUNNER_TEMP/acceptance-manifests.txt"
+        while read -r name; do
+          target="$registry/$name:$OSPREY_IMAGE_TAG"
+          docker buildx imagetools create -t "$target" \
+            "$target-amd64" "$target-arm64"
+          echo "$target" >> "$RUNNER_TEMP/acceptance-manifests.txt"
+        done < "$dir/acceptance-image-names-amd64/names.txt"
+        {
+          echo "### Acceptance manifests at \`$OSPREY_IMAGE_TAG\` (linux/amd64 + linux/arm64)"
+          echo
+          sed 's/.*/- `&`/' "$RUNNER_TEMP/acceptance-manifests.txt"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Verify every manifest carries both platforms
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import subprocess
+        import sys
+
+        wanted = {"linux/amd64", "linux/arm64"}
+        listed = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-manifests.txt")
+        with open(listed, encoding="utf-8") as images:
+            refs = [line.strip() for line in images if line.strip()]
+        if not refs:
+            sys.exit("::error::no manifest was published")
+        for ref in refs:
+            raw = subprocess.run(
+                ["docker", "buildx", "imagetools", "inspect", "--raw", ref],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            found = {
+                f"{entry['platform']['os']}/{entry['platform']['architecture']}"
+                for entry in json.loads(raw).get("manifests", [])
+                if "platform" in entry
+            }
+            missing = sorted(wanted - found)
+            if missing:
+                sys.exit(f"::error::{ref} lacks {missing}; it carries {sorted(found)}")
+            print(f"both platforms: {ref}")
+        PY
 
 
   va-substrate-equivalence-e2e:

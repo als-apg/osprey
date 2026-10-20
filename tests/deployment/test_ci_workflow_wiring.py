@@ -376,14 +376,17 @@ def _find_named_step(wf: dict[str, Any], job_name: str, step_name: str) -> dict[
     raise AssertionError(f"job '{job_name}' has no step named '{step_name}'")
 
 
-#: The dispatch input that publishes the acceptance images, and the one job
-#: such a dispatch runs.
+#: The dispatch input that publishes the acceptance images, and the two jobs
+#: such a dispatch runs: one row per architecture building and pushing, then
+#: the job joining each image's rows into one multi-arch manifest.
 IMAGE_PUSH_INPUT = "push_acceptance_images"
 IMAGE_PUSH_JOB = "push-acceptance-images"
+IMAGE_MANIFEST_JOB = "publish-acceptance-manifests"
+IMAGE_PUBLISH_JOBS = (IMAGE_PUSH_JOB, IMAGE_MANIFEST_JOB)
 #: The whole condition of a job that runs on every event the workflow takes.
 #: The input exists only on a dispatch, so on a push or a pull request the
 #: expression reads ``!null`` and the job runs; the one run it skips is the
-#: image-publishing dispatch, which runs nothing but ``IMAGE_PUSH_JOB``.
+#: image-publishing dispatch, which runs nothing but ``IMAGE_PUBLISH_JOBS``.
 IMAGE_PUSH_STAND_DOWN = "${{ !inputs.push_acceptance_images }}"
 
 
@@ -698,12 +701,15 @@ def test_lume_pyat_is_a_core_dependency() -> None:
 # protect.
 
 
-#: The one platform with a loadable Channel Access server wheel, and therefore
-#: the marker the serving entry must carry. Spelled with DOUBLE quotes
-#: because this is compared against ``str(Requirement(...).marker)``, which is
-#: packaging's normalised rendering — pyproject.toml itself writes the same
-#: marker with single quotes, and both parse to this.
-LIVE_CA_MARKER = 'sys_platform == "linux" and platform_machine == "x86_64"'
+#: The two platforms with a loadable Channel Access server — linux x86_64 on
+#: PyPI's wheels, linux aarch64 on the one the VA service image builds — and
+#: therefore the marker the serving entry must carry. Spelled with DOUBLE
+#: quotes because this is compared against ``str(Requirement(...).marker)``,
+#: which is packaging's normalised rendering — pyproject.toml itself writes the
+#: same marker with single quotes, and both parse to this.
+LIVE_CA_MARKER = (
+    'sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64")'
+)
 
 
 def _load_pyproject() -> dict[str, Any]:
@@ -810,11 +816,11 @@ def test_lume_pva_pin_carries_the_live_ca_marker(pyproject: dict[str, Any]) -> N
     extra = _va_extra(pyproject)
     lume_pva = _requirement(extra, "lume-pva-apg")
     # Anchored absolutely: a marker retargeted to some other platform is still
-    # a marker, and only the comparison against the one platform with a
-    # loadable Channel Access server wheel rejects it.
+    # a marker, and only the comparison against the platforms with a loadable
+    # Channel Access server rejects it.
     assert lume_pva is not None and str(lume_pva.marker) == LIVE_CA_MARKER, (
-        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
-        f"loadable Channel Access server wheel; got {lume_pva and lume_pva.marker}"
+        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the platforms with a "
+        f"loadable Channel Access server; got {lume_pva and lume_pva.marker}"
     )
     assert _requirement(extra, "pcaspy") is None, (
         "the `virtual-accelerator` extra must not declare pcaspy directly — it arrives "
@@ -853,6 +859,26 @@ def test_lume_pva_pin_carries_the_live_ca_marker__mutation_moves_to_another_plat
     ]
     assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
         "mutation matched nothing — the serving pin is gone"
+    )
+    with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
+
+
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_drops_aarch64() -> None:
+    """Narrowing the serving pin back to x86_64 must fail: the arm64 VA image
+    builds its own pcaspy, and without aarch64 in the marker its serving stack
+    installs nothing there."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'linux' and platform_machine == 'x86_64'"
+        if Requirement(dep).name == "lume-pva-apg"
+        else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the marker is already x86_64-only"
     )
     with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
         test_lume_pva_pin_carries_the_live_ca_marker(mutated)
@@ -5165,8 +5191,9 @@ CAPTURE_STEP = "Capture failure diagnostics"
 WRITEBACK_JOB = "deploy-writeback-e2e"
 PODMAN_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e-podman"
 #: Jobs that name a container engine without running one — the gate lists the
-#: Docker lanes in its human-readable status strings.
-NON_CONTAINER_JOBS = {GATE_JOB}
+#: Docker lanes in its human-readable status strings, and the manifest job
+#: drives only the registry (`docker buildx imagetools`), with no container.
+NON_CONTAINER_JOBS = {GATE_JOB, IMAGE_MANIFEST_JOB}
 
 
 def _container_jobs(wf: dict[str, Any]) -> set[str]:
@@ -6917,7 +6944,7 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
 JOBS_OUTSIDE_THE_GATE = frozenset(
-    {BENCHMARKS_JOB, TIER2_JOB, STACK_REGRESSION_JOB, IMAGE_PUSH_JOB, GATE_JOB}
+    {BENCHMARKS_JOB, TIER2_JOB, STACK_REGRESSION_JOB, *IMAGE_PUBLISH_JOBS, GATE_JOB}
 )
 
 
@@ -11449,9 +11476,22 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
 # The image-publishing dispatch: one job runs, every other job stands down
 # ---------------------------------------------------------------------------
 
-#: What the image job pushes to, and the tag it pushes under.
+#: What the image jobs push to, and the tags they push under: each build row
+#: its own architecture's tag, the manifest job the sha alone.
 IMAGE_REGISTRY = "ghcr.io/als-apg"
-IMAGE_TAG_EXPR = "${{ github.sha }}"
+IMAGE_TAG_EXPR = "${{ github.sha }}-${{ matrix.arch }}"
+IMAGE_MANIFEST_TAG_EXPR = "${{ github.sha }}"
+#: Each architecture the acceptance images are built for, and the runner of
+#: that same architecture its row builds on — native, never emulated.
+IMAGE_ARCH_RUNNERS = {"amd64": "ubuntu-latest", "arm64": "ubuntu-24.04-arm"}
+IMAGE_ARCH_PLATFORMS = ("linux/amd64", "linux/arm64")
+IMAGE_NAMES_STEP = "Hand the pushed image names to the manifest job"
+IMAGE_NAMES_ARTIFACT = "acceptance-image-names-${{ matrix.arch }}"
+IMAGE_JOIN_STEP = "Join each image's architectures under the sha"
+IMAGE_PLATFORMS_STEP = "Verify every manifest carries both platforms"
+#: What building under emulation looks like in a job: QEMU registered on the
+#: runner, or a build asked for a platform other than the runner's own.
+IMAGE_EMULATION_MARKERS = ("setup-qemu-action", "binfmt", "--platform")
 IMAGE_RENDER_STEP = "Render the acceptance stack"
 IMAGE_BUILD_STEP = "Build the project's images"
 IMAGE_PUSH_STEP = "Push every image the project runs"
@@ -11736,9 +11776,9 @@ def test_an_image_push_dispatch_runs_only_the_image_job(workflow: dict[str, Any]
     skips as failures."""
     for context in _image_push_dispatches():
         running = _jobs_running_on(workflow, context)
-        assert running == [IMAGE_PUSH_JOB], (
-            f"with inputs {context['inputs']} these jobs run beside '{IMAGE_PUSH_JOB}': "
-            f"{[name for name in running if name != IMAGE_PUSH_JOB]} — give each "
+        assert running == sorted(IMAGE_PUBLISH_JOBS), (
+            f"with inputs {context['inputs']} these jobs run beside {IMAGE_PUBLISH_JOBS}: "
+            f"{[name for name in running if name not in IMAGE_PUBLISH_JOBS]} — give each "
             f"'!inputs.{IMAGE_PUSH_INPUT}' in its `if:`"
         )
 
@@ -11772,7 +11812,12 @@ def test_an_image_push_dispatch_runs_only_the_image_job__mutation_ungates_the_ga
 
 
 def test_the_image_job_runs_on_that_dispatch_and_no_other_event(workflow: dict[str, Any]) -> None:
-    condition = _jobs(workflow)[IMAGE_PUSH_JOB].get("if")
+    for job in IMAGE_PUBLISH_JOBS:
+        _runs_only_on_the_image_dispatch(workflow, job)
+
+
+def _runs_only_on_the_image_dispatch(workflow: dict[str, Any], job: str) -> None:
+    condition = _jobs(workflow)[job].get("if")
     other_events = {
         "push": _push_context(),
         "pull request": _pull_request_context(),
@@ -11785,9 +11830,9 @@ def test_the_image_job_runs_on_that_dispatch_and_no_other_event(workflow: dict[s
     running = sorted(
         event for event, context in other_events.items() if _evaluate_condition(condition, context)
     )
-    assert running == [], f"'{IMAGE_PUSH_JOB}' runs on {running}; it publishes only on request"
+    assert running == [], f"'{job}' runs on {running}; it publishes only on request"
     assert all(_evaluate_condition(condition, c) for c in _image_push_dispatches()), (
-        f"'{IMAGE_PUSH_JOB}' does not run on the image-publishing dispatch"
+        f"'{job}' does not run on the image-publishing dispatch"
     )
 
 
@@ -11807,6 +11852,15 @@ def test_the_image_job_runs_on_that_dispatch_and_no_other_event__mutation_drops_
         test_the_image_job_runs_on_that_dispatch_and_no_other_event(mutated)
 
 
+def test_the_image_job_runs_on_that_dispatch_and_no_other_event__mutation_manifest_on_push() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_MANIFEST_JOB]["if"] = "github.event_name == 'push'"
+    with pytest.raises(AssertionError, match="publishes only on request"):
+        test_the_image_job_runs_on_that_dispatch_and_no_other_event(mutated)
+
+
 def test_the_stand_down_leaves_every_other_event_as_it_was(workflow: dict[str, Any]) -> None:
     """The stand-down narrows nothing but its own dispatch: on a push and on a
     pull request, every job whose only condition is the stand-down runs."""
@@ -11822,18 +11876,19 @@ def test_the_stand_down_leaves_every_other_event_as_it_was(workflow: dict[str, A
 def test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(
     workflow: dict[str, Any],
 ) -> None:
-    job = _jobs(workflow)[IMAGE_PUSH_JOB]
-    assert job.get("permissions") == {"contents": "read", "packages": "write"}, (
-        f"'{IMAGE_PUSH_JOB}' must declare exactly contents: read and packages: write; "
-        f"got {job.get('permissions')}"
-    )
-    assert not _job_declares_secret(workflow, IMAGE_PUSH_JOB, SECRET_TOKEN), (
-        f"'{IMAGE_PUSH_JOB}' builds images and contacts no model; it must not see {SECRET_TOKEN}"
-    )
-    logins = [step for step in job["steps"] if str(step.get("uses", "")).startswith("docker/login")]
-    assert len(logins) == 1, f"'{IMAGE_PUSH_JOB}' must log in to the registry once; got {logins}"
-    assert logins[0]["with"]["registry"] == "ghcr.io"
-    assert logins[0]["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"
+    for name in IMAGE_PUBLISH_JOBS:
+        job = _jobs(workflow)[name]
+        assert job.get("permissions") == {"contents": "read", "packages": "write"}, (
+            f"'{name}' must declare exactly contents: read and packages: write; "
+            f"got {job.get('permissions')}"
+        )
+        assert not _job_declares_secret(workflow, name, SECRET_TOKEN), (
+            f"'{name}' builds images and contacts no model; it must not see {SECRET_TOKEN}"
+        )
+        logins = [s for s in job["steps"] if str(s.get("uses", "")).startswith("docker/login")]
+        assert len(logins) == 1, f"'{name}' must log in to the registry once; got {logins}"
+        assert logins[0]["with"]["registry"] == "ghcr.io"
+        assert logins[0]["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"
 
 
 def test_the_image_job_holds_the_registry_scope_it_needs__mutation_reads_the_model_key() -> None:
@@ -11851,23 +11906,41 @@ def test_the_image_job_holds_the_registry_scope_it_needs__mutation_drops_package
         test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(mutated)
 
 
+def test_the_image_job_holds_the_registry_scope_it_needs__mutation_manifest_drops_write() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_MANIFEST_JOB]["permissions"] = {"contents": "read"}
+    with pytest.raises(AssertionError, match="packages: write"):
+        test_the_image_job_holds_the_registry_scope_it_needs_and_no_model_key(mutated)
+
+
 def test_the_image_job_names_its_images_for_the_registry_and_the_sha(
     workflow: dict[str, Any],
 ) -> None:
     """The image axes are set for the whole job, so the render names the VA and
-    project images ``ghcr.io/als-apg/<name>:<sha>`` as they are built."""
-    env = _jobs(workflow)[IMAGE_PUSH_JOB].get("env", {})
-    assert env.get("OSPREY_IMAGE_REGISTRY") == IMAGE_REGISTRY, (
-        f"'{IMAGE_PUSH_JOB}' must export OSPREY_IMAGE_REGISTRY={IMAGE_REGISTRY}"
-    )
-    assert env.get("OSPREY_IMAGE_TAG") == IMAGE_TAG_EXPR, (
-        f"'{IMAGE_PUSH_JOB}' must export OSPREY_IMAGE_TAG={IMAGE_TAG_EXPR}"
-    )
+    project images ``ghcr.io/als-apg/<name>:<sha>-<arch>`` as each row builds
+    them, and the manifest job publishes ``ghcr.io/als-apg/<name>:<sha>``."""
+    for job, tag in (
+        (IMAGE_PUSH_JOB, IMAGE_TAG_EXPR),
+        (IMAGE_MANIFEST_JOB, IMAGE_MANIFEST_TAG_EXPR),
+    ):
+        env = _jobs(workflow)[job].get("env", {})
+        assert env.get("OSPREY_IMAGE_REGISTRY") == IMAGE_REGISTRY, (
+            f"'{job}' must export OSPREY_IMAGE_REGISTRY={IMAGE_REGISTRY}"
+        )
+        assert env.get("OSPREY_IMAGE_TAG") == tag, f"'{job}' must export OSPREY_IMAGE_TAG={tag}"
 
 
 def test_the_image_job_names_its_images__mutation_tags_by_branch() -> None:
     mutated = copy.deepcopy(_load_workflow())
     _jobs(mutated)[IMAGE_PUSH_JOB]["env"]["OSPREY_IMAGE_TAG"] = "${{ github.ref_name }}"
+    with pytest.raises(AssertionError, match="OSPREY_IMAGE_TAG"):
+        test_the_image_job_names_its_images_for_the_registry_and_the_sha(mutated)
+
+
+def test_the_image_job_names_its_images__mutation_rows_share_one_tag() -> None:
+    """Two rows pushing one tag overwrite each other: the last to finish wins."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["env"]["OSPREY_IMAGE_TAG"] = IMAGE_MANIFEST_TAG_EXPR
     with pytest.raises(AssertionError, match="OSPREY_IMAGE_TAG"):
         test_the_image_job_names_its_images_for_the_registry_and_the_sha(mutated)
 
@@ -11978,3 +12051,158 @@ def test_the_image_job_pushes_every_image_the_stack_needs__mutation_drops_the_pe
     step["run"] = step["run"].replace(", persona}", "}")
     with pytest.raises(AssertionError, match="does not require"):
         test_the_image_job_pushes_every_image_the_stack_needs(mutated)
+
+
+def _job_text(wf: dict[str, Any], job: str) -> str:
+    """Every `uses:`, `run:` and `with:` value of *job*'s steps, as one string."""
+    parts = []
+    for step in _jobs(wf)[job]["steps"]:
+        parts += [str(step.get("uses", "")), str(step.get("run", "")), str(step.get("with", ""))]
+    return "\n".join(parts)
+
+
+def test_the_image_rows_build_natively_on_each_architecture(workflow: dict[str, Any]) -> None:
+    """One row per architecture, each on a runner of that architecture, and
+    nothing in either job that would build under emulation: an image built
+    under QEMU is the slow VA the walk's 5 s settle missed on."""
+    job = _jobs(workflow)[IMAGE_PUSH_JOB]
+    rows = job.get("strategy", {}).get("matrix", {}).get("include", [])
+    assert {row.get("arch"): row.get("runner") for row in rows} == IMAGE_ARCH_RUNNERS, (
+        f"'{IMAGE_PUSH_JOB}' must build one row per architecture on its native runner "
+        f"{IMAGE_ARCH_RUNNERS}; got {rows}"
+    )
+    assert len(rows) == len(IMAGE_ARCH_RUNNERS), f"'{IMAGE_PUSH_JOB}' repeats a row: {rows}"
+    assert job.get("runs-on") == "${{ matrix.runner }}", (
+        f"'{IMAGE_PUSH_JOB}' must run each row on its own runner; runs-on is {job.get('runs-on')}"
+    )
+    for name in IMAGE_PUBLISH_JOBS:
+        text = _job_text(workflow, name)
+        found = [marker for marker in IMAGE_EMULATION_MARKERS if marker in text]
+        assert found == [], f"'{name}' builds under emulation: {found}"
+    diagnostics = [
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).endswith("capture-ci-diagnostics")
+    ]
+    assert diagnostics, f"'{IMAGE_PUSH_JOB}' captures no failure diagnostics"
+    for step in diagnostics:
+        assert "${{ matrix.arch }}" in step["with"]["name"], (
+            f"'{IMAGE_PUSH_JOB}' rows upload diagnostics under one name: {step['with']['name']}"
+        )
+
+
+def test_the_image_rows_build_natively__mutation_arm_row_on_an_amd64_runner() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    rows = _jobs(mutated)[IMAGE_PUSH_JOB]["strategy"]["matrix"]["include"]
+    arm = [row for row in rows if row["arch"] == "arm64"]
+    assert arm, "no arm64 row; mutation is stale"
+    arm[0]["runner"] = "ubuntu-latest"
+    with pytest.raises(AssertionError, match="native runner"):
+        test_the_image_rows_build_natively_on_each_architecture(mutated)
+
+
+def test_the_image_rows_build_natively__mutation_drops_the_arm_row() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    matrix = _jobs(mutated)[IMAGE_PUSH_JOB]["strategy"]["matrix"]
+    matrix["include"] = [row for row in matrix["include"] if row["arch"] != "arm64"]
+    with pytest.raises(AssertionError, match="native runner"):
+        test_the_image_rows_build_natively_on_each_architecture(mutated)
+
+
+def test_the_image_rows_build_natively__mutation_registers_qemu() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[IMAGE_PUSH_JOB]["steps"].insert(
+        1, {"name": "Set up QEMU", "uses": "docker/setup-qemu-action@v3"}
+    )
+    with pytest.raises(AssertionError, match="under emulation"):
+        test_the_image_rows_build_natively_on_each_architecture(mutated)
+
+
+def test_the_image_rows_build_natively__mutation_one_diagnostics_name() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for step in _jobs(mutated)[IMAGE_PUSH_JOB]["steps"]:
+        if str(step.get("uses", "")).endswith("capture-ci-diagnostics"):
+            step["with"]["name"] = IMAGE_PUSH_JOB
+    with pytest.raises(AssertionError, match="under one name"):
+        test_the_image_rows_build_natively_on_each_architecture(mutated)
+
+
+def test_the_manifest_job_joins_both_rows_under_the_sha(workflow: dict[str, Any]) -> None:
+    """After both rows, every image is published as one manifest under the sha,
+    joined from exactly the two per-architecture tags, refused when the rows
+    pushed different images, and checked to carry both platforms."""
+    job = _jobs(workflow)[IMAGE_MANIFEST_JOB]
+    needs = job.get("needs")
+    assert (needs if isinstance(needs, list) else [needs]) == [IMAGE_PUSH_JOB], (
+        f"'{IMAGE_MANIFEST_JOB}' must wait for every '{IMAGE_PUSH_JOB}' row; needs is {needs}"
+    )
+    names = _find_named_step(workflow, IMAGE_PUSH_JOB, IMAGE_NAMES_STEP)
+    assert str(names.get("uses", "")).startswith("actions/upload-artifact"), (
+        f"'{IMAGE_NAMES_STEP}' hands nothing on"
+    )
+    assert names["with"]["name"] == IMAGE_NAMES_ARTIFACT, (
+        f"'{IMAGE_NAMES_STEP}' must upload under {IMAGE_NAMES_ARTIFACT!r}, one per row"
+    )
+    join = _find_named_step(workflow, IMAGE_MANIFEST_JOB, IMAGE_JOIN_STEP)["run"]
+    assert "docker buildx imagetools create -t" in join, f"'{IMAGE_JOIN_STEP}' creates no manifest"
+    for arch in IMAGE_ARCH_RUNNERS:
+        assert f'"$target-{arch}"' in join, f"'{IMAGE_JOIN_STEP}' leaves out the {arch} image"
+        assert f"acceptance-image-names-{arch}/names.txt" in join, (
+            f"'{IMAGE_JOIN_STEP}' never reads the {arch} row's names"
+        )
+    assert "diff" in join and "exit 1" in join, (
+        f"'{IMAGE_JOIN_STEP}' must refuse rows that pushed different images"
+    )
+    verify = _find_named_step(workflow, IMAGE_MANIFEST_JOB, IMAGE_PLATFORMS_STEP)["run"]
+    assert "imagetools" in verify and '"--raw"' in verify, (
+        f"'{IMAGE_PLATFORMS_STEP}' reads no manifest"
+    )
+    for platform in IMAGE_ARCH_PLATFORMS:
+        assert f'"{platform}"' in verify, f"'{IMAGE_PLATFORMS_STEP}' never checks {platform}"
+    assert "sys.exit" in verify, f"'{IMAGE_PLATFORMS_STEP}' never fails on a missing platform"
+    steps = _step_names(workflow, IMAGE_MANIFEST_JOB)
+    assert steps.index(IMAGE_JOIN_STEP) < steps.index(IMAGE_PLATFORMS_STEP), (
+        f"'{IMAGE_MANIFEST_JOB}' verifies before it joins: {steps}"
+    )
+
+
+def test_the_manifest_job_joins_both_rows__mutation_runs_beside_the_rows() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[IMAGE_MANIFEST_JOB]["needs"]
+    with pytest.raises(AssertionError, match="must wait for every"):
+        test_the_manifest_job_joins_both_rows_under_the_sha(mutated)
+
+
+def test_the_manifest_job_joins_both_rows__mutation_joins_amd64_only() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_MANIFEST_JOB, IMAGE_JOIN_STEP)
+    assert ' "$target-arm64"' in step["run"], "no arm64 source; mutation is stale"
+    step["run"] = step["run"].replace(' "$target-arm64"', "")
+    with pytest.raises(AssertionError, match="leaves out the arm64 image"):
+        test_the_manifest_job_joins_both_rows_under_the_sha(mutated)
+
+
+def test_the_manifest_job_joins_both_rows__mutation_skips_the_names_check() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_MANIFEST_JOB, IMAGE_JOIN_STEP)
+    assert "exit 1" in step["run"], "no refusal; mutation is stale"
+    step["run"] = step["run"].replace("exit 1", "true")
+    with pytest.raises(AssertionError, match="pushed different images"):
+        test_the_manifest_job_joins_both_rows_under_the_sha(mutated)
+
+
+def test_the_manifest_job_joins_both_rows__mutation_verifies_one_platform() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_MANIFEST_JOB, IMAGE_PLATFORMS_STEP)
+    assert ', "linux/arm64"' in step["run"], "no arm64 check; mutation is stale"
+    step["run"] = step["run"].replace(', "linux/arm64"', "")
+    with pytest.raises(AssertionError, match="never checks linux/arm64"):
+        test_the_manifest_job_joins_both_rows_under_the_sha(mutated)
+
+
+def test_the_manifest_job_joins_both_rows__mutation_one_names_artifact() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, IMAGE_PUSH_JOB, IMAGE_NAMES_STEP)
+    step["with"]["name"] = "acceptance-image-names"
+    with pytest.raises(AssertionError, match="one per row"):
+        test_the_manifest_job_joins_both_rows_under_the_sha(mutated)
