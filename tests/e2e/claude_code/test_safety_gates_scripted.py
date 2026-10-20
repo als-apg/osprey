@@ -18,9 +18,13 @@ from __future__ import annotations
 import json
 
 import pytest
+import yaml
 
 from osprey.agent_runner.primitives import ToolTrace
 from osprey_connectors.control_context import record_path_under
+from osprey_connectors.control_system.va_in_process_connector import simulator_view_dir
+from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.workspace import rendered_config_path
 from tests.e2e.claude_code.conftest import (
     AGENT_UNLISTED_SETPOINT,
     BOUNDED_SETPOINT,
@@ -30,7 +34,19 @@ from tests.e2e.claude_code.conftest import (
     UNLISTED_READING,
 )
 from tests.e2e.scripted_model import ScriptedCall
-from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import (
+    HookObservedResult,
+    agent_data_dir,
+    run_sdk_query_with_hooks,
+)
+from tests.facility.served_tree import (
+    SIMULATOR_VIEW,
+    assert_unmoved,
+    assert_write_visible,
+    served_active,
+    served_tree,
+    unmoved_band,
+)
 
 pytestmark = [pytest.mark.model_free, pytest.mark.harness_benchmark]
 
@@ -117,17 +133,31 @@ def assert_no_callback(result: HookObservedResult, tool: str) -> None:
     assert events == [], f"an approval prompt was surfaced for a refused {tool}: {events}"
 
 
-def assert_untouched(before: float, after: float, written: float) -> None:
+def served_view(repo) -> SimulatorView:
+    """The simulator view *repo*'s render serves its channels from.
+
+    Read from the render's ``config.yml``, the file the session's simulator is
+    configured by, and opened by the simulator's own resolver, so the view is
+    the one the reads in a test answer from.
+    """
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8"))
+    block = config["control_system"]["connector"]["virtual_accelerator"]
+    return simulator_view_dir(block[SIMULATOR_VIEW])
+
+
+def assert_untouched(
+    view: SimulatorView, address: str, before: float, after: float, written: float
+) -> None:
     """The read after the refusal is the channel's own value, not the written one.
 
     The simulator serves each reading within the motion the served tree
-    declares for it (noise and drift), so equality with the read made before
-    the write is not available and the check compares distances: a write that
-    landed would put the second read at the written value.
+    declares for it under the scenarios it runs, so the two reads may differ by
+    that band and no more; the written value sits far enough from the first
+    read that a write which landed, even in part, shows past it.
     """
-    assert abs(after - before) < abs(after - written), (
-        f"the channel read {before} before and {after} after a refused write of {written}"
-    )
+    band = unmoved_band(view, address, served_active(view))
+    assert_write_visible(written, before, band)
+    assert_unmoved(address, before, after, band)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +200,9 @@ async def test_an_allowed_write_is_seen_by_the_read_back(safety_project, scripte
     assert WRITE in model.offered_tools
     assert not written.is_error, f"a write inside the limits was refused: {written.result}"
     assert [e.decision for e in result.hook_events if e.tool_name == WRITE] == ["allow"]
-    assert abs(reading(read_back, SETPOINT) - 75.0) < 5.0
+    view = served_view(safety_project)
+    band = unmoved_band(view, SETPOINT, served_active(view))
+    assert_unmoved(SETPOINT, 75.0, reading(read_back, SETPOINT), band)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +222,13 @@ async def test_write_over_limits_is_refused(safety_project, scripted_model):
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "above maximum 100.0" in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 async def test_write_to_read_only_channel_is_refused(safety_project, scripted_model):
@@ -203,7 +241,13 @@ async def test_write_to_read_only_channel_is_refused(safety_project, scripted_mo
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "Channel is marked as read-only" in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, READBACK), reading(after, READBACK), 1.0)
+    assert_untouched(
+        served_view(safety_project),
+        READBACK,
+        reading(before, READBACK),
+        reading(after, READBACK),
+        1.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +273,13 @@ async def test_limits_refuse_before_approval_is_asked(safety_project_selective, 
     assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert "Denied by test approval policy" not in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project_selective),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +333,13 @@ async def test_python_write_is_refused_when_writes_are_disarmed(
     assert refused.name == EXECUTE
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
     assert_no_callback(result, EXECUTE)
-    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+    assert_untouched(
+        served_view(safety_project_writes_off),
+        CORRECTOR,
+        reading(before, CORRECTOR),
+        reading(after, CORRECTOR),
+        5.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +388,13 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
     assert "active target (live)" in (refused.result or "")
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+    assert_untouched(
+        served_view(safety_project_mixed_render),
+        CORRECTOR,
+        reading(before, CORRECTOR),
+        reading(after, CORRECTOR),
+        5.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +413,13 @@ async def test_a_repeated_forbidden_write_is_refused_each_time(safety_project, s
     for refused in (first, second):
         assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+    assert_untouched(
+        served_view(safety_project),
+        SETPOINT,
+        reading(before, SETPOINT),
+        reading(after, SETPOINT),
+        999.0,
+    )
 
 
 async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
@@ -369,4 +437,23 @@ async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
     assert reading(by_name[READ], SETPOINT) < 100.0
     assert_hook_refused(by_name[WRITE], own=LIMITS_REASON, other=WRITES_REASON)
     assert_no_callback(result, WRITE)
-    assert_untouched(reading(before, READBACK), reading(result.tool_traces[3], READBACK), 1.0)
+    assert_untouched(
+        served_view(safety_project),
+        READBACK,
+        reading(before, READBACK),
+        reading(result.tool_traces[3], READBACK),
+        1.0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The read-back check itself
+# ---------------------------------------------------------------------------
+
+
+def test_a_half_landed_write_fails_the_untouched_check(tmp_path) -> None:
+    """A read that moved part of the way to the written value is not untouched."""
+    view = SimulatorView.open(served_tree(tmp_path, [SETPOINT]))
+
+    with pytest.raises(AssertionError):
+        assert_untouched(view, SETPOINT, 0.0, 2.0, 5.0)
