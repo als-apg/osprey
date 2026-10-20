@@ -395,7 +395,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             # settings are carried across a re-init instead, so a settings
             # change stands until it is set back. Neither is worth a prompt.
             # lattice_clear_baseline is nonetheless auto-classified
-            # side-effecting by agent_runner.write_tools (it matches the
+            # side-effecting by the registry classifier (it matches the
             # "clear" destructive marker) and blocked under the headless
             # read-only floor regardless of this allow-listing — expected
             # posture; do not rename the tool to dodge it.
@@ -539,7 +539,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             # Add-to-queue click might queue, so like the read tools above they need no approval
             # prompt and carry no _WRITES_CHECK hook. clear_draft is
             # nonetheless auto-classified side-effecting by
-            # agent_runner.write_tools (matches bsky.DESTRUCTIVE_MARKERS'
+            # server_side_effect_tools (matches bsky.DESTRUCTIVE_MARKERS'
             # "clear") and blocked under the headless read-only floor
             # regardless of this allow-listing — acceptable, expected
             # posture; do not rename the tool to dodge it.
@@ -945,6 +945,62 @@ def mixed_read_write_tools(servers: list[dict]) -> list[str]:
             if is_mixed_matcher(template, matcher) and matcher not in tools:
                 tools.append(matcher)
     return tools
+
+
+# ---------------------------------------------------------------------------
+# Side-effect classification
+# ---------------------------------------------------------------------------
+
+
+def is_destructive_tool(tool: str) -> bool:
+    """True if a tool's name implies it removes or destroys stored state.
+
+    Matches the shared marker vocabulary in ``bsky.DESTRUCTIVE_MARKERS``, so a
+    tool auto-approved interactively (a human drives) but named for
+    destruction (``artifact_delete``, ``clear_draft``) is still classified
+    side-effecting.
+    """
+    lowered = tool.lower()
+    return any(marker in lowered for marker in bsky.DESTRUCTIVE_MARKERS)
+
+
+def server_side_effect_tools(sdef: ServerDefinition) -> list[str]:
+    """Side-effecting MCP tool names declared by ONE ServerDefinition.
+
+    The registry owns this classification; every consumer that needs "the
+    tools that act" reads it from here — the headless read-only floor
+    (``osprey.agent_runner.write_tools``) and the plan-mode deny list
+    (:func:`plan_mode_denied_tools`). Unions:
+
+    * ``permissions_ask`` + ``fixed_ask`` — the curated "needs approval because
+      it acts" sets (e.g. ``entry_create``, ``draft_concept``, ``setup_patch``,
+      ``channel_write``, ``execute``). Both render into the interactive ``ask``
+      list, so both are side-effecting.
+    * destructive-named tools in ``permissions_allow`` + ``fixed_allow`` — tools
+      auto-approved interactively but whose name implies destruction (e.g.
+      ``artifact_delete``). See :func:`is_destructive_tool`.
+    * every ``hooks_pre`` matcher gated by the writes-check hook (hardware
+      writes).
+
+    Deliberately NOT keyed on ``_APPROVAL``: that hook also wraps audited
+    *reads* (``channel_read``, ``archiver_read``), which a read-only query must
+    still be able to call.
+
+    Applies unchanged to a framework template, an ``extends`` clone and a
+    custom server built from a config spec.
+
+    Returns names as ``mcp__<server>__<tool>`` (writes-check matchers verbatim).
+    """
+    out: list[str] = []
+    for tool in (*sdef.permissions_ask, *sdef.fixed_ask):
+        out.append(f"mcp__{sdef.name}__{tool}")
+    for tool in (*sdef.permissions_allow, *sdef.fixed_allow):
+        if is_destructive_tool(tool):
+            out.append(f"mcp__{sdef.name}__{tool}")
+    for rule in sdef.hooks_pre:
+        if _WRITES_CHECK in rule.hooks:
+            out.append(rule.matcher)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1608,7 +1664,7 @@ def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
     * ``permissions.allow`` / ``permissions.ask`` replace the inherited lists
       when given, EXCEPT that the template's ``permissions_ask`` members can
       only be added to, never removed: the ask set doubles as the headless
-      side-effect classifier (agent_runner.write_tools), so an override that
+      side-effect classifier (server_side_effect_tools), so an override that
       promoted e.g. ``phoebus_drive`` into ``allow`` would silently ungate it
       under ``bypassPermissions``.
 

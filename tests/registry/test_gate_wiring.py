@@ -222,15 +222,19 @@ def test_hook_matchers_resolve_from_constants() -> None:
     assert matchers == expected
 
 
-def test_write_tools_destructive_markers_is_shared_constant() -> None:
-    """The headless read-only floor's marker vocabulary IS the shared constant.
+def test_registry_classifier_reads_the_shared_destructive_markers(monkeypatch) -> None:
+    """The registry's destructive-name test reads the shared constant itself.
 
-    Identity, not equality: a rename or narrowing of ``DESTRUCTIVE_MARKERS``
-    must not leave ``write_tools`` pointing at a private copy.
+    Identity, not equality: swapping ``bsky.DESTRUCTIVE_MARKERS`` swaps what
+    the classifier calls destructive, so a rename or narrowing of the constant
+    cannot leave the classifier on a private copy.
     """
-    from osprey.agent_runner import write_tools
+    from osprey.registry import mcp
 
-    assert write_tools._DESTRUCTIVE_MARKERS is bsky.DESTRUCTIVE_MARKERS
+    assert mcp.bsky is bsky
+    monkeypatch.setattr(bsky, "DESTRUCTIVE_MARKERS", ("zap",))
+    assert mcp.is_destructive_tool("zap_everything")
+    assert not mcp.is_destructive_tool("artifact_delete")
 
 
 # ---------------------------------------------------------------------------
@@ -373,11 +377,11 @@ def test_clear_draft_matches_destructive_marker_get_set_do_not() -> None:
     floor despite sitting in ``permissions_allow`` — by design, via the shared
     marker vocabulary, not a Bluesky-specific rule.
     """
-    from osprey.agent_runner.write_tools import _is_destructive
+    from osprey.registry.mcp import is_destructive_tool
 
-    assert _is_destructive(bsky.CLEAR_DRAFT)
-    assert not _is_destructive(bsky.GET_DRAFT)
-    assert not _is_destructive(bsky.SET_DRAFT)
+    assert is_destructive_tool(bsky.CLEAR_DRAFT)
+    assert not is_destructive_tool(bsky.GET_DRAFT)
+    assert not is_destructive_tool(bsky.SET_DRAFT)
     # The specific marker that classifies it is a member of the shared vocab.
     assert any(m in bsky.CLEAR_DRAFT for m in bsky.DESTRUCTIVE_MARKERS)
 

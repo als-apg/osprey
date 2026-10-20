@@ -123,10 +123,11 @@ ALL_TOOLS: tuple[str, ...] = (
 )
 
 # Substrings in a tool name that mark it as destroying stored state. Consumed
-# by ``agent_runner.write_tools`` to auto-classify a side-effecting tool that
-# sits in an auto-approve list, so it stays blocked under the headless
-# read-only floor. Generic across MCP servers, not Bluesky-specific — kept here
-# as the safety vocabulary the same wiring depends on.
+# by the registry's side-effect classifier (``registry.mcp.is_destructive_tool``)
+# to auto-classify a side-effecting tool that sits in an auto-approve list, so
+# it stays blocked under the headless read-only floor. Generic across MCP
+# servers, not Bluesky-specific — kept here as the safety vocabulary the same
+# wiring depends on.
 DESTRUCTIVE_MARKERS: tuple[str, ...] = (
     "delete",
     "remove",

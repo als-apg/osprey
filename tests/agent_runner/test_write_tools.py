@@ -532,15 +532,12 @@ def test_registry_walk_matches_shared_classifier() -> None:
     """Drift guard: for every framework server the registry walk emits exactly
     the shared per-server classifier's output — pins that the framework path
     and the extends path share one implementation."""
-    from osprey.agent_runner.write_tools import (
-        _registry_side_effect_tools,
-        _server_side_effect_tools,
-    )
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey.agent_runner.write_tools import _registry_side_effect_tools
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, server_side_effect_tools
 
     expected: list[str] = []
     for server in FRAMEWORK_SERVERS.values():
-        for name in _server_side_effect_tools(server):
+        for name in server_side_effect_tools(server):
             if name not in expected:
                 expected.append(name)
 
@@ -553,8 +550,11 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
     its template with the mcp__<template>__ prefix rewritten. Compares the full
     production output (read_only_disallowed_tools), not the classifier
     internals, so a blind spot in either path fails here."""
-    from osprey.agent_runner.write_tools import _server_side_effect_tools
-    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
+    from osprey.registry.mcp import (
+        FRAMEWORK_SERVERS,
+        build_extended_server,
+        server_side_effect_tools,
+    )
 
     for template_name, template in FRAMEWORK_SERVERS.items():
         if template.condition:
@@ -564,7 +564,7 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
         assert clone is not None, f"extends of {template_name!r} unexpectedly rejected"
 
         old, new = f"mcp__{template_name}__", f"mcp__{clone_name}__"
-        template_surface = _server_side_effect_tools(template)
+        template_surface = server_side_effect_tools(template)
         expected = {new + t[len(old) :] if t.startswith(old) else t for t in template_surface}
 
         (tmp_path / "config.yml").write_text(
