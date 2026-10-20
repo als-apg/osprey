@@ -179,11 +179,22 @@ def _comparable(value: Any) -> Any:
     return value
 
 
+def _turns_tracked(view: Path) -> set[str]:
+    """The turns-tracked records, which a model states only beside its turn series."""
+    return {
+        channel["address"] for channel in _channels(view) if ":TBT:TURNS:" in channel["address"]
+    }
+
+
 def _without_turn_series(view: Path, root: Path) -> Path:
-    """A copy of ``view`` whose SR states no turn series: the view before they were added."""
+    """A copy of ``view`` whose SR states no turn series: the view before they were added.
+
+    The turns-tracked records go with them, since a model without turn series
+    refuses them.
+    """
     copy = root / "without" / "data" / "simulator"
     shutil.copytree(view, copy)
-    series = _turn_series(view)
+    series = _turn_series(view) | _turns_tracked(view)
     variables = copy / "variables.json"
     document = json.loads(variables.read_text(encoding="utf-8"))
     (sr,) = [model for model in document["models"] if model["name"] == MODEL]
@@ -289,6 +300,35 @@ def test_a_corrector_write_removes_the_closed_orbit_and_writing_it_back_recovers
     assert [address for address, value in read.items() if not math.isfinite(value)] == []
 
 
+def test_optics_pyat_cannot_compute_read_nan_and_the_model_serves_on(
+    example_view: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At the edge of stability the solve finds a closed orbit while pyAT cannot
+    compute the optics around it (an off-momentum orbit is lost and pyAT indexes
+    an empty fit). The tunes and chromaticity read NaN; the model stays built and
+    serving, the orbit still reads, and a corrector write still commits."""
+    from osprey.simulation.engines import pyat_model
+
+    composite = _composite(example_view)
+    assert composite.status(MODEL) == STATUS_OK
+
+    def unsolvable(*_args: Any, **_kwargs: Any) -> Any:
+        raise IndexError("index 0 is out of bounds for axis 0 with size 0")
+
+    monkeypatch.setattr(pyat_model.at, "get_optics", unsolvable)
+    composite.set({CORRECTOR: SMALL_KICK})
+
+    read = composite.get([*VOIDED, CORRECTOR])
+    assert composite.built(MODEL)
+    assert all(math.isnan(read[address]) for address in (*TUNES, *CHROMATICITY)), read
+    assert all(math.isfinite(read[address]) for address in ORBIT), read
+    assert read[CORRECTOR] == SMALL_KICK
+
+    composite.set({CORRECTOR: 0.0})
+    assert composite.built(MODEL)
+    assert composite.get(CORRECTOR) == 0.0
+
+
 # -- the archive -------------------------------------------------------------------
 
 
@@ -345,11 +385,19 @@ def test_the_turn_series_change_no_document_count_and_no_other_channels_content(
     times, _ = seed_grid(SMALL, SEED_T0)
     anchor = SEED_T0.timestamp()
 
+    turns = _turns_tracked(example_view)
+    assert turns, "the example states no turns-tracked record"
+    turns_fields = {field_name(address) for address in turns}
+
     documents = synthesize_documents(build(example_view, [SCENARIO], anchor_s=anchor), times)
     before = synthesize_documents(build(without, [SCENARIO], anchor_s=anchor), times)
 
     assert len(documents) == len(before)
-    assert set(archived_channels(SimulatorView.open(example_view))) == set(
+    assert set(archived_channels(SimulatorView.open(example_view))) - turns == set(
         archived_channels(SimulatorView.open(without))
     )
-    assert _comparable(documents) == _comparable(before)
+    others = [
+        {field: value for field, value in document.items() if field not in turns_fields}
+        for document in documents
+    ]
+    assert _comparable(others) == _comparable(before)
