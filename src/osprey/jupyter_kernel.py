@@ -311,7 +311,7 @@ def _stamp_from_record(env: MutableMapping[str, str]) -> None:
         env.pop(name, None)
     env[executor.ENV_LAUNCH_POSTURE] = _sandbox_pin()
 
-    record = executor._deployment_record()
+    record = executor._control_context_record()
     if record is None:
         return
     if blocking := executor._blocking_pids(record):
