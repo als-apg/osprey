@@ -305,21 +305,24 @@ def test_apply_safety_modes_unchanged_on_the_built_demo(
     )
 
 
-def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
+def test_periodic_addresses_equal_the_chromaticity_and_stored_current_channels_on_the_demo(
     built_control_assistant: BuiltProject,
 ) -> None:
     view, variables, _ = _demo_view(built_control_assistant)
 
-    chromaticity = {
-        record["address"]
-        for model in variables["models"]
-        for record in model.get("wiring") or []
-        if record.get("element") is None
-        and not record.get("slices")
-        and (record.get("engine") or {}).get("attribute") == "chromaticity"
-    }
-    assert chromaticity
-    assert periodic_addresses(view) == chromaticity
+    def wired(attribute: str) -> set[str]:
+        return {
+            record["address"]
+            for model in variables["models"]
+            for record in model.get("wiring") or []
+            if record.get("element") is None
+            and not record.get("slices")
+            and (record.get("engine") or {}).get("attribute") == attribute
+        }
+
+    chromaticity, stored_current = wired("chromaticity"), wired("stored_current")
+    assert chromaticity and stored_current
+    assert periodic_addresses(view) == chromaticity | stored_current
 
 
 def _demo_shot(variables: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
@@ -340,6 +343,7 @@ def test_an_arm_command_reads_back_its_models_shot_alone_on_the_demo(
     view, variables, addresses = _demo_view(built_control_assistant)
     arms, flags, series = _demo_shot(variables)
     request = "SR:DIAG:INJECTION:REQUEST"
+    cleaning = "SR:DIAG:CLEANING:REQUEST"
     served = {*addresses["channels"], *addresses["status"]}
 
     records = shot_records(view)
@@ -347,7 +351,7 @@ def test_an_arm_command_reads_back_its_models_shot_alone_on_the_demo(
 
     assert len(arms) == len(flags) == 72
     assert series
-    assert readback == {*arms, *flags, *series, request}
+    assert readback == {*arms, *flags, *series, request, cleaning}
     assert readback < served
     assert len(readback) * 5 < len(served)
     assert pass_readback(records, [request]) == readback
