@@ -28,6 +28,7 @@ is the safe default, and the spool path is reported on failure either way.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
@@ -57,6 +58,13 @@ _QUOTED = re.compile(r'"([^"]+)"')
 #: How long a stopped child's process group gets to exit on SIGTERM before it
 #: is killed outright.
 _STOP_GRACE_S = 10.0
+
+#: How long a process group gets to be gone after SIGKILL. A process still there
+#: after this is stuck in the kernel, not slow.
+_KILL_WAIT_S = 5.0
+
+#: How often a stopping process group is checked for members still running.
+_GROUP_POLL_S = 0.05
 
 #: Called while a bounded run is still going: the seconds it has run, and the
 #: spool its output is going to (``None`` under ``--verbose``).
@@ -433,49 +441,114 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
 
     The whole group is waited out, not just its leader: the leader of a
     ``podman compose`` is the dispatcher, and the provider it started can take
-    longer to go. Only ever called on a run that is being abandoned; a child
-    that exits on its own leaves its group alone.
+    longer to go. A member still running after SIGKILL is named in a warning.
+    Only ever called on a run that is being abandoned; a child that exits on its
+    own leaves its group alone.
     """
-
-    def alive() -> bool:
-        """Anything left to stop, after a tenth of a second's wait for it to go."""
-        if process.poll() is None:
-            try:
-                process.wait(timeout=0.1)  # reaps the leader, so a dead one stops counting
-            except subprocess.TimeoutExpired:
-                return True
-        elif own_group:
-            time.sleep(0.1)
-        return own_group and _group_alive(process.pid)
-
+    if own_group:
+        survivors = stop_group(process.pid, grace=_STOP_GRACE_S)
+        if survivors:
+            logger.warning(
+                "still running after SIGKILL: pids %s", " ".join(str(pid) for pid in survivors)
+            )
+        process.wait()
+        return
     for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            if own_group:
-                os.killpg(process.pid, sig)
-            elif process.poll() is None:
-                process.send_signal(sig)
-        except (ProcessLookupError, PermissionError):
+        if process.poll() is not None:
             return
-        deadline = time.monotonic() + _STOP_GRACE_S
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            process.send_signal(sig)
         try:
-            while alive():
-                if time.monotonic() >= deadline:
-                    break
-            else:
-                return
+            process.wait(timeout=_STOP_GRACE_S)
+            return
+        except subprocess.TimeoutExpired:
+            continue
         except KeyboardInterrupt:
             # A second Ctrl-C during the grace period asks for it to be cut
-            # short, not for the group to be left running.
+            # short, not for the child to be left running.
             continue
 
 
-def _group_alive(pgid: int) -> bool:
-    """Whether any process is left in process group ``pgid``."""
+def group_is_gone(pgid: int) -> bool:
+    """Whether no process of the process group ``pgid`` is still running.
+
+    The group is named by its leader's pid. An exited process nobody has reaped
+    (a zombie) counts as gone. A member this user may not signal counts as
+    present, and so does every member when the process table cannot be read.
+    """
     try:
         os.killpg(pgid, 0)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        # Either a member this user may not signal, or (on macOS) a group whose
+        # only members are zombies: the process table tells the two apart.
+        pass
+    from osprey.deployment.process_table import ProcessTableUnreadable, snapshot
+
+    try:
+        rows = snapshot()
+    except ProcessTableUnreadable:
+        return False
+    return not any(row.pgid == pgid and not row.exited for row in rows.values())
+
+
+def _signal_group(pgid: int, sig: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, sig)
+
+
+def _wait_group_gone(pgid: int, seconds: float) -> bool:
+    """Wait up to ``seconds`` for the group to be gone; a Ctrl-C ends the wait."""
+    deadline = time.monotonic() + seconds
+    try:
+        while not group_is_gone(pgid):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_GROUP_POLL_S)
+    except KeyboardInterrupt:
         return False
     return True
+
+
+def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int]:
+    """Stop the process group ``pgid`` and return the pids still running after SIGKILL.
+
+    The group is named by its leader's pid. When ``dump`` is given the group is
+    first sent SIGABRT, which makes every process with ``faulthandler`` enabled
+    write each thread's stack before it dies, and gets ``dump`` seconds to be
+    gone. Then SIGTERM and ``grace`` seconds, then SIGKILL and
+    :data:`_KILL_WAIT_S`. Every wait is on the whole group, not only its leader.
+    A Ctrl-C during a wait ends that wait and moves on to the next signal; it is
+    not re-raised.
+
+    An exited process nobody has reaped counts as gone; a member this user may
+    not signal counts as present. The caller keeps its leader unreaped until
+    this returns, so the group's id cannot be taken by another process during
+    the stop, and reaps it afterwards.
+
+    Returns:
+        ``[]`` when the group is gone. Otherwise the pids of its members still
+        running after SIGKILL, or ``[pgid]`` for the whole group when the
+        process table cannot be read to name them.
+    """
+    if dump is not None:
+        _signal_group(pgid, signal.SIGABRT)
+        if _wait_group_gone(pgid, dump):
+            return []
+    _signal_group(pgid, signal.SIGTERM)
+    if _wait_group_gone(pgid, grace):
+        return []
+    _signal_group(pgid, signal.SIGKILL)
+    if _wait_group_gone(pgid, _KILL_WAIT_S):
+        return []
+    from osprey.deployment.process_table import ProcessTableUnreadable, snapshot_within
+
+    try:
+        rows = snapshot_within(_KILL_WAIT_S)
+    except ProcessTableUnreadable:
+        return [pgid]
+    return sorted(row.pid for row in rows.values() if row.pgid == pgid and not row.exited)
 
 
 def diagnose_captured_failure(exc: BaseException) -> str | None:
@@ -564,5 +637,7 @@ __all__ = [
     "CapturedProcess",
     "captured_failure_detail",
     "diagnose_captured_failure",
+    "group_is_gone",
     "run_captured",
+    "stop_group",
 ]

@@ -7,8 +7,11 @@ the child this process's own stdio with no redirection at all.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import shlex
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -16,13 +19,16 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
+from osprey.deployment import process_table, subprocess_capture
 from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
+from osprey.deployment.process_table import ProcessTableUnreadable
 from osprey.deployment.subprocess_capture import (
     SPOOL_RETENTION,
     _mismatched_volumes,
+    group_is_gone,
     run_captured,
+    stop_group,
 )
-from tests._container_support import wait_until_ready
 
 
 @pytest.fixture(autouse=True)
@@ -524,28 +530,21 @@ class TestKeptVolumeWarning:
 # ---------------------------------------------------------------------------
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
-def _assert_gone(pid: int) -> None:
-    """Probe for :func:`wait_until_ready`: raise while ``pid`` is still in the process table."""
-    assert not _alive(pid), "the grandchild outlived the stopped run"
+def _group_file(pid_file: Path) -> Path:
+    return pid_file.with_suffix(".pgid")
 
 
 def _spawner(pid_file: Path) -> list[str]:
-    """Argv for a child that starts a long-lived grandchild and records its pid.
+    """Argv for a child that starts a long-lived grandchild and records its pid and group.
 
     The grandchild is what a `podman compose` dispatcher leaves behind: the
-    provider process it started.
+    provider process it started. It stays in the child's process group, whose
+    id is written next to ``pid_file`` before ``started`` is printed.
     """
     body = (
-        "import subprocess, sys, time\n"
+        "import os, subprocess, sys, time\n"
         "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(_group_file(pid_file))!r}, 'w').write(str(os.getpgid(0)))\n"
         f"open({str(pid_file)!r}, 'w').write(str(p.pid))\n"
         "print('started', flush=True)\n"
         "time.sleep(60)\n"
@@ -553,11 +552,18 @@ def _spawner(pid_file: Path) -> list[str]:
     return [sys.executable, "-c", body]
 
 
-def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
+def _kill_recorded_group(pid_file: Path) -> None:
+    group_file = _group_file(pid_file)
+    if group_file.exists() and group_file.read_text():
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(int(group_file.read_text()), signal.SIGKILL)
+
+
+def _wait_for_file(path: Path, timeout: float = 10.0, *, empty_ok: bool = False) -> None:
     import time
 
     deadline = time.monotonic() + timeout
-    while not (path.exists() and path.read_text()):
+    while not (path.exists() and (empty_ok or path.read_text())):
         assert time.monotonic() < deadline, f"{path} never written"
         time.sleep(0.02)
 
@@ -582,21 +588,19 @@ class TestBoundedRun:
     def test_past_its_limit_the_child_and_its_grandchild_are_stopped(self, tmp_path):
         pid_file = tmp_path / "grandchild.pid"
 
-        with pytest.raises(CapturedProcessTimeout) as excinfo:
-            run_captured(_spawner(pid_file), spool_name="bounded", repo_root=tmp_path, timeout=1.5)
+        try:
+            with pytest.raises(CapturedProcessTimeout) as excinfo:
+                run_captured(
+                    _spawner(pid_file), spool_name="bounded", repo_root=tmp_path, timeout=1.5
+                )
 
-        assert excinfo.value.timeout == 1.5
-        assert excinfo.value.returncode is None
-        assert "started" in excinfo.value.spool_path.read_text()
-        grandchild = int(pid_file.read_text())
-        # The runner waits for the group's live members; a killed orphan stays a zombie that
-        # os.kill(pid, 0) still finds until launchd reaps it, so this waits for the reap.
-        wait_until_ready(
-            lambda: _assert_gone(grandchild),
-            "the stopped run's grandchild",
-            timeout=5.0,
-            interval=0.05,
-        )
+            assert excinfo.value.timeout == 1.5
+            assert excinfo.value.returncode is None
+            assert "started" in excinfo.value.spool_path.read_text()
+            group = int(_group_file(pid_file).read_text())
+            assert group_is_gone(group), "the stopped run's grandchild outlived it"
+        finally:
+            _kill_recorded_group(pid_file)
 
     def test_an_interrupt_stops_the_group_and_propagates(self, tmp_path):
         pid_file = tmp_path / "grandchild.pid"
@@ -605,20 +609,19 @@ class TestBoundedRun:
             _wait_for_file(pid_file)
             raise KeyboardInterrupt
 
-        with pytest.raises(KeyboardInterrupt):
-            run_captured(
-                _spawner(pid_file),
-                spool_name="bounded",
-                repo_root=tmp_path,
-                watch=watch,
-                watch_interval=0.2,
-            )
-        wait_until_ready(
-            lambda: _assert_gone(int(pid_file.read_text())),
-            "the interrupted run's grandchild",
-            timeout=5.0,
-            interval=0.05,
-        )
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                run_captured(
+                    _spawner(pid_file),
+                    spool_name="bounded",
+                    repo_root=tmp_path,
+                    watch=watch,
+                    watch_interval=0.2,
+                )
+            group = int(_group_file(pid_file).read_text())
+            assert group_is_gone(group), "the interrupted run's grandchild outlived it"
+        finally:
+            _kill_recorded_group(pid_file)
 
     def test_the_watch_sees_the_time_run_and_the_spool(self, tmp_path):
         seen: list[tuple[float, Path | None]] = []
@@ -667,6 +670,124 @@ class TestBoundedRun:
                 timeout=0.5,
             )
         assert excinfo.value.spool_path is None
+
+
+# ---------------------------------------------------------------------------
+# Stopping a process group and proving it gone. Real processes: the property
+# under test is what the kernel and the process table report.
+# ---------------------------------------------------------------------------
+
+
+def _exited_unreaped_leader() -> subprocess.Popen:
+    """A group leader that has exited and that nobody has reaped yet."""
+    leader = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
+    os.waitid(os.P_PID, leader.pid, os.WEXITED | os.WNOWAIT)
+    return leader
+
+
+def _sleeping_group(ready: Path, *, ignore_term: bool = False) -> subprocess.Popen:
+    """A group of one sleep, returned once ``ready`` says its signal setup is done."""
+    trap = "trap '' TERM; " if ignore_term else ""
+    group = subprocess.Popen(
+        ["sh", "-c", f"{trap}: > {shlex.quote(str(ready))}; exec sleep 60"], process_group=0
+    )
+    _wait_for_file(ready, empty_ok=True)
+    return group
+
+
+def _kill_group(pgid: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
+
+
+@pytest.mark.real_bounded_run
+class TestProcessGroupStop:
+    def test_an_exited_unreaped_leader_counts_as_gone(self):
+        leader = _exited_unreaped_leader()
+        try:
+            os.kill(leader.pid, 0)  # still in the process table, as a zombie
+            assert group_is_gone(leader.pid)
+        finally:
+            leader.wait()
+
+    def test_a_group_with_a_running_member_is_not_gone(self, tmp_path):
+        group = _sleeping_group(tmp_path / "ready")
+        try:
+            assert not group_is_gone(group.pid)
+        finally:
+            _kill_group(group.pid)
+            group.wait()
+
+    def test_a_group_this_user_may_not_signal_counts_as_present(self, tmp_path, monkeypatch):
+        group = _sleeping_group(tmp_path / "ready")
+        real_killpg = os.killpg
+
+        def refused(pgid, sig):
+            if sig == 0:
+                raise PermissionError(1, "Operation not permitted")
+            real_killpg(pgid, sig)
+
+        monkeypatch.setattr(subprocess_capture.os, "killpg", refused)
+        try:
+            assert not group_is_gone(group.pid)
+        finally:
+            monkeypatch.undo()
+            _kill_group(group.pid)
+            group.wait()
+
+    def test_a_group_that_ignores_sigterm_is_killed_and_none_survive(self, tmp_path):
+        group = _sleeping_group(tmp_path / "ready", ignore_term=True)
+        try:
+            assert stop_group(group.pid, grace=0.5) == []
+            assert group_is_gone(group.pid)
+        finally:
+            _kill_group(group.pid)
+            group.wait()
+
+    def test_a_member_that_outlives_sigkill_is_returned_as_a_survivor(self, tmp_path, monkeypatch):
+        group = _sleeping_group(tmp_path / "ready", ignore_term=True)
+        real_signal_group = subprocess_capture._signal_group
+
+        def no_sigkill(pgid, sig):
+            if sig != signal.SIGKILL:
+                real_signal_group(pgid, sig)
+
+        monkeypatch.setattr(subprocess_capture, "_signal_group", no_sigkill)
+        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
+        try:
+            assert stop_group(group.pid, grace=0.2) == [group.pid]
+        finally:
+            _kill_group(group.pid)
+            group.wait()
+
+    def test_a_retryable_table_failure_is_read_again_not_reported(self, monkeypatch):
+        leader = _exited_unreaped_leader()
+        real_snapshot = process_table.snapshot
+        failures = [ProcessTableUnreadable(OSError("busy"))]
+
+        def flaky():
+            if failures:
+                raise failures.pop()
+            return real_snapshot()
+
+        monkeypatch.setattr(process_table, "snapshot", flaky)
+        try:
+            assert stop_group(leader.pid, grace=1.0) == []
+        finally:
+            leader.wait()
+
+    def test_an_unreadable_table_names_the_group(self, monkeypatch):
+        leader = _exited_unreaped_leader()
+
+        def refused():
+            raise ProcessTableUnreadable(PermissionError("refused"))
+
+        monkeypatch.setattr(process_table, "snapshot", refused)
+        monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
+        try:
+            assert stop_group(leader.pid, grace=0.2) == [leader.pid]
+        finally:
+            leader.wait()
 
 
 def test_a_stopped_runs_detail_is_its_failure_detail():
