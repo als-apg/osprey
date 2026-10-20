@@ -47,9 +47,10 @@ sentinel line; the parent sums those. A child that prints no sentinel is
 treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 
 **Each module runs under a wall-clock limit**, in a session of its own. When
-the limit expires the whole session is killed -- the module and every process
-it started -- and the module counts as one error, so a hang is a red result
-with a name on it rather than a run that never ends. ``--module-timeout=SECONDS``
+the limit expires the whole session is stopped -- the module and every process
+it started get SIGTERM, then SIGKILL -- and the module counts as one error, so
+a hang is a red result with a name on it rather than a run that never ends; a
+process still running after SIGKILL is named by pid on its timed-out line. ``--module-timeout=SECONDS``
 or ``OSPREY_LIVE_CA_MODULE_TIMEOUT`` changes the limit.
 
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
@@ -60,17 +61,21 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 
 from __future__ import annotations
 
-import contextlib
 import importlib
 import json
 import math
 import os
-import signal
 import subprocess
 import sys
 import tempfile
 
 import pytest
+
+from osprey.deployment.subprocess_capture import stop_group
+
+#: How long a timed-out module's session gets to exit on SIGTERM before it is
+#: killed: long enough for its servers to close their ports.
+_STOP_GRACE_S = 2.0
 
 #: The suites whose assertions are only observable over a real CA wire.
 LIVE_SUITES = ("tests/va/test_apply_fault.py",)
@@ -160,18 +165,13 @@ def _run_one(target: str) -> int:
     return status
 
 
-def _kill_session(proc: subprocess.Popen[bytes]) -> None:
-    """Kill every process in the session ``proc`` leads, then reap ``proc``."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(proc.pid, signal.SIGKILL)
-    proc.wait()
-
-
-def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
+def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, list[int]]:
     """Run ``cmd`` for at most ``limit_s`` seconds.
 
-    Returns ``(stdout, stderr, returncode, timed_out)``. The output written so
-    far is returned on every path, including the timed-out one.
+    Returns ``(stdout, stderr, returncode, timed_out, survivors)``, where
+    ``survivors`` are the pids of the child's session still running after
+    SIGKILL. The output written so far is returned on every path, including
+    the timed-out one.
 
     Output goes to files, not pipes. A reader on a pipe waits until every
     process holding the write end has closed it, and a server the module
@@ -182,11 +182,12 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
 
     The child leads a session of its own, which makes it a process group
     leader too. The processes a module starts stay in that group unless they
-    deliberately leave it, so killing the group on expiry takes the module's
+    deliberately leave it, so stopping the group on expiry takes the module's
     servers down with it instead of leaving them holding ports for the
     modules that follow.
     """
     timed_out = False
+    survivors: list[int] = []
     with (
         tempfile.TemporaryFile(mode="w+", errors="replace") as out,
         tempfile.TemporaryFile(mode="w+", errors="replace") as err,
@@ -196,15 +197,17 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
             proc.wait(timeout=limit_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            _kill_session(proc)
+            survivors = stop_group(proc.pid, grace=_STOP_GRACE_S)
+            proc.wait()
         except BaseException:
             # The child is outside this process's group, so an interrupt at the
             # terminal reaches the gate but not the child: end it here.
-            _kill_session(proc)
+            stop_group(proc.pid, grace=_STOP_GRACE_S)
+            proc.wait()
             raise
         out.seek(0)
         err.seek(0)
-        return (out.read(), err.read(), proc.returncode, timed_out)
+        return (out.read(), err.read(), proc.returncode, timed_out, survivors)
 
 
 def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
@@ -216,12 +219,12 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
     went wrong" to the caller summing them.
 
     A child still running after ``limit_s`` seconds -- a test deadlocked in
-    libca, a server process that never came up -- is killed with everything it
+    libca, a server process that never came up -- is stopped with everything it
     started and reported as one error too, whatever counts it had already
     printed: a module that finished its tests and then hung on the way out did
     not finish.
     """
-    stdout, stderr, returncode, timed_out = _run_child(
+    stdout, stderr, returncode, timed_out, survivors = _run_child(
         [sys.executable, "-u", __file__, RUN_ONE_FLAG, target], limit_s
     )
     counts: dict[str, int] | None = None
@@ -243,9 +246,12 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
         print(stderr, end="" if stderr.endswith("\n") else "\n")
 
     if timed_out:
+        still = (
+            ", still running: pids " + " ".join(str(pid) for pid in survivors) if survivors else ""
+        )
         print(
-            f"  !! {target} timed out after {limit_s:g} s -- its process group was killed; "
-            "output so far is above."
+            f"  !! {target} timed out after {limit_s:g} s -- its process group was stopped"
+            f"{still}; output so far is above."
         )
         return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, 1)
     if counts is None:
