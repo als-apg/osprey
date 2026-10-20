@@ -15,6 +15,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
+    limits_database_required,
     most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
@@ -592,14 +593,22 @@ class LimitsValidator:
         is a deployment trying to switch limits checking *on*; reading it as an
         unset ``enabled`` would take the disabled branch and check nothing.
 
+        Whether the database must exist is
+        :func:`~osprey_connectors.types.limits_database_required`, asked of the
+        live config's path. ``optional`` with no path configured needs none:
+        the validator enforces over an empty database, so every channel is
+        unlisted and written with no limits. A configured path that fails to
+        load stays fail-safe whatever the mode.
+
         Args:
             posture: The resolved posture, from the ``types`` resolver family.
 
         Returns:
-            An enforcing validator; a fail-safe validator that blocks every
-            write when the block is incomplete or the database is unavailable;
-            or ``None`` when limits checking is off for this posture or the
-            config could not be read at all.
+            An enforcing validator (over an empty database for ``optional``
+            with no path configured); a fail-safe validator that blocks every
+            write when the block is incomplete or a required database is
+            unavailable; or ``None`` when limits checking is off for this
+            posture or the config could not be read at all.
         """
         try:
             if posture.incomplete:
@@ -613,6 +622,19 @@ class LimitsValidator:
             if posture.enabled is not True:
                 return None
 
+            # Both entries are JSON-serialisable: the python executor embeds
+            # this dict verbatim into the sandbox (wrapper.py), so the
+            # tri-state rides as null rather than as anything richer.
+            policy = {
+                "mode": posture.mode,
+                "mode_key": posture.key("mode"),
+            }
+
+            if not limits_database_required(
+                posture, path_configured=cls.configured_database_path() is not None
+            ):
+                return cls({}, policy, {})
+
             loaded, load_reason = cls.load_configured_database()
             if loaded is None:
                 # Same failsafe as the incomplete-block case above: a missing
@@ -625,15 +647,6 @@ class LimitsValidator:
                     {}, {}, {}, failsafe_reason=f"limits checking is enabled but {load_reason}"
                 )
             limits_db, raw_db = loaded
-
-            # Both entries are JSON-serialisable: the python executor embeds
-            # this dict verbatim into the sandbox (wrapper.py), so the
-            # tri-state rides as null rather than as anything richer.
-            policy = {
-                "mode": posture.mode,
-                "mode_key": posture.key("mode"),
-            }
-
             return cls(limits_db, policy, raw_db)
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
