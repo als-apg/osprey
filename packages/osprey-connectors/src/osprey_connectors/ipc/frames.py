@@ -32,7 +32,10 @@ several requests outstanding and match replies arriving in any order:
 ``result``
     ``{request_id, value}``, where the value is any supported Python value
     (see below), including the ``dict[str, ChannelValue]`` a batched
-    multi-channel read returns.
+    multi-channel read returns. A well-framed reply whose value its own class
+    refuses to construct decodes as an ``error`` for that request alone, with
+    a :class:`~osprey_connectors.errors.ConnectorInternalError`; the stream
+    goes on.
 ``error``
     ``{request_id, class_tag, message, fields}``. Exceptions cross the
     boundary *typed*: ``fields`` are the structured attributes enumerated by
@@ -83,6 +86,7 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
 )
+from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc.exceptions import exception_fields, reconstruct_exception
 
 __all__ = [
@@ -127,6 +131,16 @@ class FrameDecodeError(ValueError):
     """A frame could not be parsed: bad magic, bad version, or unknown tag."""
 
 
+class _UnrebuildableValueError(FrameDecodeError):
+    """A well-framed value whose own class refused the decoded fields."""
+
+    def __init__(self, class_tag: str, cause: Exception) -> None:
+        self.class_tag = class_tag
+        super().__init__(
+            f"connector host sent a {class_tag} reply the parent cannot rebuild: {cause!r}"
+        )
+
+
 @dataclass(frozen=True)
 class RequestFrame:
     """A decoded call request. ``method`` is never validated by the codec."""
@@ -151,8 +165,9 @@ class ErrorFrame:
     ``exception`` is a real, reconstructed exception instance ready to be
     raised by the parent; ``class_tag`` and ``message`` are kept alongside it
     so a caller can still see what the child actually sent — which matters for
-    the fail-closed case, where ``exception`` is a ``ConnectorInternalError``
-    standing in for a class this codec does not know.
+    the fail-closed cases, where ``exception`` is a ``ConnectorInternalError``
+    standing in for a class this codec does not know, or for a reply value it
+    could not rebuild (``class_tag`` then names the value's class).
     """
 
     request_id: str
@@ -255,7 +270,11 @@ def _decode_value(node: Any, blobs: list[bytes]) -> Any:
     cls = _DATACLASSES.get(tag)
     if cls is None:
         raise FrameDecodeError(f"unknown value tag {tag!r} in frame payload")
-    return cls(**{name: _decode_value(item, blobs) for name, item in node["fields"].items()})
+    kwargs = {name: _decode_value(item, blobs) for name, item in node["fields"].items()}
+    try:
+        return cls(**kwargs)
+    except (TypeError, ValueError) as exc:
+        raise _UnrebuildableValueError(tag, exc) from exc
 
 
 def _blob(blobs: list[bytes], index: Any) -> bytes:
@@ -360,7 +379,16 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
             kwargs=_decode_value(header["kwargs"], blobs),
         )
     if kind == "result":
-        return ResultFrame(request_id=request_id, value=_decode_value(header["value"], blobs))
+        try:
+            value = _decode_value(header["value"], blobs)
+        except _UnrebuildableValueError as exc:
+            return ErrorFrame(
+                request_id=request_id,
+                class_tag=exc.class_tag,
+                message=str(exc),
+                exception=ConnectorInternalError(str(exc), class_tag=exc.class_tag),
+            )
+        return ResultFrame(request_id=request_id, value=value)
     if kind == "error":
         class_tag = str(header.get("class_tag", ""))
         message = str(header.get("message", ""))
