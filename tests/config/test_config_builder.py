@@ -65,7 +65,7 @@ models:
         def _raise_permission_error(*args, **kwargs):
             raise PermissionError(13, "Permission denied")
 
-        monkeypatch.setattr("dotenv.load_dotenv", _raise_permission_error)
+        monkeypatch.setattr("dotenv.dotenv_values", _raise_permission_error)
 
         builder = ConfigBuilder(str(config_file))
 
