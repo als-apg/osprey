@@ -231,13 +231,15 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "Re-running the same plan unchanged still needs a draft edit — a revision is "
         "consumed exactly once.",
     ],
-    # Raised by queue_add's device pre-check. The name is wrong, not the
-    # draft — so the hint must NOT send the agent back to re-read a revision
-    # that was never the problem; it points at the device list instead.
+    # Raised by queue_add's device pre-check and by validate_plan's. The name
+    # is wrong, not the draft — so the hint must NOT send the agent back to
+    # re-read a revision that was never the problem; it points at the device
+    # list and at the place the name was supplied.
     "unknown_device": [
-        "A device name in the staged plan is not one this worker built. Call "
-        "list_devices with a prefix for the names it actually has, then set_draft the "
-        "corrected name (which mints a new revision) and add that revision.",
+        "A device name is not one this worker built. Call list_devices with a prefix "
+        "for the names it has, then correct the name where you supplied it: in "
+        "validate_plan's sample_args, then validate again; or with set_draft (a new "
+        "revision), then add that revision.",
         "The error's details carry available_devices when the worker's namespace fits "
         "one page; a larger namespace reports available_count and available_devices_url "
         "instead. Either way, list_devices is what reads the names — pick one from "
