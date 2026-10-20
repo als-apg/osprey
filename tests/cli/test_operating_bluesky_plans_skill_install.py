@@ -388,11 +388,12 @@ class TestOperatingBlueskyPlansFigureNarration:
         assert "no_render" in prose
         assert "there is nothing wrong to report" in prose
 
-    def test_empty_panels_mean_unreadable_not_empty(self, skill_text):
-        """``source_unavailable`` is the only reason with no panels, and the
-        difference between "could not read" and "recorded nothing" is the
+    def test_unreadable_rows_are_an_error_not_an_empty_run(self, skill_text):
+        """Rows that could not be read come back as an error, not a figure, and
+        the difference between "could not read" and "recorded nothing" is the
         difference between a retry and a wrong conclusion about the run."""
         prose = _prose(skill_text)
+        assert "service_unavailable" in prose
         assert "source_unavailable" in prose
         assert 'never "the run recorded nothing"' in prose
 

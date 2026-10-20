@@ -469,14 +469,27 @@ async def test_get_run_figure_relays_partial_source_and_any_reason(monkeypatch):
     assert projected["source"] == "tiled"
 
 
-async def test_get_run_figure_source_unavailable_is_a_200_with_no_panels(monkeypatch):
-    """An unreadable source is an empty figure with a reason, never a refusal."""
-    _serve(monkeypatch, _figure(reason=REASON_SOURCE_UNAVAILABLE))
+async def test_get_run_figure_source_unavailable_is_an_error(monkeypatch):
+    """Rows the bridge could not read are an error, never an empty figure."""
+    _serve(monkeypatch, _figure(reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"))
+
+    with assert_raises_error(error_type="service_unavailable") as ctx:
+        await _fn("get_run_figure")(run_id="run-1")
+
+    envelope = ctx["envelope"]
+    assert envelope["details"]["reason"] == REASON_SOURCE_UNAVAILABLE
+    assert envelope["details"]["source"] == "tiled"
+    assert any("get_run_data" in suggestion for suggestion in envelope["suggestions"])
+
+
+async def test_get_run_figure_empty_without_a_reason_is_a_result(monkeypatch):
+    """A run with nothing plottable yet is an honest empty figure, not an error."""
+    _serve(monkeypatch, _figure(reason=None))
 
     projected = extract_response_dict(await _fn("get_run_figure")(run_id="run-1"))
 
     assert projected["panels"] == []
-    assert projected["reason"] == REASON_SOURCE_UNAVAILABLE
+    assert projected["reason"] is None
     assert projected["points_returned"] == 0
 
 

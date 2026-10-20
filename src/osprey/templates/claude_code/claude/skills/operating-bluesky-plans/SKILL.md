@@ -442,9 +442,11 @@ rather than guessing at it.
 
 The rest of the reading rules:
 
-- **`source_unavailable` is the one reason that comes with empty panels**, and
-  it means "the rows could not be read", never "the run recorded nothing".
-  Offer `get_run_data` as the second opinion.
+- **Rows that cannot be read come back as a `service_unavailable` error**
+  from `get_run_figure`, not as a figure; its `details.reason` is
+  `source_unavailable`. It means "the rows could not be read", never "the run
+  recorded nothing": read it again shortly, and offer `get_run_data` as the
+  second opinion.
 - **`partial: true` means the run was still producing rows** when the figure
   was drawn — read it again rather than calling it final.
 - **`source` says which store answered** — `live` (the bridge's own buffer) or
