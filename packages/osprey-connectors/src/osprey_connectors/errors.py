@@ -9,13 +9,30 @@ words for the outcomes that raise, so the reason a caller branches on and the
 outcome the result reports are one vocabulary.
 """
 
-from types import MappingProxyType
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from osprey_connectors.control_system.base import WriteOutcome
+
+__all__ = [
+    "NOT_A_CHANNEL",
+    "RAW_CLIENT_WRITE_MARKER",
+    "BuildProfileError",
+    "ChannelLimitsViolationError",
+    "ChannelNotFoundError",
+    "ChannelReadFailedError",
+    "ChannelWriteBlockedError",
+    "ChannelWriteFailedError",
+    "ClientLibraryRefusedError",
+    "ConfigurationError",
+    "ConnectorInternalError",
+    "RefusalReason",
+    "RegistryError",
+    "raw_client_write_message",
+]
 
 
 class ChannelLimitsViolationError(Exception):
@@ -81,48 +98,94 @@ class ChannelLimitsViolationError(Exception):
         return "\n".join(msg)
 
 
+_REFERENCE_MONITOR = "the reference monitor"
+_CONTROL_SYSTEM = "the control system"
+_NEVER_SENT = (
+    "This write was refused on policy grounds; it was never sent to the control system.",
+)
+
+
+class RefusalReason(StrEnum):
+    """Why a write was refused, with who refused it and what to do about it.
+
+    Each member's value is the reason word a result and an exception carry.
+    :attr:`refuser` names who refused a write for the reason, and is ``None``
+    for ``CHANNEL_NOT_FOUND``: nothing was denied, the address is not a
+    channel. :attr:`remedy` holds the reason's own suggestion sentences, in
+    the order a message lists them; it is empty for ``CHANNEL_NOT_FOUND``,
+    whose answer is rendered as "not a channel".
+
+    ``RAW_CLIENT_WRITE`` means user code called a control-system client
+    library's put directly instead of going through
+    ``osprey.runtime.write_channel``; nothing was sent.
+    ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was
+    sent: the control system was asked and denied it.
+    """
+
+    refuser: str | None
+    remedy: tuple[str, ...]
+
+    def __new__(
+        cls, value: str, refuser: str | None = None, remedy: tuple[str, ...] = ()
+    ) -> "RefusalReason":
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.refuser = refuser
+        member.remedy = remedy
+        return member
+
+    WRITES_DISABLED = ("WRITES_DISABLED", _REFERENCE_MONITOR, _NEVER_SENT)
+    LIMITS = ("LIMITS", _REFERENCE_MONITOR, _NEVER_SENT)
+    VALIDATION_ERROR = ("VALIDATION_ERROR", _REFERENCE_MONITOR, _NEVER_SENT)
+    CONTROL_SYSTEM_REFUSED = (
+        "CONTROL_SYSTEM_REFUSED",
+        _CONTROL_SYSTEM,
+        (
+            "The control system itself denied this write (access security); no value was written.",
+            "Report it to the operator: write access for this channel is granted "
+            "by the control system, not by OSPREY.",
+        ),
+    )
+    RAW_CLIENT_WRITE = ("RAW_CLIENT_WRITE", _REFERENCE_MONITOR, _NEVER_SENT)
+    CHANNEL_NOT_FOUND = ("CHANNEL_NOT_FOUND", None, ())
+
+
+def _known_reason(reason: str | None) -> RefusalReason | None:
+    """Return the :class:`RefusalReason` member ``reason`` names, or None."""
+    if reason is None:
+        return None
+    try:
+        return RefusalReason(reason)
+    except ValueError:
+        return None
+
+
 class ChannelWriteBlockedError(Exception):
     """Raised when a channel write was refused and no value was written.
 
     Distinct from ChannelWriteFailedError, which means the write was attempted
-    and its outcome is a failure rather than a denial. :meth:`refuser` names
-    who refused for each reason.
+    and its outcome is a failure rather than a denial.
 
-    reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
-    "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE", "CHANNEL_NOT_FOUND".
-    "RAW_CLIENT_WRITE" means user code called a control-system client library's
-    put directly instead of going through ``osprey.runtime.write_channel``;
-    nothing was sent. "CHANNEL_NOT_FOUND" means the address is not a channel of
-    the facility; nothing was sent.
+    ``reason`` is a :class:`RefusalReason` member when the reason is a known
+    one, and then names its refuser and remedy. An unknown reason, or no reason
+    at all, is kept as given and names neither: no refuser is guessed.
     """
-
-    # Every reason maps to who refused a write for it; a message that names a
-    # refuser reads it from here and nowhere else. A reason missing from this
-    # table, or no reason at all, names no refuser rather than a guessed one.
-    # CHANNEL_NOT_FOUND names none because nothing was denied: the address is
-    # not a channel.
-    _REFUSERS: "Mapping[str, str | None]" = MappingProxyType(
-        {
-            "WRITES_DISABLED": "the reference monitor",
-            "LIMITS": "the reference monitor",
-            "VALIDATION_ERROR": "the reference monitor",
-            "CONTROL_SYSTEM_REFUSED": "the control system",
-            "RAW_CLIENT_WRITE": "the reference monitor",
-            "CHANNEL_NOT_FOUND": None,
-        }
-    )
-    _VALID_REASONS = tuple(_REFUSERS)
 
     @classmethod
     def refuser(cls, reason: str | None) -> str | None:
         """Return who refused a write for ``reason``, or None when no one is known."""
-        if reason is None:
-            return None
-        return cls._REFUSERS.get(reason)
+        known = _known_reason(reason)
+        return known.refuser if known is not None else None
+
+    @classmethod
+    def remedy(cls, reason: str | None) -> tuple[str, ...]:
+        """Return the suggestion sentences for ``reason``, or ``()`` when none is known."""
+        known = _known_reason(reason)
+        return known.remedy if known is not None else ()
 
     def __init__(self, channel_address: str, reason: str | None, message: str | None = None):
         self.channel_address = channel_address
-        self.reason = reason
+        self.reason: str | None = _known_reason(reason) or reason
         refuser = self.refuser(reason)
         if refuser is not None:
             fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
@@ -293,7 +356,7 @@ class ChannelNotFoundError(LookupError):
     """
 
     #: The refusal reason a write to an address outside the facility carries.
-    reason = "CHANNEL_NOT_FOUND"
+    reason = RefusalReason.CHANNEL_NOT_FOUND
 
     def __init__(self, channel_address: str):
         self.channel_address = channel_address

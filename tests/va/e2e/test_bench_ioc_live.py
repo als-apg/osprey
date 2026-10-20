@@ -75,7 +75,11 @@ from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.control_system.base import ChannelValue, raise_for_write_result
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    RefusalReason,
+)
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -765,7 +769,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The vocabulary is the shared one, so a reason the error type would
         # reject can never reach an operator through this path.
-        assert result.refusal_reason in ChannelWriteBlockedError._VALID_REASONS
+        assert RefusalReason(result.refusal_reason) is RefusalReason.CONTROL_SYSTEM_REFUSED
         assert result.channel_address == PROTECTED_SP
         assert PROTECTED_SP in (result.error_message or "")
         assert "access security" in (result.error_message or "")
