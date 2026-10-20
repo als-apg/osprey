@@ -668,7 +668,7 @@ def _restrict(shared: TrajectoryTool, names: frozenset[str]) -> TrajectoryTool:
             f"model {shared.model!r}: the matrix restricted to the selection cannot be "
             f"solved with: {message}",
         ) from exc
-    columns_kept = {*fields["variable_names"]}
+    columns_kept = {data.variable_names[c] for c in columns}
     return TrajectoryTool(
         model=shared.model,
         tool=tool,

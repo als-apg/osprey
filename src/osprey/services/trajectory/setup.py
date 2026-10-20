@@ -49,6 +49,7 @@ moves are listed), 503 ``setup_unreadable`` when the settings cannot be read,
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -206,6 +207,10 @@ def _tolerance(value: Any) -> float | None:
     return float(value)
 
 
+def _mapping_or_empty(value: Any) -> Mapping[Any, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
 def declared_settings(slots: Mapping[str, Any] | None) -> tuple[DeclaredSetting, ...]:
     """The settings a model's ``trajectory_slots`` entry declares, in declared order.
 
@@ -216,12 +221,12 @@ def declared_settings(slots: Mapping[str, Any] | None) -> tuple[DeclaredSetting,
     for raw in declared or ():
         if not isinstance(raw, Mapping) or not isinstance(raw.get("id"), str):
             continue
-        timeout = raw.get("timeout_s")
-        timeout_s = float(timeout) if _tolerance(timeout) is not None else DEFAULT_SETTLE_S
+        stated_timeout = _tolerance(raw.get("timeout_s"))
+        timeout_s = stated_timeout if stated_timeout is not None else DEFAULT_SETTLE_S
         if raw.get("scope") == "device":
-            written = raw.get("setting") if isinstance(raw.get("setting"), Mapping) else {}
-            paired = raw.get("readback") if isinstance(raw.get("readback"), Mapping) else {}
-            tolerances = raw.get("tolerance") if isinstance(raw.get("tolerance"), Mapping) else {}
+            written = _mapping_or_empty(raw.get("setting"))
+            paired = _mapping_or_empty(raw.get("readback"))
+            tolerances = _mapping_or_empty(raw.get("tolerance"))
             setting = {
                 str(device): address
                 for device, value in written.items()
@@ -307,7 +312,7 @@ def matches(read: Any, wanted: Any, tolerance: float | None) -> bool:
         if not (math.isfinite(left) and math.isfinite(right)):
             return False
         return abs(left - right) <= (tolerance or 0.0)
-    return read == wanted
+    return bool(read == wanted)
 
 
 def settings_sha(expected: Iterable[Expected]) -> str:
@@ -705,7 +710,7 @@ def setup_action(
 
             try:
                 await guarded_call(
-                    lambda item=item: connector.write_channel_checked(item.setting, item.value),
+                    functools.partial(connector.write_channel_checked, item.setting, item.value),
                     record=record,
                 )
             except Exception as exc:

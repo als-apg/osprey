@@ -48,7 +48,7 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from lume_pyat.exceptions import OrbitSolveError
 
@@ -793,7 +793,8 @@ def _readout_setting_default(record: Any, deck: Deck) -> int:
             str(exc),
             "state a default that is one of the record's label indices",
         ) from exc
-    return int(built.default_value)
+    # A readout setting always boots at the label index it was built with.
+    return int(cast("int", built.default_value))
 
 
 def start_values(

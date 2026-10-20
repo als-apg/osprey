@@ -166,7 +166,7 @@ def validate_metadata(path: Path, metadata: Any) -> SequenceMetadata:
 def _inject(path: Path, module: ModuleType) -> Callable[..., Any]:
     if not hasattr(module, REQUIRED_ENTRY_POINT):
         raise _refused(path, f"the module defines no {REQUIRED_ENTRY_POINT!r} entry point")
-    function = getattr(module, REQUIRED_ENTRY_POINT)
+    function: Callable[..., Any] = getattr(module, REQUIRED_ENTRY_POINT)
     if not inspect.iscoroutinefunction(function):
         raise _refused(
             path, f"entry point {REQUIRED_ENTRY_POINT!r} is not a coroutine function (async def)"

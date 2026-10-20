@@ -3414,7 +3414,9 @@ def _trajectory_step_lines(step: object, step_digest) -> list[str]:
 
 def _trajectory_solve_lines(solve: object) -> list[str]:
     """The prompt lines stating the SolveConfig in force, from the snapshot's ``solve``."""
-    config = solve.get("config") if isinstance(solve, dict) else None
+    if not isinstance(solve, dict):
+        return ["SolveConfig: none published (the service solves with no model matrix)"]
+    config = solve.get("config")
     if not isinstance(config, dict):
         return ["SolveConfig: none published (the service solves with no model matrix)"]
     values = {name: config.get(name) for name in _SOLVE_CONFIG_FIELDS}

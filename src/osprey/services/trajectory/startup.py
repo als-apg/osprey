@@ -483,7 +483,8 @@ def _devices_of(model: str, table: Any) -> tuple[TrajectoryDevice, ...]:
                 f"{', '.join(missing)}; a BPM with turn-by-turn readings states "
                 f"{', '.join(_DEVICE_SLOTS)}"
             )
-        devices.append(TrajectoryDevice(name=str(name), **stated))
+        addresses = {slot: str(value) for slot, value in stated.items()}
+        devices.append(TrajectoryDevice(name=str(name), **addresses))
     if not devices:
         raise StartupRefused(
             f"model {model!r} states no device with turn-by-turn readings "
