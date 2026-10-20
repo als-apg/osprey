@@ -2,11 +2,11 @@
   "_reproduce": "hand-maintained: update with the pin in the same commit",
   "_description": "Every pinned demo-facility count the expansion moves, one entry per stated value. `pin` is `assign:NAME` (a module-level constant, compared after literal_eval), `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side). `facility` holds the counts the built control-assistant facility must show.",
   "facility": {
-    "channels": 3700,
+    "channels": 4138,
     "devices": 644,
     "groups": 73,
-    "setpoints": 595,
-    "readables": 3105
+    "setpoints": 814,
+    "readables": 3324
   },
   "entries": [
     {
@@ -22,7 +22,7 @@
     {
       "file": "tests/facility/golden/demo_fingerprint_additions.json",
       "pin": "json:len(rows)",
-      "value": 792
+      "value": 1230
     },
     {
       "file": "tests/facility/golden/nominal_in_process.json",
@@ -47,7 +47,7 @@
     {
       "file": "tests/facility/golden/nominal_va.json",
       "pin": "json:len(channels)",
-      "value": 3487
+      "value": 3925
     },
     {
       "file": "tests/facility/golden/cf_standalone_addresses.json",
@@ -258,22 +258,32 @@
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert len(fields) == {value}",
-      "value": 2064
+      "value": 2502
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert by_address == {value}",
-      "value": 1777
+      "value": 2209
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
-      "pin": "text:assert counts == ({value}, 3694)",
-      "value": 6986
+      "pin": "text:assert counts == ({value}, 4126)",
+      "value": 7850
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
-      "pin": "text:assert counts == (6986, {value})",
-      "value": 3694
+      "pin": "text:assert counts == (7850, {value})",
+      "value": 4126
+    },
+    {
+      "file": "tests/facility/test_cf_index_middle_layer.py",
+      "pin": "text:assert left_out == {value}\n",
+      "value": 12
+    },
+    {
+      "file": "tests/facility/test_cf_index_middle_layer.py",
+      "pin": "text:view middle_layer: {value} channels in no family left out\") == 1",
+      "value": 12
     },
     {
       "file": "tests/facility/test_demo_seed_rules.py",
@@ -283,62 +293,92 @@
     {
       "file": "tests/facility/test_demo_seed_rules.py",
       "pin": "text:assert len(setpoints) == {value}",
-      "value": 491
+      "value": 563
+    },
+    {
+      "file": "tests/facility/test_demo_seed_rules.py",
+      "pin": "text:assert len(commands) == {value}",
+      "value": 74
     },
     {
       "file": "tests/facility/test_bluesky_view.py",
       "pin": "text:assert len(setpoints) == {value}",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/facility/test_pairing.py",
       "pin": "text:assert len(authored) == {value}",
-      "value": 595
+      "value": 814
+    },
+    {
+      "file": "tests/facility/test_pairing.py",
+      "pin": "text:sum(pair != address for address, pair in authored.items()) == {value}",
+      "value": 740
     },
     {
       "file": "tests/services/bluesky_bridge/test_substrate_devices.py",
       "pin": "assign:DEMO_WRITES",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/services/bluesky_bridge/test_substrate_devices.py",
       "pin": "assign:DEMO_READS",
-      "value": 3105
+      "value": 3324
     },
     {
       "file": "tests/services/bluesky_bridge/test_substrate_devices.py",
       "pin": "text:{value} settables /",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/services/bluesky_bridge/test_substrate_devices.py",
       "pin": "text:/ {value} readables",
-      "value": 3105
+      "value": 3324
+    },
+    {
+      "file": "tests/services/bluesky_bridge/test_substrate_devices.py",
+      "pin": "assign:DEMO_COMMANDS",
+      "value": 74
     },
     {
       "file": "tests/channel_roster/test_facade.py",
       "pin": "assign:DEMO_CHANNELS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/channel_roster/test_facade.py",
       "pin": "assign:DEMO_WRITES",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/channel_roster/test_facade.py",
       "pin": "assign:DEMO_READS",
-      "value": 3105
+      "value": 3324
     },
     {
       "file": "tests/channel_roster/test_facade.py",
       "pin": "text:-- {value} channels,",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/channel_roster/test_facade.py",
       "pin": "text:channels, {value} of them settable",
-      "value": 595
+      "value": 814
+    },
+    {
+      "file": "tests/channel_roster/test_facade.py",
+      "pin": "assign:DEMO_PAIRED_WRITES",
+      "value": 740
+    },
+    {
+      "file": "tests/channel_roster/test_facade.py",
+      "pin": "text:settable: {value} setpoints,",
+      "value": 740
+    },
+    {
+      "file": "tests/channel_roster/test_facade.py",
+      "pin": "text:and {value} write-only commands",
+      "value": 74
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
@@ -348,17 +388,17 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_WRITE_ONLY",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_READ_ONLY",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
@@ -373,17 +413,17 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:/ {value} bindings /",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:/ {value} write-only",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:+ {value} read-only",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
@@ -398,12 +438,12 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_TRIPLES_LOADED",
-      "value": 30973
+      "value": 33623
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:and its {value} triples",
-      "value": 30973
+      "value": 33623
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
@@ -413,17 +453,17 @@
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "assign:EXPECTED_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "assign:EXPECTED_WRITE_ONLY",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "assign:EXPECTED_READ_ONLY",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
@@ -438,17 +478,17 @@
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:reproduces {value} write-only",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:/ {value} read-only /",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:/ {value} total",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
@@ -471,6 +511,11 @@
       "value": 466
     },
     {
+      "file": "tests/integration/test_graph_mcp.py",
+      "pin": "text:The {value} tune and chromaticity channels",
+      "value": 4
+    },
+    {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
       "pin": "assign:DEMO_DEVICES",
       "value": 645
@@ -483,17 +528,17 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
       "pin": "assign:DEMO_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
       "pin": "assign:DEMO_WRITE_ONLY",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
       "pin": "assign:DEMO_READ_ONLY",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
@@ -513,12 +558,12 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
       "pin": "text:assert demo.signal_count == {value}",
-      "value": 53
+      "value": 64
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
       "pin": "assign:DEMO_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
@@ -533,7 +578,7 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
       "pin": "assign:DEMO_SIGNALS",
-      "value": 53
+      "value": 64
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
@@ -548,7 +593,7 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
       "pin": "text:assert \"{value} bindings\" in line",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
@@ -558,12 +603,12 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_writer.py",
       "pin": "text:assert report.binding_count == {value}",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_writer.py",
       "pin": "text:\"SELECT count(*) FROM bindings\") == [({value},)]",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_writer.py",
@@ -578,7 +623,7 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_search.py",
       "pin": "text:assert payload[\"total\"] == {value}",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
@@ -588,17 +633,17 @@
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "assign:EXPECTED_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "assign:EXPECTED_WRITES",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "assign:EXPECTED_READS",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
@@ -608,22 +653,22 @@
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "text:devices, {value} bindings",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "text:{value} written and",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "text:{value} read signals",
-      "value": 3101
+      "value": 3320
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "text:and the {value} writes are",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
@@ -643,7 +688,7 @@
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
       "pin": "text:predicate appearing {value} times",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/templates/test_control_assistant_demo_ttl.py",
@@ -658,7 +703,7 @@
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
       "pin": "assign:EXPECTED_BINDINGS",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
@@ -668,7 +713,7 @@
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
       "pin": "text:the {value} addresses the facility adds included",
-      "value": 792
+      "value": 1230
     },
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
@@ -691,37 +736,37 @@
     {
       "file": "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
       "pin": "assign:GRAPH_CHANNEL_COUNT",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/mcp_server/channel_finder_graph/test_examples_live.py",
       "pin": "text:the corpus' {value} channel bindings",
-      "value": 3700
+      "value": 4138
     },
     {
       "file": "tests/_facility_file.py",
-      "pin": "text:{value} channels: 595 setpoints",
-      "value": 3700
+      "pin": "text:{value} channels: 814 setpoints",
+      "value": 4138
     },
     {
       "file": "tests/_facility_file.py",
       "pin": "text:channels: {value} setpoints",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/_facility_file.py",
       "pin": "text:commands) and {value} readbacks",
-      "value": 3105
+      "value": 3324
     },
     {
       "file": "tests/_graph_index.py",
-      "pin": "text:{value} channels, 595 of them settable",
-      "value": 3700
+      "pin": "text:{value} channels, 814 of them settable",
+      "value": 4138
     },
     {
       "file": "tests/_graph_index.py",
       "pin": "text:channels, {value} of them settable",
-      "value": 595
+      "value": 814
     },
     {
       "file": "tests/simulation/test_active_logbook_seed.py",
@@ -759,6 +804,11 @@
       "value": 379
     },
     {
+      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "pin": "assign:EXPECTED_COMMANDS",
+      "value": 74
+    },
+    {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert len(bts_monitors()) == {value}",
       "value": 12
@@ -767,6 +817,16 @@
       "file": "tests/facility/test_bluesky_view.py",
       "pin": "text:sum(address.startswith(\"LINE:\") for address in setpoints) == {value}",
       "value": 16
+    },
+    {
+      "file": "tests/facility/test_bluesky_view.py",
+      "pin": "text:# {value} paired setpoints and 74",
+      "value": 740
+    },
+    {
+      "file": "tests/facility/test_bluesky_view.py",
+      "pin": "text:setpoints and {value} write-only commands",
+      "value": 74
     }
   ]
 }

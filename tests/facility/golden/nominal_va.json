@@ -11,7 +11,7 @@
       "still"
     ],
     "addresses": {
-      "count": 3487,
+      "count": 3925,
       "excluded": "the suite's synthetic string channel and every waveform"
     },
     "nominal": "Channel Access read, repeated every 3 s until two snapshots agree exactly; a bool or enum as its label, a string as its text"
@@ -1760,17 +1760,35 @@
     "LTB:MAG:VCM:07:STATUS:ON": {
       "nominal": "TRUE"
     },
+    "SR:DIAG:BPM:01:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:01:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:01:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:01:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:01:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:01:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:01:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:01:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:01:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:01:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:01:POSITION:X": {
       "nominal": -3.4291020999605904e-06
@@ -1790,17 +1808,35 @@
     "SR:DIAG:BPM:01:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:02:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:02:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:02:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:02:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:02:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:02:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:02:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:02:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:02:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:02:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:02:POSITION:X": {
       "nominal": -2.939703572765937e-06
@@ -1820,17 +1856,35 @@
     "SR:DIAG:BPM:02:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:03:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:03:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:03:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:03:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:03:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:03:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:03:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:03:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:03:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:03:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:03:POSITION:X": {
       "nominal": 9.541500664323875e-06
@@ -1850,17 +1904,35 @@
     "SR:DIAG:BPM:03:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:04:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:04:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:04:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:04:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:04:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:04:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:04:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:04:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:04:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:04:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:04:POSITION:X": {
       "nominal": 6.71079187672322e-06
@@ -1880,17 +1952,35 @@
     "SR:DIAG:BPM:04:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:05:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:05:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:05:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:05:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:05:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:05:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:05:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:05:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:05:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:05:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:05:POSITION:X": {
       "nominal": -2.3283278182218537e-06
@@ -1910,17 +2000,35 @@
     "SR:DIAG:BPM:05:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:06:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:06:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:06:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:06:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:06:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:06:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:06:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:06:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:06:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:06:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:06:POSITION:X": {
       "nominal": -2.8336358231093802e-06
@@ -1940,17 +2048,35 @@
     "SR:DIAG:BPM:06:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:07:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:07:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:07:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:07:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:07:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:07:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:07:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:07:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:07:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:07:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:07:POSITION:X": {
       "nominal": 1.7474743383393257e-06
@@ -1970,17 +2096,35 @@
     "SR:DIAG:BPM:07:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:08:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:08:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:08:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:08:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:08:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:08:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:08:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:08:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:08:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:08:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:08:POSITION:X": {
       "nominal": 2.0110404743266137e-06
@@ -2000,17 +2144,35 @@
     "SR:DIAG:BPM:08:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:09:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:09:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:09:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:09:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:09:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:09:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:09:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:09:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:09:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:09:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:09:POSITION:X": {
       "nominal": 8.572674282532502e-06
@@ -2030,17 +2192,35 @@
     "SR:DIAG:BPM:09:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:10:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:10:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:10:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:10:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:10:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:10:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:10:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:10:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:10:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:10:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:10:POSITION:X": {
       "nominal": -4.5200497517934095e-06
@@ -2060,17 +2240,35 @@
     "SR:DIAG:BPM:10:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:11:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:11:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:11:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:11:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:11:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:11:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:11:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:11:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:11:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:11:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:11:POSITION:X": {
       "nominal": 9.966767843446012e-06
@@ -2090,17 +2288,35 @@
     "SR:DIAG:BPM:11:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:12:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:12:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:12:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:12:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:12:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:12:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:12:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:12:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:12:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:12:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:12:POSITION:X": {
       "nominal": 1.6003978634634822e-05
@@ -2120,17 +2336,35 @@
     "SR:DIAG:BPM:12:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:13:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:13:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:13:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:13:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:13:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:13:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:13:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:13:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:13:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:13:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:13:POSITION:X": {
       "nominal": 1.4573062267032348e-05
@@ -2150,17 +2384,35 @@
     "SR:DIAG:BPM:13:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:14:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:14:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:14:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:14:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:14:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:14:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:14:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:14:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:14:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:14:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:14:POSITION:X": {
       "nominal": 8.611046173790041e-06
@@ -2180,17 +2432,35 @@
     "SR:DIAG:BPM:14:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:15:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:15:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:15:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:15:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:15:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:15:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:15:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:15:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:15:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:15:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:15:POSITION:X": {
       "nominal": -6.046420877172755e-06
@@ -2210,17 +2480,35 @@
     "SR:DIAG:BPM:15:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:16:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:16:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:16:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:16:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:16:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:16:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:16:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:16:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:16:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:16:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:16:POSITION:X": {
       "nominal": 9.778927353419245e-06
@@ -2240,17 +2528,35 @@
     "SR:DIAG:BPM:16:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:17:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:17:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:17:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:17:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:17:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:17:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:17:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:17:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:17:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:17:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:17:POSITION:X": {
       "nominal": -4.132167236202609e-06
@@ -2270,17 +2576,35 @@
     "SR:DIAG:BPM:17:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:18:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:18:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:18:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:18:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:18:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:18:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:18:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:18:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:18:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:18:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:18:POSITION:X": {
       "nominal": -7.386847494615092e-06
@@ -2300,17 +2624,35 @@
     "SR:DIAG:BPM:18:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:19:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:19:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:19:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:19:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:19:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:19:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:19:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:19:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:19:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:19:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:19:POSITION:X": {
       "nominal": -1.0324780242175813e-05
@@ -2330,17 +2672,35 @@
     "SR:DIAG:BPM:19:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:20:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:20:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:20:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:20:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:20:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:20:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:20:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:20:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:20:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:20:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:20:POSITION:X": {
       "nominal": -6.9153393237278284e-06
@@ -2360,17 +2720,35 @@
     "SR:DIAG:BPM:20:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:21:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:21:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:21:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:21:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:21:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:21:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:21:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:21:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:21:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:21:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:21:POSITION:X": {
       "nominal": 7.4028714939753895e-06
@@ -2390,17 +2768,35 @@
     "SR:DIAG:BPM:21:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:22:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:22:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:22:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:22:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:22:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:22:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:22:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:22:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:22:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:22:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:22:POSITION:X": {
       "nominal": -1.0121520929802294e-06
@@ -2420,17 +2816,35 @@
     "SR:DIAG:BPM:22:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:23:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:23:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:23:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:23:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:23:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:23:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:23:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:23:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:23:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:23:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:23:POSITION:X": {
       "nominal": -2.3055627974979178e-06
@@ -2450,17 +2864,35 @@
     "SR:DIAG:BPM:23:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:24:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:24:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:24:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:24:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:24:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:24:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:24:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:24:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:24:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:24:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:24:POSITION:X": {
       "nominal": -2.7343897273196924e-06
@@ -2480,17 +2912,35 @@
     "SR:DIAG:BPM:24:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:25:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:25:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:25:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:25:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:25:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:25:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:25:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:25:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:25:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:25:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:25:POSITION:X": {
       "nominal": 2.138047898501455e-06
@@ -2510,17 +2960,35 @@
     "SR:DIAG:BPM:25:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:26:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:26:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:26:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:26:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:26:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:26:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:26:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:26:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:26:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:26:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:26:POSITION:X": {
       "nominal": 2.3096732433342685e-06
@@ -2540,17 +3008,35 @@
     "SR:DIAG:BPM:26:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:27:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:27:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:27:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:27:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:27:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:27:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:27:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:27:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:27:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:27:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:27:POSITION:X": {
       "nominal": 1.0132694411540773e-06
@@ -2570,17 +3056,35 @@
     "SR:DIAG:BPM:27:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:28:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:28:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:28:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:28:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:28:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:28:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:28:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:28:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:28:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:28:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:28:POSITION:X": {
       "nominal": -7.397804995263356e-06
@@ -2600,17 +3104,35 @@
     "SR:DIAG:BPM:28:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:29:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:29:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:29:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:29:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:29:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:29:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:29:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:29:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:29:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:29:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:29:POSITION:X": {
       "nominal": 6.914770257192393e-06
@@ -2630,17 +3152,35 @@
     "SR:DIAG:BPM:29:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:30:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:30:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:30:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:30:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:30:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:30:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:30:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:30:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:30:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:30:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:30:POSITION:X": {
       "nominal": 1.0688463626656331e-05
@@ -2660,17 +3200,35 @@
     "SR:DIAG:BPM:30:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:31:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:31:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:31:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:31:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:31:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:31:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:31:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:31:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:31:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:31:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:31:POSITION:X": {
       "nominal": 7.748771623293546e-06
@@ -2690,17 +3248,35 @@
     "SR:DIAG:BPM:31:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:32:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:32:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:32:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:32:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:32:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:32:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:32:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:32:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:32:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:32:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:32:POSITION:X": {
       "nominal": 4.130250975538978e-06
@@ -2720,17 +3296,35 @@
     "SR:DIAG:BPM:32:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:33:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:33:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:33:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:33:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:33:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:33:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:33:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:33:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:33:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:33:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:33:POSITION:X": {
       "nominal": -9.773788079788188e-06
@@ -2750,17 +3344,35 @@
     "SR:DIAG:BPM:33:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:34:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:34:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:34:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:34:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:34:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:34:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:34:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:34:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:34:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:34:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:34:POSITION:X": {
       "nominal": 6.049765306529516e-06
@@ -2780,17 +3392,35 @@
     "SR:DIAG:BPM:34:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:35:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:35:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:35:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:35:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:35:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:35:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:35:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:35:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:35:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:35:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:35:POSITION:X": {
       "nominal": -8.612994108250323e-06
@@ -2810,17 +3440,35 @@
     "SR:DIAG:BPM:35:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:36:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:36:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:36:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:36:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:36:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:36:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:36:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:36:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:36:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:36:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:36:POSITION:X": {
       "nominal": -1.4396793661144498e-05
@@ -2840,17 +3488,35 @@
     "SR:DIAG:BPM:36:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:37:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:37:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:37:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:37:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:37:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:37:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:37:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:37:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:37:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:37:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:37:POSITION:X": {
       "nominal": -1.582604045204534e-05
@@ -2870,17 +3536,35 @@
     "SR:DIAG:BPM:37:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:38:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:38:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:38:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:38:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:38:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:38:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:38:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:38:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:38:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:38:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:38:POSITION:X": {
       "nominal": -9.96733857254704e-06
@@ -2900,17 +3584,35 @@
     "SR:DIAG:BPM:38:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:39:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:39:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:39:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:39:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:39:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:39:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:39:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:39:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:39:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:39:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:39:POSITION:X": {
       "nominal": 4.5239934177404495e-06
@@ -2930,17 +3632,35 @@
     "SR:DIAG:BPM:39:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:40:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:40:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:40:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:40:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:40:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:40:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:40:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:40:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:40:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:40:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:40:POSITION:X": {
       "nominal": -8.570231037831935e-06
@@ -2960,17 +3680,35 @@
     "SR:DIAG:BPM:40:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:41:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:41:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:41:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:41:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:41:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:41:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:41:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:41:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:41:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:41:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:41:POSITION:X": {
       "nominal": -2.007130846622867e-06
@@ -2990,17 +3728,35 @@
     "SR:DIAG:BPM:41:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:42:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:42:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:42:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:42:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:42:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:42:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:42:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:42:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:42:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:42:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:42:POSITION:X": {
       "nominal": -2.30819414056576e-06
@@ -3020,17 +3776,35 @@
     "SR:DIAG:BPM:42:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:43:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:43:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:43:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:43:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:43:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:43:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:43:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:43:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:43:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:43:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:43:POSITION:X": {
       "nominal": 2.272990246601433e-06
@@ -3050,17 +3824,35 @@
     "SR:DIAG:BPM:43:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:44:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:44:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:44:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:44:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:44:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:44:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:44:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:44:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:44:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:44:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:44:POSITION:X": {
       "nominal": 2.3321458501117513e-06
@@ -3080,17 +3872,35 @@
     "SR:DIAG:BPM:44:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:45:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:45:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:45:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:45:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:45:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:45:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:45:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:45:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:45:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:45:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:45:POSITION:X": {
       "nominal": -6.709531934929225e-06
@@ -3110,17 +3920,35 @@
     "SR:DIAG:BPM:45:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:46:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:46:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:46:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:46:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:46:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:46:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:46:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:46:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:46:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:46:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:46:POSITION:X": {
       "nominal": -9.536426938431102e-06
@@ -3140,17 +3968,35 @@
     "SR:DIAG:BPM:46:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:47:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:47:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:47:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:47:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:47:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:47:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:47:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:47:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:47:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:47:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:47:POSITION:X": {
       "nominal": 2.940561547180068e-06
@@ -3170,17 +4016,35 @@
     "SR:DIAG:BPM:47:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:48:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:48:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:48:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:48:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:48:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:48:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:48:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:48:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:48:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:48:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:48:POSITION:X": {
       "nominal": 3.938066792808731e-06
@@ -3200,17 +4064,35 @@
     "SR:DIAG:BPM:48:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:49:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:49:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:49:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:49:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:49:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:49:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:49:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:49:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:49:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:49:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:49:POSITION:X": {
       "nominal": -1.623345547938324e-07
@@ -3230,17 +4112,35 @@
     "SR:DIAG:BPM:49:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:50:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:50:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:50:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:50:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:50:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:50:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:50:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:50:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:50:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:50:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:50:POSITION:X": {
       "nominal": -9.432876426827691e-07
@@ -3260,17 +4160,35 @@
     "SR:DIAG:BPM:50:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:51:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:51:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:51:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:51:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:51:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:51:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:51:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:51:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:51:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:51:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:51:POSITION:X": {
       "nominal": -1.2565907050293108e-05
@@ -3290,17 +4208,35 @@
     "SR:DIAG:BPM:51:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:52:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:52:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:52:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:52:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:52:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:52:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:52:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:52:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:52:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:52:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:52:POSITION:X": {
       "nominal": 1.2743850674820015e-06
@@ -3320,17 +4256,35 @@
     "SR:DIAG:BPM:52:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:53:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:53:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:53:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:53:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:53:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:53:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:53:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:53:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:53:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:53:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:53:POSITION:X": {
       "nominal": -1.2267811995055888e-05
@@ -3350,17 +4304,35 @@
     "SR:DIAG:BPM:53:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:54:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:54:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:54:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:54:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:54:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:54:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:54:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:54:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:54:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:54:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:54:POSITION:X": {
       "nominal": -2.0019618436168852e-05
@@ -3380,17 +4352,35 @@
     "SR:DIAG:BPM:54:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:55:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:55:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:55:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:55:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:55:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:55:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:55:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:55:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:55:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:55:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:55:POSITION:X": {
       "nominal": -1.9772665720815194e-05
@@ -3410,17 +4400,35 @@
     "SR:DIAG:BPM:55:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:56:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:56:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:56:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:56:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:56:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:56:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:56:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:56:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:56:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:56:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:56:POSITION:X": {
       "nominal": -1.2034623222812548e-05
@@ -3440,17 +4448,35 @@
     "SR:DIAG:BPM:56:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:57:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:57:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:57:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:57:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:57:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:57:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:57:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:57:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:57:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:57:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:57:POSITION:X": {
       "nominal": 6.930549496451034e-07
@@ -3470,17 +4496,35 @@
     "SR:DIAG:BPM:57:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:58:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:58:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:58:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:58:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:58:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:58:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:58:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:58:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:58:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:58:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:58:POSITION:X": {
       "nominal": -1.5618847346720362e-05
@@ -3500,17 +4544,35 @@
     "SR:DIAG:BPM:58:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:59:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:59:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:59:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:59:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:59:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:59:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:59:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:59:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:59:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:59:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:59:POSITION:X": {
       "nominal": -1.770514767109624e-06
@@ -3530,17 +4592,35 @@
     "SR:DIAG:BPM:59:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:60:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:60:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:60:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:60:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:60:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:60:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:60:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:60:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:60:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:60:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:60:POSITION:X": {
       "nominal": -2.099814871058817e-06
@@ -3560,17 +4640,35 @@
     "SR:DIAG:BPM:60:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:61:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:61:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:61:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:61:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:61:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:61:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:61:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:61:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:61:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:61:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:61:POSITION:X": {
       "nominal": 1.6421773568205127e-06
@@ -3590,17 +4688,35 @@
     "SR:DIAG:BPM:61:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:62:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:62:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:62:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:62:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:62:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:62:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:62:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:62:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:62:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:62:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:62:POSITION:X": {
       "nominal": 1.7739194113618564e-06
@@ -3620,17 +4736,35 @@
     "SR:DIAG:BPM:62:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:63:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:63:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:63:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:63:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:63:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:63:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:63:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:63:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:63:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:63:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:63:POSITION:X": {
       "nominal": 1.5623372152634975e-05
@@ -3650,17 +4784,35 @@
     "SR:DIAG:BPM:63:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:64:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:64:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:64:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:64:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:64:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:64:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:64:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:64:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:64:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:64:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:64:POSITION:X": {
       "nominal": -6.902769246055305e-07
@@ -3680,17 +4832,35 @@
     "SR:DIAG:BPM:64:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:65:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:65:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:65:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:65:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:65:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:65:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:65:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:65:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:65:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:65:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:65:POSITION:X": {
       "nominal": 1.2034888132409713e-05
@@ -3710,17 +4880,35 @@
     "SR:DIAG:BPM:65:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:66:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:66:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:66:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:66:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:66:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:66:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:66:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:66:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:66:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:66:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:66:POSITION:X": {
       "nominal": 1.9745323644252187e-05
@@ -3740,17 +4928,35 @@
     "SR:DIAG:BPM:66:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:67:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:67:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:67:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:67:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:67:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:67:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:67:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:67:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:67:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:67:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:67:POSITION:X": {
       "nominal": 1.9991589755594518e-05
@@ -3770,17 +4976,35 @@
     "SR:DIAG:BPM:67:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:68:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:68:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:68:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:68:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:68:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:68:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:68:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:68:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:68:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:68:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:68:POSITION:X": {
       "nominal": 1.2267386812856253e-05
@@ -3800,17 +5024,35 @@
     "SR:DIAG:BPM:68:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:69:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:69:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:69:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:69:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:69:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:69:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:69:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:69:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:69:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:69:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:69:POSITION:X": {
       "nominal": -1.2719512785720438e-06
@@ -3830,17 +5072,35 @@
     "SR:DIAG:BPM:69:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:70:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:70:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:70:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:70:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:70:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:70:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:70:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:70:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:70:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:70:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:70:POSITION:X": {
       "nominal": 1.2572304979425599e-05
@@ -3860,17 +5120,35 @@
     "SR:DIAG:BPM:70:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:71:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:71:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:71:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:71:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:71:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:71:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:71:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:71:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:71:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:71:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:71:POSITION:X": {
       "nominal": 9.433760616144793e-07
@@ -3890,17 +5168,35 @@
     "SR:DIAG:BPM:71:TBT:ARMED": {
       "nominal": 0
     },
+    "SR:DIAG:BPM:72:ATTENUATION:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:BPM:72:ATTENUATION:SP": {
+      "nominal": 0.0
+    },
     "SR:DIAG:BPM:72:GOLDEN:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:72:GOLDEN:Y": {
       "nominal": 100.0
     },
+    "SR:DIAG:BPM:72:MODE:RB": {
+      "nominal": "Low Current"
+    },
+    "SR:DIAG:BPM:72:MODE:SP": {
+      "nominal": "Low Current"
+    },
     "SR:DIAG:BPM:72:OFFSET:X": {
       "nominal": 100.0
     },
     "SR:DIAG:BPM:72:OFFSET:Y": {
       "nominal": 100.0
+    },
+    "SR:DIAG:BPM:72:PILOT_TONE:RB": {
+      "nominal": "Off"
+    },
+    "SR:DIAG:BPM:72:PILOT_TONE:SP": {
+      "nominal": "Off"
     },
     "SR:DIAG:BPM:72:POSITION:X": {
       "nominal": 6.702227760542982e-07
@@ -3925,6 +5221,9 @@
     },
     "SR:DIAG:CHROM:Y": {
       "nominal": 1.0025428442421542
+    },
+    "SR:DIAG:CLEANING:REQUEST": {
+      "nominal": 0
     },
     "SR:DIAG:DCCT:01:CURRENT:RB": {
       "nominal": 500.0
@@ -4057,6 +5356,15 @@
     },
     "SR:DIAG:NEUTRON:04:STATUS:VALID": {
       "nominal": "TRUE"
+    },
+    "SR:DIAG:STORED_BEAM:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "SR:DIAG:TBT:TURNS:RB": {
+      "nominal": 100
+    },
+    "SR:DIAG:TBT:TURNS:SP": {
+      "nominal": 100
     },
     "SR:DIAG:TUNE:X": {
       "nominal": 0.22078142256748706
@@ -10033,6 +11341,12 @@
     },
     "SR:RF:KLYSTRON:02:VOLTAGE:SP": {
       "nominal": 80.0
+    },
+    "SR:RF:ON:RB": {
+      "nominal": "On"
+    },
+    "SR:RF:ON:SP": {
+      "nominal": "On"
     },
     "SR:VAC:GAUGE:SR01:PRESSURE:RB": {
       "nominal": 5e-08
