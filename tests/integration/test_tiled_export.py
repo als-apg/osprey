@@ -529,34 +529,16 @@ def test_a_run_that_recorded_nothing_is_refused_as_such(bridge: TestClient) -> N
     assert bridge.get(f"/runs/{BARE_RUN}/data").status_code == 200
 
 
-@pytest.mark.usefixtures("tiled_uri", "stored_runs")
-def test_an_unconfigured_catalog_is_refused_before_any_read(monkeypatch: Any) -> None:
-    """A deployment with no Tiled at all answers 503, not a 500 out of the client.
-
-    Deliberately not parameterized onto the `bridge` fixture: this is the one
-    test that needs the environment variable ABSENT, and it asserts the branch
-    every browse-only deployment takes on every export request.
-    """
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-
-    from osprey.services.bluesky_bridge.app import app
-
-    with TestClient(app) as client:
-        response = client.get(f"/runs/{SCALAR_RUN}/export")
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "tiled_unavailable"
-
-
 @pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
 def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: Any) -> None:
     """The ordinary outage: Tiled is configured, and nothing is listening.
 
-    This is the case the unset-variable test above cannot reach — that one takes
-    a plain ``if client is None`` branch that has no way to fail. Here the whole
-    catalog resolution runs and throws: `from_uri` performs a real handshake GET
-    before it returns a client, so the connection is refused before any run is
-    ever looked up.
+    A deployment with no catalog configured never reaches the network; that
+    refusal is pinned without a container by
+    `test_export_route.py::test_an_export_with_no_catalog_is_a_settled_refusal`.
+    Here the whole catalog resolution runs and throws: `from_uri` performs a
+    real handshake GET before it returns a client, so the connection is refused
+    before any run is ever looked up.
 
     It is the routine operational state, not an exotic one — the tiled container
     restarting, the bridge coming up before tiled is healthy, a rotated key, a
@@ -585,8 +567,9 @@ def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: 
     assert response.status_code == 503, response.text
     detail = response.json()["detail"]
     assert detail["code"] == "tiled_unavailable"
-    # The sentence has to describe THIS failure. The unset-variable branch says
-    # "not configured for this deployment", which would be a lie here.
+    # The sentence has to describe THIS failure. The no-catalog refusal
+    # (`test_an_export_with_no_catalog_is_a_settled_refusal`) says "not
+    # configured for this deployment", which would be a lie here.
     assert "could not be reached" in detail["detail"]
 
 

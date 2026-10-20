@@ -2045,13 +2045,27 @@ _EXPORT_FORMATS = {
 
 # Why an export could not be produced. Same `{"code", "detail"}` refusal body
 # every other refusal on this app uses (`queue.py`, `_use_the_queue`), so a
-# caller branches on `detail.code` here exactly as it does there.
+# caller branches on `detail.code` here exactly as it does there. The set is
+# closed: `_export_refused` refuses any code outside `EXPORT_REASONS`.
 EXPORT_REASON_UNSUPPORTED_FORMAT = "unsupported_format"
+EXPORT_REASON_TILED_NOT_CONFIGURED = "tiled_not_configured"
 EXPORT_REASON_TILED_UNAVAILABLE = "tiled_unavailable"
 EXPORT_REASON_UNKNOWN_RUN = "unknown_run"
 EXPORT_REASON_NOTHING_STORED = "nothing_stored"
 EXPORT_REASON_AMBIGUOUS_TABLE = "ambiguous_table"
 EXPORT_REASON_EXPORT_FAILED = "export_failed"
+
+EXPORT_REASONS: frozenset[str] = frozenset(
+    {
+        EXPORT_REASON_UNSUPPORTED_FORMAT,
+        EXPORT_REASON_TILED_NOT_CONFIGURED,
+        EXPORT_REASON_TILED_UNAVAILABLE,
+        EXPORT_REASON_UNKNOWN_RUN,
+        EXPORT_REASON_NOTHING_STORED,
+        EXPORT_REASON_AMBIGUOUS_TABLE,
+        EXPORT_REASON_EXPORT_FAILED,
+    }
+)
 
 
 def _export_refused(status: int, code: str, detail: str) -> HTTPException:
@@ -2060,7 +2074,12 @@ def _export_refused(status: int, code: str, detail: str) -> HTTPException:
     A download route that fails has to say *why* in something a caller can
     branch on: the response body is the only place left, because the bytes it
     would otherwise be carrying are what is missing.
+
+    *code* is one of `EXPORT_REASONS`; any other value raises `ValueError`, so a
+    misspelled reason fails where the refusal is made and never reaches the wire.
     """
+    if code not in EXPORT_REASONS:
+        raise ValueError(f"{code!r} is not an export refusal reason")
     return HTTPException(status_code=status, detail={"code": code, "detail": detail})
 
 
@@ -2115,7 +2134,9 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
     judgement belongs to the caller of this function, which is why it makes
     none itself.
 
-    The two ``None``/``not in`` refusals raised here are the opposite case:
+    The refusals raised here are the opposite case. The first, no catalog
+    configured, is a fact about the deployment: there is no catalog to ask, so it
+    is raised before any read. The two ``None``/``not in`` refusals after it are
     facts about the catalog's contents, learned by asking successfully.
 
     What comes back is every table-family part of the stream, in container
@@ -2128,8 +2149,8 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
     client = _tiled_client()
     if client is None:
         raise _export_refused(
-            503,
-            EXPORT_REASON_TILED_UNAVAILABLE,
+            409,
+            EXPORT_REASON_TILED_NOT_CONFIGURED,
             "No Tiled catalog is configured for this deployment, so no run has "
             "stored data to export.",
         )
@@ -2155,12 +2176,16 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
 def _stored_table_node(run_id: str) -> Any:
     """The catalog node holding *run_id*'s stored rows. Raises a refusal, never a 500.
 
-    Two kinds of failure, told apart because a caller acts on them differently:
+    Three kinds of failure, told apart because a caller acts on them differently:
 
-    **The catalog answered, and its answer was "no".** No catalog configured, no
-    run under that id, a run whose ``primary`` stream never landed, a stream with
-    no table part — each a named refusal raised here or by
-    `_resolve_stored_tables` and passed straight through.
+    **No catalog is configured.** A fact about the deployment, not about the
+    run: 409 `tiled_not_configured`, raised by `_resolve_stored_tables` before
+    any network read and passed straight through. Retrying does not change it.
+
+    **The catalog answered, and its answer was "no".** No run under that id, a
+    run whose ``primary`` stream never landed, a stream with no table part —
+    each a named refusal raised here or by `_resolve_stored_tables` and passed
+    straight through.
 
     **The catalog did not answer at all.** Every line of the resolution reaches
     the Tiled server over the network — `from_uri` performs a handshake GET, the
@@ -2195,7 +2220,8 @@ def _stored_table_node(run_id: str) -> Any:
     try:
         tables = _resolve_stored_tables(run_id)
     except HTTPException:
-        # A refusal `_resolve_stored_tables` already named — the catalog answered.
+        # A refusal `_resolve_stored_tables` already named — the deployment has no
+        # catalog, or the catalog answered.
         raise
     except Exception as exc:
         logger.warning(
@@ -2252,10 +2278,12 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
 
     Total by construction, like the data and figure routes: every failure is a
     ``{"code", "detail"}`` body under a status that says which kind it is —
-    400 `unsupported_format`, 404 `unknown_run`, 409 `nothing_stored`,
-    409 `ambiguous_table`, 503 `tiled_unavailable`, 502 `export_failed`. The two
-    409s are told apart because a caller acts on them differently — nothing to
-    serialize versus more than one thing. The two network ones split the
+    400 `unsupported_format`, 404 `unknown_run`, 409 `tiled_not_configured`,
+    409 `nothing_stored`, 409 `ambiguous_table`, 503 `tiled_unavailable`,
+    502 `export_failed`. The three 409s are settled refusals that retrying will
+    not change — no catalog in this deployment, nothing to serialize, more than
+    one thing — told apart because a caller acts on each differently; 503 is the
+    one retryable answer. The two network ones split the
     catalog's failures where a caller can act on the difference: 503 is "could
     not be reached at all, retry later" (`_stored_table_node` owns it, for the
     whole resolution), 502 is "was reached and could not serialize this run",
