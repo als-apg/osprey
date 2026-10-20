@@ -22,7 +22,7 @@ import copy
 import logging
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
@@ -425,6 +425,101 @@ def dotenv_shell_overrides() -> dict[str, str]:
     return dict(_dotenv_shell_overrides)
 
 
+#: Variables the env chain never sets in a process environment. Each one
+#: chooses which program runs or what code a shell, Python or Node loads at
+#: start, so it comes from the operator's shell, never from a repo file.
+SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "SHELL",
+        "ENV",
+        "BASH_ENV",
+        "ZDOTDIR",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+    }
+)
+
+#: Name prefixes of the dynamic loader's variables, shell-only for the same
+#: reason as :data:`SHELL_ONLY_ENV_VARS`.
+SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = ("LD_", "DYLD_")
+
+#: ``(resolved file, name)`` pairs whose ignored shell-only name was already
+#: reported, so a chain applied many times in one process warns once.
+_shell_only_reported: set[tuple[str, str]] = set()
+
+
+def is_shell_only_env_var(name: str) -> bool:
+    """Whether ``name`` is a launch variable the env chain never applies."""
+    return name in SHELL_ONLY_ENV_VARS or name.startswith(SHELL_ONLY_ENV_PREFIXES)
+
+
+def apply_env_chain(
+    environ: MutableMapping[str, str],
+    paths: Sequence[Path],
+    *,
+    override: bool = True,
+) -> list[str]:
+    """Apply env-chain files to ``environ``, except the shell-only launch variables.
+
+    ``paths`` is in ascending precedence (``.env.shared`` before ``.env``); a
+    path that is not a file is skipped. Each file is read with python-dotenv's
+    ``dotenv_values`` and written into ``environ`` in turn, so a later file
+    wins on a key both set. Every key is applied except those
+    :func:`is_shell_only_env_var` names: for those ``environ`` keeps exactly
+    what it held (set, or absent), and one warning per file names the ignored
+    keys — never their values.
+
+    With ``override=False`` a name ``environ`` held when the call began is
+    never written, while a later file may still replace a value this call
+    wrote, so the local file outranks the shared one and the shell outranks
+    both.
+
+    :return: The sorted names written into ``environ``.
+    """
+    from dotenv import dotenv_values
+
+    preset = set() if override else set(environ)
+    written: set[str] = set()
+    for path in paths:
+        path = Path(path)
+        if not path.is_file():
+            continue
+        ignored: list[str] = []
+        for name, value in dotenv_values(path).items():
+            if value is None:
+                continue
+            if is_shell_only_env_var(name):
+                ignored.append(name)
+                continue
+            if name in preset:
+                continue
+            environ[name] = value
+            written.add(name)
+        _report_shell_only(path, ignored)
+    return sorted(written)
+
+
+def _report_shell_only(path: Path, names: list[str]) -> None:
+    """Warn once per process about the shell-only names ``path`` sets."""
+    resolved = str(path.resolve())
+    fresh = sorted({name for name in names if (resolved, name) not in _shell_only_reported})
+    if not fresh:
+        return
+    _shell_only_reported.update((resolved, name) for name in fresh)
+    logger.warning(
+        "Ignored %s in %s: launch variables come from the shell only. "
+        "Export them in your shell instead.",
+        ", ".join(fresh),
+        path,
+    )
+
+
 def load_project_dotenv() -> None:
     """Load the cwd's env chain into ``os.environ``, overriding existing values.
 
@@ -434,11 +529,13 @@ def load_project_dotenv() -> None:
     ``BLUESKY_*``), and it makes the chain the source of truth for API keys over
     a stale shell export. Every key in the files is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
-    error.
+    error. The one exception is the shell-only launch variables
+    (:func:`is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the
+    shell set them and warns.
 
     The chain is ``.env.shared`` then ``.env``
-    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each loaded with
-    ``override=True``, so the host-local ``.env`` wins over the committed
+    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each applied with
+    override, so the host-local ``.env`` wins over the committed
     defaults on a key both set — the same local-wins precedence every other
     delivery path applies. A project with no ``.env.shared`` behaves exactly as
     it did when ``.env`` was the whole chain.
@@ -455,8 +552,7 @@ def load_project_dotenv() -> None:
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
     import time, and never from library code that a host application merely
-    imports. Missing files, missing ``python-dotenv``, and an unreadable file
-    are all non-fatal.
+    imports. Missing files and an unreadable file are non-fatal.
 
     A process stamped with
     :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV` was handed its
@@ -466,12 +562,6 @@ def load_project_dotenv() -> None:
     from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
     if os.environ.get(ENV_CHAIN_APPLIED_ENV):
-        return
-
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        logger.warning("python-dotenv not available, skipping .env file loading")
         return
 
     repo_root = Path.cwd()
@@ -487,18 +577,19 @@ def load_project_dotenv() -> None:
         # after the first load os.environ already matches the chain — a later
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
-        # the shell's own.
+        # the shell's own. A shell-only name is never replaced, so it is never
+        # recorded.
         pinned = merge_chain(repo_root)
         for name, value in pinned.items():
             if (
-                name in os.environ
+                not is_shell_only_env_var(name)
+                and name in os.environ
                 and os.environ[name] != value
                 and name not in _dotenv_shell_overrides
             ):
                 _dotenv_shell_overrides[name] = os.environ[name]
-        for path in paths:
-            load_dotenv(path, override=True)
-            logger.debug(f"Loaded .env file from {path}")
+        apply_env_chain(os.environ, paths)
+        logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
         # container (dispatch worker on a uid-mismatched host). Provider
