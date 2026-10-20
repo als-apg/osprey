@@ -41,8 +41,8 @@ guard and the limits checks run — with
 reads the result the child already decided. Running that composition in the
 parent keeps every refusal decision in the child while letting a
 ``ChannelWriteFailedError`` reach the caller typed; raised in the child, that
-class is outside the IPC exception registry and would cross as a bare
-``ConnectionError``.
+class is outside the IPC exception registry and would cross as a
+``ConnectorInternalError``.
 
 Concurrency
 -----------
@@ -511,8 +511,8 @@ class ConnectorHostProxy:
             return
         if isinstance(frame, frames.ErrorFrame):
             # decode_frame already ran the typed-exception registry, so this is
-            # the real class with its fields, or a ConnectionError standing in
-            # for a class this build does not know.
+            # the real class with its fields, or a ConnectorInternalError
+            # standing in for a class this build does not know.
             exception = frame.exception
             setattr(exception, _FROM_CHILD, True)
             future.set_exception(exception)

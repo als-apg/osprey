@@ -41,7 +41,8 @@ several requests outstanding and match replies arriving in any order:
     bounds survive and the parent's error rendering is unchanged. That module
     owns the registry — which classes cross typed, which fields each carries,
     and how an unrecognised ``class_tag`` fails closed to a
-    :class:`ConnectionError` naming the original tag and message.
+    :class:`~osprey_connectors.errors.ConnectorInternalError` naming the
+    original tag and message.
 
 No pickle, ever
 ---------------
@@ -150,8 +151,8 @@ class ErrorFrame:
     ``exception`` is a real, reconstructed exception instance ready to be
     raised by the parent; ``class_tag`` and ``message`` are kept alongside it
     so a caller can still see what the child actually sent — which matters for
-    the fail-closed case, where ``exception`` is a ``ConnectionError`` standing
-    in for a class this codec does not know.
+    the fail-closed case, where ``exception`` is a ``ConnectorInternalError``
+    standing in for a class this codec does not know.
     """
 
     request_id: str
@@ -306,7 +307,8 @@ def encode_error(request_id: str, exc: BaseException) -> bytes:
 
     An exception outside the registry is still encoded under its own class
     name with an empty field set, so the far side can report what it was
-    rather than pretending the call succeeded.
+    rather than pretending the call succeeded: it decodes as a
+    ``ConnectorInternalError`` naming that class.
     """
     blobs: list[bytes] = []
     header = {

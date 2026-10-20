@@ -14,6 +14,7 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
     ChannelWriteBlockedError,
+    ConnectorInternalError,
 )
 from osprey_connectors.ipc import exceptions
 
@@ -28,13 +29,14 @@ def _round_trip(exc: BaseException) -> BaseException:
 # ---------------------------------------------------------------- protocol pin
 
 
-def test_registry_carries_exactly_the_five_agreed_classes():
+def test_registry_carries_exactly_the_six_agreed_classes():
     assert set(exceptions.EXCEPTION_SPECS) == {
         "ConnectionError",
         "TimeoutError",
         "ChannelWriteBlockedError",
         "ChannelLimitsViolationError",
         "ChannelNotFoundError",
+        "ConnectorInternalError",
     }
     registry = exceptions.EXCEPTION_SPECS
     assert registry["ConnectionError"].cls is ConnectionError
@@ -42,6 +44,14 @@ def test_registry_carries_exactly_the_five_agreed_classes():
     assert registry["ChannelWriteBlockedError"].cls is ChannelWriteBlockedError
     assert registry["ChannelLimitsViolationError"].cls is ChannelLimitsViolationError
     assert registry["ChannelNotFoundError"].cls is ChannelNotFoundError
+    assert registry["ConnectorInternalError"].cls is ConnectorInternalError
+
+
+def test_the_contract_fault_is_no_connection_error():
+    # No ``except ConnectionError`` or ``except OSError`` may read a connector
+    # bug as an unreachable control system.
+    assert not issubclass(ConnectorInternalError, OSError)
+    assert issubclass(ConnectorInternalError, RuntimeError)
 
 
 def test_limits_violation_field_list_is_the_published_spec():
@@ -234,38 +244,51 @@ def test_unregistered_exception_has_no_fields():
 # ---------------------------------------------------------------- failing closed
 
 
-def test_unknown_exception_type_encodes_fail_closed():
+def test_unknown_exception_type_encodes_fail_closed_to_the_contract_fault():
     class SomeChildOnlyError(Exception):
         pass
 
     original = SomeChildOnlyError("libca segfaulted")
     body = exceptions.encode_exception(original)
 
-    assert body["class_tag"] == "ConnectionError"
-    assert body["fields"] == {}
+    assert body["class_tag"] == "ConnectorInternalError"
+    assert body["fields"] == {"class_tag": "SomeChildOnlyError"}
     # Fail closed, but never silently: the original repr survives.
     assert repr(original) in body["message"]
-    assert "SomeChildOnlyError" in body["message"]
     assert "libca segfaulted" in body["message"]
 
     rebuilt = exceptions.decode_exception(body)
 
-    assert type(rebuilt) is ConnectionError
-    assert "SomeChildOnlyError" in str(rebuilt)
-    assert "libca segfaulted" in str(rebuilt)
+    assert type(rebuilt) is ConnectorInternalError
+    assert rebuilt.class_tag == "SomeChildOnlyError"
+    assert repr(original) in str(rebuilt)
 
 
-def test_unknown_class_tag_decodes_fail_closed_to_connection_error():
+def test_a_subclass_of_a_registered_class_crosses_as_that_class():
+    class SlowLinkError(TimeoutError):
+        pass
+
+    refused = _round_trip(ConnectionRefusedError("SR:Q refused the connection"))
+    slow = _round_trip(SlowLinkError("SR:Q did not answer"))
+
+    assert type(refused) is ConnectionError
+    assert str(refused) == "SR:Q refused the connection"
+    assert type(slow) is TimeoutError
+    assert str(slow) == "SR:Q did not answer"
+
+
+def test_unknown_class_tag_decodes_fail_closed_to_the_contract_fault():
     rebuilt = exceptions.decode_exception(
         {"class_tag": "WeirdChildError", "message": "original text", "fields": {}}
     )
 
-    assert type(rebuilt) is ConnectionError
+    assert type(rebuilt) is ConnectorInternalError
+    assert rebuilt.class_tag == "WeirdChildError"
     assert "WeirdChildError" in str(rebuilt)
     assert "original text" in str(rebuilt)
 
 
-def test_unusable_field_set_decodes_fail_closed_to_connection_error():
+def test_unusable_field_set_decodes_fail_closed_to_the_contract_fault():
     rebuilt = exceptions.decode_exception(
         {
             "class_tag": "ChannelWriteBlockedError",
@@ -274,16 +297,20 @@ def test_unusable_field_set_decodes_fail_closed_to_connection_error():
         }
     )
 
-    assert type(rebuilt) is ConnectionError
+    assert type(rebuilt) is ConnectorInternalError
+    assert rebuilt.class_tag == "ChannelWriteBlockedError"
     assert "ChannelWriteBlockedError" in str(rebuilt)
     assert "refused" in str(rebuilt)
 
 
-@pytest.mark.parametrize("body", [{}, {"class_tag": "ConnectionError"}])
-def test_incomplete_frame_body_still_yields_an_exception(body):
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [({}, ConnectorInternalError), ({"class_tag": "ConnectionError"}, ConnectionError)],
+)
+def test_incomplete_frame_body_still_yields_an_exception(body, expected):
     rebuilt = exceptions.decode_exception(body)
 
-    assert isinstance(rebuilt, ConnectionError)
+    assert type(rebuilt) is expected
 
 
 def test_the_package_re_exports_every_field_list():

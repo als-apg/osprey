@@ -48,6 +48,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
 )
 from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import frames, host
 from tests._control_context_fixtures import write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
@@ -339,9 +340,10 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
     frame = child.init(target="somewhere")
 
     assert isinstance(frame, frames.ErrorFrame)
-    # ValueError is outside the typed registry, so it fails closed to
-    # ConnectionError carrying what the child actually reported.
-    assert isinstance(frame.exception, ConnectionError)
+    # ValueError is outside the typed registry, so it fails closed to the
+    # contract fault carrying what the child actually reported.
+    assert isinstance(frame.exception, ConnectorInternalError)
+    assert frame.exception.class_tag == "ValueError"
     assert "somewhere" in frame.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
@@ -350,7 +352,7 @@ def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
     frame = child.init(control_system=["type", IN_PROCESS_TYPE])
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectionError)
+    assert isinstance(frame.exception, ConnectorInternalError)
     assert "'control_system' must be the config section dict" in frame.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
@@ -534,7 +536,7 @@ def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     frame = ready_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectionError)
+    assert isinstance(frame.exception, ConnectorInternalError)
     assert "subscribe" in frame.message
 
     follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
