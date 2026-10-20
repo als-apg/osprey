@@ -277,7 +277,16 @@ reading, under the signals of :ref:`architecture-facility-schema`; an
 reading, with ``bunch_clean_enable``, ``beam_current`` and ``rf_status``
 optional; and, on a periodic model, an ``injection`` block in its
 ``settings.pyat`` that says where a shot starts. The build stops on a file that
-asks for the kind without them. The file's keys are in
+asks for the kind without them.
+
+**The ``trajectory`` block is the one declaration of that surface.** It states
+the sample the shot arrives at, the operator settings and the chain one shot
+runs. The build reads it against the channel facts into the model's
+trajectory declaration, which the facts view carries; the trajectory service
+and its panel read only that, and the simulator view takes the trigger sample
+from it. A setting's readback and settle tolerance are its setpoint channel's
+``pair`` and ``tolerance``, and its values are that channel's domain, so the
+block restates none of them. The file's keys are in
 :doc:`/how-to/describe-your-facility`.
 
 How the composite serves the models over Channel Access and PVAccess is in

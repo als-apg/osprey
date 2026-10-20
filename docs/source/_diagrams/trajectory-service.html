@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
-<svg viewBox="0 0 1120 330" role="img" aria-labelledby="trajectory-service-title trajectory-service-desc">
-  <title id="trajectory-service-title">The trajectory service and its two doors</title>
-  <desc id="trajectory-service-desc">Two hops reach the trajectory service, both through the web terminal's panel proxy. The operator's browser calls the proxy at the panel's API path, which leads to the panel door. The agent calls the trajectory MCP server, which bounds each call by the service's own budgets and calls the proxy at the agent's API path with the panel token, which leads to the agent door, the door that also checks the launch token. The proxy drops any owner a request claims, adds the terminal's secret, and on the agent's hop the service's launch token as well; it sets no read bound on either hop. The service's shared web gate admits on the secret and names its account as the owner. Both doors hand the owner to one admission check and one worker, which takes the target's guarded-run lock before it acts.</desc>
+<svg viewBox="0 0 1120 440" role="img" aria-labelledby="trajectory-service-title trajectory-service-desc">
+  <title id="trajectory-service-title">The trajectory service: two doors, one declaration, one state</title>
+  <desc id="trajectory-service-desc">Two hops reach the trajectory service, both through the web terminal's panel proxy. The operator's browser calls the proxy at the panel's API path, which leads to the panel door. The agent calls the trajectory MCP server, which bounds each call by the service's own budgets and calls the proxy at the agent's API path with the panel token, which leads to the agent door, the door that also checks the launch token. The proxy drops any owner a request claims, adds the terminal's secret, and on the agent's hop the service's launch token as well; it sets no read bound on either hop. The service's shared web gate admits on the secret and names its account as the owner. Both doors hand the owner to one admission check and one worker, which takes the target's guarded-run lock before it acts. The service reads one declaration at start, the measurement file's trajectory block, which names the BPM devices, the operator settings and the chain's steps. Every action changes one state per target, the snapshot with its setup and SolveConfig, which both doors read.</desc>
   <defs>
     <marker id="trajectory-service-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -60,5 +60,24 @@
   <text class="tn" x="1060" y="161" text-anchor="middle">admit</text>
   <text class="ts" x="1060" y="179" text-anchor="middle">one worker</text>
   <text class="ts" x="1060" y="195" text-anchor="middle">run lock</text>
+
+  <!-- the declaration and the state -->
+  <line class="e" x1="1060" y1="215" x2="1060" y2="346" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="820" y1="388" x2="896" y2="388" marker-end="url(#trajectory-service-arr)"/>
+  <line class="e" x1="940" y1="356" x2="922" y2="304" marker-end="url(#trajectory-service-arr)"/>
+  <rect class="mask" x="826" y="372" width="64" height="12" rx="2"/>
+  <text class="ta" x="858" y="381" text-anchor="middle">at start</text>
+  <rect class="mask" x="1066" y="270" width="48" height="12" rx="2"/>
+  <text class="ta" x="1090" y="279" text-anchor="middle">writes</text>
+  <rect class="mask" x="934" y="318" width="52" height="12" rx="2"/>
+  <text class="ta" x="960" y="327" text-anchor="middle">reads</text>
+
+  <rect class="nb-in" x="600" y="356" width="220" height="64" rx="6"/>
+  <text class="tn" x="710" y="380" text-anchor="middle">trajectory declaration</text>
+  <text class="ts" x="710" y="398" text-anchor="middle">devices · settings · chain steps</text>
+
+  <rect class="nb-st" x="900" y="356" width="210" height="64" rx="6"/>
+  <text class="tn" x="1005" y="380" text-anchor="middle">one state per target</text>
+  <text class="ts" x="1005" y="398" text-anchor="middle">snapshot · setup · SolveConfig</text>
 </svg>
 </div>
