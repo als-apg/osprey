@@ -194,9 +194,11 @@ describe('Save Reference to File', () => {
       return 'blob:golden';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
-      expect(/** @type {HTMLAnchorElement} */ (this).download).toBe('golden.json');
-    });
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+      /** @this {HTMLAnchorElement} */ function () {
+        expect(this.download).toBe('golden.json');
+      },
+    );
     const area = mounted({
       routes: { 'GET api/references/golden/readings': () => [200, GOLDEN] },
       snapshot: { last_shot: null, reference: { name: 'golden' } },

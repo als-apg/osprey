@@ -204,7 +204,7 @@ describe('the setup area', () => {
   it('refuses an out-of-family index by name and disables the commit', () => {
     const { el, host } = harness();
     harnessType(el, 'bpm-exclude', '2 9');
-    expect(host.querySelector('[data-error="bpm-exclude"]').textContent).toBe('BPM 9 is not in the BPM family (1-6)');
+    expect(host.querySelector('[data-error="bpm-exclude"]')?.textContent).toBe('BPM 9 is not in the BPM family (1-6)');
     expect(el('setup-bpms').disabled).toBe(true);
     expect(el('setup-bpms').getAttribute('data-reason')).toBe('BPM 9 is not in the BPM family (1-6)');
   });

@@ -125,7 +125,7 @@ describe('mount', () => {
     expect(t.el('step-arm').checked).toBe(true);
     expect(t.el('step-clean').checked).toBe(false);
     expect(t.el('step-readout').checked).toBe(true);
-    expect(t.host.querySelector('[data-step="inject"]').textContent).toContain('Inject Beam');
+    expect(t.host.querySelector('[data-step="inject"]')?.textContent).toContain('Inject Beam');
     for (const id of ['arm', 'inject', 'clean', 'readout', 'plot']) {
       expect(t.el(`step-${id}-run`)).not.toBeNull();
     }
