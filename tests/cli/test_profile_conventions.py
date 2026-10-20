@@ -927,6 +927,14 @@ def test_zone_generated_dirnames_are_the_ones_the_table_knows():
     assert STATE_DIR in KNOWN_ROOT_ENTRIES
 
 
+def test_zone_table_names_the_repos_own_dockerignore():
+    """The deployment's image-exclusion file is part of the source-zone layout."""
+    from osprey.cli.profile_conventions import REPO_DOCKERIGNORE_FILENAME
+
+    assert REPO_DOCKERIGNORE_FILENAME == ".dockerignore"
+    assert REPO_DOCKERIGNORE_FILENAME in KNOWN_ROOT_ENTRIES
+
+
 def test_zone_scaffolded_boot_unit_is_not_flagged(zone_repo: Path):
     """`osprey scaffold systemd` writes the unit beside the profile.
 

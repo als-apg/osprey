@@ -44,7 +44,7 @@ import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
@@ -2733,7 +2733,7 @@ def _render_projects(
     return rendered
 
 
-def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
+def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Sequence[Path]) -> None:
     """Copy the repo's SOURCE zone into the container repo being assembled.
 
     A container image carries a deployment repo, so it carries the repo's
@@ -2751,13 +2751,27 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
-    repo root that is not a derived zone, git's own directory, a secret, or the
-    repo's own Claude Code files. A list of wanted names would be a second
+    repo root that is not a derived zone, git's own directory, a secret, the
+    repo's own Claude Code files, or a path the repo's own root
+    ``.dockerignore`` names. A list of wanted names would be a second
     enumeration of the fold's inputs, and the day the two disagreed a container
     would report false drift — the exact failure this exists to prevent.
     Excluding is a superset by construction, so it cannot drift from the fold;
     it is also just the truth, since the source zone is what a fresh clone of
     this repo holds, less the files that are for the person editing it.
+
+    The repo's ``.dockerignore`` carries Docker's meaning for a file at the
+    context root, which this copy of the repo root becomes: patterns anchored at
+    the repo root, read by :func:`_matches_ignore_pattern`. It is consumed here
+    and not copied, so an excluded path never enters the context, and two
+    invariants hold whatever it says:
+
+    * it only subtracts. Its patterns decide among the entries that survive
+      OSPREY's own exclusions, so a ``!`` line cannot bring back a secret, git's
+      directory or the repo's Claude Code files;
+    * it never removes a build input. A pattern excluding a path that equals,
+      lies under or contains one of ``build_inputs`` raises, because an image
+      without that file is no longer the source its render came from.
 
     ``.env`` is excluded HERE, not left to the image's ``.dockerignore``: this
     copy decides what the build context contains at all, and a secret that never
@@ -2776,25 +2790,80 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
 
     :param repo_root: The deployment repo whose source zone this is.
     :param image_root: The container repo root being assembled.
+    :param build_inputs: Repo-relative paths the build reads (the fold's inputs
+        and the repo marker); the repo's ``.dockerignore`` may not exclude them.
+    :raises BuildProfileError: When a ``.dockerignore`` pattern excludes a build
+        input.
     """
 
-    from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES
+    from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES, REPO_DOCKERIGNORE_FILENAME
 
-    def _ignore_env_files(_directory: str, names: list[str]) -> set[str]:
-        return {name for name in names if name.startswith(".env")}
+    ignore_file = repo_root / REPO_DOCKERIGNORE_FILENAME
+    patterns = (
+        _read_ignore_patterns(ignore_file.read_text(encoding="utf-8"))
+        if ignore_file.is_file()
+        else []
+    )
+    descend_excluded = any(pattern.startswith("!") for pattern in patterns)
+    protected = [PurePosixPath(path.as_posix()) for path in build_inputs]
+    excluded: list[str] = []
+    descended: list[str] = []
+
+    def _excludes(relative: str) -> bool:
+        pattern = _excluding_pattern(relative, patterns)
+        if pattern is None:
+            return False
+        path = PurePosixPath(relative)
+        for build_input in protected:
+            if path == build_input or path in build_input.parents or build_input in path.parents:
+                raise BuildProfileError(
+                    f"`.dockerignore` pattern `{pattern}` excludes `{relative}`, which the "
+                    "build reads; narrow the pattern so the image keeps it."
+                )
+        excluded.append(relative)
+        return True
+
+    def _skipped(relative: str, *, is_dir: bool) -> bool:
+        # An excluded directory is skipped whole unless a `!` line could keep
+        # something below it; then its entries are decided one by one.
+        if not _excludes(relative):
+            return False
+        if is_dir and descend_excluded:
+            descended.append(relative)
+            return False
+        return True
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        prefix = Path(directory).relative_to(repo_root).as_posix()
+        return {
+            name
+            for name in names
+            if name.startswith(".env")
+            or _skipped(f"{prefix}/{name}", is_dir=(Path(directory) / name).is_dir())
+        }
 
     for entry in sorted(repo_root.iterdir()):
         if (
             entry.name in _NON_SOURCE_ROOT_ENTRIES
             or entry.name in REPO_CLAUDE_CODE_ENTRIES
             or entry.name.startswith(".env")
+            or entry.name == REPO_DOCKERIGNORE_FILENAME
         ):
+            continue
+        if _skipped(entry.name, is_dir=entry.is_dir()):
             continue
         target = image_root / entry.name
         if entry.is_dir():
-            shutil.copytree(entry, target, symlinks=False, ignore=_ignore_env_files)
+            shutil.copytree(entry, target, symlinks=False, ignore=_ignore)
         else:
             shutil.copy2(entry, target)
+    # An excluded directory that was descended keeps only what a `!` line kept.
+    for relative in sorted(descended, key=lambda path: path.count("/"), reverse=True):
+        directory = image_root / relative
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+    if ignore_file.is_file():
+        logger.debug("%d path(s) kept out of the image by %s", len(excluded), ignore_file)
 
 
 def _strip_secrets(image_root: Path) -> None:
@@ -2865,6 +2934,10 @@ def _write_image_context_dockerignore(image_root: Path) -> list[str]:
       would produce an image with no config, no ``.mcp.json`` and no Claude Code
       artifacts at all.
 
+    The file written here is OSPREY's alone. The deployment repo's own root
+    ``.dockerignore`` never reaches the context: :func:`_stage_source_zone`
+    applies it while copying and leaves it behind.
+
     This is the SECOND guard on the repo's secrets, not the first:
     :func:`_strip_secrets` has already removed every ``.env`` from the tree. Two
     independent guards is the right number for a facility's provider keys — but
@@ -2905,28 +2978,61 @@ def _write_image_context_dockerignore(image_root: Path) -> list[str]:
     return patterns
 
 
+def _read_ignore_patterns(text: str) -> list[str]:
+    """The patterns of a ``.dockerignore``, in file order.
+
+    Blank lines and ``#`` comments carry no pattern; every other line is one,
+    whitespace-trimmed, its ``!`` kept.
+    """
+    lines = (raw.strip() for raw in text.splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
 def _matches_ignore_pattern(relative_posix: str, pattern: str) -> bool:
-    """Whether a context-relative path is named by one ``**/``-anchored pattern.
+    """Whether one ``.dockerignore`` pattern (without its ``!``) names a path.
 
-    Only the spelling :func:`_write_image_context_dockerignore` emits is
-    supported: a ``**/`` prefix over one or more literal-or-glob path segments,
-    with an optional trailing ``/``. Matching is done segment by segment against
-    the path's TAIL, which is what ``**/`` means — "this name at any depth" —
-    and case-sensitively, because docker is.
-
-    A directory match is not extended to its contents here; the caller removes a
-    matched directory whole, which does that and is cheaper.
+    The rules Docker applies to a context-relative posix path: the pattern is
+    anchored at the context root and a leading ``/`` changes nothing; ``*``,
+    ``?`` and ``[...]`` match within one path segment, case-sensitively; ``**``
+    matches zero or more whole segments; and a pattern that names a directory
+    names everything below it. Go's ``[^...]`` class and ``\\`` escapes are not
+    supported.
     """
     from fnmatch import fnmatchcase
 
-    segments = pattern.removeprefix("**/").strip("/").split("/")
+    segments = [segment for segment in pattern.strip("/").split("/") if segment]
     parts = relative_posix.split("/")
-    if len(parts) < len(segments):
-        return False
-    return all(
-        fnmatchcase(part, segment)
-        for part, segment in zip(parts[-len(segments) :], segments, strict=True)
-    )
+
+    def _match(pattern_index: int, part_index: int) -> bool:
+        if pattern_index == len(segments):
+            # Matching a prefix of the path names the directory and its contents.
+            return True
+        segment = segments[pattern_index]
+        if segment == "**":
+            return any(
+                _match(pattern_index + 1, start) for start in range(part_index, len(parts) + 1)
+            )
+        return (
+            part_index < len(parts)
+            and fnmatchcase(parts[part_index], segment)
+            and _match(pattern_index + 1, part_index + 1)
+        )
+
+    return bool(segments) and _match(0, 0)
+
+
+def _excluding_pattern(relative_posix: str, patterns: Sequence[str]) -> str | None:
+    """The pattern that excludes a path, or ``None`` when the path is kept.
+
+    The last pattern that matches decides, as in Docker: a ``!`` pattern keeps
+    what an earlier one excluded, and a later plain pattern excludes it again.
+    """
+    deciding: str | None = None
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        if _matches_ignore_pattern(relative_posix, pattern[1:] if negated else pattern):
+            deciding = None if negated else pattern
+    return deciding
 
 
 def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
@@ -3042,6 +3148,43 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def _image_build_inputs(repo_root: Path) -> list[Path]:
+    """The repo-relative paths every image of a build must keep from the source zone.
+
+    What the stamp of each image folds: the file inputs of the repo's own
+    ``profile.yml`` as the fingerprint enumerates them
+    (:func:`~osprey.cli.build_profile_merge.profile_material_roots`), that
+    ``profile.yml`` itself, which every repo-scoped verb finds the deployment
+    by, and the active host-variant overlay when there is one. Every image's
+    ``creation.preset_hash`` is taken over that one profile
+    (:func:`_relocate_container_manifest`), so one set serves the deployment's
+    image and every tier's and app's. A path outside the repo is not staged, so
+    it is not returned.
+    """
+    from .build_profile_document import _read_profile_document
+    from .build_profile_merge import profile_material_roots, resolve_profile_document
+    from .variant_selection import active_variant_overlay
+
+    profile_path = repo_root / PROFILE_FILENAME
+    document = resolve_profile_document(
+        _read_profile_document(profile_path), profile_path, warn=False
+    )
+    paths = [path for _, path in profile_material_roots(document.raw, document.root_dir)]
+    paths.append(profile_path)
+    overlay = active_variant_overlay(repo_root)
+    if overlay is not None:
+        paths.append(overlay)
+
+    root = repo_root.resolve()
+    inputs: list[Path] = []
+    for path in paths:
+        try:
+            inputs.append(path.resolve().relative_to(root))
+        except ValueError:
+            continue
+    return inputs
+
+
 def _render_container_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -3049,6 +3192,7 @@ def _render_container_project(
     *,
     profile_path: Path,
     project_name: str,
+    build_inputs: Sequence[Path],
     deployment: bool = True,
 ) -> Path:
     """Render the copy of a project that a container image is built from.
@@ -3091,6 +3235,8 @@ def _render_container_project(
     * **the lifecycle phases** — ``pre_build``/``post_build``/``validate`` are
       the profile's own shell commands and ran once for this build already.
 
+    :param build_inputs: The repo-relative paths the repo's ``.dockerignore``
+        may not exclude (:func:`_image_build_inputs`).
     :param deployment: Whether this is the deployment's own image rather than a
         render's — see :func:`_render_project`'s parameter of the same name.
     :returns: The container repo root, ready to be a build context.
@@ -3116,7 +3262,7 @@ def _render_container_project(
     )
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
-    _stage_source_zone(shared.repo_root, image_root)
+    _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs)
     _strip_secrets(image_root)
     # Written, then applied to the tree, and only then is the manifest stamped:
     # the fingerprint has to be taken over the tree the image will actually
@@ -3167,6 +3313,7 @@ def _render_container_projects(
 
     :returns: The image context roots, in build order.
     """
+    build_inputs = _image_build_inputs(shared.repo_root)
     contexts = [
         _render_container_project(
             shared,
@@ -3174,6 +3321,7 @@ def _render_container_projects(
             zones,
             profile_path=profile_path,
             project_name=project_name,
+            build_inputs=build_inputs,
             deployment=True,
         )
     ]
@@ -3188,6 +3336,7 @@ def _render_container_projects(
                 zones,
                 profile_path=layer,
                 project_name=project,
+                build_inputs=build_inputs,
                 deployment=False,
             )
         )

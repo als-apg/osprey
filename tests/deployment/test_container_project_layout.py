@@ -41,6 +41,7 @@ from jinja2 import Template
 
 from osprey.cli.build_cmd import (
     _CONTAINER_INTERPRETER,
+    _image_build_inputs,
     _stage_source_zone,
     _write_image_context_dockerignore,
 )
@@ -50,6 +51,7 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_r
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 from osprey_connectors.workspace import (
     APPS_DIRNAME,
@@ -134,7 +136,7 @@ def test_the_container_context_is_a_repo_whose_render_is_where_mcp_looks(tmp_pat
     image_root = tmp_path / "image"
     (image_root / BUILD_DIR_NAME).mkdir(parents=True)
     (image_root / RENDERED_CONFIG_RELPATH).write_text("rendered\n", encoding="utf-8")
-    _stage_source_zone(repo, image_root)
+    _stage_source_zone(repo, image_root, build_inputs=())
 
     project_root = _workdir(_rendered_dockerfile())
     assert (image_root / PROFILE_FILENAME).is_file(), (
@@ -169,7 +171,7 @@ def test_the_container_context_carries_no_secret_and_no_host_state(tmp_path: Pat
 
     image_root = tmp_path / "image"
     image_root.mkdir()
-    _stage_source_zone(repo, image_root)
+    _stage_source_zone(repo, image_root, build_inputs=())
 
     leaked = sorted(str(p.relative_to(image_root)) for p in image_root.rglob(".env*"))
     assert not leaked, f"secrets copied into the container context: {leaked}"
@@ -227,7 +229,7 @@ def test_the_container_context_leaves_out_the_repos_own_claude_code_files(
         (image_root / relpath).parent.mkdir(parents=True, exist_ok=True)
         (image_root / relpath).write_text(text, encoding="utf-8")
 
-    _stage_source_zone(repo, image_root)
+    _stage_source_zone(repo, image_root, build_inputs=())
 
     carried = sorted(name for name in REPO_CLAUDE_CODE_ENTRIES if (image_root / name).exists())
     assert not carried, f"the repo's own Claude Code files entered the context: {carried}"
@@ -271,7 +273,7 @@ def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) 
 
     image_root = tmp_path / "image"
     (image_root / BUILD_DIR_NAME).mkdir(parents=True)
-    _stage_source_zone(repo, image_root)
+    _stage_source_zone(repo, image_root, build_inputs=())
     staged = profile_fingerprint(image_root / PROFILE_FILENAME)
     assert staged is not None and staged.profile_hash == before
 
@@ -371,6 +373,110 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
     assert not any(pattern.rstrip("/").endswith(BUILD_DIR_NAME) for pattern in names), (
         f"excluding {BUILD_DIR_NAME}/ here would ship an image with no render in it"
     )
+
+
+def _repo_with_own_dockerignore(tmp_path: Path, ignore: str) -> Path:
+    """A deployment repo with fold inputs, non-input clutter and its own ``.dockerignore``."""
+    repo = tmp_path / "facility"
+    files = {
+        Path(PROFILE_FILENAME): "name: facility\ndata: data\n",
+        Path("data") / "channels.csv": "name\n",
+        Path("data") / "deep.h5": "authored\n",
+        Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
+        Path(APPS_DIRNAME) / "logbook.yml": "name: logbook\n",
+        Path("notebooks") / "a" / "b.ipynb": "{}\n",
+        Path("x.h5"): "large\n",
+        Path(".env"): "ANTHROPIC_API_KEY=sk-secret\n",
+        Path(".claude") / "settings.json": '{"dev": true}\n',
+        Path(".dockerignore"): ignore,
+    }
+    for relpath, text in files.items():
+        (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relpath).write_text(text, encoding="utf-8")
+    return repo
+
+
+def _stage_with_build_inputs(repo: Path, image_root: Path) -> None:
+    image_root.mkdir(parents=True, exist_ok=True)
+    _stage_source_zone(
+        repo,
+        image_root,
+        build_inputs=_image_build_inputs(repo),
+    )
+
+
+def test_the_repos_own_dockerignore_keeps_its_files_out_of_the_image(tmp_path: Path) -> None:
+    """Patterns anchored at the repo root drop what they name and nothing else."""
+    repo = _repo_with_own_dockerignore(tmp_path, "# analysis output\nnotebooks/\n*.h5\n")
+    image_root = tmp_path / "image"
+    _stage_with_build_inputs(repo, image_root)
+
+    assert not (image_root / "notebooks").exists()
+    assert not (image_root / "x.h5").exists()
+    assert not (image_root / ".dockerignore").exists(), "the repo's ignore file is consumed"
+    assert (image_root / "data" / "channels.csv").is_file()
+    assert (image_root / "data" / "deep.h5").is_file(), "`*.h5` is anchored at the repo root"
+    assert (image_root / PROFILE_FILENAME).is_file()
+    assert (image_root / TIERS_DIRNAME / "readonly.yml").is_file()
+    assert (image_root / APPS_DIRNAME / "logbook.yml").is_file()
+
+
+def test_the_repos_own_dockerignore_cannot_bring_back_what_osprey_leaves_out(
+    tmp_path: Path,
+) -> None:
+    """A ``!`` line decides only among the entries OSPREY's own exclusions keep."""
+    repo = _repo_with_own_dockerignore(tmp_path, "!.env\n!.claude\n")
+    image_root = tmp_path / "image"
+    _stage_with_build_inputs(repo, image_root)
+
+    assert not (image_root / ".env").exists()
+    assert not (image_root / ".claude").exists()
+    assert (image_root / "notebooks" / "a" / "b.ipynb").is_file()
+
+
+def test_a_negated_line_keeps_one_file_of_an_excluded_directory(tmp_path: Path) -> None:
+    """An excluded directory is entered when a ``!`` line exists; only what it keeps is staged."""
+    repo = _repo_with_own_dockerignore(tmp_path, "docs\n!docs/keep.md\n")
+    for relpath in ("docs/keep.md", "docs/sub/dropped.md"):
+        (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relpath).write_text("text\n", encoding="utf-8")
+    image_root = tmp_path / "image"
+    _stage_with_build_inputs(repo, image_root)
+
+    assert (image_root / "docs" / "keep.md").is_file()
+    assert not (image_root / "docs" / "sub").exists()
+
+
+@pytest.mark.parametrize(
+    "pattern,path",
+    [("**/*.csv", "data/channels.csv"), (PROFILE_FILENAME, PROFILE_FILENAME)],
+)
+def test_the_repos_own_dockerignore_cannot_remove_a_build_input(
+    tmp_path: Path, pattern: str, path: str
+) -> None:
+    """A pattern that would drop a file the fingerprint folds fails the build, naming both."""
+    repo = _repo_with_own_dockerignore(tmp_path, f"{pattern}\n")
+
+    with pytest.raises(BuildProfileError) as raised:
+        _stage_with_build_inputs(repo, tmp_path / "image")
+
+    assert f"`{pattern}`" in str(raised.value)
+    assert f"`{path}`" in str(raised.value)
+
+
+def test_the_context_root_dockerignore_is_osprey_s_not_the_repos(tmp_path: Path) -> None:
+    """The context root's ``.dockerignore`` is derived from the render, whatever the repo's says."""
+    repo = _repo_with_own_dockerignore(tmp_path, "notebooks/\n*.h5\n")
+    image_root = tmp_path / "image"
+    (image_root / BUILD_DIR_NAME).mkdir(parents=True)
+    shipped = resources.files("osprey").joinpath("templates/project/dockerignore").read_text()
+    (image_root / BUILD_DIR_NAME / ".dockerignore").write_text(shipped, encoding="utf-8")
+
+    _stage_with_build_inputs(repo, image_root)
+    _write_image_context_dockerignore(image_root)
+
+    emitted = (image_root / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "notebooks/" not in emitted and "*.h5" not in emitted
 
 
 # ---------------------------------------------------------------------------
@@ -740,3 +846,39 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
         assert not shipped, f"{name} ships files its own .dockerignore excludes: {shipped}"
         report = check_drift(context)
         assert report.state is DriftState.CLEAN, f"{name}: {report.message}"
+
+
+@pytest.mark.slow
+def test_a_repos_own_dockerignore_leaves_the_stamp_equal_to_the_repos_fingerprint(
+    tmp_path_factory,
+) -> None:
+    """Excluding only non-input files keeps every image's stamp the repo's own fingerprint."""
+    from osprey.deployment.staleness import build_manifest_path
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
+
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("own-ignore") / EXEMPLAR_DIRNAME)
+    (repo / ".dockerignore").write_text("notebooks/\n*.h5\n", encoding="utf-8")
+    (repo / "notebooks").mkdir()
+    (repo / "notebooks" / "scan.ipynb").write_text("{}\n", encoding="utf-8")
+    (repo / "x.h5").write_bytes(b"\x00large")
+
+    previous = Path.cwd()
+    os.chdir(repo)
+    try:
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+    finally:
+        os.chdir(previous)
+    assert result.exit_code == 0, result.output
+
+    fingerprint = profile_fingerprint(repo / PROFILE_FILENAME)
+    assert fingerprint is not None
+    for name, context in _contexts(repo).items():
+        assert not (context / "notebooks").exists(), name
+        assert not (context / "x.h5").exists(), name
+        manifest = json.loads(build_manifest_path(context).read_text(encoding="utf-8"))
+        assert manifest["creation"]["preset_hash"] == fingerprint.profile_hash, name
