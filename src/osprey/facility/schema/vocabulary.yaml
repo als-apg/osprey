@@ -295,16 +295,16 @@ enums:
         aliases: [injection busy, injection in progress, shot in progress]
       bunch_cleaning_command:
         description: >-
-          Command that removes the charge stored in a ring, so the next injected shot
-          circulates alone.
-        aliases: [bunch cleaning, clean the ring, clear stored beam, empty the ring, beam cleaning]
+          Command that removes the stored charge, so the next injected shot circulates
+          alone.
+        aliases: [bunch cleaning, clear stored beam, dump stored beam, empty stored charge, beam cleaning]
       rf_on_setpoint:
         description: >-
-          Commanded on/off state of a ring's RF system; with RF off the beam has no
-          closed orbit and is not captured.
+          Commanded on/off state of the RF system of a lattice that stores beam; with RF
+          off the beam has no closed orbit and is not captured.
         aliases: [rf on, rf switch, rf on/off, turn rf off, turn rf on, rf enable]
       rf_on_readback:
-        description: Readback of the on/off state of a ring's RF system.
+        description: Readback of the on/off state of the RF system of a lattice that stores beam.
         aliases: [rf on readback, rf state, rf status, is rf on]
       turns_tracked_setpoint:
         description: >-

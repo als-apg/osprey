@@ -784,12 +784,12 @@
     {
       "aliases": [
         "bunch cleaning",
-        "clean the ring",
         "clear stored beam",
-        "empty the ring",
+        "dump stored beam",
+        "empty stored charge",
         "beam cleaning"
       ],
-      "description": "Command that removes the charge stored in a ring, so the next injected shot circulates alone.",
+      "description": "Command that removes the stored charge, so the next injected shot circulates alone.",
       "name": "bunch_cleaning_command"
     },
     {
@@ -1384,7 +1384,7 @@
         "rf status",
         "is rf on"
       ],
-      "description": "Readback of the on/off state of a ring's RF system.",
+      "description": "Readback of the on/off state of the RF system of a lattice that stores beam.",
       "name": "rf_on_readback"
     },
     {
@@ -1396,7 +1396,7 @@
         "turn rf on",
         "rf enable"
       ],
-      "description": "Commanded on/off state of a ring's RF system; with RF off the beam has no closed orbit and is not captured.",
+      "description": "Commanded on/off state of the RF system of a lattice that stores beam; with RF off the beam has no closed orbit and is not captured.",
       "name": "rf_on_setpoint"
     },
     {

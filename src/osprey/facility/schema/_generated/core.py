@@ -539,15 +539,15 @@ class SignalRoleEnum(str, Enum):
     """
     bunch_cleaning_command = "bunch_cleaning_command"
     """
-    Command that removes the charge stored in a ring, so the next injected shot circulates alone.
+    Command that removes the stored charge, so the next injected shot circulates alone.
     """
     rf_on_setpoint = "rf_on_setpoint"
     """
-    Commanded on/off state of a ring's RF system; with RF off the beam has no closed orbit and is not captured.
+    Commanded on/off state of the RF system of a lattice that stores beam; with RF off the beam has no closed orbit and is not captured.
     """
     rf_on_readback = "rf_on_readback"
     """
-    Readback of the on/off state of a ring's RF system.
+    Readback of the on/off state of the RF system of a lattice that stores beam.
     """
     turns_tracked_setpoint = "turns_tracked_setpoint"
     """
