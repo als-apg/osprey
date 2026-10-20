@@ -560,7 +560,11 @@ async def test_mixed_batch_reports_one_outcome_per_channel(tmp_path, monkeypatch
             channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
         ),
         _make_write_result(
-            channel="PV:REFUSED", value=3.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+            channel="PV:REFUSED",
+            value=3.0,
+            outcome="refused",
+            refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:REFUSED' refused by the reference monitor (WRITES_DISABLED)",
         ),
         _make_write_result(channel="PV:NOCHECK", value=4.0, outcome="unrequested"),
     ]
@@ -688,7 +692,10 @@ async def test_lone_unconfirmed_write_returns(tmp_path, monkeypatch, outcome):
     """An unconfirmed or unchecked write reached the channel, so it reports."""
     _prepare(tmp_path, monkeypatch)
 
-    result = _make_write_result(channel="TEST:PV", value=42.0, outcome=outcome)
+    message = "Write to 'TEST:PV' not acknowledged" if outcome == "unconfirmed" else None
+    result = _make_write_result(
+        channel="TEST:PV", value=42.0, outcome=outcome, error_message=message
+    )
     data, _ = await _run_single(result)
 
     assert data["status"] == "success"
@@ -929,10 +936,19 @@ async def test_executed_channels_name_only_what_reached_a_channel(tmp_path, monk
         _make_write_result(
             channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
         ),
-        _make_write_result(channel="PV:UNCONFIRMED", value=3.0, outcome="unconfirmed"),
+        _make_write_result(
+            channel="PV:UNCONFIRMED",
+            value=3.0,
+            outcome="unconfirmed",
+            error_message="Write to 'PV:UNCONFIRMED' sent; the confirming re-read timed out",
+        ),
         _make_write_result(channel="PV:UNREQUESTED", value=4.0, outcome="unrequested"),
         _make_write_result(
-            channel="PV:REFUSED", value=5.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+            channel="PV:REFUSED",
+            value=5.0,
+            outcome="refused",
+            refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:REFUSED' refused by the reference monitor (WRITES_DISABLED)",
         ),
         _make_write_result(
             channel="PV:FAILED", value=6.0, outcome="failed", error_message="caput failed"
@@ -954,7 +970,11 @@ async def test_no_activity_highlight_when_nothing_executed(tmp_path, monkeypatch
     _prepare(tmp_path, monkeypatch)
 
     result = _make_write_result(
-        channel="PV:A", value=1.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+        channel="PV:A",
+        value=1.0,
+        outcome="refused",
+        refusal_reason="WRITES_DISABLED",
+        error_message="Write to 'PV:A' refused by the reference monitor (WRITES_DISABLED)",
     )
     connector = AsyncMock()
     connector.write_channel.return_value = result

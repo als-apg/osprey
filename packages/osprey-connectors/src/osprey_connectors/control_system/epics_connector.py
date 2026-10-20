@@ -31,6 +31,7 @@ from osprey_connectors.control_system.limits_validator import (
     c_numeral,
     step_read_timeout_seconds,
 )
+from osprey_connectors.errors import RefusalReason
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
 
@@ -1273,7 +1274,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
                 error_message=(
                     f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
                     "This address matches a configured 'pva_channels' pattern, so it is routed "
@@ -1331,7 +1332,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="CONTROL_SYSTEM_REFUSED",
+                refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
                 error_message=(
                     f"Write to '{channel_address}' refused by the control system "
                     f"(access security); no value was written: {payload}"
@@ -1359,7 +1360,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
-                refusal_reason="VALIDATION_ERROR",
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
                 error_message=(
                     f"Write to '{channel_address}' refused: {payload}. No value was sent."
                 ),

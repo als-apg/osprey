@@ -192,6 +192,32 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
+    async def test_a_put_refused_without_text_still_says_it_was_refused(
+        self, tmp_path, monkeypatch
+    ):
+        """A simulator refusal that raises with no text still carries a message."""
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
+        )
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+
+        def silent_refusal(*_args):
+            raise ValueError()
+
+        monkeypatch.setattr(connector, "_put", silent_refusal)
+
+        result = await connector.write_channel("A:SP", 1.0)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
+        assert result.error_message == "Write to 'A:SP' refused by the simulator"
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
     async def test_write_outside_the_facility_file_is_refused(self, tmp_path, monkeypatch):
         """A write to an address the facility file does not hold is refused by name."""
         monkeypatch.setattr(

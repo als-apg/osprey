@@ -26,6 +26,7 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
+    RefusalReason,
 )
 from osprey_connectors.ipc import exceptions, frames
 
@@ -251,6 +252,22 @@ def test_write_result_carries_an_array_observed_value():
     assert isinstance(frame.value.observed_value, np.ndarray)
     assert frame.value.observed_value.dtype == np.float32
     assert frame.value.observed_value.tolist() == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("reason", list(RefusalReason))
+def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
+    """The parent rebuilds a refused result with the reason's member, not a bare string."""
+    result = ChannelWriteResult(
+        channel_address="SR:R",
+        value_written=1,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason=reason,
+        error_message="refused",
+    )
+    frame = _round_trip(frames.encode_result("req-rr", result))
+
+    assert frame.value.refusal_reason is reason
+    assert frame.value.refusal_reason.refuser == reason.refuser
 
 
 def test_write_result_list_round_trips():

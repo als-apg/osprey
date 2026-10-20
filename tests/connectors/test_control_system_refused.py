@@ -39,6 +39,9 @@ from tests.facility.served_tree import in_process_config, served_tree
 
 CHANNEL = "TEST:MAG:PS:SP"
 
+#: The outcomes whose result must carry a message, as ChannelWriteResult documents.
+_MESSAGE_OUTCOMES = {WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED}
+
 
 def _make_connector():
     """A connector whose every put is denied by the IOC's access security."""
@@ -90,6 +93,79 @@ class TestConnectorRefusal:
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
 
+class TestResultInvariants:
+    """A write result cannot be built in a shape its own docs forbid."""
+
+    @pytest.mark.parametrize("reason", [None, "SOMETHING_ELSE"])
+    def test_a_refused_result_without_a_known_reason_cannot_be_built(self, reason):
+        with pytest.raises(ValueError) as excinfo:
+            ChannelWriteResult(
+                channel_address=CHANNEL,
+                value_written=1.0,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=reason,
+                error_message="refused",
+            )
+
+        assert CHANNEL in str(excinfo.value)
+        assert "refusal_reason" in str(excinfo.value)
+        assert repr(reason) in str(excinfo.value)
+
+    @pytest.mark.parametrize("reason", list(RefusalReason))
+    def test_a_known_reason_string_is_coerced_to_its_member(self, reason):
+        result = ChannelWriteResult(
+            channel_address=CHANNEL,
+            value_written=1.0,
+            outcome="refused",
+            refusal_reason=reason.value,
+            error_message="refused",
+        )
+
+        assert result.refusal_reason is reason
+
+    @pytest.mark.parametrize("outcome", [o for o in WriteOutcome if o is not WriteOutcome.REFUSED])
+    def test_a_reason_on_a_result_that_is_not_refused_cannot_be_built(self, outcome):
+        with pytest.raises(ValueError) as excinfo:
+            ChannelWriteResult(
+                channel_address=CHANNEL,
+                value_written=1.0,
+                outcome=outcome,
+                refusal_reason=RefusalReason.LIMITS,
+                error_message="message" if outcome in _MESSAGE_OUTCOMES else None,
+            )
+
+        assert CHANNEL in str(excinfo.value)
+        assert str(outcome) in str(excinfo.value)
+        assert "refusal_reason" in str(excinfo.value)
+
+    @pytest.mark.parametrize("outcome", list(WriteOutcome))
+    def test_a_message_is_set_exactly_on_refused_failed_and_unconfirmed(self, outcome):
+        reason = RefusalReason.LIMITS if outcome is WriteOutcome.REFUSED else None
+        needs_message = outcome in _MESSAGE_OUTCOMES
+
+        built = ChannelWriteResult(
+            channel_address=CHANNEL,
+            value_written=1.0,
+            outcome=outcome,
+            refusal_reason=reason,
+            error_message="message" if needs_message else None,
+        )
+        assert bool(built.error_message) is needs_message
+
+        for wrong in (None, "") if needs_message else ("message",):
+            with pytest.raises(ValueError) as excinfo:
+                ChannelWriteResult(
+                    channel_address=CHANNEL,
+                    value_written=1.0,
+                    outcome=outcome,
+                    refusal_reason=reason,
+                    error_message=wrong,
+                )
+            assert CHANNEL in str(excinfo.value)
+            assert str(outcome) in str(excinfo.value)
+            assert "error_message" in str(excinfo.value)
+
+
 class TestDenialContract:
     @pytest.mark.asyncio
     async def test_raise_for_write_result_raises_blocked_with_the_new_reason(self):
@@ -105,19 +181,22 @@ class TestDenialContract:
         assert excinfo.value.channel_address == CHANNEL
 
     def test_a_refusal_without_a_reason_keeps_no_reason(self):
-        """A refused result that names no reason is not read as writes-disabled."""
-        result = ChannelWriteResult(
-            channel_address=CHANNEL,
-            value_written=1.0,
-            outcome=WriteOutcome.REFUSED,
-            refusal_reason=None,
-        )
+        """A refused result that names no reason cannot be built at all."""
+        with pytest.raises(ValueError, match="refusal_reason"):
+            ChannelWriteResult(
+                channel_address=CHANNEL,
+                value_written=1.0,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=None,
+                error_message=f"Write to '{CHANNEL}' refused",
+            )
 
-        with pytest.raises(ChannelWriteBlockedError) as excinfo:
-            raise_for_write_result(result)
+    def test_a_bare_refusal_exception_names_no_reason_and_no_refuser(self):
+        """The exception itself still takes no reason, and then guesses none."""
+        err = ChannelWriteBlockedError(CHANNEL, None)
 
-        assert excinfo.value.reason is None
-        assert str(excinfo.value) == f"Write to '{CHANNEL}' refused"
+        assert err.reason is None
+        assert str(err) == f"Write to '{CHANNEL}' refused"
 
     def test_bare_construction_does_not_misattribute_the_refusal(self):
         """With no message passed, the default text still names the right refuser."""
@@ -335,15 +414,6 @@ class TestAllBlockedBatchAttribution:
             "All 2 write(s) refused — by the reference monitor: PV:B; "
             "PV:A is not a channel of this facility" in envelope["error_message"]
         )
-
-    @pytest.mark.asyncio
-    async def test_a_refusal_without_a_reason_names_no_refuser(self, tmp_path, monkeypatch):
-        envelope, _ = await _run_all_blocked_batch(tmp_path, monkeypatch, None)
-
-        assert envelope["error_type"] == "write_refused"
-        assert envelope["details"]["reason"] is None
-        assert "All 2 write(s) refused — refused: PV:A, PV:B" in envelope["error_message"]
-        assert "reference monitor" not in envelope["error_message"]
 
     @pytest.mark.asyncio
     async def test_the_refusal_carries_every_row(self, tmp_path, monkeypatch):
