@@ -769,7 +769,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The vocabulary is the shared one, so a reason the error type would
         # reject can never reach an operator through this path.
-        assert RefusalReason(result.refusal_reason) is RefusalReason.CONTROL_SYSTEM_REFUSED
+        assert result.refusal_reason is RefusalReason.CONTROL_SYSTEM_REFUSED
         assert result.channel_address == PROTECTED_SP
         assert PROTECTED_SP in (result.error_message or "")
         assert "access security" in (result.error_message or "")

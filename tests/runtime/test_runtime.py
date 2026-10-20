@@ -602,6 +602,11 @@ class PerChannelConnector(RecordingConnector):
             outcome=outcome,
             observed_value=value if outcome is WriteOutcome.CONFIRMED else None,
             refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
+            error_message=(
+                f"Write to '{channel_address}' {outcome}"
+                if outcome in (WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED)
+                else None
+            ),
         )
 
 

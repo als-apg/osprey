@@ -61,7 +61,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError
+from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError, RefusalReason
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
@@ -106,7 +106,6 @@ UDF_SEVERITY = 3
 UDF_STATUS = "UDF"
 
 _RENDERED_CONFIG = "config.yml"
-_REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
 
 #: The session-writes journal, under the simulation state directory.
 JOURNAL_DIR = "inprocess"
@@ -667,7 +666,7 @@ class VAInProcessConnector(ControlSystemConnector):
             channel_address=address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
-            refusal_reason=_REFUSED_BY_SIMULATOR,
+            refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
             error_message=message,
         )
 
@@ -772,7 +771,11 @@ class VAInProcessConnector(ControlSystemConnector):
             from lume.exceptions import ReadOnlyError
 
             if isinstance(e, ValueError | ReadOnlyError):
-                return self._refused(channel_address, value, str(e))
+                return self._refused(
+                    channel_address,
+                    value,
+                    str(e) or f"Write to '{channel_address}' refused by the simulator",
+                )
             logger.warning(f"In-process write failed for {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,
