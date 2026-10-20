@@ -18,11 +18,12 @@ summary, writing nothing. In its own root it prunes only itself.
 
 A stopped run is reported with the Python stack of every thread of every
 process it started: the run gets its own process group and ``faulthandler``,
-and the stop is ``stop_group`` from ``scripts/run_bounded.py``, the sequence
-every bounded gate run is stopped with: a ``SIGABRT`` to that group, which
-makes each process write its stacks to the same stderr before it dies, then
-SIGTERM and SIGKILL. Whatever the run left in its group is killed when it
-ends, so no worker it started outlives the calling test.
+and the stop is the product's ``osprey.deployment.subprocess_capture.stop_group``,
+the sequence every bounded gate run is stopped with: a ``SIGABRT`` to that
+group, which makes each process write its stacks to the same stderr before it
+dies, then SIGTERM and SIGKILL. Whatever the run left in its group is stopped
+the same way when it ends, so no worker it started outlives the calling test,
+and one that survives SIGKILL fails the test by pid.
 
 A finished run reports how long it sat silent before it exited
 (``NestedRun.quiet_before_exit``): the time between the last growth of its
@@ -34,10 +35,7 @@ The leading underscore keeps the module out of pytest collection.
 
 from __future__ import annotations
 
-import contextlib
-import importlib.util
 import os
-import signal
 import subprocess
 import tempfile
 import time
@@ -45,6 +43,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
+
+from osprey.deployment.subprocess_capture import stop_group
 
 #: How long a nested run may write nothing before it counts as hung. It spans
 #: the run's silent phases (interpreter start, collection, worker start-up, the
@@ -60,21 +60,6 @@ _DUMP_SECONDS = 5.0
 
 #: How long a stopped run gets after SIGTERM before the group is killed.
 _GRACE_SECONDS = 5.0
-
-_RUN_BOUNDED = Path(__file__).resolve().parents[1] / "scripts" / "run_bounded.py"
-
-
-def _load_stop_group():
-    """Load ``stop_group`` from the gate scripts' bounded runner by path."""
-    spec = importlib.util.spec_from_file_location("_run_bounded", _RUN_BOUNDED)
-    assert spec is not None and spec.loader is not None, _RUN_BOUNDED
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.stop_group
-
-
-_stop_group = _load_stop_group()
-
 
 #: Prefixes of the keys an outer pytest run sets for itself that must not reach
 #: a nested one: its worker id, its options and its diagnostics directory.
@@ -166,15 +151,11 @@ def run_nested_pytest(
                     if size != written:
                         written, last_progress = size, now
                     elif now - last_progress > stall_seconds:
-                        _stop_group(
-                            proc.pid,
-                            dump=_DUMP_SECONDS,
-                            grace=_GRACE_SECONDS,
-                            wait=proc.wait,
-                        )
+                        survivors = stop_group(proc.pid, dump=_DUMP_SECONDS, grace=_GRACE_SECONDS)
                         pytest.fail(
                             f"nested run wrote no new output for {stall_seconds} s and was "
-                            f"stopped\n--- stdout ---\n{out_path.read_text()}"
+                            f"stopped{_survivor_note(survivors)}"
+                            f"\n--- stdout ---\n{out_path.read_text()}"
                             f"\n--- stderr ---\n{err_path.read_text()}"
                         )
                     time.sleep(_POLL_SECONDS)
@@ -182,8 +163,10 @@ def run_nested_pytest(
                 if out_path.stat().st_size + err_path.stat().st_size != written:
                     last_progress = exited
             finally:
-                _signal_group(proc.pid, signal.SIGKILL)
+                leftover = stop_group(proc.pid, grace=_GRACE_SECONDS)
                 proc.wait()
+            if leftover:
+                pytest.fail(f"nested run left processes behind{_survivor_note(leftover)}")
         return NestedRun(
             argv,
             proc.returncode,
@@ -193,7 +176,8 @@ def run_nested_pytest(
         )
 
 
-def _signal_group(pgid: int, signum: signal.Signals) -> None:
-    """Send ``signum`` to every process left in the run's group, if any."""
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signum)
+def _survivor_note(survivors: list[int]) -> str:
+    """The clause naming a stop's survivors, or nothing when there are none."""
+    if not survivors:
+        return ""
+    return "; still running after SIGKILL: pids " + " ".join(str(pid) for pid in survivors)

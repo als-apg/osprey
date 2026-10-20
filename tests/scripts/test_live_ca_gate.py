@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import group_is_gone
+
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
 # import-time write to sys.modules is process state no fixture can undo.
@@ -49,15 +51,6 @@ def _alive(pid: int) -> bool:
     return True
 
 
-def _wait_gone(pid: int, within_s: float = 10.0) -> bool:
-    deadline = time.monotonic() + within_s
-    while time.monotonic() < deadline:
-        if not _alive(pid):
-            return True
-        time.sleep(0.02)
-    return not _alive(pid)
-
-
 def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
     deadline = time.monotonic() + within_s
     while time.monotonic() < deadline:
@@ -73,12 +66,20 @@ def _kill(pid: int) -> None:
         os.kill(pid, signal.SIGKILL)
 
 
+def _group_file(pid_file: Path) -> Path:
+    return pid_file.with_suffix(".pgid")
+
+
 def _spawning_child(pid_file: Path, *, new_session: bool, then: str) -> list[str]:
-    """A command that starts a sleeping grandchild, records its pid, then runs ``then``."""
+    """A command that starts a sleeping grandchild, records its pid, then runs ``then``.
+
+    The child's own process group is written next to ``pid_file`` before it.
+    """
     code = (
-        "import subprocess, sys, time\n"
+        "import os, subprocess, sys, time\n"
         f"g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({_HANG_S})'],"
         f" start_new_session={new_session})\n"
+        f"open({str(_group_file(pid_file))!r}, 'w').write(str(os.getpgid(0)) + '\\n')\n"
         f"open({str(pid_file)!r}, 'w').write(str(g.pid) + '\\n')\n"
         "print('child-done', flush=True)\n"
         f"{then}\n"
@@ -94,7 +95,7 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
     ]
 
     started = time.monotonic()
-    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _LIMIT_S)
+    stdout, _stderr, returncode, timed_out, _survivors = gate._run_child(cmd, _LIMIT_S)
     elapsed = time.monotonic() - started
 
     assert timed_out is True
@@ -109,7 +110,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
 
     try:
         started = time.monotonic()
-        stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _PROMPT_S)
+        stdout, _stderr, returncode, timed_out, _survivors = gate._run_child(cmd, _PROMPT_S)
         elapsed = time.monotonic() - started
 
         orphan = _wait_for_pid(pid_file)
@@ -131,14 +132,16 @@ def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
     cmd = _spawning_child(pid_file, new_session=False, then=f"time.sleep({_HANG_S})")
 
     try:
-        _stdout, _stderr, _returncode, timed_out = gate._run_child(cmd, 2)
+        _stdout, _stderr, _returncode, timed_out, survivors = gate._run_child(cmd, 2)
 
-        grandchild = _wait_for_pid(pid_file)
+        grandchild_group = _wait_for_pid(_group_file(pid_file))
         assert timed_out is True
-        assert _wait_gone(grandchild), f"grandchild {grandchild} survived its module's timeout"
+        assert survivors == []
+        assert group_is_gone(grandchild_group), "the grandchild survived its module's timeout"
     finally:
-        if pid_file.exists():
-            _kill(_wait_for_pid(pid_file))
+        if _group_file(pid_file).exists():
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(_wait_for_pid(_group_file(pid_file)), signal.SIGKILL)
 
 
 def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(
