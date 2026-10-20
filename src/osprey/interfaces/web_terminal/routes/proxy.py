@@ -897,9 +897,13 @@ def _rewrite_content(
     are unaffected because the pattern requires a delimiter immediately
     before the ``/``.
 
-    The order of ``_REWRITE_PREFIXES`` and ``extra_prefixes`` does not matter:
-    a rewritten literal no longer starts with ``/`` after its delimiter, so
-    whichever prefix matches first consumes it and no other can match it again.
+    Every literal is rebased at most once, in a single pass over the body. A
+    rebased literal still starts with ``/`` when the outer prefix is empty
+    (``/panel/<id>/...``), so a later prefix that matches the rebased text —
+    a panel whose ``path`` derives ``/panel/`` — would otherwise rebase it a
+    second time into ``/panel/<id>/panel/<id>/...``. Which of several matching
+    prefixes wins does not matter: each one is a leading slice of the literal,
+    and the rebase only puts the panel prefix in front of it.
 
     Args:
         body: The response body to rewrite.
@@ -913,17 +917,15 @@ def _rewrite_content(
     """
     prefix = f"{outer_prefix}/panel/{panel_id}"
 
-    for path in (*_REWRITE_PREFIXES, *extra_prefixes):
-        # Match path inside string delimiters: "/static/..." → "/panel/id/static/..."
-        # The lookbehind ensures we only match after a quote character.
-        body = re.sub(
-            r"""(?<=["'`])""" + re.escape(path),
-            prefix + path,
-            body,
-        )
-
-    # Rewrite bare '/api' (without trailing slash) inside delimiters.
-    body = re.sub(r"""(?<=["'`])/api(?=["'`])""", f"{prefix}/api", body)
+    # One alternation, one pass: "/static/..." → "/panel/id/static/...". The
+    # lookbehind matches only right after a quote character; bare '/api' (no
+    # trailing slash) is matched only when the delimiter closes it.
+    alternatives = [
+        re.escape(path) for path in dict.fromkeys((*_REWRITE_PREFIXES, *extra_prefixes))
+    ]
+    alternatives.append(r"""/api(?=["'`])""")
+    pattern = r"""(?<=["'`])(?:""" + "|".join(alternatives) + ")"
+    body = re.sub(pattern, lambda match: prefix + match.group(0), body)
 
     # Rewrite href="/" to href="/panel/{id}/"
     body = body.replace('href="/"', f'href="{prefix}/"')
