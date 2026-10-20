@@ -76,3 +76,7 @@ config:
   modules.web_terminals.auth.method: token
   modules.web_terminals.default_persona: operator
   deploy.fqdn: 127.0.0.1
+  # Vendored offline mode, as in a firewalled control room: every image is
+  # built with `osprey vendor fetch` and every page serves its vendor assets
+  # (dockview, xterm, Plotly, ...) from its own /static/vendor/, never a CDN.
+  offline: true
