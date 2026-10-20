@@ -424,7 +424,8 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
 
 
 #: The pool tests' misbehaving mock, by dotted path: ``SLOW:`` reads hang in a
-#: child that still answers, ``WEDGE:`` reads block the child outright.
+#: child that still answers, ``WEDGE:`` reads block the child outright, ``BUG:``
+#: reads raise an exception outside the IPC contract.
 SLOW_TYPE = "tests.connectors.ipc._pool_connectors.SlowInProcessConnector"
 
 #: The deadline the manager's children are given here, lowered from the
@@ -445,7 +446,7 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_DEADLINE_S", TEST_DEADLINE_S)
-    view = served_tree(tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "SR:A"))
+    view = served_tree(tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "BUG:X", "SR:A"))
     raw = {
         "control_system": {
             "type": SLOW_TYPE,
@@ -519,3 +520,21 @@ async def test_an_unknown_read_in_a_child_is_not_found_and_keeps_the_child(serve
     assert manager.status()["child_pid"] == pid
     value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
     assert value is not None
+
+
+async def test_a_connector_bug_in_a_child_is_an_internal_error_and_keeps_the_child(
+    served_from_a_child,
+):
+    manager = served_from_a_child
+    proxy = manager.active_proxy()
+    pid = manager.status()["child_pid"]
+
+    with assert_raises_error(error_type="internal_error") as captured:
+        async with connector_error_handler("channel_read", "control_system"):
+            await proxy.read_channel("BUG:X", timeout=TIMEOUT_S)
+
+    envelope = captured["envelope"]
+    assert "KeyError" in envelope["error_message"]
+    assert "recovery" not in (envelope.get("details") or {})
+    assert manager.active_proxy() is proxy
+    assert manager.status()["child_pid"] == pid
