@@ -18,13 +18,16 @@ So this module holds one fixture and asks it of all of them:
   marker the render leaves behind for the deploy to check against;
 * a conflict key set in BOTH files, resolved through every loader in the
   codebase. The expected answer is the same string on every row, so the table
-  fails the day one loader disagrees — including the one that reaches it by
-  loading the files in the opposite order.
+  fails the day one loader disagrees — including the one that keeps a value the
+  shell already exported;
+* the shell-only launch variables, set in both files and asked of every loader
+  that applies the chain to a process environment: none of them may change
+  what the shell gave.
 
 The mechanics differ per path and are supposed to: a ``--env-file`` list and an
 ``override=True`` loader both let the LAST file win, an ``override=False``
-loader lets the FIRST one win and therefore reads the chain reversed, and a
-provider that keeps only the last ``--env-file`` it is handed gets one
+loader never replaces a name the environment held on entry while its later
+file still outranks its earlier one, and a provider that keeps only the last ``--env-file`` it is handed gets one
 pre-merged file instead of a list. This suite is deliberately blind to all of
 that. It asserts the contract — ``.env`` wins, ``.env.shared`` is still
 delivered — so a future "correction" that makes one mechanism's order look
@@ -349,12 +352,11 @@ def resolve_via_resolver_env_lookup(repo: Path, _monkeypatch: pytest.MonkeyPatch
 
 
 def resolve_via_mcp_env(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """The MCP server startup loader — the one that reads the chain REVERSED.
+    """The MCP server startup loader — the one that leaves shell exports alone.
 
-    ``override=False`` means the first file to supply a key keeps it, so the
-    same local-wins contract requires the opposite file order. Asserting the
-    contract rather than the order is the point: this row is what fails if
-    someone "fixes" the order into agreement with the compose lists.
+    ``override=False`` keeps any name the shell already exported, while
+    ``.env`` still outranks ``.env.shared`` on a key both set. Asserting the
+    contract rather than the mechanics is the point.
     """
     from osprey.mcp_env import load_dotenv_from_project
 
@@ -451,7 +453,7 @@ LOADERS = [
     pytest.param(resolve_via_build_lifecycle, id="build-lifecycle"),
     pytest.param(resolve_via_inject_provider_env, id="inject_provider_env"),
     pytest.param(resolve_via_resolver_env_lookup, id="resolver-env-lookup"),
-    pytest.param(resolve_via_mcp_env, id="mcp_env-reversed"),
+    pytest.param(resolve_via_mcp_env, id="mcp_env"),
     pytest.param(resolve_via_users_env_file, id="env-users-derivation"),
     pytest.param(resolve_via_users_cli, id="users-env-cli"),
     pytest.param(resolve_via_health_cli, id="health-cli-cross-cwd"),
@@ -495,6 +497,118 @@ class TestEveryLoaderResolvesTheChainTheSameWay:
         repo = write_chain(tmp_path / "repo", local=True)
 
         assert resolve(repo, monkeypatch) == parse_dotenv_text(LOCAL_TEXT)
+
+
+# ---------------------------------------------------------------------------
+# Shell-only launch variables — never taken from the chain
+# ---------------------------------------------------------------------------
+# A launch variable chooses which program runs or what code an interpreter
+# loads at start, so it comes from the operator's shell. Each name below is
+# harmless in the `env | tee` child the build-lifecycle row starts.
+
+SHELL_ONLY_PROBES = ("NODE_PATH", "PYTHONSTARTUP", "LD_LIBRARY_PATH")
+
+
+def _probe_file_value(name: str) -> str:
+    return f"/chain-file/{name.lower()}"
+
+
+def _probe_shell_value(name: str) -> str:
+    return f"/operator-shell/{name.lower()}"
+
+
+def write_shell_only_chain(root: Path) -> Path:
+    """The complete chain, with every probe name set in both files."""
+    write_chain(root, shared=True, local=True)
+    for filename in (ENV_SHARED_FILENAME, ENV_LOCAL_FILENAME):
+        path = root / filename
+        extra = "".join(f"{name}={_probe_file_value(name)}\n" for name in SHELL_ONLY_PROBES)
+        path.write_text(path.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    return root
+
+
+def _set_shell(monkeypatch: pytest.MonkeyPatch, *, shell_set: bool) -> None:
+    """Give every probe its shell value, or make it absent (restored at teardown)."""
+    for name in SHELL_ONLY_PROBES:
+        monkeypatch.setenv(name, _probe_shell_value(name))
+        if not shell_set:
+            monkeypatch.delenv(name)
+
+
+def probe_env_via_os_environ(resolve):
+    """A row whose loader applies the chain to ``os.environ``."""
+
+    def probe(repo: Path, monkeypatch: pytest.MonkeyPatch, *, shell_set: bool):
+        _set_shell(monkeypatch, shell_set=shell_set)
+        resolve(repo, monkeypatch)
+        return os.environ
+
+    return probe
+
+
+def probe_env_via_build_lifecycle(repo: Path, monkeypatch: pytest.MonkeyPatch, *, shell_set: bool):
+    """The lifecycle step's own environment, read back from its dump."""
+    _set_shell(monkeypatch, shell_set=shell_set)
+    resolve_via_build_lifecycle(repo, monkeypatch)
+    return parse_dotenv_text((repo / "lifecycle-env.txt").read_text(encoding="utf-8"))
+
+
+def probe_env_via_inject_provider_env(
+    repo: Path, _monkeypatch: pytest.MonkeyPatch, *, shell_set: bool
+):
+    """The launch environment ``inject_provider_env`` builds from a given shell."""
+    from osprey.agent_runner.provider_env import ClaudeCodeModelSpec, inject_provider_env
+
+    environ = {name: _probe_shell_value(name) for name in SHELL_ONLY_PROBES} if shell_set else {}
+    inject_provider_env(
+        environ, ClaudeCodeModelSpec(provider="test", default_model_id="m"), project_dir=repo
+    )
+    return environ
+
+
+PROCESS_ENV_LOADERS = [
+    pytest.param(
+        probe_env_via_os_environ(resolve_via_load_project_dotenv), id="load_project_dotenv"
+    ),
+    pytest.param(probe_env_via_os_environ(resolve_via_chat_overlay), id="chat-overlay"),
+    pytest.param(probe_env_via_os_environ(resolve_via_query_overlay), id="query-overlay"),
+    pytest.param(probe_env_via_build_lifecycle, id="build-lifecycle"),
+    pytest.param(probe_env_via_inject_provider_env, id="inject_provider_env"),
+    pytest.param(probe_env_via_os_environ(resolve_via_mcp_env), id="mcp_env"),
+    pytest.param(probe_env_via_os_environ(resolve_via_health_cli), id="health-cli-cross-cwd"),
+    pytest.param(probe_env_via_os_environ(resolve_via_health_loader), id="health-loader"),
+]
+
+
+def test_the_probes_are_shell_only() -> None:
+    from osprey_connectors.config import is_shell_only_env_var
+
+    assert all(is_shell_only_env_var(name) for name in SHELL_ONLY_PROBES)
+
+
+@pytest.mark.parametrize("probe", PROCESS_ENV_LOADERS)
+class TestNoLoaderAppliesAShellOnlyVariable:
+    """Every loader that builds a process environment leaves launch variables alone."""
+
+    def test_a_shell_value_is_kept(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe
+    ) -> None:
+        repo = write_shell_only_chain(tmp_path / "repo")
+
+        environ = probe(repo, monkeypatch, shell_set=True)
+
+        assert {name: environ.get(name) for name in SHELL_ONLY_PROBES} == {
+            name: _probe_shell_value(name) for name in SHELL_ONLY_PROBES
+        }
+
+    def test_an_unset_name_stays_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe
+    ) -> None:
+        repo = write_shell_only_chain(tmp_path / "repo")
+
+        environ = probe(repo, monkeypatch, shell_set=False)
+
+        assert [name for name in SHELL_ONLY_PROBES if name in environ] == []
 
 
 # ---------------------------------------------------------------------------

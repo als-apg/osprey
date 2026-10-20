@@ -19,8 +19,8 @@ persistent-process setting:
   an in-place config edit is observed on the next cycle and the surface neither
   mutates nor is perturbed by the CLI's cached default config.
 * **Explicit ``.env`` control.** ``load_env=False`` keeps the builder from
-  touching ``os.environ``; this module instead calls ``load_dotenv`` against the
-  project ``.env`` only on the first cycle or when that file changed, so an
+  touching ``os.environ``; this module instead calls
+  :func:`~osprey_connectors.config.apply_env_chain` against the project ``.env`` only on the first cycle or when that file changed, so an
   unchanged ``.env`` never re-mutates the process environment.
 * **Always-usable settings.** A missing or broken config degrades to the default
   :class:`~osprey.health.config.HealthSettings` (``suite_timeout_s=30``,
@@ -31,6 +31,7 @@ persistent-process setting:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -64,16 +65,12 @@ def _load_project_env(env_paths: list[Path]) -> None:
     Walked in the ascending order :func:`deployment_env_chain` returns —
     ``.env.shared`` before ``.env`` — so with ``override=True`` the local file
     wins, the same local-over-shared contract every other loader resolves. A
-    missing file or a missing ``python-dotenv`` is silently ignored, matching
-    the CLI's handling.
+    missing file is skipped and the shell-only launch variables are never
+    applied, matching the CLI's handling.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-    for env_path in env_paths:
-        if env_path.exists():
-            load_dotenv(env_path, override=True)
+    from osprey_connectors.config import apply_env_chain
+
+    apply_env_chain(os.environ, env_paths)
 
 
 def _load_config(
