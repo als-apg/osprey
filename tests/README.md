@@ -44,7 +44,8 @@ just run one of them:
 | `scripts/gate.sh full` | The merge gate: lint, lockfile, config keys, changelog, plugin version, types, the parallel sweep, each serial step, JS typecheck/lint/tests, and the docs build. `fast [--base <ref>] <paths>` sends `.py` paths to pytest and `*.test.js`/`*.test.mjs` to vitest |
 
 Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
-124 when a run passes its bound. A run stopped by its bound prints every
+124 when a run passes its bound, after naming any process of its group that
+SIGKILL did not end. A run stopped by its bound prints every
 process's Python stacks before it is killed. Every pytest process the suite
 starts carries an exit report (`tests/_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
