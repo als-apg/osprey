@@ -2,9 +2,11 @@
 
 After an arm and a request increment, the turn-1 sample of every BPM's
 turn-by-turn x and y equals what pySC's ``capture_injection`` reads on the
-same ring with every readout correction switched off — finite values and NaN
-positions alike — both on the clean example ring and with the
-``first-turn-errors`` scenario losing the beam inside turn 1.
+same ring with every readout correction switched off, both on the clean
+example ring and with the ``first-turn-errors`` scenario losing the beam inside
+turn 1. The VA's BPM electronics (their noise and tone) are switched off too;
+a BPM the beam never reached reads on axis at the sum's floor, where pySC
+reads NaN.
 
 pySC cannot load an errored ring from a file, so its ring is built from the
 clean deck rotated to the injection marker and then given, element by element,
@@ -12,8 +14,9 @@ the VA lattice's misalignment transforms, apertures and corrector kicks. Its
 pass methods must match the VA's before anything is compared.
 
 The served buffers are also held against a direct pyAT track of the VA's own
-lattice: x equal at every tracked sample, NaN included; y equal where the beam
-was seen; and the sum equal to the seen mask.
+lattice over the turns the shot tracks: x and y equal where the beam was seen
+and on axis where it was not; and the sum 1 where it was seen and at the floor
+where it was not. Past the tracked turns every sample holds the no-beam reading.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ pytest.importorskip("pySC")
 import numpy as np  # noqa: E402
 
 from osprey.simulation.engines import pyat as engine  # noqa: E402
+from osprey.simulation.engines.pyat_faults import SUM_FLOOR  # noqa: E402
 from osprey_connectors.control_system.va_in_process_connector import (  # noqa: E402
     simulation_state_dir,
 )
@@ -46,6 +50,8 @@ INJECTION_MARKER = "INJ"
 TURN_1 = engine.PRE_TRIGGER_SAMPLES
 ARM = "SR:DIAG:BPM:01:TBT:ARM"
 REQUEST = "SR:DIAG:INJECTION:REQUEST"
+#: The turns a shot tracks from the trigger sample; later samples carry no beam.
+TURNS_TRACKED = "SR:DIAG:TBT:TURNS:RB"
 #: The relative agreement of the served shot with pySC and with a direct track.
 RTOL = 1e-12
 ATOL = 1e-15
@@ -76,7 +82,19 @@ def _composite(view: Path, *active: str) -> Composite:
     state = simulation_state_dir(view)
     state.mkdir(parents=True, exist_ok=True)
     (state / "active_scenarios").write_text("".join(f"{name}\n" for name in active))
-    return Composite(view, state_dir=state, clock=lambda: T0, model_log=False)
+    composite = Composite(view, state_dir=state, clock=lambda: T0, model_log=False)
+    _electronics_off(composite)
+    return composite
+
+
+def _electronics_off(composite: Composite) -> None:
+    """Switch every BPM's electronics noise and tone off, so a reading is the tracked position."""
+    composite.get([_tbt(1, "X")])
+    model = composite._children[MODEL].model
+    for bpm in range(1, BPMS + 1):
+        element = model.simulator.element(f"BPM{bpm:02d}")
+        element.readout_noise_scale = 0.0
+        element.readout_tone_amplitude = 0.0
 
 
 def _shot(composite: Composite) -> dict[str, np.ndarray]:
@@ -172,16 +190,17 @@ def test_the_served_shot_equals_the_pysc_capture(
     pysc_x, pysc_y = _pysc_capture(va_lattice, tmp_path)
 
     served_x, served_y = shot["x"][:, TURN_1], shot["y"][:, TURN_1]
-    if lost:
-        assert np.isnan(served_x).any(), f"{SCENARIO}: the first turn reaches every BPM"
-    else:
-        assert np.isfinite(served_x).all() and np.isfinite(served_y).all()
+    dark = np.isnan(pysc_x)
+    np.testing.assert_array_equal(np.isnan(pysc_y), dark, err_msg=f"{active}: pySC's NaN")
+    assert dark.any() == lost, f"{active}: pySC loses the first turn: {dark.any()}"
+    assert np.isfinite(served_x).all() and np.isfinite(served_y).all()
+    np.testing.assert_array_equal(
+        shot["sum"][:, TURN_1], np.where(dark, SUM_FLOOR, 1.0), err_msg=f"{active}: sum"
+    )
     for plane, served, pysc in (("x", served_x, pysc_x), ("y", served_y, pysc_y)):
-        np.testing.assert_array_equal(
-            np.isnan(served), np.isnan(pysc), err_msg=f"{active}: NaN positions in {plane}"
-        )
+        np.testing.assert_array_equal(served[dark], 0.0, err_msg=f"{active}: dark {plane}")
         np.testing.assert_allclose(
-            served, pysc, rtol=RTOL, atol=ATOL, equal_nan=True, err_msg=f"{active}: {plane}"
+            served[~dark], pysc[~dark], rtol=RTOL, atol=ATOL, err_msg=f"{active}: {plane}"
         )
 
 
@@ -189,20 +208,24 @@ def test_the_served_shot_equals_the_pysc_capture(
 def test_the_served_buffers_equal_a_direct_track(demo_view: Path, active: tuple[str, ...]) -> None:
     composite = _composite(demo_view, *active)
     shot = _shot(composite)
-    samples = shot["x"].shape[1]
-    turns = samples - TURN_1
+    turns = int(composite.get([TURNS_TRACKED])[TURNS_TRACKED])
+    end = TURN_1 + turns
+    assert 0 < turns and end <= shot["x"].shape[1]
     track_x, track_y = _direct_track(composite._children[MODEL].model.lattice, turns)
 
-    served_x = shot["x"][:, TURN_1:]
-    served_y = shot["y"][:, TURN_1:]
+    for signal, no_beam in (("x", 0.0), ("y", 0.0), ("sum", SUM_FLOOR)):
+        np.testing.assert_array_equal(shot[signal][:, end:], no_beam, err_msg=f"past: {signal}")
+    served_x = shot["x"][:, TURN_1:end]
+    served_y = shot["y"][:, TURN_1:end]
     seen = ~np.isnan(track_x)
 
-    np.testing.assert_allclose(
-        served_x, track_x, rtol=RTOL, atol=ATOL, equal_nan=True, err_msg=f"{active}: x"
-    )
-    np.testing.assert_allclose(
-        served_y[seen], track_y[seen], rtol=RTOL, atol=ATOL, err_msg=f"{active}: y"
-    )
+    if active:
+        assert not seen.all(), f"{active}: the track loses no sample"
+    for plane, served, track in (("x", served_x, track_x), ("y", served_y, track_y)):
+        np.testing.assert_allclose(
+            served[seen], track[seen], rtol=RTOL, atol=ATOL, err_msg=f"{active}: {plane}"
+        )
+        np.testing.assert_array_equal(served[~seen], 0.0, err_msg=f"{active}: dark {plane}")
     np.testing.assert_array_equal(
-        shot["sum"][:, TURN_1:], seen.astype(np.float64), err_msg=f"{active}: sum"
+        shot["sum"][:, TURN_1:end], np.where(seen, 1.0, SUM_FLOOR), err_msg=f"{active}: sum"
     )
