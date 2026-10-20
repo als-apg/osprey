@@ -1475,33 +1475,57 @@ def _fold_profile_material(
             would make every preset's hash depend on every other preset's
             neighbouring directories.
     """
+    for label, path in profile_material_roots(resolved, profile_dir, conventions=conventions):
+        # data/.runtime/ is runtime-minted material, never build input — see
+        # the docstring above and _fold_source_tree's skip contract.
+        _fold_source_tree(digest, label, path, skip_runtime_output=label == "data")
+
+
+def profile_material_roots(
+    resolved: dict[str, Any], profile_dir: Path, *, conventions: bool = True
+) -> list[tuple[str, Path]]:
+    """The file inputs :func:`_fold_profile_material` folds, as ``(label, path)``.
+
+    Returned in fold order: the ``data:`` root (``data``), each existing
+    convention directory (``convention:<name>``, sorted by name), the trigger
+    file that lives with the profile (``triggers``) and each layer file
+    (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
+    order). This is the one enumeration of what a profile's hash reads from
+    disk; anything that must keep those files intact reads it here rather than
+    listing them again.
+
+    Args:
+        resolved: The profile after ``extends`` (and layer) resolution.
+        profile_dir: The profile root every relative path anchors at.
+        conventions: ``False`` returns the ``data:`` root alone, as the fold
+            does for a bundled preset.
+    """
     from .build_profile_model import BuildProfile
     from .profile_conventions import CONVENTION_SOURCES
     from .profile_root import layer_files
 
+    roots: list[tuple[str, Path]] = []
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
     if data_root is not None:
-        # data/.runtime/ is runtime-minted material, never build input — see
-        # the docstring above and _fold_source_tree's skip contract (#716).
-        _fold_source_tree(digest, "data", data_root, skip_runtime_output=True)
+        roots.append(("data", data_root))
 
     if not conventions:
-        return
+        return roots
 
     for source in sorted(CONVENTION_SOURCES):
         candidate = profile_dir / source
         if candidate.exists():
-            _fold_source_tree(digest, f"convention:{source}", candidate)
+            roots.append((f"convention:{source}", candidate))
 
     triggers = profile_triggers_material(resolved, profile_dir)
     if triggers is not None:
-        _fold_source_tree(digest, "triggers", triggers[1])
+        roots.append(("triggers", triggers[1]))
 
     # Sorted by name, which is the whole ordering rule a flat directory needs;
     # `_fold_source_tree` contributes each delta's own name beside its content
     # digest, so a rename moves the hash exactly as an edit does.
-    for _kind, layer in layer_files(profile_dir):
-        _fold_source_tree(digest, layer_fold_label(layer), layer)
+    roots.extend((layer_fold_label(layer), layer) for _kind, layer in layer_files(profile_dir))
+    return roots
 
 
 def layer_fold_label(layer: Path) -> str:

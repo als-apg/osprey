@@ -156,3 +156,42 @@ def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_pat
     _write(tmp_path / "data" / "stray.json", "{}\n")
     _write(tmp_path / "unrelated.md", "text\n")
     assert compute_profile_hash(profile) == before
+
+
+def test_material_roots_folded_in_order_give_the_fold_digest(tmp_path):
+    """The fold is exactly a walk over :func:`profile_material_roots`, in its order."""
+    import hashlib
+
+    from osprey.cli.build_profile_merge import (
+        _fold_profile_material,
+        _fold_source_tree,
+        profile_material_roots,
+    )
+    from osprey.cli.profile_root import layer_files
+
+    root = tmp_path / "facility"
+    _write(root / "data" / "channels.json", "{}\n")
+    _write(root / "data" / ".runtime" / "minted.key", "runtime\n")
+    _write(root / "rules" / "safety.md", "rule\n")
+    _write(root / "skills" / "scan" / "SKILL.md", "skill\n")
+    _write(root / "triggers.yml", "triggers: []\n")
+    _write(root / "tiers" / "operator.yml", "name: operator\n")
+    _write(root / "tiers" / "expert.yml", "name: expert\n")
+    _write(root / "apps" / "logbook.yml", "name: logbook\n")
+    resolved = {"data": "data", "dispatch": {"triggers": "triggers.yml"}}
+
+    roots = profile_material_roots(resolved, root)
+    labels = [label for label, _ in roots]
+    assert labels[0] == "data"
+    assert labels[-3:] == ["tier", "tier", "app"]
+    assert "triggers" in labels
+    assert [path for label, path in roots if label in ("tier", "app")] == [
+        path for _kind, path in layer_files(root)
+    ]
+
+    expected = hashlib.sha256()
+    for label, path in roots:
+        _fold_source_tree(expected, label, path, skip_runtime_output=label == "data")
+    actual = hashlib.sha256()
+    _fold_profile_material(actual, resolved, root)
+    assert actual.hexdigest() == expected.hexdigest()
