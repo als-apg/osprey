@@ -902,16 +902,16 @@ class Corrector:
     Attributes:
         setpoint_address: The address a lane writes a demand to.
         readback_address: The address the same magnet reads its own field back on.
-        readback_motion: The band the readback's declared motion (noise and
-            drift) keeps it within around its held value, as the served tree
-            declares it under the suite's scenarios
-            (:meth:`SimulatorView.motion_envelope` with :data:`SUITE_SCENARIOS`).
-            Two reads of a quiet readback differ by at most twice this band.
+        readback_band: The band two reads of a quiet readback keep within:
+            twice the motion the served tree declares for it under the suite's
+            scenarios, plus a float floor
+            (:func:`tests.facility.served_tree.unmoved_band` with
+            :data:`SUITE_SCENARIOS`).
     """
 
     setpoint_address: str
     readback_address: str
-    readback_motion: float
+    readback_band: float
 
 
 def corrector_at_slot(slot: int) -> Corrector:
@@ -945,6 +945,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     """
     from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
     from tests.e2e._facility_select import bounded_corrector_of
+    from tests.facility.served_tree import unmoved_band
 
     view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
     bounded = bounded_corrector_of(view)
@@ -970,5 +971,5 @@ def corrector_at_slot(slot: int) -> Corrector:
     return Corrector(
         setpoint_address=setpoint,
         readback_address=str(readback),
-        readback_motion=view.motion_envelope(str(readback), active=SUITE_SCENARIOS),
+        readback_band=unmoved_band(view, str(readback), SUITE_SCENARIOS),
     )
