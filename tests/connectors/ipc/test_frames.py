@@ -22,7 +22,11 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ConnectorInternalError,
+)
 from osprey_connectors.ipc import exceptions, frames
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
@@ -432,14 +436,15 @@ def test_a_typed_exception_round_trips_with_every_spec_field(original):
     assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
 
 
-def test_unknown_class_tag_fails_closed_to_connection_error():
+def test_unknown_class_tag_fails_closed_to_the_contract_fault():
     class SomeChildOnlyError(Exception):
         pass
 
     frame = _round_trip(frames.encode_error("req-u", SomeChildOnlyError("libca segfaulted")))
 
     assert frame.class_tag == "SomeChildOnlyError"
-    assert type(frame.exception) is ConnectionError
+    assert type(frame.exception) is ConnectorInternalError
+    assert frame.exception.class_tag == "SomeChildOnlyError"
     # Fail closed, but never silently: the original tag and message both survive.
     assert "SomeChildOnlyError" in str(frame.exception)
     assert "libca segfaulted" in str(frame.exception)

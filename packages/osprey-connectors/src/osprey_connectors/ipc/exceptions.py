@@ -42,11 +42,15 @@ encodes as ``None`` instead of raising.
 Failing closed
 --------------
 Two unknowns are possible and neither may end in a silent drop. An exception
-class outside the registry encodes as a :class:`ConnectionError` carrying the
-original ``repr`` in its message; a ``class_tag`` outside the registry decodes
-as a :class:`ConnectionError` naming the tag and the original message. The
-parent always raises something, and that something always says what the child
-actually reported.
+whose class is a subclass of a registered class crosses as the nearest such
+class. Any other class encodes as a
+:class:`~osprey_connectors.errors.ConnectorInternalError` carrying the original
+``repr`` in its message and the original class name as its ``class_tag``; a
+``class_tag`` outside the registry, or a field set the real constructor
+refuses, decodes as the same class naming the tag and the original message. It
+is never a :class:`ConnectionError`: an exception outside the contract is a
+connector bug, not a reachability answer. The parent always raises something,
+and that something always says what the child actually reported.
 
 Both sides read this file
 -------------------------
@@ -65,6 +69,7 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
     ChannelWriteBlockedError,
+    ConnectorInternalError,
 )
 
 __all__ = [
@@ -122,8 +127,8 @@ class ExceptionSpec:
     message_kwarg: str | None = None
 
 
-#: The registry. Exactly five classes cross this boundary typed; everything else
-#: fails closed to :class:`ConnectionError`.
+#: The registry. Exactly six classes cross this boundary typed; everything else
+#: fails closed to :class:`~osprey_connectors.errors.ConnectorInternalError`.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
     "ConnectionError": ExceptionSpec(ConnectionError),
     "TimeoutError": ExceptionSpec(TimeoutError),
@@ -141,7 +146,18 @@ EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
         ChannelNotFoundError,
         fields=CHANNEL_NOT_FOUND_FIELDS,
     ),
+    "ConnectorInternalError": ExceptionSpec(
+        ConnectorInternalError,
+        fields=("class_tag",),
+        message_kwarg="message",
+    ),
 }
+
+
+def _registered_tag(exc: BaseException) -> str | None:
+    """The registry tag of ``exc``'s nearest registered class, or ``None``."""
+    by_class = {spec.cls: tag for tag, spec in EXCEPTION_SPECS.items()}
+    return next((by_class[cls] for cls in type(exc).__mro__ if cls in by_class), None)
 
 
 def exception_fields(exc: BaseException) -> dict[str, Any]:
@@ -149,16 +165,17 @@ def exception_fields(exc: BaseException) -> dict[str, Any]:
 
     Only the enumerated names are read, and a name the instance does not carry
     yields ``None``, so an exception raised by an older or newer build of the
-    child still encodes. An exception outside the registry has no fields.
+    child still encodes. The spec is that of the nearest registered class in
+    ``exc``'s MRO; an exception with none has no fields.
     """
-    spec = EXCEPTION_SPECS.get(type(exc).__name__)
-    if spec is None:
+    tag = _registered_tag(exc)
+    if tag is None:
         return {}
-    return {name: getattr(exc, name, None) for name in spec.fields}
+    return {name: getattr(exc, name, None) for name in EXCEPTION_SPECS[tag].fields}
 
 
 def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) -> BaseException:
-    """Rebuild the real exception, failing closed to :class:`ConnectionError`.
+    """Rebuild the real exception, failing closed to ``ConnectorInternalError``.
 
     A tag outside the registry, or a field set the real constructor refuses,
     still produces an exception the parent can raise — one that names the tag
@@ -166,8 +183,9 @@ def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) 
     """
     spec = EXCEPTION_SPECS.get(class_tag)
     if spec is None:
-        return ConnectionError(
-            f"connector host reported an unrecognised error type {class_tag!r}: {message}"
+        return ConnectorInternalError(
+            f"connector host reported an unrecognised error type {class_tag!r}: {message}",
+            class_tag=class_tag,
         )
     if not spec.fields:
         return spec.cls(message)
@@ -178,8 +196,9 @@ def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) 
     try:
         return spec.cls(**kwargs)
     except TypeError as exc:  # malformed field set — still never dropped
-        return ConnectionError(
-            f"connector host reported {class_tag!r} with unusable fields ({exc}): {message}"
+        return ConnectorInternalError(
+            f"connector host reported {class_tag!r} with unusable fields ({exc}): {message}",
+            class_tag=class_tag,
         )
 
 
@@ -187,16 +206,18 @@ def encode_exception(exc: BaseException) -> dict[str, Any]:
     """Render ``exc`` as an exception frame body.
 
     An exception class outside the registry is normalised here, at the child's
-    edge: it encodes as a :class:`ConnectionError` whose message carries the
-    original ``repr`` — the parent learns what actually happened without this
-    module claiming to reconstruct a class it does not know.
+    edge. A subclass of a registered class encodes as that class. Anything
+    else encodes as a ``ConnectorInternalError`` whose message carries the
+    original ``repr`` and whose ``class_tag`` field names the original class —
+    the parent learns what actually happened without this module claiming to
+    reconstruct a class it does not know.
     """
-    class_tag = type(exc).__name__
-    if class_tag not in EXCEPTION_SPECS:
+    class_tag = _registered_tag(exc)
+    if class_tag is None:
         return {
-            "class_tag": "ConnectionError",
+            "class_tag": ConnectorInternalError.__name__,
             "message": f"connector host reported an unrecognised error: {exc!r}",
-            "fields": {},
+            "fields": {"class_tag": type(exc).__name__},
         }
     return {"class_tag": class_tag, "message": str(exc), "fields": exception_fields(exc)}
 

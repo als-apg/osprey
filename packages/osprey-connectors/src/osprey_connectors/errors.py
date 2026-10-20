@@ -300,6 +300,29 @@ class ChannelNotFoundError(LookupError):
         super().__init__(f"{channel_address} is {NOT_A_CHANNEL}")
 
 
+class ConnectorInternalError(RuntimeError):
+    """Raised in the parent for something the connector-host child sent outside the contract.
+
+    It has two sources, and both fail one call only. A connector bug: the
+    child raised an exception the IPC registry does not carry typed, and the
+    message carries the child's ``repr``. An unrebuildable reply: the child
+    answered with a value the parent cannot rebuild into its declared type.
+    Neither is a reachability answer, and nothing about the connector or the
+    child is implied, so no supervisor recovers from it.
+
+    It is a ``RuntimeError`` and never a ``ConnectionError`` or ``OSError``, so
+    that no ``except ConnectionError`` or ``except OSError`` reads a connector
+    bug as an unreachable control system.
+
+    ``class_tag`` names the class the child sent: the exception's class for a
+    connector bug, the value's class for an unrebuildable reply.
+    """
+
+    def __init__(self, message: str, class_tag: str | None = None):
+        self.class_tag = class_tag
+        super().__init__(message)
+
+
 class RegistryError(Exception):
     """Exception for registry-related errors.
 
