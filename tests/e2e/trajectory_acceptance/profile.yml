@@ -1,0 +1,78 @@
+# The trajectory acceptance profile: every edit `shape.render` makes to the
+# control-assistant preset at `osprey init`, stated here and nowhere else.
+#
+# Each key is an EDIT of the resolved preset, spelled as one `--set` pair per
+# leaf (tests/e2e/profile_edits.py): it replaces the value at the key it names
+# and leaves the preset's siblings alone. `osprey init` materialises the result
+# as the repo's own profile.yml, fully resolved and with no `extends:`.
+#
+# Nothing here depends on the host: the timeouts are fixed, every host port the
+# stack publishes lies in the block `port_base` names, and the image axes are
+# pinned to the registry the acceptance images are pushed to.
+
+# One thousand-port block, [26200, 27199]. The stack's front door (+0), the
+# trajectory service (+82), the stand-in (+90) and the VA's two protocol ports
+# below all sit in its first hundred, 26200-26299.
+port_base: 26200
+
+# The VA's Channel Access and pvAccess ports do not follow `port_base` on their
+# own, so both are pinned inside the block, on the VA band beside the stand-in.
+virtual_accelerator:
+  port: 26291
+  pva_port: 26292
+  # The stand-in served on the block's stand-in port (+90). The archiver
+  # records it: the archive belongs to the machine.
+  live_standin: true
+
+# The bluesky bridge's port, on its own slot of the block (+80).
+bluesky:
+  port: 26280
+  tiled_enabled: true
+
+channel_finder_mode: hierarchical
+
+# The trajectory service commands the stand-in, on the host network.
+trajectory:
+  target: standin
+  network: host
+
+# The archive, shrunk to what an acceptance run reads: two days behind a
+# two-hour dense head (the shared VA lane knobs, `VA_ARCHIVER_CI_KNOBS`).
+va_archiver:
+  retention_days: 2
+  hot_span_hours: 2
+
+# No event dispatcher and no record-archive service: nothing in the walk
+# reads either, and both cost an image build.
+dispatch: null
+services: {}
+
+config:
+  control_system.type: virtual_accelerator
+  claude_code.servers.bluesky.enabled: true
+  # Writes on the stand-in, which is the machine the walk drives.
+  control_system.connector.live_standin.writes_enabled: true
+  # One VA call may take 5 s; a step's readback 2 s.
+  control_system.connector.virtual_accelerator.timeout_s: 5.0
+  control_system.connector.virtual_accelerator.step_read_timeout_s: 2.0
+  # The sequence module a stand-in target loads: the build defaults it only
+  # for a `va` target, so the stand-in names it.
+  services.trajectory.sequence_dir: ./build/services/trajectory/sequence
+  # A shot's armed wait is the 10 s shot timeout.
+  services.trajectory.armed_timeout_s: 10.0
+  # Sized for ten shots of the default chain (arm, inject, clean, readout):
+  # each may take 55.5 s (two 10 s armed waits, 0.5 s module pause, the 5 s
+  # clean command and six 5 s calls), so ten plus the 10 s setpoint snapshot
+  # take 565 s.
+  services.trajectory.action_timeout_s: 570.0
+  # Where `osprey sim apply` writes the active scenario set.
+  simulation.state_dir: ./var/agent_data/simulation
+  # The acceptance images live here; `OSPREY_IMAGE_TAG` names the checkout.
+  images.registry: ghcr.io/als-apg
+  # Web terminals on, with token logins on loopback; the roster and persona
+  # are rewritten after init.
+  modules.web_terminals.enabled: true
+  modules.web_terminals.image_source: local
+  modules.web_terminals.auth.method: token
+  modules.web_terminals.default_persona: operator
+  deploy.fqdn: 127.0.0.1

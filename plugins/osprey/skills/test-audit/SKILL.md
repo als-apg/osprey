@@ -250,7 +250,7 @@ in the checkout. Run gates in the foreground. Run e2e only by path
 
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
-   `uv run pytest tests/<area> -m "not pty and not wallclock" -n 4 --dist loadgroup`
+   `uv run pytest tests/<area> -m "not pty and not wallclock and not stack_regression" -n 4 --dist loadgroup`
    with the unit lane's `--ignore` list from ci.yml (the files CI runs in their
    own jobs, such as tests/va/test_apply_fault.py; run those by path). Run
    `tests/pty -m pty` and `tests/integration -m wallclock` serially. For e2e,
