@@ -65,8 +65,9 @@ RESOLVED_ROWS = {
 #: The deck's RF frequency, in MHz, that the wired cavity's band surrounds.
 CAVITY_OPERATING_MHZ = 500.417
 
-#: The measurement keys that are not pyAML step or settle keys.
-_MEASUREMENT_ROLES = {"kinds", "groups", "instruments"}
+#: The measurement keys that are not pyAML step or settle keys: the members it
+#: names and the trajectory declaration, which the trajectory service reads.
+_MEASUREMENT_ROLES = {"kinds", "groups", "instruments", "trajectory"}
 
 
 @cache
@@ -220,6 +221,9 @@ def test_measurement_instruments_are_served_channels() -> None:
         "rf": "SR:RF:CAVITY:01:FREQUENCY:SP",
         "injection_request": "SR:DIAG:INJECTION:REQUEST",
         "injection_busy": "SR:DIAG:INJECTION:BUSY",
+        "rf_status": "SR:RF:ON:SP",
+        "beam_current": "SR:DIAG:STORED_BEAM:CURRENT:RB",
+        "bunch_clean_enable": "SR:DIAG:CLEANING:REQUEST",
     }
     for address in instruments.values():
         assert address in channels

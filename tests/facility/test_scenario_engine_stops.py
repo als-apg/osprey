@@ -104,9 +104,12 @@ def test_an_unknown_fault_name_is_told_the_model_wide_names(tmp_path: Path) -> N
         "facility: engine-invalid: scenario shaken — faults.SR.ZZZZ names no channel and no "
         "pyat variable; fix: name a channel address or a pyat variable (<address>/<field>, or "
         "one of aperture_elliptical_x, aperture_elliptical_y, aperture_rectangular_x, "
-        "aperture_rectangular_y, dipole_dx_sigma, dipole_dy_sigma, dipole_roll_sigma, "
-        "misalignment_seed, quadrupole_dx_sigma, quadrupole_dy_sigma, quadrupole_roll_sigma, "
-        "sextupole_dx_sigma, sextupole_dy_sigma, sextupole_roll_sigma)"
+        "aperture_rectangular_y, bunch_charge, bunch_emittance_x, bunch_emittance_y, "
+        "bunch_particles, bunch_sigma_delta, bunch_sigma_z, centroid_jitter_x, "
+        "centroid_jitter_y, dipole_dx_sigma, dipole_dy_sigma, dipole_roll_sigma, launch_ct, "
+        "launch_delta, launch_px, launch_py, launch_x, launch_y, misalignment_seed, "
+        "quadrupole_dx_sigma, quadrupole_dy_sigma, quadrupole_roll_sigma, sextupole_dx_sigma, "
+        "sextupole_dy_sigma, sextupole_roll_sigma, stored_charge)"
     )
 
 

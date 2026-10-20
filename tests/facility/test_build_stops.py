@@ -740,9 +740,12 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
 #: remedy lists in sorted order.
 _PYAT_MODEL_WIDE_FAULTS = (
     "aperture_elliptical_x, aperture_elliptical_y, aperture_rectangular_x, "
-    "aperture_rectangular_y, dipole_dx_sigma, dipole_dy_sigma, dipole_roll_sigma, "
-    "misalignment_seed, quadrupole_dx_sigma, quadrupole_dy_sigma, quadrupole_roll_sigma, "
-    "sextupole_dx_sigma, sextupole_dy_sigma, sextupole_roll_sigma"
+    "aperture_rectangular_y, bunch_charge, bunch_emittance_x, bunch_emittance_y, "
+    "bunch_particles, bunch_sigma_delta, bunch_sigma_z, centroid_jitter_x, centroid_jitter_y, "
+    "dipole_dx_sigma, dipole_dy_sigma, dipole_roll_sigma, launch_ct, launch_delta, launch_px, "
+    "launch_py, launch_x, launch_y, misalignment_seed, quadrupole_dx_sigma, "
+    "quadrupole_dy_sigma, quadrupole_roll_sigma, sextupole_dx_sigma, sextupole_dy_sigma, "
+    "sextupole_roll_sigma, stored_charge"
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.

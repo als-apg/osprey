@@ -64,10 +64,10 @@ def test_paired_readbacks_start_at_their_setpoint_value() -> None:
         for address, record in wiring.items()
         if record["direction"] == "read" and address not in setpoint_of
     ]
-    # SR 148 (144 BPM positions, tune and chromaticity), LINE 8, LTB 12, BTS 12,
-    # plus the turn-by-turn x / y / sum series and armed flag on each of the
-    # ring's 72 BPMs.
-    assert len(unpaired) == 180 + 4 * 72
+    # SR 149 (144 BPM positions, tune, chromaticity and the stored-beam current),
+    # LINE 8, LTB 12, BTS 12, plus the turn-by-turn x / y / sum series and armed
+    # flag on each of the ring's 72 BPMs.
+    assert len(unpaired) == 181 + 4 * 72
     assert sum(":BPM:" in address for address in unpaired) == 176 + 4 * 72
     series = [address for address in unpaired if isinstance(wiring[address]["default"], list)]
     assert len(series) == 3 * 72

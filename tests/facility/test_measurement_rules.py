@@ -423,7 +423,7 @@ def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> 
     kinds = set(schema["enums"]["measurement_kind_enum"]["permissible_values"])
     groups = set(schema["classes"]["MeasurementGroups"]["attributes"])
     instruments = set(schema["classes"]["MeasurementInstruments"]["attributes"])
-    keys = set(measurement) - {"kinds", "groups", "instruments"}
+    keys = set(measurement) - {"kinds", "groups", "instruments", "trajectory"}
 
     members = {member for needed in KIND_MEMBERS.values() for member in needed}
     assert kinds == set(KIND_MEMBERS) == set(TOOL_KEYS)
