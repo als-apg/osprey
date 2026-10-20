@@ -31,7 +31,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.errors import ChannelWriteBlockedError, RefusalReason
 from tests.connectors._epics_fakes import ECA_NOWTACCESS
 from tests.connectors._write_fakes import make_mock_epics_connector
 from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
@@ -191,6 +191,19 @@ class TestEnvelopeRendering:
         )
         assert envelope["suggestions"] == ["Do NOT attempt to work around the refusal."]
         assert envelope["details"] == {"channel": CHANNEL, "reason": "SOMETHING_ELSE"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason", [r for r in RefusalReason if r is not RefusalReason.CHANNEL_NOT_FOUND]
+    )
+    async def test_suggestions_are_the_reasons_remedy(self, reason):
+        """The envelope suggests what the reason's remedy says, then the one constant."""
+        envelope = await _render(ChannelWriteBlockedError(CHANNEL, reason.value))
+
+        assert envelope["suggestions"] == [
+            *reason.remedy,
+            "Do NOT attempt to work around the refusal.",
+        ]
 
 
 def _write_result_stub(channel, reason):
