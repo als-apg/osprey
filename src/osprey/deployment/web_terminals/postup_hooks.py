@@ -139,10 +139,10 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
         any) to run; also the script's working directory, so its own
         ``./scripts/...``-relative assumptions resolve the same as when an
         operator runs it by hand from the project root.
-    :param run_env: Environment for the subprocess — the same
-        ``COMPOSE_PROJECT_NAME``-pinned env the compose calls in this module
-        use, so any ``${COMPOSE_PROJECT_NAME}``-derived container name the
-        script probes matches what compose actually named.
+    :param run_env: Environment for the subprocess — the one the compose calls
+        in this module use. The script does not read the deployment from it:
+        it reads the runtime and compose project from the record ``osprey up``
+        wrote.
     """
     verify_path = Path(project_root) / "scripts" / "verify.sh"
     if not verify_path.is_file():
