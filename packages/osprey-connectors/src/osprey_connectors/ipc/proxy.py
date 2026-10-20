@@ -62,6 +62,10 @@ fresh child and a fresh proxy is the supervisor's job, not this object's.
 is how a supervisor tells a dead child from a ``ConnectionError`` the connector
 itself raised and the child relayed.
 
+A well-framed reply whose value cannot be rebuilt is not a broken stream: that
+one call fails with a :class:`~osprey_connectors.errors.ConnectorInternalError`
+and the proxy stays up.
+
 A call the child does not answer in time fails with
 :class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
 it is, so a generic timeout handler such as the MCP tool error mapping treats it
@@ -512,7 +516,8 @@ class ConnectorHostProxy:
         if isinstance(frame, frames.ErrorFrame):
             # decode_frame already ran the typed-exception registry, so this is
             # the real class with its fields, or a ConnectorInternalError
-            # standing in for a class this build does not know.
+            # standing in for a class this build does not know or a reply value
+            # it could not rebuild.
             exception = frame.exception
             setattr(exception, _FROM_CHILD, True)
             future.set_exception(exception)

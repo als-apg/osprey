@@ -694,6 +694,41 @@ MALFORMED_FRAMES = [
 ]
 
 
+UNREBUILDABLE_REPLIES = [
+    pytest.param(
+        {
+            _TAG: "ChannelWriteResult",
+            "fields": {"channel_address": "SR:Q", "value_written": 1.0, "outcome": "nope"},
+        },
+        "ChannelWriteResult",
+        id="value-refused-by-its-constructor",
+    ),
+    pytest.param(
+        {_TAG: "dict", "items": [["SR:Q", {_TAG: "ChannelValue", "fields": {"bogus": 1}}]]},
+        "ChannelValue",
+        id="nested-value-with-a-field-the-class-lacks",
+    ),
+]
+
+
+@pytest.mark.parametrize(("value", "class_tag"), UNREBUILDABLE_REPLIES)
+def test_a_reply_the_parent_cannot_rebuild_fails_only_that_call(value, class_tag):
+    reader = frames.FrameReader()
+    unrebuildable = _doctored(_result(), _set("value", value))
+    follow_up = frames.encode_result("req-next", 2)
+
+    frame, next_frame = reader.feed(unrebuildable + follow_up)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-bad"
+    assert frame.class_tag == class_tag
+    assert type(frame.exception) is ConnectorInternalError
+    assert frame.exception.class_tag == class_tag
+    assert class_tag in str(frame.exception)
+    # The stream is intact: the next reply decodes as sent.
+    assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
+
+
 @pytest.mark.parametrize(("build", "message"), MALFORMED_FRAMES)
 def test_decode_frame_refuses_a_malformed_frame_with_a_specific_reason(build, message):
     payload = build()
