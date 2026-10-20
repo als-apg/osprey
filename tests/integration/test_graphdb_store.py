@@ -8,9 +8,10 @@ call shapes but not the two things that decide whether the feature works: that
 produces a graph the operator queries can traverse, and that the graph view the
 control-assistant build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
-that view (645 binding owners / 3700 bindings / 595 write-only + 3101 read-only
-/ 466 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 30973 triples.
+that view (645 binding owners / 4138 bindings / 814 write-only + 3320 read-only
+/ 466 magnets rolled up through the class hierarchy; the 4 tune and
+chromaticity channels carry neither direction), plus n10s's own
+``terminationStatus`` and its 33623 triples.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -59,14 +60,14 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # triple count were verified against a live n10s import of the same file.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 30973
+EXPECTED_TRIPLES_LOADED = 33623
 #: Distinct resources carrying at least one channel binding: the 644 devices
 #: and the top place ``SR``, which carries the tune and chromaticity channels.
 EXPECTED_DEVICES = 645
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 3700
-EXPECTED_WRITE_ONLY = 595
-EXPECTED_READ_ONLY = 3101
+EXPECTED_BINDINGS = 4138
+EXPECTED_WRITE_ONLY = 814
+EXPECTED_READ_ONLY = 3320
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector + Septum + Kicker
 #: + Solenoid + BuckingCoil.
