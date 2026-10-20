@@ -659,6 +659,25 @@
     },
     {
       "aliases": [
+        "attenuation readback",
+        "measured attenuation",
+        "attenuator readback"
+      ],
+      "description": "Readback of the attenuation applied to a BPM's input signal.",
+      "name": "attenuation_readback"
+    },
+    {
+      "aliases": [
+        "attenuation",
+        "bpm attenuation",
+        "attenuator setting",
+        "input attenuation"
+      ],
+      "description": "Commanded attenuation of a BPM's input signal ahead of its electronics.",
+      "name": "attenuation_setpoint"
+    },
+    {
+      "aliases": [
         "beam intensity",
         "wire sum",
         "beam current",
@@ -691,6 +710,24 @@
       "aliases": [],
       "description": "Fast-orbit-feedback channel-index readback for a BPM.",
       "name": "bpm_fofb_index"
+    },
+    {
+      "aliases": [
+        "bpm mode readback",
+        "bpm mode state"
+      ],
+      "description": "Readback of the operating mode of a BPM's electronics.",
+      "name": "bpm_mode_readback"
+    },
+    {
+      "aliases": [
+        "bpm mode",
+        "bpm current mode",
+        "low current mode",
+        "high current mode"
+      ],
+      "description": "Commanded operating mode of a BPM's electronics (e.g. low or high beam current), which sets their electronic noise.",
+      "name": "bpm_mode_setpoint"
     },
     {
       "aliases": [],
@@ -743,6 +780,17 @@
       "aliases": [],
       "description": "Bulk-supply DC voltage readback.",
       "name": "bulk_supply_voltage_readback"
+    },
+    {
+      "aliases": [
+        "bunch cleaning",
+        "clean the ring",
+        "clear stored beam",
+        "empty the ring",
+        "beam cleaning"
+      ],
+      "description": "Command that removes the charge stored in a ring, so the next injected shot circulates alone.",
+      "name": "bunch_cleaning_command"
     },
     {
       "aliases": [],
@@ -1054,6 +1102,24 @@
       "name": "phase_setpoint"
     },
     {
+      "aliases": [
+        "pilot tone state",
+        "pilot tone readback"
+      ],
+      "description": "Readback of the on/off state of a BPM's pilot tone.",
+      "name": "pilot_tone_readback"
+    },
+    {
+      "aliases": [
+        "pilot tone",
+        "pilot tone on",
+        "pilot tone off",
+        "bpm pilot tone"
+      ],
+      "description": "Commanded on/off state of a BPM's pilot tone, a calibration tone the electronics add to the button signals.",
+      "name": "pilot_tone_setpoint"
+    },
+    {
       "aliases": [],
       "description": "Plug-interlock readback (mating-connector presence).",
       "name": "plug_interlock_status"
@@ -1313,6 +1379,28 @@
     },
     {
       "aliases": [
+        "rf on readback",
+        "rf state",
+        "rf status",
+        "is rf on"
+      ],
+      "description": "Readback of the on/off state of a ring's RF system.",
+      "name": "rf_on_readback"
+    },
+    {
+      "aliases": [
+        "rf on",
+        "rf switch",
+        "rf on/off",
+        "turn rf off",
+        "turn rf on",
+        "rf enable"
+      ],
+      "description": "Commanded on/off state of a ring's RF system; with RF off the beam has no closed orbit and is not captured.",
+      "name": "rf_on_setpoint"
+    },
+    {
+      "aliases": [
         "rf reflected power",
         "reflected power",
         "cavity reflected power",
@@ -1401,6 +1489,25 @@
       ],
       "description": "Commanded tuner position.",
       "name": "tuner_position_setpoint"
+    },
+    {
+      "aliases": [
+        "turns tracked readback",
+        "buffer size readback"
+      ],
+      "description": "Readback of the number of turns a turn-by-turn acquisition records beam on.",
+      "name": "turns_tracked_readback"
+    },
+    {
+      "aliases": [
+        "turns tracked",
+        "buffer size",
+        "turn-by-turn buffer size",
+        "number of turns",
+        "tbt turns"
+      ],
+      "description": "Commanded number of turns after the trigger that a turn-by-turn acquisition records beam on (the acquisition's buffer size).",
+      "name": "turns_tracked_setpoint"
     },
     {
       "aliases": [
