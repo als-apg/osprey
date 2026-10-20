@@ -873,7 +873,16 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     never turn a PASS into an error. It is not a safety gap either: enqueue
     and queue-start re-check namespace presence and refuse on their own.
 
-    Raises 404 if no session plan named ``request.name`` has been written.
+    A pass is held to the worker's devices when a worker answers: the channels
+    the sample arguments supply under the plan's declared roles go through the
+    same check the enqueue runs (`queue._check_channel_names_built`), so a
+    name the worker never built is refused here with the body ``queue_add``
+    would give, and nothing is recorded or uploaded. With no manager, or one
+    that cannot be read, the pass stands.
+
+    Raises 404 if no session plan named ``request.name`` has been written, and
+    400 ``unknown_device`` if the sample arguments name a device the worker did
+    not build.
     """
     name = _sanitize_plan_name(request.name)
     plan_path = resolve_session_plan_dir() / f"{name}.py"
@@ -889,6 +898,20 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     )
     upload: dict[str, Any] = {"uploaded": False, "reason": None, "detail": None}
     if result.passed:
+        backend = get_queue_backend()
+        try:
+            status = await backend.status()
+        except Exception as exc:
+            logger.debug("device check skipped; the queue server status is unreadable: %s", exc)
+        else:
+            await queue._check_channel_names_built(
+                backend,
+                name,
+                set(result.movable_channels),
+                set(result.readable_channels),
+                status,
+                session_tier=True,
+            )
         validation_records.record(result.content_hash)
         upload = await upload_after_validation(name)
 

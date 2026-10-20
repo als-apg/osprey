@@ -1157,6 +1157,168 @@ def test_a_worker_reporting_no_devices_at_all_does_not_block_the_enqueue(
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# POST /plans/validate holds a pass to the same device check
+# ---------------------------------------------------------------------------
+
+_SWEEP_PLAN = "device_check_sweep"
+
+_SWEEP_BODY = """\
+from bluesky import plan_stubs as bps
+from bluesky import preprocessors as bpp
+from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    ReadableChannels,
+    scan_metadata,
+)
+
+
+class PARAMS(BaseModel):
+    correctors: MovableChannels = Field(..., min_length=1)
+    monitors: ReadableChannels = Field(..., min_length=1)
+
+
+def build_plan(devices, params):
+    corrector = devices[params.correctors[0]]
+    monitor = devices[params.monitors[0]]
+
+    @bpp.stage_decorator([corrector, monitor])
+    @bpp.run_decorator(
+        md=scan_metadata(movable=params.correctors, readable=params.monitors, points=1)
+    )
+    def _sweep():
+        yield from bps.mv(corrector, 1.0)
+        yield from bps.trigger_and_read([corrector, monitor])
+
+    return _sweep()
+"""
+
+_WORKER_DEVICES = ("BPM1", "COR1")
+
+
+@pytest.fixture
+def _clean_validation_records():
+    """`validation_records` is a process singleton; each test starts and ends empty."""
+    from osprey.services.bluesky_bridge.validation_record import validation_records
+
+    with validation_records.lock:
+        validation_records._passing_hashes.clear()
+    yield validation_records
+    with validation_records.lock:
+        validation_records._passing_hashes.clear()
+
+
+def _write_sweep(client: TestClient) -> str:
+    resp = client.post(
+        "/plans/session",
+        json={"name": _SWEEP_PLAN, "writes": True, "body": _SWEEP_BODY},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["content_hash"]
+
+
+def test_validation_refuses_sample_args_naming_a_device_the_worker_lacks(
+    client: TestClient, _clean_validation_records
+) -> None:
+    """A pass the queue would later refuse is not a pass: the sample arguments
+    are held to the worker's devices, and a refusal records and uploads nothing."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    _install(manager)
+    content_hash = _write_sweep(client)
+    missing = "COR9"
+    assert missing not in _WORKER_DEVICES
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": [missing], "monitors": [_WORKER_DEVICES[0]]},
+        },
+    )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == [missing]
+    assert detail["available_devices"] == sorted(_WORKER_DEVICES)
+    assert detail["detail"].startswith(f"session plan {_SWEEP_PLAN!r}")
+    assert _clean_validation_records.has_passing_record(content_hash) is False
+    assert "script_upload" not in manager.method_names()
+
+
+def test_validation_passes_sample_args_drawn_from_the_workers_devices(
+    client: TestClient, _clean_validation_records
+) -> None:
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    _install(manager)
+    content_hash = _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": [_WORKER_DEVICES[1]], "monitors": [_WORKER_DEVICES[0]]},
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert _clean_validation_records.has_passing_record(content_hash) is True
+
+
+def test_validation_stands_when_the_worker_cannot_list_its_devices(
+    client: TestClient, _clean_validation_records
+) -> None:
+    """Fail-open, as at enqueue: a worker that cannot answer leaves the pass as it was."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=RequestTimeoutError("no answer", {}))
+    _install(manager)
+    content_hash = _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": _SWEEP_PLAN, "sample_args": {"correctors": ["COR9"], "monitors": ["BPM9"]}},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert _clean_validation_records.has_passing_record(content_hash) is True
+
+
+def test_validation_refusal_is_the_body_the_enqueue_builds(
+    client: TestClient, _clean_validation_records
+) -> None:
+    """Whichever point catches the name, the caller reads one body."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    _install(manager)
+    _write_sweep(client)
+    movable, readable = {"COR9"}, {"BPM9"}
+
+    resp = client.post(
+        "/plans/validate",
+        json={
+            "name": _SWEEP_PLAN,
+            "sample_args": {"correctors": sorted(movable), "monitors": sorted(readable)},
+        },
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        queue._refuse_unknown_devices(
+            _SWEEP_PLAN, movable, readable, frozenset(_WORKER_DEVICES), session_tier=True
+        )
+    assert resp.status_code == raised.value.status_code
+    assert resp.json()["detail"] == raised.value.detail
+
+
 async def test_an_unchanged_devices_allowed_uid_fetches_the_device_tree_once() -> None:
     """The device tree is per-worker-namespace and runs to thousands of entries
     on a facility whose roster comes from its channel authority; refetching it
