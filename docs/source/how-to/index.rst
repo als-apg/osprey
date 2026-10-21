@@ -105,6 +105,13 @@ Facility services
       Take a trajectory shot, read the correction step and apply it, put
       settings back, run shots continuously, and stop an action part-way.
 
+   .. grid-item-card:: Select BPMs and Correctors
+      :link: select-bpms-and-correctors
+      :link-type: doc
+
+      Choose which BPMs and correctors a shot and a correction use, on a map
+      of the machine by place, by device or by name.
+
    .. grid-item-card:: Use the Channel Finder
       :link: use-channel-finder
       :link-type: doc
@@ -149,6 +156,7 @@ Facility services
    describe-your-facility
    measure-with-pyaml
    thread-the-first-turn
+   select-bpms-and-correctors
    use-channel-finder
    import-mml-export
    run-scenarios

@@ -255,8 +255,10 @@ the service's **snapshot**. Its fields:
      - The declared chain, in order: each step's ``id``, ``label``,
        ``description``, ``default``, ``position``, and for a command step its
        ``command``, ``timeout_s`` and ``done``.
-   * - ``families``
-     - The build's ``bpms``, ``hcms`` and ``vcms``, in build-time order.
+   * - ``catalog``
+     - The devices the response matrix covers, as the facility names them:
+       ``bpms``, ``hcms`` and ``vcms`` in ring order, and the facility
+       ``groups`` that list them (see `Device catalog`_).
    * - ``machine``
      - ``rf_on`` and ``stored_current`` as last read; ``null`` where the
        declaration names no such reading.
@@ -281,6 +283,43 @@ the service's **snapshot**. Its fields:
 
 The snapshot never carries a ``client_id``. Its full schema is the service's
 ``panel/state.schema.json``.
+
+Device catalog
+~~~~~~~~~~~~~~
+
+The facility build writes the catalog beside the response matrix, from the same
+build, so the two always list the same devices. Each entry:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Field
+     - Meaning
+   * - ``name``
+     - The name the service addresses the device by: a BPM's x-row address, a
+       corrector's setpoint address. Exclusions use it.
+   * - ``device``, ``label``
+     - The facility device id and the name a person reads for it.
+   * - ``places``
+     - The places holding the device, root to leaf, each an ``id`` and the
+       facility's own ``level`` word.
+   * - ``s``
+     - Its position along the model in metres, ``null`` when unknown.
+   * - ``plane``
+     - ``x`` or ``y`` for a corrector, ``null`` for a BPM.
+   * - ``groups``
+     - The ids of the facility groups that list the device.
+
+Ring order is ``s``, then matrix order; a device without ``s`` follows the
+placed ones. Each of ``groups`` is an ``id``, a ``label`` and its ``members`` by
+name, and only groups listing matrix devices appear. An excluded device keeps
+its entry.
+
+Every device is in use unless the SolveConfig's ``excluded_bpms`` or
+``excluded_cms`` names it. Every shot, through either door, is taken with the
+SolveConfig's ``excluded_bpms`` and ``loss_cutoff`` in force, so the shot, the
+step solved from it, the published solve and Apply see one BPM set.
 
 Stop
 ----

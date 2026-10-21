@@ -31,7 +31,7 @@ import pytest
 
 from osprey.mcp_server import approval_stamp
 from osprey.mcp_server.trajectory import client as trajectory_client
-from osprey.services.trajectory.state import Snapshot, Solve, SolveConfig
+from osprey.services.trajectory.state import Catalog, Snapshot, Solve, SolveConfig
 
 TOKEN = "panel-token-123"
 
@@ -228,6 +228,53 @@ def test_solve_names_are_quoted_as_prompt_text(hook) -> None:
     assert 'Excluded BPMs: "B\\nPM"' in text
 
 
+_CATALOG = {
+    "bpms": [
+        {
+            "name": "BPM4",
+            "device": "bpm-04",
+            "label": "BPM 04",
+            "places": [{"id": "SR", "level": "ring"}, {"id": "SR/SECT2", "level": "sector"}],
+            "s": 41.2,
+            "plane": None,
+            "groups": [],
+        }
+    ],
+    "hcms": [{"name": "HCM2", "device": "hcm-02", "label": "HCM 02", "places": [], "plane": "x"}],
+    "vcms": [],
+    "groups": [],
+}
+
+
+def test_the_fixture_catalog_is_a_valid_catalog() -> None:
+    Catalog.model_validate(_CATALOG)
+
+
+def test_exclusions_are_named_by_label_and_place(hook) -> None:
+    """A catalogued device reads as its label at its own (leaf) place, its matrix name after."""
+    text = _solve_text(hook._trajectory_solve_lines(_SOLVE, _CATALOG))
+
+    assert 'Excluded BPMs: "BPM 04" at "SR/SECT2" ("BPM4")' in text
+    # No place: the label alone; not in the catalog: the matrix name alone.
+    assert 'Excluded correctors: "HCM 02" ("HCM2"), "VCM9"' in text
+
+
+@pytest.mark.parametrize("catalog", [None, {}, "x", {"bpms": "x"}, {"bpms": [{"label": "L"}]}])
+def test_a_missing_or_malformed_catalog_names_exclusions_by_matrix_name(hook, catalog) -> None:
+    text = _solve_text(hook._trajectory_solve_lines(_SOLVE, catalog))
+
+    assert 'Excluded BPMs: "BPM4"' in text
+    assert 'Excluded correctors: "HCM2", "VCM9"' in text
+
+
+def test_catalog_labels_and_places_are_quoted_as_prompt_text(hook) -> None:
+    entry = {**_CATALOG["bpms"][0], "label": "BPM\n04", "places": [{"id": "S\nR", "level": None}]}
+
+    text = _solve_text(hook._trajectory_solve_lines(_SOLVE, {**_CATALOG, "bpms": [entry]}))
+
+    assert 'Excluded BPMs: "BPM\\n04" at "S\\nR" ("BPM4")' in text
+
+
 # -- the step apply -----------------------------------------------------------
 
 
@@ -346,6 +393,21 @@ def test_shot_binds_the_services_target(hook, monkeypatch) -> None:
     assert "SolveConfig in force:" in lines
     assert 'Excluded correctors: "HCM2", "VCM9"' in "\n".join(lines)
     assert binding == {"approved_target": "va"}
+
+
+@pytest.mark.parametrize(
+    ("short_name", "tool_input", "step"),
+    [("trajectory_shot", {}, None), ("trajectory_apply", {"step_digest": "d" * 64}, _STEP)],
+)
+def test_shot_and_apply_name_exclusions_from_the_served_catalog(
+    hook, monkeypatch, short_name, tool_input, step
+) -> None:
+    routes = _state(step=step)
+    path = f"{trajectory_client.BASE_PATH}/state"
+    routes[path] = (200, {**routes[path][1], "catalog": _CATALOG})
+    with fake_terminal(monkeypatch, routes):
+        lines, _binding = _lines(hook, short_name, tool_input)
+    assert 'Excluded BPMs: "BPM 04" at "SR/SECT2" ("BPM4")' in "\n".join(lines)
 
 
 def test_put_back_states_no_solve_config(hook, monkeypatch) -> None:
