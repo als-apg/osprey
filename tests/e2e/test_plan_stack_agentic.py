@@ -3305,47 +3305,8 @@ def _describe_queue_deployment(repo: Path) -> None:
     measurement models: the render then offers no pyAML skill, no measurement
     prompt section and no measurement tool, and a measurement request has the
     queue as its one route.
-
-    The prompts ask for two correctors swept across the range they are allowed,
-    so the bounded corrector's model gets a second bounded corrector: the first
-    corrector of the other plane, given the bounded corrector's band. The
-    record goes into this throwaway tree only, read back through the same
-    limits render the build enforces.
     """
     shutil.rmtree(repo / "data" / "facility" / "measurement")
-
-    from osprey_connectors.simulation.view import SimulatorView
-
-    limits = _orm_stack.channel_limits(repo)
-    view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
-    bounded = next(
-        (
-            address
-            for address in sorted(_facility_select.corrector_addresses(view))
-            if view.channel(address).value_range is not None
-        ),
-        None,
-    )
-    assert bounded is not None, "the facility's limits.yaml bounds no corrector"
-    (binding,) = (b for b in view.bindings(role="setpoint") if b.address == bounded)
-    other_plane = sorted(
-        b.address
-        for b in view.bindings(role="setpoint", model=binding.model)
-        if b.plane is not None and b.plane != binding.plane
-    )
-    assert other_plane, f"model {binding.model} wires no corrector of a second plane"
-
-    limits_file = repo / "data" / "facility" / "limits.yaml"
-    document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
-    band = limits[bounded]
-    document["records"].append(
-        {
-            "address": other_plane[0],
-            "min_value": band["min_value"],
-            "max_value": band["max_value"],
-        }
-    )
-    limits_file.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
 def _assert_no_pyaml_surface(repo: Path) -> None:
