@@ -14,7 +14,10 @@ import subprocess
 import pytest
 
 from osprey.deployment import container_lifecycle, runtime_helper
-from osprey.deployment.runtime_helper import buildkit_missing
+from osprey.deployment.runtime_helper import _buildkit_switch, buildkit_missing
+
+_TRUE_WORDS = ["1", "t", "T", "TRUE", "true", "True"]
+_FALSE_WORDS = ["0", "f", "F", "FALSE", "false", "False"]
 
 
 def _answer(returncode: int):
@@ -26,6 +29,22 @@ def _answer(returncode: int):
         return subprocess.CompletedProcess(list(argv), returncode, stdout="", stderr="")
 
     return probe, calls
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(word, True) for word in _TRUE_WORDS]
+    + [(word, False) for word in _FALSE_WORDS]
+    + [(None, None), ("", None)],
+)
+def test_buildkit_switch_reads_dockers_words(value, expected) -> None:
+    assert _buildkit_switch(value) is expected
+
+
+@pytest.mark.parametrize("value", ["yes", "on", "2", " 1", "0 ", "tRUE", "no"])
+def test_buildkit_switch_refuses_other_spellings(value) -> None:
+    with pytest.raises(ValueError, match=repr(value)):
+        _buildkit_switch(value)
 
 
 def test_docker_without_buildx_is_refused_with_the_plugin_named(monkeypatch) -> None:

@@ -1260,6 +1260,33 @@ def podman_compose_provider_advisory(runtime: str, provider: ComposeProvider) ->
     )
 
 
+_GO_TRUE = frozenset({"1", "t", "T", "TRUE", "true", "True"})
+_GO_FALSE = frozenset({"0", "f", "F", "FALSE", "false", "False"})
+
+
+def _buildkit_switch(value: str | None) -> bool | None:
+    """Read a ``DOCKER_BUILDKIT`` value exactly as Docker reads it.
+
+    Docker parses the variable with Go's ``strconv.ParseBool`` and reads it only
+    when it is set and not empty, so the words are Go's twelve and nothing else:
+    no trimming, no other casing, no ``yes``/``on``.
+
+    :param value: The variable's value as the environment holds it, or ``None``
+        when it is not set.
+    :returns: ``True`` or ``False`` for one of Go's boolean words, ``None`` when
+        the variable is unset or empty.
+    :raises ValueError: For any other value, which Docker refuses too; the
+        message carries the value as given.
+    """
+    if value is None or value == "":
+        return None
+    if value in _GO_TRUE:
+        return True
+    if value in _GO_FALSE:
+        return False
+    raise ValueError(f"DOCKER_BUILDKIT expects a boolean value, got {value!r}")
+
+
 def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
     """Say what this host lacks to build OSPREY's images, if anything.
 
