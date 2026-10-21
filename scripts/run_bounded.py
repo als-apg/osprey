@@ -22,7 +22,8 @@ child. Contract:
   SIGKILL to whatever is left after ``--grace`` seconds (default 15), and a
   last wait for the group to be gone. Every wait is on the whole group, not
   only the command's own process, and any process still running after SIGKILL
-  is named by pid on stderr. The wrapper exits 124, the coreutils ``timeout``
+  is named by pid on stderr, or the wrapper says the process table could not
+  be read. The wrapper exits 124, the coreutils ``timeout``
   convention, so a caller can tell a bound from a failure.
 * SIGINT, SIGTERM and SIGHUP delivered to the wrapper are forwarded to the
   group. After a forwarded SIGINT the wrapper dies of SIGINT itself once the
@@ -116,7 +117,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         survivors = stop_group(child.pid, dump=args.dump, grace=args.grace)
         child.wait()
-        if survivors:
+        if survivors is None:
+            print(
+                "run_bounded: the process table could not be read; "
+                f"group {child.pid} may still be running",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif survivors:
             print(
                 "run_bounded: still running after SIGKILL, pids: "
                 + " ".join(str(pid) for pid in survivors),
