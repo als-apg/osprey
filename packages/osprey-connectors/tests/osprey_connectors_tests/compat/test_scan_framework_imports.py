@@ -155,6 +155,84 @@ def test_a_registration_class_name_is_resolved(tmp_path: Path) -> None:
     assert _reported(result) == ["osprey/registry.py:3: osprey_connectors.simulation.view:MockView"]
 
 
+def test_an_attribute_read_off_a_from_bound_module_is_resolved(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "build.py": """\
+                from osprey_connectors import types as connector_types
+
+                KNOWN = connector_types.EPICS
+                GONE = connector_types.MOCK
+            """,
+        },
+    )
+    assert result.returncode == 1
+    assert _reported(result) == ["osprey/build.py:4: osprey_connectors.types:MOCK"]
+
+
+def test_an_attribute_read_off_an_import_alias_is_resolved(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "runtime.py": """\
+                def settle():
+                    import osprey_connectors.simulation.view as view_step
+
+                    view_step.SimulatorView()
+                    return view_step.settle()
+            """,
+        },
+    )
+    assert _reported(result) == ["osprey/runtime.py:5: osprey_connectors.simulation.view:settle"]
+
+
+def test_a_dotted_chain_off_a_plain_import_is_walked_through_submodules(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                import osprey_connectors.simulation
+
+                osprey_connectors.simulation.view.SimulatorView.anything
+                osprey_connectors.types.EPICS.upper()
+                osprey_connectors.simulation.gone.Thing
+            """,
+        },
+    )
+    assert _reported(result) == ["osprey/__init__.py:5: osprey_connectors:simulation.gone.Thing"]
+
+
+def test_a_name_bound_to_a_non_module_carries_no_attribute_site(tmp_path: Path) -> None:
+    """``EPICS`` is a string: what is read off it is not the connectors' surface."""
+    result = _scan(
+        tmp_path,
+        {"__init__.py": "from osprey_connectors.types import EPICS\nEPICS.upper()\n"},
+    )
+    assert result.returncode == 0, result.stdout
+    assert result.stdout == ""
+
+
+def test_an_attribute_assigned_or_deleted_on_a_module_need_not_exist(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "osprey/patch.py": """\
+                from osprey_connectors import types as t
+
+                t.NEW = 1
+                del t.OLD
+                t.sub.NEW = 2
+            """,
+        },
+    )
+    sites, _ = scanner.collect_sites(tmp_path / "osprey")
+    assert [(site.line, site.label(), site.kind) for site in sites] == [
+        (1, "osprey_connectors:types", "from"),
+        (5, "osprey_connectors.types:sub", "attr"),
+    ]
+
+
 def test_relative_imports_are_not_sites(tmp_path: Path) -> None:
     result = _scan(
         tmp_path,
@@ -240,8 +318,38 @@ def test_a_connectors_path_that_does_not_supply_the_package_is_refused(tmp_path:
     assert "not from" in result.stderr
 
 
+def test_every_tree_named_is_scanned(tmp_path: Path) -> None:
+    connectors = tmp_path / "connectors"
+    _write(connectors, CONNECTORS)
+    _write(
+        tmp_path,
+        {
+            "osprey/__init__.py": "from osprey_connectors.types import EPICS\n",
+            "backend/__init__.py": "from osprey_connectors.types import MOCK\n",
+        },
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(SCRIPT),
+            str(tmp_path / "osprey"),
+            str(tmp_path / "backend"),
+            "--connectors-path",
+            str(connectors),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert _reported(result) == ["backend/__init__.py:1: osprey_connectors.types:MOCK"]
+    assert result.stderr.count("scanned ") == 2
+
+
 @pytest.mark.parametrize("argv", [[], ["--package", "osprey_connectors", "somewhere"]])
-def test_the_cli_needs_exactly_one_tree(argv: list[str]) -> None:
+def test_the_cli_needs_trees_or_packages_not_both(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         scanner.main(argv)
     assert raised.value.code == 2

@@ -14,7 +14,7 @@ subpackage under it.
 
 Usage::
 
-    python -I import_walk.py [--package osprey]
+    python -I import_walk.py [--package osprey] [--package pyaml_cs_osprey]
 
 Prints each failure as ``<module>: <error>`` and a summary on stderr. Exits 1
 on any failure. Standard library only.
@@ -84,17 +84,23 @@ def _last_error() -> str:
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--package", default="osprey")
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    imported, failures = walk(args.package)
-    for name, error in failures:
-        print(f"{name}: {error}")
-    print(
-        f"imported {len(imported)} modules of {args.package}, {len(failures)} failed, "
-        f"{len(SKIPPED)} subtree(s) skipped: {', '.join(sorted(SKIPPED))}",
-        file=sys.stderr,
+    parser.add_argument(
+        "--package", action="append", help="package to walk (repeatable; default: osprey)"
     )
-    return 1 if failures else 0
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    status = 0
+    for package in args.package or ["osprey"]:
+        imported, failures = walk(package)
+        for name, error in failures:
+            print(f"{name}: {error}")
+        print(
+            f"imported {len(imported)} modules of {package}, {len(failures)} failed, "
+            f"{len(SKIPPED)} subtree(s) skipped: {', '.join(sorted(SKIPPED))}",
+            file=sys.stderr,
+        )
+        if failures:
+            status = 1
+    return status
 
 
 if __name__ == "__main__":

@@ -12,7 +12,12 @@ pass between them, which no import catches:
   opens every document of it through the installed connectors. Driving the
   public CLI rather than the framework's view writer keeps the check
   independent of internals an older release spelled differently, and the
-  view it reads is the one an operator's rebuild would produce.
+  view it reads is the one an operator's rebuild would produce. A release
+  that ships no view writer (``facility/views/simulator.py``; the 2026.9.0
+  betas predate the view) has no view to check, and the check says so
+  instead of rendering -- unless ``--require-view`` is given, which the lane
+  passes for every release that must carry the view, so a writer that went
+  missing there is a break, not a skip.
 * **The control-context record.** The connectors write the record and the
   per-server reports; a deployment's hooks, rendered from the framework's
   templates, restate the record parser in the standard library. The check
@@ -25,7 +30,7 @@ pass between them, which no import catches:
 
 Usage::
 
-    python -I contracts.py all --workdir <scratch dir>
+    python -I contracts.py all --workdir <scratch dir> [--require-view]
     python -I contracts.py view <render root>
     python -I contracts.py control-context [--hook <osprey_target_state.py>]
 
@@ -56,6 +61,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "control_context"
 #: depends on this distribution, and it serves physics models besides the
 #: texture, so every document of the view carries entries.
 PRESET = "control-assistant"
+
+#: Where the framework ships the simulator view's writer, when it ships one.
+VIEW_WRITER_RELPATH = Path("facility/views/simulator.py")
 
 #: Where the framework ships the hook that restates the record parser.
 HOOK_RELPATH = Path("templates/claude_code/claude/hooks/osprey_target_state.py")
@@ -254,14 +262,34 @@ def _osprey_cli() -> Path:
     return cli
 
 
-def run_all(workdir: Path) -> list[str]:
+def check_installed_view(framework: Path, workdir: Path, *, require_view: bool) -> str:
+    """Render with the installed CLI and open its view, if the release writes one.
+
+    Raises:
+        ContractError: The view is required and the release ships no writer,
+            or the view it writes does not open.
+    """
+    if not (framework / VIEW_WRITER_RELPATH).is_file():
+        _require(
+            not require_view,
+            f"the framework at {framework} ships no simulator view writer "
+            f"({VIEW_WRITER_RELPATH}), and this release must write the view",
+        )
+        return (
+            f"simulator view: not applicable for this release (no {VIEW_WRITER_RELPATH} "
+            f"under {framework})"
+        )
+    return check_simulator_view(render_deployment(workdir, _osprey_cli()))
+
+
+def run_all(workdir: Path, *, require_view: bool = False) -> list[str]:
     """Every check, against the installed framework and connectors."""
     workdir.mkdir(parents=True, exist_ok=True)
     framework = _framework_dir()
     return [
         check_control_context_golden(),
         check_control_context_hook(framework / HOOK_RELPATH, workdir),
-        check_simulator_view(render_deployment(workdir, _osprey_cli())),
+        check_installed_view(framework, workdir, require_view=require_view),
     ]
 
 
@@ -272,6 +300,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         "all", help="render with the installed framework and run every check"
     )
     every.add_argument("--workdir", type=Path, required=True)
+    every.add_argument(
+        "--require-view",
+        action="store_true",
+        help="fail, rather than skip, when the release ships no simulator view writer",
+    )
     view = commands.add_parser("view", help="open an existing render's simulator view")
     view.add_argument("render_root", type=Path)
     record = commands.add_parser("control-context", help="the golden files, and the hook if named")
@@ -280,7 +313,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     try:
         if args.command == "all":
-            lines = run_all(args.workdir)
+            lines = run_all(args.workdir, require_view=args.require_view)
         elif args.command == "view":
             lines = [check_simulator_view(args.render_root)]
         else:

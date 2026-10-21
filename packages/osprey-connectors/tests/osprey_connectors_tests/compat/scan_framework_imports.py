@@ -21,7 +21,15 @@ one of:
   module, and a ``-m`` path must be a module;
 * a call passing ``module_path="osprey_connectors..."`` together with
   ``class_name="X"`` (a connector registration): ``X`` must resolve on the
-  module.
+  module;
+* an attribute read through a name an import bound to a connectors module --
+  ``import osprey_connectors.settle as step`` then ``step.settle``, ``from
+  osprey_connectors import types as t`` then ``t.MOCK``, or ``import
+  osprey_connectors.a`` then ``osprey_connectors.a.X``: each step of the chain
+  must resolve, through submodules, up to the first name that is not a module.
+  What is read off a name ``from`` bound to something other than a module (a
+  class, a constant) is not checked; the binding is file-wide, which over-reads only a file
+  that rebinds the name to something else.
 
 Each is found wherever it sits -- module level, inside a function, under
 ``if TYPE_CHECKING:`` or in a ``try`` body. Relative imports stay inside the
@@ -31,12 +39,12 @@ that exists but fails to import is reported with its error.
 
 Usage::
 
-    python -I scan_framework_imports.py <framework package dir>
-    python -I scan_framework_imports.py --package osprey
+    python -I scan_framework_imports.py <framework package dir>...
+    python -I scan_framework_imports.py --package osprey [--package pyaml_cs_osprey]
     python -I scan_framework_imports.py src/osprey --connectors-path packages/osprey-connectors/src
 
 Prints one line per unresolved site, ``<file>:<line>: <module>[:<name>]`` and
-the reason, then a summary on stderr. Exits 1 when any site is unresolved, 2
+the reason, then a summary per tree on stderr. Exits 1 when any site is unresolved, 2
 when the scan itself cannot run. Standard library only: CI runs it with
 ``python -I`` in a venv where this checkout is not importable.
 """
@@ -52,6 +60,7 @@ import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 #: The distribution's import name.
 CONNECTORS = "osprey_connectors"
@@ -76,7 +85,8 @@ class Site:
         line: The 1-based line of the statement or literal.
         module: The connectors module the site names.
         name: The name it takes from ``module``, or ``None`` for the module itself.
-        kind: ``import``, ``from``, ``string``, ``string-m`` or ``registration``.
+        kind: ``import``, ``from``, ``string``, ``string-m``, ``registration``
+            or ``attr`` (``name`` is then the dotted chain read off ``module``).
     """
 
     file: str
@@ -110,7 +120,60 @@ def _string_value(node: ast.expr | None) -> str | None:
     return None
 
 
+def _module_bindings(tree: ast.AST) -> dict[str, str]:
+    """Each name an import in ``tree`` binds to what may be a connectors module.
+
+    ``import osprey_connectors.a`` binds ``osprey_connectors`` itself; ``import
+    osprey_connectors.a as x`` binds ``x`` to ``osprey_connectors.a``; ``from
+    osprey_connectors import a [as x]`` binds ``a`` (or ``x``) to
+    ``osprey_connectors.a``, which the resolver keeps only if it is a module.
+    """
+    bound: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not _is_connectors(alias.name):
+                    continue
+                if alias.asname:
+                    bound[alias.asname] = alias.name
+                else:
+                    bound[CONNECTORS] = CONNECTORS
+        elif isinstance(node, ast.ImportFrom) and not node.level and _is_connectors(node.module):
+            for alias in node.names:
+                if alias.name != "*":
+                    bound[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return bound
+
+
+def _attribute_sites(tree: ast.AST, file: str) -> Iterator[Site]:
+    """Every attribute chain read off a name :func:`_module_bindings` found."""
+    bound = _module_bindings(tree)
+    if not bound:
+        return
+    inner = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute)
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or id(node) in inner:
+            continue
+        chain: list[str] = []
+        base: ast.expr = node
+        while isinstance(base, ast.Attribute):
+            chain.append(base.attr)
+            base = base.value
+        if not isinstance(base, ast.Name) or base.id not in bound:
+            continue
+        chain.reverse()
+        if not isinstance(node.ctx, ast.Load):
+            chain.pop()  # an assignment or ``del`` needs no attribute to exist
+        if chain:
+            yield Site(file, node.lineno, bound[base.id], ".".join(chain), "attr")
+
+
 def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
+    yield from _attribute_sites(tree, file)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -219,8 +282,35 @@ class Resolver:
             return None
         return f"{module} has no attribute or submodule {name!r}"
 
+    def chain_error(self, base: str, chain: str) -> str | None:
+        """``None`` when each step of ``chain`` resolves off the module ``base``.
+
+        A ``base`` that is not an importable module is no site: either the
+        binding took a class or constant, or the module is gone and the import
+        that bound it reports that itself. The walk stops, resolved, at the
+        first step that is not a module.
+        """
+        if self.module_error(base) is not None:
+            return None
+        module = base
+        for part in chain.split("."):
+            error = self.name_error(module, part)
+            if error is not None:
+                return error
+            value = getattr(sys.modules[module], part, None)
+            if isinstance(value, ModuleType):
+                module = value.__name__
+            elif value is None and f"{module}.{part}" in sys.modules:
+                module = f"{module}.{part}"
+            else:
+                return None
+        return None
+
     def site_error(self, site: Site) -> str | None:
         """``None`` when ``site`` resolves, else why it does not."""
+        if site.kind == "attr":
+            assert site.name is not None
+            return self.chain_error(site.module, site.name)
         if site.kind == "string" and site.name is None:
             # A dotted string is a module, or an attribute of its parent.
             if self.module_error(site.module) is None:
@@ -270,12 +360,14 @@ def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Report every osprey_connectors name a framework tree imports that does not resolve."
     )
-    target = parser.add_mutually_exclusive_group(required=True)
-    target.add_argument(
-        "root", nargs="?", type=Path, help="framework package directory (or file) to scan"
+    parser.add_argument(
+        "root", nargs="*", type=Path, help="framework package directory (or file) to scan"
     )
-    target.add_argument(
-        "--package", help="scan this importable package's directory instead, e.g. osprey"
+    parser.add_argument(
+        "--package",
+        action="append",
+        default=[],
+        help="scan this importable package's directory instead, e.g. osprey (repeatable)",
     )
     parser.add_argument(
         "--connectors-path",
@@ -283,7 +375,10 @@ def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
         help="directory holding the osprey_connectors package to resolve against "
         "(default: the active environment's)",
     )
-    return parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if bool(args.root) == bool(args.package):
+        parser.error("name the trees to scan, or --package, not both")
+    return args
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -295,26 +390,34 @@ def main(argv: Iterable[str] | None = None) -> int:
     except Exception as error:
         print(f"error: {CONNECTORS} does not import: {error}", file=sys.stderr)
         return 2
-    root = _package_dir(args.package) if args.package else args.root
-    if not root.exists():
-        print(f"error: {root} does not exist", file=sys.stderr)
+    roots = [_package_dir(name) for name in args.package] if args.package else args.root
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        print(f"error: {', '.join(map(str, missing))} does not exist", file=sys.stderr)
         return 2
 
-    sites, unresolved, unparsable = scan(root)
-    for problem in unresolved:
-        print(problem)
-    for problem in unparsable:
-        print(f"{problem}  (unparsable)")
     version = getattr(connectors, "__version__", "unknown")
-    print(
-        f"scanned {root} against {CONNECTORS} {version} ({Path(connectors.__file__ or '').parent}): "
-        f"{len(sites)} sites, {len(unresolved)} unresolved, {len(unparsable)} unparsable",
-        file=sys.stderr,
-    )
-    if not sites and not unparsable:
-        print("error: no site found -- the scan read the wrong tree", file=sys.stderr)
-        return 2
-    return 1 if unresolved or unparsable else 0
+    status = 0
+    for root in roots:
+        sites, unresolved, unparsable = scan(root)
+        for problem in unresolved:
+            print(problem)
+        for problem in unparsable:
+            print(f"{problem}  (unparsable)")
+        print(
+            f"scanned {root} against {CONNECTORS} {version} "
+            f"({Path(connectors.__file__ or '').parent}): {len(sites)} sites, "
+            f"{len(unresolved)} unresolved, {len(unparsable)} unparsable",
+            file=sys.stderr,
+        )
+        if not sites and not unparsable:
+            print(
+                f"error: no site found in {root} -- the scan read the wrong tree", file=sys.stderr
+            )
+            return 2
+        if unresolved or unparsable:
+            status = 1
+    return status
 
 
 if __name__ == "__main__":
