@@ -1679,6 +1679,19 @@ def _json_rows(frame: Any) -> list[list[Any]]:
     return rows
 
 
+def _stream_units(stream: Any, columns: Sequence[str]) -> dict[str, str]:
+    """Each of ``columns``' units as the stream's stored descriptors declare them.
+
+    Read through the same rule the live recorder applies to a descriptor it
+    is sent (`live_rows.declared_units`); a later descriptor adds to an
+    earlier one. A column no descriptor gives a unit has none.
+    """
+    declared: dict[str, str] = {}
+    for descriptor in stream.descriptors:
+        declared.update(live_rows.declared_units(descriptor))
+    return {column: declared[column] for column in columns if column in declared}
+
+
 def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     """One run's full stored state, read from the durable Tiled catalog.
 
@@ -1702,6 +1715,10 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     live-buffer column set exactly as the live path serves it. Cells are plain
     JSON values: a scalar reading is a number, a waveform reading is a list of
     numbers (`_json_rows`), and neither is ever text describing itself.
+
+    ``units`` is each column's unit as the stream's stored descriptors declare
+    it (`_stream_units`), the same map the live buffer keeps from the
+    descriptors it was sent.
 
     ``partial`` is the absence of a stop document, the same signal ``partial``
     means everywhere else, and never the run record: a run still executing
@@ -1739,6 +1756,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         columns: list[str] = []
         rows: list[Any] = []
         total_seen = 0
+        units: dict[str, str] = {}
     else:
         table = _primary_table(run_node)
         if "seq_num" in table.columns:
@@ -1746,11 +1764,13 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         columns = _data_columns(table)
         rows = _json_rows(table[columns])
         total_seen = len(table)
+        units = _stream_units(run_node["primary"], columns)
 
     return {
         "columns": columns,
         "rows": rows,
         "total_seen": total_seen,
+        "units": units,
         "partial": metadata.get("stop") is None,
         "plan": start.get(PLAN_META_KEY),
         "run_uid": start.get("uid"),

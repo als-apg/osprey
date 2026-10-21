@@ -332,3 +332,48 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
     # must read exactly like a live one's, absent results included — which is
     # why the absent shape carries the same keys an available one does.
     assert live_body["analysis"] == tiled_body["analysis"]
+
+
+def test_live_and_tiled_snapshots_of_one_run_agree_on_its_units(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The units the live buffer keeps from the descriptor it was sent are the
+    units the stored run's descriptors give back, column for column."""
+    from tests.services.bluesky_bridge.test_data_route import (
+        _configured,
+        _run_node_with_events,
+    )
+
+    descriptor = {
+        "uid": "desc-1",
+        "run_start": "uid-units",
+        "name": "primary",
+        "data_keys": {
+            "x": {"dtype": "number", "shape": [], "units": "u-x"},
+            "y": {"dtype": "number", "shape": [], "units": "u-y"},
+            "z": {"dtype": "number", "shape": []},
+        },
+    }
+    rows = [{"x": 1.0, "y": 2.0, "z": 3.0}, {"x": 1.5, "y": 2.5, "z": 3.5}]
+
+    recorder = LiveRowRecorder(key="run-units")
+    recorder("start", {"uid": "uid-units"})
+    recorder("descriptor", descriptor)
+    for row in rows:
+        recorder("event", {"data": row})
+    recorder("stop", {})
+    _configured(
+        monkeypatch,
+        "run-units",
+        _run_node_with_events("uid-units", "run-units", rows, descriptors=[descriptor]),
+    )
+
+    live = live_rows.get("run-units")
+    stored = app_module._tiled_run_snapshot("run-units")
+
+    assert live is not None and stored is not None
+    assert live["units"] == stored["units"]
+    declared = descriptor["data_keys"]
+    assert live["units"] == {
+        key: entry["units"] for key, entry in declared.items() if "units" in entry
+    }

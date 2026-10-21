@@ -664,6 +664,48 @@ def test_router_drops_documents_it_cannot_place():
     assert buffer["rows"] == [[1.0]]
 
 
+def test_a_descriptor_reaches_its_run_with_the_units_it_declares():
+    """A start/descriptor/event/stop stream leaves the declared units beside the rows."""
+    declared = {"bpm": {"dtype": "number", "shape": [], "units": "u-bpm"}}
+    router = RunDocumentRouter()
+    router("start", _start_doc("uid-1", run_id="run-1"))
+    router("descriptor", {**_descriptor_doc("desc-1", "uid-1"), "data_keys": declared})
+    router("event", _event_doc("desc-1", 1, {"bpm": 1.0}))
+    router("stop", _stop_doc("uid-1", 1))
+
+    buffer = live_rows.get("run-1")
+    assert buffer is not None
+    assert buffer["units"] == {"bpm": declared["bpm"]["units"]}
+    assert buffer["rows"] == [[1.0]]
+
+
+def test_a_descriptor_declaring_no_units_leaves_the_map_empty():
+    router = RunDocumentRouter()
+    router("start", _start_doc("uid-1", run_id="run-1"))
+    router(
+        "descriptor",
+        {**_descriptor_doc("desc-1", "uid-1"), "data_keys": {"bpm": {"dtype": "number"}}},
+    )
+    router("event", _event_doc("desc-1", 1, {"bpm": 1.0}))
+
+    buffer = live_rows.get("run-1")
+    assert buffer is not None
+    assert buffer["units"] == {}
+
+
+def test_a_descriptor_for_another_run_does_not_reach_this_one():
+    router = RunDocumentRouter()
+    router("start", _start_doc("uid-1", run_id="run-1"))
+    router("start", _start_doc("uid-2", run_id="run-2"))
+    router(
+        "descriptor",
+        {**_descriptor_doc("desc-2", "uid-2"), "data_keys": {"bpm": {"units": "u-bpm"}}},
+    )
+
+    assert live_rows.get("run-1")["units"] == {}
+    assert live_rows.get("run-2")["units"] == {"bpm": "u-bpm"}
+
+
 def test_router_never_raises_on_a_malformed_document():
     router = RunDocumentRouter()
     router("start", {})  # no uid at all

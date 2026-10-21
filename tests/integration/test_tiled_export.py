@@ -72,6 +72,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 SCALAR_RUN = "export-scalar-run"
 WAVE_RUN = "export-wave-run"
 BARE_RUN = "export-bare-run"
+UNITS_RUN = "export-units-run"
 
 WAVEFORM = np.arange(8, dtype=float)
 
@@ -172,9 +173,21 @@ def stored_runs(tiled_uri: str) -> dict[str, Any]:
 
     engine(_open_and_close())
 
+    class _DeclaredUnitSignal(SynSignal):
+        """A signal whose data key declares a unit, as a facility's devices do."""
+
+        def describe(self) -> dict[str, Any]:
+            described = super().describe()
+            described[self.name]["units"] = "unit-of-det"
+            return described
+
+    det_unit = _DeclaredUnitSignal(func=lambda: 4.56, name="det_unit")
+    engine(count([det_unit, det_scalar], num=2), osprey_run_id=UNITS_RUN)
+
     return {
         "client": client,
         "columns": {run_id: _stored_columns(client, run_id) for run_id in (SCALAR_RUN, WAVE_RUN)},
+        "described": {**det_unit.describe(), **det_scalar.describe()},
     }
 
 
@@ -414,6 +427,26 @@ def test_a_waveform_column_survives_the_export_and_the_data_route(
     projected = [c for c in declared if c not in ("seq_num", "time") and not c.startswith("ts_")]
     assert body["columns"] == projected
     assert "det_wave" in body["columns"]
+
+
+@pytest.mark.usefixtures("bridge")
+def test_the_stored_run_gives_back_the_units_its_descriptor_declared(
+    stored_runs: dict[str, Any],
+) -> None:
+    """A unit a data key declares survives the catalog: the stored descriptors
+    give back exactly the units the run declared, and a key that declared none
+    has none."""
+    from osprey.services.bluesky_bridge import app as app_module
+
+    declared = {
+        key: entry["units"] for key, entry in stored_runs["described"].items() if "units" in entry
+    }
+    assert declared
+
+    snapshot = app_module._tiled_run_snapshot(UNITS_RUN)
+
+    assert snapshot is not None
+    assert snapshot["units"] == declared
 
 
 @pytest.mark.usefixtures("bridge")
