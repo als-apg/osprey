@@ -11698,3 +11698,122 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     )
     with pytest.raises(AssertionError, match="below a top-level test directory"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Connectors compatibility lanes: Lane A runs HEAD connectors under every
+# supported framework release, Lane B runs HEAD framework at its connectors
+# floor. Both stand down until the cut-over, and the stand-down has to lift
+# by data alone
+# ---------------------------------------------------------------------------
+
+COMPAT_PLAN_JOB = "connectors-compat-plan"
+COMPAT_JOB = "connectors-compat"
+FLOOR_COMPAT_JOB = "framework-at-connectors-floor"
+COMPAT_LISTED = "matrix.framework != ''"
+COMPAT_UNLISTED = "matrix.framework == ''"
+FLOOR_ARMED = "needs.connectors-compat-plan.outputs.floor-applicable == 'true'"
+FLOOR_DISARMED = "needs.connectors-compat-plan.outputs.floor-applicable != 'true'"
+COMPAT_MATRIX_SCRIPT = REPO_ROOT / "scripts" / "ci" / "connectors_compat_matrix.py"
+COMPAT_SCRIPTS = ("scan_framework_imports.py", "import_walk.py", "contracts.py")
+
+
+def _compat_matrix_module() -> Any:
+    spec = importlib.util.spec_from_file_location("connectors_compat_matrix", COMPAT_MATRIX_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _stand_down_problems(wf: dict[str, Any], job_name: str, armed: str, disarmed: str) -> list[str]:
+    """Why the job's one stand-down step is not the only thing its gate decides.
+
+    The first step runs when disarmed and does nothing but say so; every other
+    step runs exactly when armed. Anything else is a lane that can report
+    success with part of it switched off once the gate lifts.
+    """
+    steps = _jobs(wf)[job_name]["steps"]
+    problems = []
+    if steps[0].get("if") != disarmed or "uses" in steps[0]:
+        problems.append(f"first step {steps[0].get('name')!r} is not the '{disarmed}' stand-down")
+    for step in steps[1:]:
+        if step.get("if") != armed:
+            problems.append(f"step {step.get('name')!r} runs on {step.get('if')!r}, not '{armed}'")
+    return problems
+
+
+def test_the_compat_lanes_read_the_plan(workflow: dict[str, Any]) -> None:
+    jobs = _jobs(workflow)
+    assert jobs[COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
+    assert jobs[FLOOR_COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
+    assert jobs[COMPAT_JOB]["strategy"]["matrix"] == (
+        "${{ fromJSON(needs.connectors-compat-plan.outputs.matrix) }}"
+    )
+    plan_runs = [step.get("run", "") for step in jobs[COMPAT_PLAN_JOB]["steps"]]
+    assert "python3 scripts/ci/connectors_compat_matrix.py github-output" in plan_runs
+
+
+def test_the_compat_lanes_carry_no_job_level_condition(workflow: dict[str, Any]) -> None:
+    """A job-level ``if:`` would skip the lane, which the gate reads as red; the
+    stand-down is a step so the lane is green for the reason its log states."""
+    for job_name in (COMPAT_PLAN_JOB, COMPAT_JOB, FLOOR_COMPAT_JOB):
+        assert "if" not in _jobs(workflow)[job_name], job_name
+
+
+def test_lane_a_stands_down_only_on_the_empty_cell(workflow: dict[str, Any]) -> None:
+    assert _stand_down_problems(workflow, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED) == []
+
+
+def test_lane_a_stands_down_only_on_the_empty_cell__mutation_gates_a_step_elsewhere() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[COMPAT_JOB]["steps"][-1]["if"] = "github.event_name == 'push'"
+    assert len(_stand_down_problems(mutated, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED)) == 1
+
+
+def test_lane_b_stands_down_only_while_the_floor_predates_independence(
+    workflow: dict[str, Any],
+) -> None:
+    assert _stand_down_problems(workflow, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED) == []
+
+
+def test_lane_b_stands_down_only_while__mutation_ungates_a_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[FLOOR_COMPAT_JOB]["steps"][-1].pop("if")
+    assert len(_stand_down_problems(mutated, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED)) == 1
+
+
+def test_lane_a_runs_the_scripts_isolated_from_the_checkout(workflow: dict[str, Any]) -> None:
+    """``python -I``: the checkout's ``src/`` and the script directory stay off
+    ``sys.path``, so the release under test is the only framework importable."""
+    runs = " ".join(str(step.get("run", "")) for step in _jobs(workflow)[COMPAT_JOB]["steps"])
+    for script in COMPAT_SCRIPTS:
+        assert f'"$COMPAT_PY" -I "$COMPAT/{script}"' in runs, script
+
+
+def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str, Any]) -> None:
+    install = _find_named_step(
+        workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
+    )["run"]
+    assert "--no-sources" in install
+    assert '"osprey-connectors==$FLOOR"' in install
+
+
+def test_the_stand_down_lifts_once_the_floor_is_an_independent_release() -> None:
+    """The gates are temporary. Raising the floor to an independent release is
+    the cut-over, and from then on Lane A must have a release to run: the
+    declared list may not still be empty. Reads only the two pyproject files."""
+    compat = _compat_matrix_module()
+    floor = compat.connectors_floor()
+    if compat.floor_applicable(floor):
+        assert compat.supported_frameworks(), (
+            f"the connectors floor {floor} is at or past "
+            f"{compat.FIRST_INDEPENDENT_CONNECTORS} but [tool.osprey-connectors.compat] "
+            "frameworks is empty: list the cut-over release"
+        )
+    assert compat.problems(compat.supported_frameworks(), floor) == []
+
+
+def test_the_stand_down_lifts__mutation_raises_the_floor_and_lists_nothing() -> None:
+    compat = _compat_matrix_module()
+    assert compat.problems([], compat.FIRST_INDEPENDENT_CONNECTORS) != []
