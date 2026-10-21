@@ -2484,6 +2484,7 @@ def _compose_figure(
     plan_stamp: Any,
     partial: bool,
     source: Literal["live", "tiled"],
+    units: Mapping[str, str],
 ) -> tuple[Figure, bool]:
     """One source snapshot in, one servable figure out — total, never raises.
 
@@ -2507,6 +2508,9 @@ def _compose_figure(
     declaration cannot change which reason is served: the ladder is walked in
     the same order either way, and a declaration that cannot be read at all
     degrades to no role context — the row-index figure — never to a failure.
+
+    ``units`` is each column's declared unit as the source holds it; the
+    `RowWindow` a render is handed carries it.
 
     The reason ladder, in the order it is walked:
 
@@ -2532,7 +2536,7 @@ def _compose_figure(
       or produced marks whose decimation truth is inconsistent.
     """
     try:
-        window = rows_from_columnar(columns, rows, total_seen)
+        window = rows_from_columnar(columns, rows, total_seen, units)
     except ValueError:
         logger.warning("figure: malformed row snapshot; serving the default figure", exc_info=True)
         window = RowWindow(
@@ -2658,6 +2662,7 @@ def get_run_figure(run_id: str) -> dict:
             plan_stamp=plan_stamp,
             partial=partial,
             source="live",
+            units=buf["units"],
         )
         if not partial and cacheable:
             figure_cache.put(key, _CachedFigure(figure, buf["total_seen"], None), generation)
@@ -2697,6 +2702,7 @@ def get_run_figure(run_id: str) -> dict:
         plan_stamp=plan_stamp,
         partial=snapshot["partial"],
         source="tiled",
+        units=snapshot["units"],
     )
     if not snapshot["partial"] and cacheable:
         figure_cache.put(
