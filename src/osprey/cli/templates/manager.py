@@ -367,7 +367,12 @@ class TemplateManager:
         ctx["deny_defaults"] = list(DENY_DEFAULTS)
 
         # Resolve servers and agents via the data-driven registry.
-        from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+        from osprey.registry.mcp import (
+            mixed_read_write_tools,
+            plan_mode_denied_tools,
+            resolve_agents,
+            resolve_servers,
+        )
 
         ctx["servers"] = resolve_servers(cc_cfg, ctx)
         ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
@@ -382,6 +387,11 @@ class TemplateManager:
         # which is why nothing surfaced it — the Jinja environment is not strict, so
         # the difference is one safety file quietly saying "nothing is exempt".
         ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+        # The plan-mode deny list, derived exactly as build_claude_code_context
+        # derives it, for the same reason.
+        ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+            ctx["servers"], ctx.get("control_system_write_tools") or []
+        )
 
         # Resolve allowed outputs from THIS render's effective artifact selection —
         # `artifacts` above, already the caller's own selection where it supplied
