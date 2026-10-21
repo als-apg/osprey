@@ -76,6 +76,7 @@ from osprey.services.bluesky_bridge.figure import (
     RowWindow,
     Series,
     decimate,
+    shared_unit,
 )
 from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannels,
@@ -1174,7 +1175,15 @@ def _drawn(series: list[Series]) -> bool:
     return any(point.y is not None for item in series for point in item.points)
 
 
-def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _unit_of(window: RowWindow, names: list[str]) -> str | None:
+    """The one unit the run declared for every column *names* resolve to, or ``None``."""
+    columns = [
+        column for name in names if (column := resolve_column(name, window.columns)) is not None
+    ]
+    return shared_unit(window, columns)
+
+
+def _orbit_shift_panel(sweep: _Sweep, params: PARAMS, unit: str | None) -> Panel | None:
     """The bump itself: each drawn step's orbit shift across the requested BPMs.
 
     This is the panel that shows whether the bump is a *bump* — a displacement
@@ -1249,7 +1258,7 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Orbit shift across BPMs",
         x_label="BPM index",
         y_label="Orbit shift",
-        y_units="BPM units",
+        y_units=unit,
         annotations=annotations,
         series_picker=True,
         mark=_lines(series),
@@ -1292,7 +1301,7 @@ def _misses(sweep: _Sweep, params: PARAMS) -> list[tuple[int, str, float, float]
     return misses
 
 
-def _band_residual_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _band_residual_panel(sweep: _Sweep, params: PARAMS, unit: str | None) -> Panel | None:
     """How far each constrained BPM sat from what its step asked for.
 
     The residual, not the orbit: a target asked for ``scale * value`` and a
@@ -1377,14 +1386,14 @@ def _band_residual_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Band residual at constrained BPMs",
         x_label="Amplitude step",
         y_label="Residual (reached minus requested)",
-        y_units="BPM units",
+        y_units=unit,
         annotations=[note for note in annotations if note],
         series_picker=True,
         mark=_lines(series),
     )
 
 
-def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _corrector_offset_panel(sweep: _Sweep, params: PARAMS, unit: str | None) -> Panel | None:
     """Where each corrector sat, relative to the working point it started on.
 
     Not the raw current: a machine running a corrected orbit idles every corrector
@@ -1414,7 +1423,7 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Corrector offsets",
         x_label="Amplitude step",
         y_label="Offset from working point",
-        y_units="corrector units",
+        y_units=unit,
         annotations=[
             "Each corrector's readback measured against its own pre-scan "
             "working point — the mean of the baseline rows, before anything "
@@ -1499,12 +1508,21 @@ def _build(window: RowWindow, params: PARAMS) -> Figure:
     if sweep is None:
         return Figure(panels=[], partial=True, source="live")
 
+    # Each panel states the unit the run declared for the columns it plots, and
+    # none when they declare none or disagree.
+    bpm_unit = _unit_of(window, sweep.bpm_order)
+    constrained_unit = _unit_of(window, _constrained_names(params))
+    corrector_unit = _unit_of(window, list(params.correctors))
     panels = [
         panel
         for panel in (
-            _panel_or_none(lambda: _orbit_shift_panel(sweep, params), "orbit shift"),
-            _panel_or_none(lambda: _band_residual_panel(sweep, params), "band residual"),
-            _panel_or_none(lambda: _corrector_offset_panel(sweep, params), "corrector offset"),
+            _panel_or_none(lambda: _orbit_shift_panel(sweep, params, bpm_unit), "orbit shift"),
+            _panel_or_none(
+                lambda: _band_residual_panel(sweep, params, constrained_unit), "band residual"
+            ),
+            _panel_or_none(
+                lambda: _corrector_offset_panel(sweep, params, corrector_unit), "corrector offset"
+            ),
             _panel_or_none(lambda: _monitor_panel(sweep, params), "monitor response"),
         )
         if panel is not None

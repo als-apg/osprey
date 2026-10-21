@@ -149,6 +149,7 @@ def _render(
     *,
     complete: bool = True,
     total: int | None = None,
+    units: dict[str, str] | None = None,
 ) -> Figure:
     """`bump.render` over a `RowWindow`, complete unless told otherwise.
 
@@ -162,8 +163,16 @@ def _render(
         columns=columns,
         rows_complete=complete,
         total_seen=len(rows) if total is None else total,
+        units=units or {},
     )
     return bump.render(window, params)
+
+
+def _declared(params: bump.PARAMS) -> dict[str, str]:
+    """The units a run declares: BPMs in one unit, correctors in another."""
+    units = dict.fromkeys(_bpm_names(params), "unit-of-bpm")
+    units.update(dict.fromkeys(params.correctors, "unit-of-corrector"))
+    return units
 
 
 def _panel(figure: Figure, title: str):
@@ -193,7 +202,9 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     legitimately not have.
     """
     params = _params(monitors=["det1"])
-    figure = _render(_rows(params), params)
+    units = _declared(params)
+    figure = _render(_rows(params), params, units=units)
+    bpm, corrector = units[_bpm_names(params)[0]], units[params.correctors[0]]
 
     assert [panel.title for panel in figure.panels] == [
         "Orbit shift across BPMs",
@@ -206,7 +217,7 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     assert (orbit.x_label, orbit.y_label, orbit.y_units) == (
         "BPM index",
         "Orbit shift",
-        "BPM units",
+        bpm,
     )
     assert orbit.series_picker is True
 
@@ -214,14 +225,14 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
     assert (band.x_label, band.y_label, band.y_units) == (
         "Amplitude step",
         "Residual (reached minus requested)",
-        "BPM units",
+        bpm,
     )
 
     offsets = _panel(figure, "Corrector offsets")
     assert (offsets.x_label, offsets.y_label, offsets.y_units) == (
         "Amplitude step",
         "Offset from working point",
-        "corrector units",
+        corrector,
     )
     # Three or four correctors is the whole schema: nothing to pick between.
     assert offsets.series_picker is False
@@ -235,6 +246,26 @@ def test_a_converged_monodirectional_run_draws_the_four_panels() -> None:
 
     # Every panel is lines: there is no fit here to draw as a matrix.
     assert all(isinstance(panel.mark, LinesMark) for panel in figure.panels)
+
+
+_UNIT_PANELS = ("Orbit shift across BPMs", "Band residual at constrained BPMs", "Corrector offsets")
+
+
+def test_a_run_that_declared_no_units_states_none() -> None:
+    params = _params()
+    figure = _render(_rows(params), params)
+
+    assert [_panel(figure, title).y_units for title in _UNIT_PANELS] == [None, None, None]
+
+
+def test_bpms_declaring_two_units_leave_the_bpm_panels_without_one() -> None:
+    params = _params()
+    units = {**_declared(params), params.closure_readbacks[0]: "another-unit"}
+    figure = _render(_rows(params), params, units=units)
+
+    assert _panel(figure, "Orbit shift across BPMs").y_units is None
+    assert _panel(figure, "Band residual at constrained BPMs").y_units is None
+    assert _panel(figure, "Corrector offsets").y_units == units[params.correctors[0]]
 
 
 def test_orbit_shift_draws_one_line_per_step_across_the_requested_bpms() -> None:
