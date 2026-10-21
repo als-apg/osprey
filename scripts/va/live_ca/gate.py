@@ -50,7 +50,8 @@ treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 the limit expires the whole session is stopped -- the module and every process
 it started get SIGTERM, then SIGKILL -- and the module counts as one error, so
 a hang is a red result with a name on it rather than a run that never ends; a
-process still running after SIGKILL is named by pid on its timed-out line. ``--module-timeout=SECONDS``
+process still running after SIGKILL is named by pid on its timed-out line, or
+the line says the process table could not be read. ``--module-timeout=SECONDS``
 or ``OSPREY_LIVE_CA_MODULE_TIMEOUT`` changes the limit.
 
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
@@ -165,13 +166,14 @@ def _run_one(target: str) -> int:
     return status
 
 
-def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, list[int]]:
+def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, list[int] | None]:
     """Run ``cmd`` for at most ``limit_s`` seconds.
 
     Returns ``(stdout, stderr, returncode, timed_out, survivors)``, where
     ``survivors`` are the pids of the child's session still running after
-    SIGKILL. The output written so far is returned on every path, including
-    the timed-out one.
+    SIGKILL, or ``None`` when the process table could not be read. The
+    output written so far is returned on every path, including the timed-out
+    one.
 
     Output goes to files, not pipes. A reader on a pipe waits until every
     process holding the write end has closed it, and a server the module
@@ -187,7 +189,7 @@ def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool, lis
     modules that follow.
     """
     timed_out = False
-    survivors: list[int] = []
+    survivors: list[int] | None = []
     with (
         tempfile.TemporaryFile(mode="w+", errors="replace") as out,
         tempfile.TemporaryFile(mode="w+", errors="replace") as err,
@@ -246,9 +248,12 @@ def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
         print(stderr, end="" if stderr.endswith("\n") else "\n")
 
     if timed_out:
-        still = (
-            ", still running: pids " + " ".join(str(pid) for pid in survivors) if survivors else ""
-        )
+        if survivors is None:
+            still = ", the process table could not be read to name what is still running"
+        elif survivors:
+            still = ", still running: pids " + " ".join(str(pid) for pid in survivors)
+        else:
+            still = ""
         print(
             f"  !! {target} timed out after {limit_s:g} s -- its process group was stopped"
             f"{still}; output so far is above."

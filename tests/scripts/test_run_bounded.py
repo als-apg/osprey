@@ -173,6 +173,33 @@ def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
     assert "run_bounded: still running after SIGKILL, pids: 999999" in result.stderr
 
 
+def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_124(tmp_path):
+    marker = tmp_path / "ready"
+    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+    # The real stop runs, then reports that it could not read the process table.
+    wrapper = textwrap.dedent(
+        f"""
+        import runpy, sys
+        from osprey.deployment import subprocess_capture
+        real = subprocess_capture.stop_group
+        def stop_group(pgid, **kwargs):
+            real(pgid, **kwargs)
+            return None
+        subprocess_capture.stop_group = stop_group
+        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
+                    {sys.executable!r}, "-c", {child!r}]
+        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 124
+    assert marker.exists(), "the child was not ready inside the 3 s bound"
+    assert "the process table could not be read" in result.stderr
+    assert "still running after SIGKILL" not in result.stderr
+
+
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
     child = textwrap.dedent(
         """

@@ -186,6 +186,18 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
     assert "timed out after 5 s" in out
 
 
+def test_a_timed_out_module_whose_table_could_not_be_read_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(gate, "_run_child", lambda _cmd, _limit: ("", "", -9, True, None))
+
+    counts, status = gate._run_module("m", 1)
+
+    assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
+    assert status == 1
+    assert "process table could not be read" in capsys.readouterr().out
+
+
 def test_a_module_timeout_flag_is_not_fanned_out_as_a_target_and_a_bad_value_is_refused(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
