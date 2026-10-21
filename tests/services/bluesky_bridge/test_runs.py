@@ -354,3 +354,162 @@ def test_is_requeued_after_interruption_is_exact(item: object, expected: bool) -
     aborted plan. Pinned separately from the projection because a false
     negative there is a silent re-run onto hardware."""
     assert runs.is_requeued_after_interruption(item) is expected
+
+
+# =========================================================================
+# Run timing — read from the manager's own stamps
+# =========================================================================
+#
+# Queueserver stamps ``properties.time_start`` on the item it hands to the
+# worker, and ``result.time_start`` / ``result.time_stop`` on every history
+# entry and every requeued interrupted copy. The record turns those into
+# ``started_at`` / ``finished_at`` / ``elapsed_s``; nothing is timed bridge-side.
+
+_START = 1_760_000_000.0
+
+
+def _at(seconds: float) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(seconds, UTC).isoformat()
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch):
+    """Pin the projection's clock; returns a setter for "now"."""
+    now = {"t": _START}
+    monkeypatch.setattr(runs, "_wall_clock", lambda: now["t"])
+
+    def _set(t: float) -> None:
+        now["t"] = t
+
+    return _set
+
+
+def test_a_running_item_reports_its_start_and_how_long_it_has_run(clock) -> None:
+    clock(_START + 42.5)
+    item = {**_item(), "properties": {"time_start": _START}}
+    [record] = _records(running=item)
+    assert record["started_at"] == _at(_START)
+    assert record["elapsed_s"] == pytest.approx(42.5)
+    assert "finished_at" not in record
+
+
+def test_a_finished_history_entry_reports_start_stop_and_duration(clock) -> None:
+    clock(_START + 10_000)
+    item = _item(
+        result={"exit_status": "completed", "time_start": _START, "time_stop": _START + 90.0}
+    )
+    [record] = _records(history=[item])
+    assert record["started_at"] == _at(_START)
+    assert record["finished_at"] == _at(_START + 90.0)
+    assert record["elapsed_s"] == pytest.approx(90.0)
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_pending_item_carries_no_timing() -> None:
+    [record] = _records(pending=[_item()])
+    for key in ("started_at", "finished_at", "elapsed_s"):
+        assert key not in record
+
+
+def test_a_requeued_interrupted_copy_carries_its_own_stamps(clock) -> None:
+    clock(_START + 10_000)
+    item = _item(result={"exit_status": "aborted", "time_start": _START, "time_stop": _START + 7.0})
+    [record] = _records(pending=[item])
+    assert record["status"] == "stopped"
+    assert record["started_at"] == _at(_START)
+    assert record["finished_at"] == _at(_START + 7.0)
+    assert record["elapsed_s"] == pytest.approx(7.0)
+
+
+def test_elapsed_is_never_negative_when_the_clocks_disagree(clock) -> None:
+    clock(_START - 3.0)
+    item = {**_item(), "properties": {"time_start": _START}}
+    [record] = _records(running=item)
+    assert record["elapsed_s"] == 0.0
+
+
+@pytest.mark.parametrize("stamp", [True, "1760000000", None, [1.0]])
+@pytest.mark.usefixtures("clock")
+def test_a_stamp_that_is_not_a_number_yields_no_key(stamp: object) -> None:
+    running = {**_item(), "properties": {"time_start": stamp}}
+    finished = _item(
+        "run-2",
+        item_uid="uid-2",
+        result={"exit_status": "completed", "time_start": stamp, "time_stop": stamp},
+    )
+    for record in _records(running=running, history=[finished]):
+        for key in ("started_at", "finished_at", "elapsed_s"):
+            assert key not in record, (record["id"], key)
+
+
+def test_the_clock_is_read_once_per_projection_not_per_record(monkeypatch) -> None:
+    reads: list[float] = []
+
+    def _tick() -> float:
+        reads.append(_START + 5.0)
+        return reads[-1]
+
+    monkeypatch.setattr(runs, "_wall_clock", _tick)
+    running = {**_item("run-1"), "properties": {"time_start": _START}}
+    history = [
+        _item(f"run-{i}", item_uid=f"uid-{i}", result={"exit_status": "completed"})
+        for i in range(2, 5)
+    ]
+    _records(running=running, history=history)
+    assert len(reads) == 1
+
+
+def _with_rows(run_id: str, rows: int, expected: int | None) -> live_rows.LiveRowRecorder:
+    document_plane.record_expected_points(run_id, expected)
+    recorder = live_rows.LiveRowRecorder(key=run_id)
+    recorder("start", {"uid": f"re-{run_id}"})
+    for _ in range(rows):
+        recorder("event", {"data": {"BPM1": 1.0}})
+    return recorder
+
+
+def test_progress_gains_a_rate_and_a_remaining_time_with_a_declared_count(clock) -> None:
+    clock(_START + 20.0)
+    _with_rows("run-1", 10, 50)
+    [record] = _records(running={**_item(), "properties": {"time_start": _START}})
+    progress = record["progress"]
+    assert progress["points_per_s"] == pytest.approx(10 / 20.0)
+    assert progress["remaining_s"] == pytest.approx((50 - 10) / (10 / 20.0))
+
+
+def test_progress_has_a_rate_but_no_remaining_time_without_a_declared_count(clock) -> None:
+    clock(_START + 20.0)
+    _with_rows("run-1", 10, None)
+    [record] = _records(running={**_item(), "properties": {"time_start": _START}})
+    assert record["progress"]["points_per_s"] == pytest.approx(0.5)
+    assert "remaining_s" not in record["progress"]
+
+
+def test_progress_has_no_rate_before_the_first_point(clock) -> None:
+    clock(_START + 20.0)
+    _with_rows("run-1", 0, 50)
+    [record] = _records(running={**_item(), "properties": {"time_start": _START}})
+    assert "points_per_s" not in record["progress"]
+    assert "remaining_s" not in record["progress"]
+
+
+@pytest.mark.usefixtures("clock")
+def test_progress_has_no_rate_without_a_start() -> None:
+    _with_rows("run-1", 10, 50)
+    [record] = _records(running=_item())
+    assert "points_per_s" not in record["progress"]
+    assert "remaining_s" not in record["progress"]
+
+
+@pytest.mark.usefixtures("clock")
+def test_a_complete_run_reports_a_rate_but_no_remaining_time() -> None:
+    _with_rows("run-1", 50, 50)("stop", {"exit_status": "success"})
+    item = _item(
+        result={"exit_status": "completed", "time_start": _START, "time_stop": _START + 25.0}
+    )
+    [record] = _records(history=[item])
+    assert record["progress"]["complete"] is True
+    assert record["progress"]["points_per_s"] == pytest.approx(2.0)
+    assert "remaining_s" not in record["progress"]

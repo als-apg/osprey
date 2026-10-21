@@ -202,6 +202,31 @@ def test_get_run_carries_progress_once_the_document_plane_has_rows(bridge) -> No
     assert body["progress"]["fraction"] == pytest.approx(0.5)
 
 
+def test_get_run_carries_the_managers_timing_and_the_rate(bridge, monkeypatch) -> None:
+    from osprey.services.bluesky_bridge import runs
+
+    start = 1_760_000_000.0
+    monkeypatch.setattr(runs, "_wall_clock", lambda: start + 4.0)
+    document_plane.record_expected_points("running", 10)
+    recorder = live_rows.LiveRowRecorder(key="running")
+    recorder("start", {"uid": "re-uid"})
+    recorder("event", {"data": {"BPM1": 1.0}})
+    recorder("event", {"data": {"BPM1": 2.0}})
+
+    running = {**_item("running"), "properties": {"time_start": start}}
+    client, _ = bridge(queue={"items": [], "running_item": running})
+    with client:
+        body = client.get("/runs/running").json()
+
+    from datetime import datetime
+
+    assert datetime.fromisoformat(body["started_at"]).timestamp() == start
+    assert body["elapsed_s"] == pytest.approx(4.0)
+    assert "finished_at" not in body
+    assert body["progress"]["points_per_s"] == pytest.approx(0.5)
+    assert body["progress"]["remaining_s"] == pytest.approx(16.0)
+
+
 def test_get_run_reports_an_unreachable_manager_as_503_with_a_code(bridge) -> None:
     from bluesky_queueserver_api.comm_base import RequestTimeoutError
 
