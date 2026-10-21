@@ -60,16 +60,21 @@ jobs:
         # The lanes that prove the connectors package, one per line:
         # <ci.yml job id>=<rendered job-name prefix>. The unit lane (whose
         # shards run the package suite beside the framework), lint (lockfile,
-        # ruff, the changelog gate), the package job's lean wheel, and the
-        # framework-free suite. EXTEND THIS LIST when ci.yml gains the
-        # backward-compatibility lanes (connectors-compat,
-        # framework-at-connectors-floor): tests/deployment/
-        # test_ci_workflow_wiring.py fails until every one of them is here.
+        # ruff, the changelog gate), the package job's lean wheel, the
+        # framework-free suite, and the backward-compatibility lanes: the
+        # connectors under every listed framework release, and the framework at
+        # its connectors floor. A compatibility lane that stands down (no
+        # release listed yet, a floor that predates the independent releases)
+        # concludes success, so it never blocks a tag it has nothing to prove
+        # for. tests/deployment/test_ci_workflow_wiring.py fails while a
+        # compatibility lane in ci.yml is missing here.
         REQUIRED_LANES: |
           test=Test Python
           lint=Lint and Code Quality
           package=Package Build
           connectors-standalone=Connectors suite without the framework
+          connectors-compat=Connectors HEAD under framework
+          framework-at-connectors-floor=Framework HEAD at its declared connectors floor
       run: python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES"
 
   build:
