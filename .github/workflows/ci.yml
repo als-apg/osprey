@@ -676,20 +676,23 @@ jobs:
   # to every supported framework release; Lane B
   # (`framework-at-connectors-floor`) holds HEAD of the framework to the
   # connectors release its floor names. scripts/ci/connectors_compat_matrix.py
-  # is the one reader of both declarations, and the nightly
-  # connectors-compat-nightly.yml runs each release's own connector tests
-  # against HEAD the same way.
+  # is the one reader of both declarations, scripts/ci/connectors_compat_lane.py
+  # holds the steps a cell runs, and the nightly connectors-compat-nightly.yml
+  # runs Lane A's checks and each release's own connector tests the same way
+  # (and, dispatched, against a named release as a dry run).
   #
-  # TEMPORARY GATING, until the cut-over release. No framework release is
-  # supported yet ([tool.osprey-connectors.compat] frameworks is empty: the
-  # 2026.9.0 betas are superseded, not supported) and the floor still names a
-  # connectors build from before its independent releases. So Lane A runs one
-  # empty cell and Lane B stands down, each saying why in its log and
-  # succeeding. Both gates lift by data, not by an edit here: listing the
-  # cut-over release fills Lane A's matrix, and raising the floor to
-  # FIRST_INDEPENDENT_CONNECTORS arms Lane B. The plan step refuses a raised
-  # floor with nothing listed, and test_ci_workflow_wiring.py holds the same.
-  # Not path-filtered: the workflow's header gives why no lane is.
+  # STAND-DOWNS, until the cut-over. No framework release is supported yet
+  # ([tool.osprey-connectors.compat] frameworks is empty: the 2026.9.0 betas are
+  # superseded, not supported) and the floor still names a connectors build from
+  # before its independent releases. So Lane A runs one empty cell and Lane B
+  # stands down, each saying why in its log and succeeding. Both lift by data,
+  # not by an edit here: listing a release fills Lane A's matrix, and raising
+  # the floor to FIRST_INDEPENDENT_CONNECTORS arms Lane B. The plan step holds
+  # the declarations to the tags reachable from HEAD (its docstring states the
+  # rules), so a tagged release cannot stay unlisted once a newer one follows
+  # it, and the floor cannot name a connectors release with no tag; it needs
+  # the full history for that. Not path-filtered: the workflow's header gives
+  # why no lane is.
   connectors-compat-plan:
     name: Plan the connectors compatibility lanes
     runs-on: ubuntu-latest
@@ -701,6 +704,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the plan reads every tag reachable from HEAD.
+      with:
+        fetch-depth: 0
 
     - name: Read the supported releases and the connectors floor
       id: plan
@@ -723,14 +729,12 @@ jobs:
       FRAMEWORK: ${{ matrix.framework }}
       # Outside the checkout, so nothing of this tree is importable from it.
       COMPAT_VENV: /tmp/connectors-compat
-      COMPAT_PY: /tmp/connectors-compat/bin/python
-      COMPAT: packages/osprey-connectors/tests/osprey_connectors_tests/compat
     steps:
     - name: Stand down while no framework release is listed
       if: matrix.framework == ''
-      run: |
-        echo "no supported framework release listed yet:"
-        echo "[tool.osprey-connectors.compat] frameworks in packages/osprey-connectors/pyproject.toml is empty"
+      env:
+        REASON: ${{ matrix.reason }}
+      run: echo "$REASON"
 
     - name: Checkout repository
       if: matrix.framework != ''
@@ -753,38 +757,21 @@ jobs:
       if: matrix.framework != ''
       run: uv build --package osprey-connectors --wheel --out-dir dist/
 
-    - name: Install the framework release from PyPI
+    - name: Install the framework release from PyPI with the HEAD connectors
       if: matrix.framework != ''
-      # `if-necessary-or-explicit` takes a pre-release only where the pin
-      # names one or nothing else satisfies a dependency.
-      run: |
-        uv venv "$COMPAT_VENV" --python 3.11
-        uv pip install --python "$COMPAT_PY" --prerelease=if-necessary-or-explicit "osprey-framework==$FRAMEWORK"
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py install
+        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --connectors head
 
-    - name: Replace its connectors with the HEAD wheel
+    - name: Check the release against the connectors
       if: matrix.framework != ''
-      # With dependencies, then checked: a dependency HEAD added must be
-      # installed, and one the release pins differently must show here rather
-      # than as a quiet downgrade.
-      run: |
-        uv pip install --python "$COMPAT_PY" --reinstall-package osprey-connectors dist/osprey_connectors-*.whl
-        uv pip check --python "$COMPAT_PY"
-        "$COMPAT_PY" -c "import importlib.metadata as m; print('osprey-framework', m.version('osprey-framework'), '/ osprey-connectors', m.version('osprey-connectors'))"
-
-    - name: Scan the release for connectors names that no longer resolve
-      if: matrix.framework != ''
-      run: '"$COMPAT_PY" -I "$COMPAT/scan_framework_imports.py" --package osprey'
-
-    - name: Import every module of the release
-      if: matrix.framework != ''
-      run: '"$COMPAT_PY" -I "$COMPAT/import_walk.py" --package osprey'
-
-    - name: Check the file contracts the release shares with the connectors
-      if: matrix.framework != ''
-      # Renders a deployment with the release's own CLI and opens its
-      # simulator view with HEAD; reads the control-context record across the
-      # release's hook and the golden files (see contracts.py).
-      run: '"$COMPAT_PY" -I "$COMPAT/contracts.py" all --workdir "$RUNNER_TEMP/contracts"'
+      # Scans the release's packages for connectors names that no longer
+      # resolve, imports every module of them, renders a deployment with its
+      # own CLI and opens the simulator view with HEAD, and reads the
+      # control-context record across its hook and the golden files.
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py check
+        --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
 
   framework-at-connectors-floor:
     name: Framework HEAD at its declared connectors floor
@@ -793,10 +780,14 @@ jobs:
     timeout-minutes: 45
     # The framework declares `osprey-connectors>=FLOOR`, and every other lane
     # pairs it with the workspace's own connectors, so nothing else ever ran the
-    # floor. This installs the framework as published metadata states it
-    # (`--no-sources`: the floor release from PyPI, not the workspace member)
-    # and runs the framework suites that drive the connectors against it.
-    # Stands down until the floor is an independent release (see the plan job).
+    # floor. This installs the framework with the connectors as published
+    # metadata states them (`--no-sources`: the floor release from PyPI, not the
+    # workspace member; pyaml-cs-osprey stays the workspace's, named by its path
+    # because `--no-sources-package osprey-connectors` alone leaves the root's
+    # `pyaml-cs-osprey = { workspace = true }` source, which a `uv pip install`
+    # of the root refuses as not a workspace member) and runs the framework
+    # suites that drive the connectors against it. Stands down until the floor is an independent release (see
+    # the plan job).
     env:
       FLOOR: ${{ needs.connectors-compat-plan.outputs.floor }}
     steps:
@@ -824,23 +815,32 @@ jobs:
 
     - name: Install the framework with the floor connectors
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
-      # Into the project's own .venv, so the `uv run --no-sync` below reads it.
       run: |
         uv venv --python 3.11
-        uv pip install --no-sources -e ".[dev]" "osprey-connectors==$FLOOR"
-        uv run --no-sync python -c "import importlib.metadata as m; print('osprey-connectors', m.version('osprey-connectors'))"
+        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey "osprey-connectors==$FLOOR"
+
+    - name: Hold the lane to the floor connectors from site-packages
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        python3 scripts/ci/connectors_compat_lane.py assert-installed
+        --python .venv/bin/python --module osprey_connectors --connectors-version "$FLOOR"
 
     - name: Scan the framework for connectors names the floor lacks
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: >-
-        uv run --no-sync python -I
+        .venv/bin/python -I
         packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
-        src/osprey
+        src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey
 
     - name: Run the connector-facing framework suites at the floor
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      # The guard holds the suites to the floor connectors in every worker, and
+      # the source-text tests (which read this checkout's connectors tree, not
+      # the floor) are deselected; see scripts/ci/connectors_compat_lane.py.
       run: >-
-        uv run --no-sync pytest tests/connectors tests/registry
+        python3 scripts/ci/connectors_compat_lane.py pytest
+        --python .venv/bin/python --installed osprey_connectors --
+        tests/connectors tests/registry
         -m "not pty and not wallclock" -n 4 --dist loadgroup
         --timeout=600 --timeout-method=signal
 
