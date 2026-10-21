@@ -3,12 +3,14 @@
 In plan mode the session may read and think, never act. Which tools act is the
 registry's own side-effect classification (``server_side_effect_tools``), the
 one the headless read-only floor reads too; ``plan_mode_allowed`` names the few
-side-effecting tools that stay callable while planning. These tests assert
-relations to the registry, never a copied list.
+side-effecting tools that stay callable while planning, and ``audited_reads``
+the approval-gated tools that only read. These tests assert relations to the
+registry, never a copied list.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,8 @@ from osprey.registry.mcp import (
     _APPROVAL,
     _APPROVAL_PREFLIGHT,
     FRAMEWORK_SERVERS,
+    _server_plan_mode_denied,
+    build_extended_server,
     framework_write_tools,
     plan_mode_denied_tools,
     resolve_servers,
@@ -62,10 +66,10 @@ def _short(sdef_name: str, full: str) -> str:
 
 
 def _registry_expected() -> list[str]:
-    """Every framework side-effect tool minus its server's exemptions."""
+    """Every framework side-effect tool minus its server's exemptions and reads."""
     out: list[str] = []
     for sdef in FRAMEWORK_SERVERS.values():
-        allowed = {f"mcp__{sdef.name}__{t}" for t in sdef.plan_mode_allowed}
+        allowed = {f"mcp__{sdef.name}__{t}" for t in (*sdef.plan_mode_allowed, *sdef.audited_reads)}
         for name in server_side_effect_tools(sdef):
             if name not in allowed and name not in out:
                 out.append(name)
@@ -98,15 +102,8 @@ def _approval_matchers(sdef) -> list[str]:
     ]
 
 
-#: Approval-gated tools that only read: the approval hook audits them, and the
-#: classifier rightly leaves them out. They sit in neither ask nor allow, so the
-#: registry states no other mark this test could read; a new approval-gated tool
-#: must land in the deny list, in ``plan_mode_allowed``, in ``permissions_allow``
-#: or here.
-_AUDITED_READS = {"mcp__controls__channel_read", "mcp__controls__archiver_read"}
-
-
 def test_every_approval_gated_tool_is_denied_exempted_or_a_read():
+    """A new approval-gated tool fails here until the registry places it."""
     resolved = _by_name(_resolve())
     unclassified: list[str] = []
     for sdef in FRAMEWORK_SERVERS.values():
@@ -117,11 +114,59 @@ def test_every_approval_gated_tool_is_denied_exempted_or_a_read():
                 continue
             if short in sdef.plan_mode_allowed or short in sdef.permissions_allow:
                 continue
-            if matcher in _AUDITED_READS:
+            if short in sdef.audited_reads:
                 continue
             unclassified.append(matcher)
 
     assert unclassified == []
+
+
+# ── Audited reads ────────────────────────────────────────────────────
+
+
+def _audited_read_faults(sdef) -> list[str]:
+    """Every ``audited_reads`` name that is not an approval-gated read of *sdef*."""
+    gated = {_short(sdef.name, m) for m in _approval_matchers(sdef)}
+    acting = {_short(sdef.name, t) for t in server_side_effect_tools(sdef)}
+    return [tool for tool in sdef.audited_reads if tool not in gated or tool in acting]
+
+
+@pytest.mark.parametrize("name", sorted(FRAMEWORK_SERVERS))
+def test_every_audited_read_is_an_approval_gated_read(name):
+    """An audited read carries the approval hook and is not one the classifier marks."""
+    assert _audited_read_faults(FRAMEWORK_SERVERS[name]) == []
+
+
+@pytest.mark.parametrize(
+    "bogus",
+    [
+        pytest.param("channel_write", id="side-effecting"),
+        pytest.param("channel_limits", id="no-approval-rule"),
+    ],
+)
+def test_a_bogus_audited_read_is_rejected(bogus):
+    sdef = dataclasses.replace(FRAMEWORK_SERVERS["controls"], audited_reads=[bogus])
+
+    assert _audited_read_faults(sdef) == [bogus]
+
+
+def test_the_controls_server_names_its_two_audited_reads():
+    controls = FRAMEWORK_SERVERS["controls"]
+    denied = set(_by_name(_resolve())["controls"]["plan_mode_denied"])
+
+    assert sorted(controls.audited_reads) == ["archiver_read", "channel_read"]
+    assert denied.isdisjoint(f"mcp__controls__{t}" for t in controls.audited_reads)
+
+
+def test_the_deny_derivation_never_denies_an_audited_read():
+    """Even a tool the classifier marks stays callable once the registry names it a read."""
+    controls = FRAMEWORK_SERVERS["controls"]
+    sdef = dataclasses.replace(controls, audited_reads=[*controls.audited_reads, "channel_write"])
+    assert "mcp__controls__channel_write" in _server_plan_mode_denied(controls)
+
+    denied = _server_plan_mode_denied(sdef)
+
+    assert "mcp__controls__channel_write" not in denied
 
 
 def test_the_coverage_check_sees_both_approval_entries():
@@ -186,6 +231,19 @@ def test_an_extends_clone_inherits_the_classification_under_its_own_name():
 
     assert f"mcp__bluesky2__{acting}" in denied
     assert f"mcp__bluesky2__{exempt}" not in denied
+
+
+def test_an_extends_clone_carries_the_audited_reads_under_its_own_name():
+    reads = FRAMEWORK_SERVERS["controls"].audited_reads
+    assert reads, "the comparison below is vacuous"
+
+    assert build_extended_server("controls2", {"extends": "controls"}).audited_reads == reads
+    clone = _by_name(_resolve({"controls2": {"extends": "controls"}}))["controls2"]
+
+    gated = {rule["matcher"] for rule in clone["hooks_pre"]}
+    for tool in reads:
+        assert f"mcp__controls2__{tool}" in gated
+        assert f"mcp__controls2__{tool}" not in clone["plan_mode_denied"]
 
 
 def test_a_custom_servers_ask_tools_are_denied_and_its_reads_are_not():
