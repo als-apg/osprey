@@ -441,13 +441,16 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
 
     The whole group is waited out, not just its leader: the leader of a
     ``podman compose`` is the dispatcher, and the provider it started can take
-    longer to go. A member still running after SIGKILL is named in a warning.
+    longer to go. A member still running after SIGKILL is named in a warning, and
+    a stop that could not read the process table says so.
     Only ever called on a run that is being abandoned; a child that exits on its
     own leaves its group alone.
     """
     if own_group:
         survivors = stop_group(process.pid, grace=_STOP_GRACE_S)
-        if survivors:
+        if survivors is None:
+            logger.warning("process table unreadable: group %d may still be running", process.pid)
+        elif survivors:
             logger.warning(
                 "still running after SIGKILL: pids %s", " ".join(str(pid) for pid in survivors)
             )
@@ -527,7 +530,7 @@ def _wait_group_gone(pgid: int, seconds: float) -> bool:
         return False
 
 
-def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int]:
+def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int] | None:
     """Stop the process group ``pgid`` and return the pids still running after SIGKILL.
 
     The group is named by its leader's pid. When ``dump`` is given the group is
@@ -539,14 +542,15 @@ def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[in
     not re-raised.
 
     An exited process nobody has reaped counts as gone; a member this user may
-    not signal counts as present. The caller keeps its leader unreaped until
-    this returns, so the group's id cannot be taken by another process during
-    the stop, and reaps it afterwards.
+    not signal counts as present.
+
+    The caller must not have reaped the leader: an unreaped leader holds the
+    group's id, so no other process can take it while the stop signals and
+    reads it. The caller reaps the leader after this returns.
 
     Returns:
-        ``[]`` when the group is gone. Otherwise the pids of its members still
-        running after SIGKILL, or ``[pgid]`` for the whole group when the
-        process table cannot be read to name them.
+        ``[]`` when the group is gone; the pids of members still running after
+        SIGKILL; ``None`` when the process table could not be read to tell.
     """
     if dump is not None:
         _signal_group(pgid, signal.SIGABRT)
@@ -563,7 +567,7 @@ def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[in
     try:
         rows = snapshot_within(_KILL_WAIT_S)
     except ProcessTableUnreadable:
-        return [pgid]
+        return None
     return sorted(row.pid for row in rows.values() if row.pgid == pgid and not row.exited)
 
 

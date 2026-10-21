@@ -860,7 +860,7 @@ class TestProcessGroupStop:
         finally:
             leader.wait()
 
-    def test_an_unreadable_table_names_the_group(self, monkeypatch):
+    def test_an_unreadable_table_answers_none_not_a_pid(self, monkeypatch):
         leader = _exited_unreaped_leader()
 
         def refused():
@@ -869,9 +869,18 @@ class TestProcessGroupStop:
         monkeypatch.setattr(process_table, "snapshot", refused)
         monkeypatch.setattr(subprocess_capture, "_KILL_WAIT_S", 0.2)
         try:
-            assert stop_group(leader.pid, grace=0.2) == [leader.pid]
+            assert stop_group(leader.pid, grace=0.2) is None
         finally:
             leader.wait()
+
+    def test_a_stop_that_could_not_read_the_table_says_so(self, monkeypatch, caplog):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"], process_group=0)
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        monkeypatch.setattr(subprocess_capture, "stop_group", lambda *_a, **_k: None)
+        with caplog.at_level(logging.WARNING):
+            subprocess_capture._stop(proc, own_group=True)
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(f"process table unreadable: group {proc.pid}" in w for w in warnings)
 
 
 def test_a_stopped_runs_detail_is_its_failure_detail():
