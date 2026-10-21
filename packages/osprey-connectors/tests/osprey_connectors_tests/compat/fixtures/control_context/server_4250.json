@@ -1,0 +1,25 @@
+{
+  "server_pid": 4250,
+  "session": "sess-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    4251
+  ],
+  "reachability": {
+    "va": {
+      "reachable": true
+    }
+  },
+  "last_switch": {
+    "status": "applied",
+    "generation": 3
+  },
+  "last_posture_realign": null,
+  "targets": {
+    "va": {
+      "label": "Virtual accelerator"
+    }
+  },
+  "updated_at": "2026-10-20T12:00:01+00:00"
+}
