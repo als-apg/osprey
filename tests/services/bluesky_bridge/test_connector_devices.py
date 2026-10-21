@@ -701,6 +701,42 @@ async def test_build_devices_returns_expected_names_and_types() -> None:
     assert isinstance(devices["bpm1"], ConnectorReadable)
 
 
+async def test_describe_states_units_exactly_where_the_spec_does() -> None:
+    """Each data key carries ``units`` when its spec states one, and no key otherwise;
+    ``describe()`` reads nothing through the connector to say so."""
+    fake = FakeConnector(readbacks={"P:SP": 0.0, "P:RB": 0.0, "Q:SP": 0.0, "R:SP": 0.0, "T": 0.0})
+    paired = SettableSpec(
+        name="p", setpoint_pv="P:SP", readback_pv="P:RB", unit="u-rb", setpoint_unit="u-sp"
+    )
+    unpaired = SettableSpec(name="q", setpoint_pv="Q:SP", unit="u-q")
+    unitless = SettableSpec(name="r", setpoint_pv="R:SP")
+    readable = ReadableSpec(name="t", read_pv="T", unit="u-t")
+    bare = ReadableSpec(name="s", read_pv="T")
+
+    devices = await build_devices(
+        settables=[paired, unpaired, unitless], readables=[readable, bare], connector=fake
+    )
+    described = {name: await device.describe() for name, device in devices.items()}
+
+    assert described["p"]["p"]["units"] == paired.unit
+    assert described["p"]["p_setpoint"]["units"] == paired.setpoint_unit
+    assert described["q"]["q"]["units"] == unpaired.unit
+    assert "units" not in described["r"]["r"]
+    assert described["t"]["t"]["units"] == readable.unit
+    assert "units" not in described["s"]["s"]
+    assert fake.read_calls == []
+
+
+async def test_a_paired_settable_without_a_setpoint_unit_states_none_for_its_demand() -> None:
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", unit="u-rb")
+
+    described = await device.describe()
+
+    assert described["m"]["units"] == "u-rb"
+    assert "units" not in described["m_setpoint"]
+
+
 async def test_build_devices_with_no_specs_returns_empty_mapping() -> None:
     """An empty settables/readables sequence builds an empty (but valid) device set."""
     devices = await build_devices(connector=FakeConnector())
