@@ -13,11 +13,14 @@
  * Conventions every builder keeps:
  * - traces are `scatter` lines (or bars for corrector steps); trace colours are
  *   never set, so the theme's `colorway` picks them;
- * - an index axis is the device's 1-based position in its `Snapshot.catalog`
- *   family (ring order), so a device absent from the data is a gap (`null`),
- *   never a shifted point;
+ * - a device axis is the device's 1-based position in ring order along its
+ *   `Snapshot.catalog` family, so a device absent from the data is a gap
+ *   (`null`), never a shifted point; its ticks are the devices' labels,
+ *   thinned to fit, and every other run of devices sharing a leaf place is
+ *   shaded by a band behind the traces;
  * - `customdata` names the device each point belongs to, which is how a click
- *   resolves to a device;
+ *   resolves to a device; the hover shows its label, place and `s`;
+ * - an excluded BPM is a gap in every trace over the BPM axis;
  * - units come from the raw buffer's header.
  *
  * This module performs no I/O and never touches Plotly.
@@ -47,6 +50,132 @@
 export function catalogNames(catalog, family) {
   const entries = catalog?.[family];
   return Array.isArray(entries) ? entries.map((entry) => entry.name) : [];
+}
+
+/** Most device labels a device axis shows as ticks; more are thinned to every n-th. */
+export const MAX_DEVICE_TICKS = 24;
+
+/** The place bands' fill: a neutral grey at low opacity, readable on every theme. */
+const BAND_FILL = Object.freeze({ fillcolor: 'gray', opacity: 0.12 });
+
+/**
+ * Every catalog entry by matrix name.
+ *
+ * @param {Catalog|null|undefined} catalog
+ * @returns {Map<string, CatalogEntry>}
+ */
+function entriesByName(catalog) {
+  /** @type {Map<string, CatalogEntry>} */
+  const out = new Map();
+  for (const family of /** @type {const} */ (['bpms', 'hcms', 'vcms'])) {
+    const entries = catalog?.[family];
+    if (Array.isArray(entries)) for (const entry of entries) out.set(entry.name, entry);
+  }
+  return out;
+}
+
+/**
+ * A device's leaf place id — its own place — or null when it has none.
+ *
+ * @param {CatalogEntry|undefined} entry
+ * @returns {string|null}
+ */
+export function leafOf(entry) {
+  const places = entry?.places;
+  return Array.isArray(places) && places.length ? places[places.length - 1].id : null;
+}
+
+/** The row label of devices without a place when no model is named. */
+export const NO_PLACE = 'no place';
+
+/**
+ * Devices grouped by leaf place: one row per place in ring order (by the
+ * first device of each along the ring), devices without a place on one row
+ * labelled *model*. Rows keep the devices' given order.
+ *
+ * @template {CatalogEntry} T
+ * @param {readonly T[]} entries
+ * @param {string|null|undefined} model
+ * @returns {{id: string, label: string, entries: T[]}[]}
+ */
+export function placeRows(entries, model) {
+  /** @type {Map<string, {row: {id: string, label: string, entries: T[]}, s: number, at: number}>} */
+  const rows = new Map();
+  entries.forEach((entry, at) => {
+    const place = leafOf(entry);
+    const s = typeof entry.s === 'number' ? entry.s : Infinity;
+    const found = rows.get(place ?? '');
+    if (!found) rows.set(place ?? '', { row: { id: place ?? '', label: place ?? (model || NO_PLACE), entries: [entry] }, s, at });
+    else {
+      found.row.entries.push(entry);
+      if (s < found.s) Object.assign(found, { s, at });
+    }
+  });
+  return [...rows.values()].sort((a, b) => a.s - b.s || a.at - b.at).map(({ row }) => row);
+}
+
+/**
+ * A device's hover text: label, leaf place and `s`, as far as the catalog knows them.
+ *
+ * @param {string} name
+ * @param {CatalogEntry|undefined} entry
+ * @returns {string}
+ */
+export function deviceHover(name, entry) {
+  const parts = [entry?.label || name];
+  const place = leafOf(entry);
+  if (place) parts.push(place);
+  if (typeof entry?.s === 'number') parts.push(`s = ${entry.s.toFixed(1)} m`);
+  return parts.join(' · ');
+}
+
+/**
+ * A device axis over *names* (positions 1..n): its label ticks thinned to at
+ * most {@link MAX_DEVICE_TICKS}, a hover text per device, and a band behind
+ * every other run of devices sharing a leaf place.
+ *
+ * @param {string[]} names
+ * @param {Catalog|null|undefined} catalog
+ * @returns {{tickvals: number[], ticktext: string[], hover: string[], shapes: Record<string, any>[]}}
+ */
+export function deviceAxis(names, catalog) {
+  const byName = entriesByName(catalog);
+  const step = Math.max(1, Math.ceil(names.length / MAX_DEVICE_TICKS));
+  /** @type {number[]} */ const tickvals = [];
+  /** @type {string[]} */ const ticktext = [];
+  names.forEach((name, i) => {
+    if (i % step !== 0) return;
+    tickvals.push(i + 1);
+    ticktext.push(byName.get(name)?.label || name);
+  });
+  /** @type {Record<string, any>[]} */
+  const shapes = [];
+  let run = 0;
+  for (let start = 0; start < names.length; ) {
+    const place = leafOf(byName.get(names[start]));
+    let end = start;
+    while (end + 1 < names.length && leafOf(byName.get(names[end + 1])) === place) end++;
+    if (place != null && run % 2 === 1) {
+      shapes.push({
+        type: 'rect', xref: 'x', yref: 'paper', x0: start + 0.5, x1: end + 1.5, y0: 0, y1: 1,
+        layer: 'below', line: { width: 0 }, ...BAND_FILL, name: place,
+      });
+    }
+    if (place != null) run++;
+    start = end + 1;
+  }
+  return { tickvals, ticktext, hover: names.map((name) => deviceHover(name, byName.get(name))), shapes };
+}
+
+/**
+ * The x-axis fragment of a device axis.
+ *
+ * @param {Theme} theme
+ * @param {string} title
+ * @param {{tickvals: number[], ticktext: string[]}} ticks
+ */
+function deviceXAxis(theme, title, ticks) {
+  return axis(theme, 'xaxis', { text: title }, null, { tickmode: 'array', tickvals: ticks.tickvals, ticktext: ticks.ticktext });
 }
 
 /** The sample axis title of the Raw tab's plots. */
@@ -195,22 +324,39 @@ function maskedBpms(shot) {
 }
 
 /**
- * One line trace over the BPM index axis.
+ * One line trace over the BPM axis, excluded BPMs as gaps.
  *
  * @param {string} name
  * @param {string[]} names
  * @param {(bpm: string) => number|null} value
+ * @param {string[]} hover
+ * @param {Set<string>} excluded
  */
-function bpmTrace(name, names, value) {
+function bpmTrace(name, names, value, hover, excluded) {
   return {
     type: 'scatter',
     mode: 'lines+markers',
     name,
     x: names.map((_, i) => i + 1),
-    y: names.map(value),
+    y: names.map((bpm) => (excluded.has(bpm) ? null : value(bpm))),
     customdata: [...names],
-    hovertemplate: '%{customdata} (%{x}): %{y}<extra></extra>',
+    text: [...hover],
+    hovertemplate: '%{text}: %{y}<extra></extra>',
   };
+}
+
+/**
+ * The BPMs out of a plot: those the shot left out and those excluded in force.
+ *
+ * @param {any} shot
+ * @param {{excluded?: string[]|null}} snapshot
+ * @returns {Set<string>}
+ */
+function excludedBpms(shot, snapshot) {
+  return new Set([
+    ...(Array.isArray(shot?.excluded_bpms) ? shot.excluded_bpms : []),
+    ...(Array.isArray(snapshot?.excluded) ? snapshot.excluded : []),
+  ]);
 }
 
 /**
@@ -289,18 +435,21 @@ export function rawFigures(raw, shot, theme, options = {}) {
  */
 
 /**
- * The Trajectories figures — x and y against the BPM index: the action's
- * average (masked from the earliest per-injection loss on) and the selected
- * reference's readings. A pseudo-orbit's average makes no step, and says so.
+ * The Trajectories figures — x and y against the BPMs in ring order: the
+ * action's average (masked from the earliest per-injection loss on) and the
+ * selected reference's readings, excluded BPMs as gaps in both. A
+ * pseudo-orbit's average makes no step, and says so.
  *
  * @param {any} shot
- * @param {{catalog?: Catalog|null, reference?: any}} snapshot
+ * @param {{catalog?: Catalog|null, reference?: any, excluded?: string[]|null}} snapshot
  * @param {Theme} theme
  * @param {PlaneOptions} [options]
  * @returns {{x: Figure, y: Figure}}
  */
 export function trajectoryFigures(shot, snapshot, theme, options = {}) {
   const names = bpmAxis(shot, snapshot?.catalog);
+  const ticks = deviceAxis(names, snapshot?.catalog);
+  const excluded = excludedBpms(shot, snapshot);
   const readings = shotReadings(shot);
   const masked = maskedBpms(shot);
   const reference = snapshot?.reference;
@@ -312,18 +461,21 @@ export function trajectoryFigures(shot, snapshot, theme, options = {}) {
   /** @param {'x'|'y'} plane */
   const build = (plane) => {
     const data = [
-      bpmTrace(measured, names, (bpm) => (masked.has(bpm) ? null : readings.get(bpm)?.[plane] ?? null)),
+      bpmTrace(measured, names, (bpm) => (masked.has(bpm) ? null : readings.get(bpm)?.[plane] ?? null),
+        ticks.hover, excluded),
     ];
     if (refReadings) {
-      data.push(bpmTrace(`Reference ${reference.name}`, names, (bpm) => finite(refReadings[bpm]?.[plane])));
+      data.push(bpmTrace(`Reference ${reference.name}`, names, (bpm) => finite(refReadings[bpm]?.[plane]),
+        ticks.hover, excluded));
     }
     return {
       data,
       layout: layout(
         theme,
         `traj-${plane}`,
-        axis(theme, 'xaxis', { text: 'BPM index' }, null),
+        deviceXAxis(theme, 'BPM', ticks),
         axis(theme, 'yaxis', axisTitle(plane, units[plane]), ranges[plane] || positionRange(units[plane])),
+        { shapes: ticks.shapes },
       ),
     };
   };
@@ -331,18 +483,21 @@ export function trajectoryFigures(shot, snapshot, theme, options = {}) {
 }
 
 /**
- * The Difference to Reference figures — dx and dy against the BPM index,
- * measurement minus reference, masked like the trajectories. Both share one
- * symmetric y range so the two planes compare at a glance.
+ * The Difference to Reference figures — dx and dy against the BPMs in ring
+ * order, measurement minus reference, masked and gapped like the
+ * trajectories. Both share one symmetric y range so the two planes compare at
+ * a glance.
  *
  * @param {any} shot
- * @param {{catalog?: Catalog|null, reference?: any}} snapshot
+ * @param {{catalog?: Catalog|null, reference?: any, excluded?: string[]|null}} snapshot
  * @param {Theme} theme
  * @param {PlaneOptions} [options]
  * @returns {{x: Figure, y: Figure}}
  */
 export function differenceFigures(shot, snapshot, theme, options = {}) {
   const names = bpmAxis(shot, snapshot?.catalog);
+  const ticks = deviceAxis(names, snapshot?.catalog);
+  const excluded = excludedBpms(shot, snapshot);
   const readings = shotReadings(shot);
   const masked = maskedBpms(shot);
   const refReadings = snapshot?.reference?.readings || {};
@@ -355,8 +510,8 @@ export function differenceFigures(shot, snapshot, theme, options = {}) {
     return measured === null || ref === null ? null : measured - ref;
   };
   const traces = {
-    x: bpmTrace('dx', names, (bpm) => delta('x', bpm)),
-    y: bpmTrace('dy', names, (bpm) => delta('y', bpm)),
+    x: bpmTrace('dx', names, (bpm) => delta('x', bpm), ticks.hover, excluded),
+    y: bpmTrace('dy', names, (bpm) => delta('y', bpm), ticks.hover, excluded),
   };
   let peak = 0;
   for (const trace of [traces.x, traces.y]) {
@@ -371,9 +526,9 @@ export function differenceFigures(shot, snapshot, theme, options = {}) {
     layout: layout(
       theme,
       `diff-${plane}`,
-      axis(theme, 'xaxis', { text: 'BPM index' }, null),
+      deviceXAxis(theme, 'BPM', ticks),
       axis(theme, 'yaxis', axisTitle(`d${plane}`, units[plane]), shared || positionRange(units[plane])),
-      { showlegend: false },
+      { showlegend: false, shapes: ticks.shapes },
     ),
   });
   return { x: build('x'), y: build('y') };
@@ -413,7 +568,27 @@ export function svFigure(solve, theme) {
 }
 
 /**
- * The CM step — HCM and VCM step bars against each family's corrector index.
+ * The correctors of both planes in ring order: by `s`, horizontal before
+ * vertical at one position, a corrector without `s` after the placed ones.
+ *
+ * @param {Catalog|null|undefined} catalog
+ * @returns {{name: string, family: 'hcms'|'vcms'}[]}
+ */
+function correctorAxis(catalog) {
+  const all = /** @type {const} */ (['hcms', 'vcms']).flatMap((family, rank) => {
+    const entries = catalog?.[family];
+    return Array.isArray(entries)
+      ? entries.map((entry, index) => ({ name: entry.name, family, s: typeof entry.s === 'number' ? entry.s : null, rank, index }))
+      : [];
+  });
+  all.sort((a, b) => (a.s === null ? 1 : 0) - (b.s === null ? 1 : 0)
+    || (a.s ?? 0) - (b.s ?? 0) || a.rank - b.rank || a.index - b.index);
+  return all.map(({ name, family }) => ({ name, family }));
+}
+
+/**
+ * The CM step — HCM and VCM step bars against the correctors in ring order,
+ * each bar at its own corrector.
  *
  * @param {any} step - `Snapshot.step` (its `deltas` by corrector name)
  * @param {Catalog|null|undefined} catalog
@@ -422,29 +597,37 @@ export function svFigure(solve, theme) {
  */
 export function cmStepFigure(step, catalog, theme) {
   const deltas = step?.deltas || {};
-  /** @param {string} name @param {string[]} correctors */
-  const bars = (name, correctors) => ({
-    type: 'bar',
-    name,
-    x: correctors.map((_, i) => i + 1),
-    y: correctors.map((c) => finite(deltas[c])),
-    customdata: [...correctors],
-    hovertemplate: '%{customdata} (%{x}): %{y}<extra></extra>',
-  });
+  const order = correctorAxis(catalog);
+  const names = order.map((corrector) => corrector.name);
+  const ticks = deviceAxis(names, catalog);
+  /** @param {string} name @param {'hcms'|'vcms'} family */
+  const bars = (name, family) => {
+    const at = order.flatMap((corrector, i) => (corrector.family === family ? [i] : []));
+    return {
+      type: 'bar',
+      name,
+      x: at.map((i) => i + 1),
+      y: at.map((i) => finite(deltas[names[i]])),
+      customdata: at.map((i) => names[i]),
+      text: at.map((i) => ticks.hover[i]),
+      textposition: 'none',
+      hovertemplate: '%{text}: %{y}<extra></extra>',
+    };
+  };
   return {
-    data: [bars('HCM', catalogNames(catalog, 'hcms')), bars('VCM', catalogNames(catalog, 'vcms'))],
+    data: [bars('HCM', 'hcms'), bars('VCM', 'vcms')],
     layout: layout(
       theme,
       'cm-step',
-      axis(theme, 'xaxis', { text: 'Corrector index' }, null),
+      deviceXAxis(theme, 'Corrector', ticks),
       axis(theme, 'yaxis', { text: 'Step' }, null),
-      { barmode: 'group' },
+      { barmode: 'overlay', shapes: ticks.shapes },
     ),
   };
 }
 
 /**
- * A per-BPM setting readback against the BPM index. Values may be numbers or
+ * A per-BPM setting readback against the BPMs in ring order. Values may be numbers or
  * a setting's option labels; unread devices are gaps.
  *
  * @param {any} readback - one `SettingReadback`
@@ -462,14 +645,15 @@ function readbackFigure(readback, catalog, theme, title, uirevision) {
     const v = values[bpm];
     return typeof v === 'string' || typeof v === 'boolean' ? String(v) : finite(v);
   };
+  const ticks = deviceAxis(names, catalog);
   return {
-    data: [{ ...bpmTrace(title, names, /** @type {any} */ (value)), mode: 'markers' }],
+    data: [{ ...bpmTrace(title, names, /** @type {any} */ (value), ticks.hover, new Set()), mode: 'markers' }],
     layout: layout(
       theme,
       uirevision,
-      axis(theme, 'xaxis', { text: 'BPM index' }, null),
+      deviceXAxis(theme, 'BPM', ticks),
       axis(theme, 'yaxis', { text: title }, null),
-      { showlegend: false },
+      { showlegend: false, shapes: ticks.shapes },
     ),
   };
 }

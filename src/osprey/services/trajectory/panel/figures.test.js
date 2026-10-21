@@ -5,8 +5,10 @@ import {
   POSITION_HALF_RANGE_MM,
   TURN_AXIS_TITLE,
   attenuationFigure,
+  MAX_DEVICE_TICKS,
   catalogNames,
   cmStepFigure,
+  deviceAxis,
   differenceFigures,
   pilotToneFigure,
   positionRange,
@@ -206,7 +208,9 @@ describe('trajectoryFigures', () => {
     expect(figs.y.data[0].y).toEqual([-1, -2, null, -4]);
     expect(figs.y.data[1].y).toEqual([0.5, null, 3, -1]);
     expect(figs.x.layout.yaxis.range).toEqual([-10, 10]);
-    expect(figs.x.layout.xaxis.title.text).toBe('BPM index');
+    expect(figs.x.layout.xaxis.title.text).toBe('BPM');
+    expect(figs.x.layout.xaxis.tickvals).toEqual([1, 2, 3, 4]);
+    expect(figs.x.layout.xaxis.ticktext).toEqual(['B1', 'B2', 'B3', 'B4']);
     expect(figs.x.layout.uirevision).toBe('traj-x');
     expect(noColor(meas) && noColor(ref)).toBe(true);
   });
@@ -232,6 +236,38 @@ describe('trajectoryFigures', () => {
     const ring = { ...CATALOG, bpms: entries(['B4', 'B1', 'B3', 'B2']) };
     const meas = trajectoryFigures(shot(), { catalog: ring, reference: null }, THEME).x.data[0];
     expect(meas.customdata).toEqual(['B4', 'B1', 'B3', 'B2']);
+  });
+
+  it('gaps the BPMs excluded in force and those the shot left out, in every trace', () => {
+    const figs = trajectoryFigures(shot({ excluded_bpms: ['B4'] }), { ...SNAPSHOT, excluded: ['B1'] }, THEME);
+    expect(figs.x.data[0].y).toEqual([null, 2, null, null]);
+    expect(figs.x.data[1].y).toEqual([null, 1, 3, null]);
+    const diff = differenceFigures(shot(), { ...SNAPSHOT, excluded: ['B2'] }, THEME);
+    expect(diff.x.data[0].y).toEqual([0.5, null, null, 3]);
+  });
+
+  it('labels the ticks and hovers with label, place and s, and bands every other place', () => {
+    const placed = (/** @type {string} */ name, /** @type {string} */ label, /** @type {string} */ place, /** @type {number} */ s) =>
+      ({ name, device: name, label, places: [{ id: 'RING', level: 'ring' }, { id: place, level: 'cell' }], s, plane: null, groups: [] });
+    const catalog = {
+      ...CATALOG,
+      bpms: [placed('B1', 'Pick 1', 'C1', 1), placed('B2', 'Pick 2', 'C1', 2), placed('B3', 'Pick 3', 'C2', 3),
+        placed('B4', 'Pick 4', 'C3', 4.25)],
+    };
+    const fig = trajectoryFigures(shot(), { catalog, reference: null }, THEME).x;
+    expect(fig.layout.xaxis.ticktext).toEqual(['Pick 1', 'Pick 2', 'Pick 3', 'Pick 4']);
+    expect(fig.data[0].text[3]).toBe('Pick 4 · C3 · s = 4.3 m');
+    expect(fig.data[0].customdata).toEqual(['B1', 'B2', 'B3', 'B4']);
+    expect(fig.layout.shapes).toEqual([expect.objectContaining({ type: 'rect', x0: 2.5, x1: 3.5, layer: 'below', name: 'C2' })]);
+  });
+
+  it('thins the tick labels to fit', () => {
+    const names = Array.from({ length: 100 }, (_, i) => `N${i}`);
+    const { tickvals, ticktext, hover } = deviceAxis(names, null);
+    expect(tickvals.length).toBeLessThanOrEqual(MAX_DEVICE_TICKS);
+    expect(tickvals.slice(0, 2)).toEqual([1, 6]);
+    expect(ticktext[1]).toBe('N5');
+    expect(hover).toHaveLength(100);
   });
 
   it('falls back to the shot order without a catalog', () => {
@@ -286,16 +322,19 @@ describe('svFigure', () => {
 });
 
 describe('cmStepFigure', () => {
-  it('draws HCM and VCM bars against the corrector index with device names', () => {
+  it('draws HCM and VCM bars at their correctors in ring order with device names', () => {
     const fig = cmStepFigure({ deltas: { H1: 0.1, H3: -0.2, V2: 0.3, X9: 1 } }, CATALOG, THEME);
     const [h, v] = fig.data;
     expect(h).toMatchObject({ type: 'bar', name: 'HCM' });
-    expect(h.x).toEqual([1, 2, 3]);
+    // s: H1 0, V1 0, H2 1, V2 1, H3 2 — horizontal first at one position.
+    expect(h.x).toEqual([1, 3, 5]);
     expect(h.y).toEqual([0.1, null, -0.2]);
     expect(h.customdata).toEqual(['H1', 'H2', 'H3']);
+    expect(v.x).toEqual([2, 4]);
     expect(v.y).toEqual([null, 0.3]);
     expect(v.customdata).toEqual(['V1', 'V2']);
-    expect(fig.layout.xaxis.title.text).toBe('Corrector index');
+    expect(fig.layout.xaxis.title.text).toBe('Corrector');
+    expect(fig.layout.xaxis.ticktext).toEqual(['H1', 'V1', 'H2', 'V2', 'H3']);
     expect(noColor(h) && noColor(v)).toBe(true);
   });
 

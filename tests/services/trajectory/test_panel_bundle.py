@@ -10,6 +10,7 @@ nothing else.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -76,3 +77,47 @@ def test_a_vendor_segment_above_the_panel_dir_does_not_hide_the_panel(tmp_path: 
     (panel / "colours.css").write_text("a { color: #abc; }\n", encoding="utf-8")
 
     assert any(source.endswith("colours.css:1") for source in _hex_findings(panel))
+
+
+#: A facility's own vocabulary: its name, its ring's address prefix and the
+#: words it uses for places along the ring. Every label, place and level the
+#: panel shows comes from the facility model through ``Snapshot.catalog``, so
+#: none of them may be spelled in the panel's own source.
+FACILITY_WORDS = re.compile(
+    r"(?i)\b(?:sector|sect\d*|girder|straight)s?\b|\bSR[:/]|\bALS(?:-U)?\b"
+)
+
+
+def _panel_sources() -> list[Path]:
+    return sorted(
+        path
+        for path in PANEL_DIR.rglob("*")
+        if path.suffix in {".js", ".css", ".html"}
+        and "vendor" not in path.relative_to(PANEL_DIR).parts
+        and not path.name.endswith(".test.js")
+    )
+
+
+def test_there_is_panel_source_to_scan() -> None:
+    names = {path.name for path in _panel_sources()}
+    assert {"setup.js", "figures.js", "panel.css"} <= names
+
+
+@pytest.mark.parametrize("path", _panel_sources(), ids=lambda path: path.name)
+def test_the_panel_source_names_no_facility_word(path: Path) -> None:
+    hits = [
+        f"{path.name}:{number}: {line.strip()}"
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if FACILITY_WORDS.search(line)
+    ]
+    assert hits == []
+
+
+@pytest.mark.parametrize("text", ["sector 3", "SECT12", "SR:BPM:1", "SR/SECT1", "ALS", "girders"])
+def test_the_facility_word_scan_catches_a_facility_name(text: str) -> None:
+    assert FACILITY_WORDS.search(text)
+
+
+@pytest.mark.parametrize("text", ["select", "selection", "insertion", "cell(value)", "SRC", "falsey"])
+def test_the_facility_word_scan_leaves_generic_words_alone(text: str) -> None:
+    assert not FACILITY_WORDS.search(text)

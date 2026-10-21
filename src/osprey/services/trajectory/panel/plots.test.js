@@ -251,6 +251,9 @@ describe('snapshots', () => {
     expect(t.api.shots).not.toHaveBeenCalled();
     expect(t.api.shotRaw).not.toHaveBeenCalled();
     expect(t.rendered).toHaveLength(2 * TRAJ_IDS.length);
+    const four = t.builds[t.builds.length - 1];
+    expect(four.trajX.data[0].y).toEqual([null, 0.2]);
+    expect(four.diffY.data[0].customdata).toEqual(['B1', 'B2']);
   });
 
   it('a solve-only change draws nothing', async () => {

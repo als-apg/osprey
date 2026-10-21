@@ -15,9 +15,13 @@
  * Calculate CM step fetches the pending step and the column keeps it: the
  * CM-step bars draw that step, and Apply sends that step's digest. Apply is
  * offered only while the kept step is still the pending one, the service is
- * idle, the BPM set the step's shot was taken with is still the one in force,
- * and the machine has not moved since that shot; each refusal to offer it
- * names the operator's next move.
+ * idle, the BPM set committed through Setup BPMs (`Snapshot.solve.config`) is
+ * still the one the step's shot was taken with, and the machine has not moved
+ * since that shot; each refusal to offer it names the operator's next move.
+ * Every shot is taken without the BPMs excluded in force, so a committed
+ * exclusion never withholds Apply by itself; only a commit after the shot
+ * does. A selection still pending in the setup tabs is not committed and
+ * never touches the guard.
  *
  * This module is the sole renderer of `plot-sv` (from `Snapshot.solve`),
  * `plot-cm-step` (from the kept step, while the plot tick is set) and the
@@ -48,7 +52,7 @@ export const STEP_CHANGED = 'step changed: Calculate CM step again';
 /** Why Apply is disabled once the machine moved since the kept step's shot. */
 export const MACHINE_MOVED = 'machine moved since this shot: Run Selected, then calculate';
 
-/** Why Apply is disabled once the BPM set differs from the kept step's shot. */
+/** Why Apply is disabled once the committed BPM set differs from the kept step's shot's. */
 export const BPM_SET_CHANGED = 'BPM set changed: Run Selected';
 
 /** Why Apply is disabled for a step that moves nothing. */
@@ -208,7 +212,7 @@ export function busyReason(snapshot) {
  * @typedef {object} ApplyState
  * @property {any} snapshot
  * @property {any} kept  The step the column showed, or null.
- * @property {string[] | null} keptExcluded  The kept step's shot's excluded BPMs, null when unknown.
+ * @property {string[] | null} keptExcluded  The BPMs the kept step's shot was taken without, null when unknown.
  * @property {boolean} machineMoved  Whether the machine moved since the kept step's shot.
  * @property {boolean} holding
  */
@@ -226,8 +230,8 @@ export function applyReason({ snapshot, kept, keptExcluded, machineMoved, holdin
   const pending = snapshot?.step ?? null;
   const sameShot = pending == null || pending.shot_id === kept.shot_id;
   if (sameShot) {
-    const inForce = snapshot?.solve?.config?.excluded_bpms;
-    if (keptExcluded != null && Array.isArray(inForce) && !sameNames(keptExcluded, inForce)) return BPM_SET_CHANGED;
+    const committed = snapshot?.solve?.config?.excluded_bpms;
+    if (keptExcluded != null && Array.isArray(committed) && !sameNames(committed, keptExcluded)) return BPM_SET_CHANGED;
     if (machineMoved) return MACHINE_MOVED;
   }
   if (pending?.digest !== kept.digest) return STEP_CHANGED;

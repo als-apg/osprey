@@ -343,6 +343,20 @@ describe('mount', () => {
     expect(t.el('step-apply').dataset.reason).toBe(BPM_SET_CHANGED);
   });
 
+  it('offers Apply for a step whose shot left out the BPMs committed as excluded', async () => {
+    const config = { ...CONFIG, excluded_bpms: ['B2'] };
+    const t = harness({
+      snapshot: snapshotOf({ solve: solveOf({ config }) }),
+      shots: [{ shot_id: 'shot-1', excluded_bpms: ['B2'] }],
+    });
+    t.el('step-calculate').click();
+    await flush();
+    await flush();
+    expect(t.el('step-apply').disabled).toBe(false);
+    t.push(snapshotOf({ solve: solveOf({ config: { ...CONFIG, excluded_bpms: ['B2', 'B3'] } }) }));
+    expect(t.el('step-apply').dataset.reason).toBe(BPM_SET_CHANGED);
+  });
+
   it('takes the kept shot\'s BPM set from the shot event without a lookup', async () => {
     const t = harness();
     t.emit('shot', { shot: { shot_id: 'shot-1', excluded_bpms: ['B3'] } });

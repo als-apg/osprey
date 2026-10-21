@@ -309,6 +309,68 @@ body.embedded .panel-chrome { display: none; }
   border-bottom-color: var(--color-accent);
 }
 
+/* --- the setup map ------------------------------------------------------ */
+
+/* The Setup BPMs / Setup CMs map: one row per place, its name a toggle, one
+ * square per device. A filled square is in use, a hollow one out, a hatched
+ * one a pending change that the tab's Setup button has not committed. */
+.setup-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.setup-family { margin: 0; font-weight: var(--weight-semibold); color: var(--text-primary); }
+.setup-find,
+.setup-start-from { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
+.setup-find input { flex: 1; }
+.setup-error { color: var(--color-error); font-size: var(--text-xs); }
+.setup-pending-change { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-warning); }
+.setup-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.device-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 22rem;
+  overflow-y: auto;
+  font-size: var(--text-xs);
+}
+.map-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.map-place {
+  min-width: 6rem;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: left;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.map-place:hover:not(:disabled) { color: var(--text-primary); text-decoration: underline; }
+.map-plane { display: inline-flex; align-items: center; gap: var(--space-1); }
+.map-plane-label { color: var(--text-muted); font-family: var(--font-mono); }
+.map-strip { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.map-count { color: var(--text-muted); font-family: var(--font-mono); }
+.map-device {
+  width: 0.75rem;
+  height: 0.75rem;
+  padding: 0;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent);
+  cursor: pointer;
+}
+.map-device[data-state="out"] { background: transparent; border-color: var(--text-muted); }
+.map-device[data-pending="true"] {
+  border-color: var(--color-warning);
+  background: repeating-linear-gradient(45deg, var(--color-warning) 0 2px, transparent 2px 4px);
+}
+.map-device:focus-visible,
+.map-place:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.map-device:disabled,
+.map-place:disabled { cursor: not-allowed; opacity: 0.6; }
+
 .tab-panel {
   display: flex;
   flex-direction: column;

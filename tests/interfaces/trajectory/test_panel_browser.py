@@ -184,6 +184,44 @@ def test_the_fake_machine_serves_what_the_panel_reads(stack: Stack) -> None:
         stack.machine.stage("no-such-state")
 
 
+# -- the setup map ------------------------------------------------------------------
+
+
+def test_the_setup_map_draws_the_catalog_and_a_click_only_marks_a_pending_change(
+    stack: Stack,
+) -> None:
+    """The Setup BPMs map is drawn from the served catalog, one row per place in
+    ring order; clicking a device marks a pending change and commits nothing."""
+    page = stack.open("alice")
+    _open_session(page, "alice")
+    bpm_map = page.locator("[data-map=bpms]")
+    rows = bpm_map.locator(".map-row")
+    expect(rows).to_have_count(3, timeout=SETTLE_MS)
+    assert rows.evaluate_all("rows => rows.map(r => r.dataset.place)") == [
+        "SR/SECT1",
+        "SR/SECT2",
+        "SR/SECT3",
+    ]
+    family = page.locator("[data-control=bpm-family]")
+    expect(family).to_have_text("3 of 3 BPMs in use")
+
+    square = bpm_map.locator('.map-device[aria-label^="BPM2 "]')
+    expect(square).to_have_attribute("data-state", "in")
+    square.click()
+    square = bpm_map.locator('.map-device[aria-label^="BPM2 "]')
+    expect(square).to_have_attribute("data-state", "out")
+    expect(square).to_have_attribute("data-pending", "true")
+    expect(family).to_have_text("2 of 3 BPMs in use")
+    expect(page.locator("[data-pending-change=bpms]")).to_have_text("pending: \u2212BPM2")
+    assert _call(page, "GET", "api/state")[1]["solve"]["config"]["excluded_bpms"] == []
+
+    page.locator("[data-control=setup-bpms-revert]").click()
+    expect(bpm_map.locator('.map-device[aria-label^="BPM2 "]')).to_have_attribute(
+        "data-state", "in"
+    )
+    expect(family).to_have_text("3 of 3 BPMs in use")
+
+
 # -- take-over -------------------------------------------------------------------
 
 

@@ -13,7 +13,8 @@
  *   newest stored shot (the head of GET shots) and draws it the same way;
  * - a change of the snapshot's reference (name and sha) or of the solve's
  *   excluded BPMs / correctors redraws the four from the last fetched data,
- *   without a fetch; any other snapshot change draws nothing;
+ *   without a fetch, the BPMs excluded in force drawn as gaps; any other
+ *   snapshot change draws nothing;
  * - a redraw request in the view store redraws from the last data;
  * - the `range-turns`, `range-sum`, `range-x` and `range-y` inputs set the
  *   adapter's ranges, which rebuilds the drawn plots without a fetch.
@@ -148,7 +149,11 @@ export const mount = (host, ctx) => {
     if (!last) return;
     const { shot, raw } = last;
     const snapshot = ctx.snapshot();
-    const plane = { catalog: snapshot?.catalog ?? null, reference: snapshot?.reference ?? null };
+    const plane = {
+      catalog: snapshot?.catalog ?? null,
+      reference: snapshot?.reference ?? null,
+      excluded: snapshot?.solve?.config?.excluded_bpms ?? [],
+    };
     const units = raw?.header?.units ?? {};
     adapter.renderGroup(TRAJECTORY_PLOTS, (/** @type {any} */ theme, /** @type {any} */ options) => {
       const traj = trajectoryFigures(shot, plane, theme, { units, ranges: options.ranges });
