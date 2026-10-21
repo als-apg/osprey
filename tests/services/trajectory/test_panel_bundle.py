@@ -83,9 +83,7 @@ def test_a_vendor_segment_above_the_panel_dir_does_not_hide_the_panel(tmp_path: 
 #: words it uses for places along the ring. Every label, place and level the
 #: panel shows comes from the facility model through ``Snapshot.catalog``, so
 #: none of them may be spelled in the panel's own source.
-FACILITY_WORDS = re.compile(
-    r"(?i)\b(?:sector|sect\d*|girder|straight)s?\b|\bSR[:/]|\bALS(?:-U)?\b"
-)
+FACILITY_WORDS = re.compile(r"(?i)\b(?:sector|sect\d*|girder|straight)s?\b|\bSR[:/]|\bALS(?:-U)?\b")
 
 
 def _panel_sources() -> list[Path]:
@@ -118,6 +116,8 @@ def test_the_facility_word_scan_catches_a_facility_name(text: str) -> None:
     assert FACILITY_WORDS.search(text)
 
 
-@pytest.mark.parametrize("text", ["select", "selection", "insertion", "cell(value)", "SRC", "falsey"])
+@pytest.mark.parametrize(
+    "text", ["select", "selection", "insertion", "cell(value)", "SRC", "falsey"]
+)
 def test_the_facility_word_scan_leaves_generic_words_alone(text: str) -> None:
     assert not FACILITY_WORDS.search(text)
