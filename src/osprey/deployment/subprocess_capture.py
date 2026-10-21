@@ -469,28 +469,36 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
             continue
 
 
-def group_is_gone(pgid: int) -> bool:
+def group_is_gone(pgid: int, *, within: float = 0.0) -> bool:
     """Whether no process of the process group ``pgid`` is still running.
 
-    The group is named by its leader's pid. An exited process nobody has reaped
-    (a zombie) counts as gone. A member this user may not signal counts as
-    present, and so does every member when the process table cannot be read.
-    """
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        # Either a member this user may not signal, or (on macOS) a group whose
-        # only members are zombies: the process table tells the two apart.
-        pass
-    from osprey.deployment.process_table import ProcessTableUnreadable, snapshot
+    The group is named by its leader's pid. The group is looked at until it is
+    gone or ``within`` seconds have passed; ``within=0`` gives one look. An
+    exited process nobody has reaped (a zombie) counts as gone. A member this
+    user may not signal counts as present.
 
-    try:
-        rows = snapshot()
-    except ProcessTableUnreadable:
-        return False
-    return not any(row.pgid == pgid and not row.exited for row in rows.values())
+    Raises:
+        ProcessTableUnreadable: the process table could not be read by the
+            deadline (at once when the failure is not retryable).
+    """
+    from osprey.deployment.process_table import snapshot_within
+
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            # Either a member this user may not signal, or (on macOS) a group whose
+            # only members are zombies: the process table tells the two apart.
+            pass
+        rows = snapshot_within(max(deadline - time.monotonic(), 0.0))
+        if not any(row.pgid == pgid and not row.exited for row in rows.values()):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(_GROUP_POLL_S)
 
 
 def _signal_group(pgid: int, sig: int) -> None:
@@ -499,16 +507,24 @@ def _signal_group(pgid: int, sig: int) -> None:
 
 
 def _wait_group_gone(pgid: int, seconds: float) -> bool:
-    """Wait up to ``seconds`` for the group to be gone; a Ctrl-C ends the wait."""
+    """Wait up to ``seconds`` for the group to be gone; a Ctrl-C ends the wait.
+
+    A process table that cannot be read is read again until the deadline, so a
+    group whose state is unknown gets the whole wait.
+    """
+    from osprey.deployment.process_table import ProcessTableUnreadable
+
     deadline = time.monotonic() + seconds
     try:
-        while not group_is_gone(pgid):
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(_GROUP_POLL_S)
+        while True:
+            try:
+                return group_is_gone(pgid, within=max(deadline - time.monotonic(), 0.0))
+            except ProcessTableUnreadable:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(_GROUP_POLL_S)
     except KeyboardInterrupt:
         return False
-    return True
 
 
 def stop_group(pgid: int, *, dump: float | None = None, grace: float) -> list[int]:
