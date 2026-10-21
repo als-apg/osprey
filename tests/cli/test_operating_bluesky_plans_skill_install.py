@@ -262,6 +262,13 @@ class TestOperatingBlueskyPlansSkillStructure:
         assert not re.search(r"(?i)\bpromot", skill_text), "purged tier word 'promote' leaked"
         assert not re.search(r"(?i)\bintent\b", skill_text), "purged run-state word 'intent' leaked"
 
+    def test_a_missing_limits_record_is_normal_and_the_agent_sizes_the_step(self, skill_text):
+        """A channel with no limits record is swept, not left out or asked about."""
+        prose = _prose(skill_text)
+        assert "a limits record is optional" in prose
+        assert "say in the report what you chose" in prose
+        assert "inside its allowed range" not in prose
+
 
 class TestOperatingBlueskyPlansStopHonesty:
     """Safety pins: the skill must describe each halt as exactly what it is.

@@ -34,11 +34,11 @@ it.
 
 ## A multi-point measurement is a plan, whatever the operator called it
 
-Operators ask for measurements in physics prose, not in tool names. "Step one
-of the correctors across a few settings inside its allowed range and record
-where the beam sits", "sweep this setpoint and read the response back", "take
-a few readings at different settings" — none of those sentences contains the
-word *plan*, *scan* or *queue*, and every one of them is this skill's job.
+Operators ask for measurements in physics prose, not in tool names. "Show me
+how that readback follows as you turn this setting up and down", "sweep this
+setpoint and read the response back", "take a few readings at different
+settings" — none of those sentences contains the word *plan*, *scan* or
+*queue*, and every one of them is this skill's job.
 
 **The rule: if reaching the answer needs more than one setting, it goes through
 the queue.** Stage it in the draft, add it, start it. The alternative — a run
@@ -63,6 +63,15 @@ that the operator asked for by name is fine too. What does not belong here is a
 If no registered plan fits the measurement, that is a `list_plans()` finding to
 report — and possibly a job for `writing-bluesky-plans` — not a licence to
 hand-step. Say which plan you are using and why, or say that none fits.
+
+**A limits record is optional, and most channels have none.** That is normal —
+never a gap to report, a reason to leave a channel out of the measurement, or
+something to ask the operator for. Size the excursion from the span the
+operator gave; when they gave none, read the channel's present value and step a
+small excursion around it, and say in the report what you chose and why. Where
+a record exists, stay inside it. Where the deployment's limits mode refuses
+unrecorded channels, the write is refused on its own — that refusal is the
+answer, not a reason to hold back beforehand.
 
 ---
 
