@@ -328,6 +328,12 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "render_failed" in skill_text
         assert "stay facility-neutral" in prose
 
+    def test_a_render_takes_its_units_from_the_window(self, skill_text):
+        assert "window.units" in skill_text
+        prose = _prose(skill_text)
+        assert "a render takes its panels' units from window.units" in prose
+        assert "never from a unit typed into the plan" in prose
+
     def test_documents_the_figure_vocabulary(self, skill_text):
         """One panel carries exactly one mark; an author has to know which
         three exist before choosing between them."""

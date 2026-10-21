@@ -401,7 +401,9 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   settles. Read `available` first: when it is `false`, `reason` says why in one
   word and that is the honest answer, not a failure. Never estimate any of
   those numbers off a figure's plotted points, and never state one that came
-  back `null`.
+  back `null`. A value's unit is the one the run declares for its column
+  (`units` here, a panel's units on the figure); where none is declared, say
+  the unit is not stated, never assume one.
 - **`get_run_figure(run_id)`** — the run's figure: the plan's own view of what
   it measured, as data rather than pixels. It comes back as panels, each with a
   title, axis labels and units, `annotations` worth relaying, and exactly one
