@@ -2,7 +2,7 @@
 /* OSPREY Design System — localStorage scope
  *
  * localStorage is origin-scoped, not path-scoped. On a multi-user deployment
- * every persona is served from the SAME origin under a different path mount
+ * every render is served from the SAME origin under a different path mount
  * (`/u/alice/`, `/u/bob/`), so a bare key like `osprey-ui-mode` is one shared
  * slot: whoever picks last decides what everybody else boots into. The server
  * therefore stamps `data-osprey-storage-scope="<user>"` on `<html>` whenever it
@@ -19,8 +19,8 @@
  * NO LEGACY FALLBACK WHEN SCOPED. A scoped read must NOT fall back to the bare
  * key when its own key is missing. The bare key is precisely the polluted slot
  * the scoping exists to escape: reading it as a fallback would hand the last
- * writer's preference to every persona who has not yet made a pick — the
- * original cross-persona bug, re-inflicted once per persona. A scoped page with
+ * writer's preference to every render that has not yet made a pick — the
+ * original cross-render bug, re-inflicted once per render. A scoped page with
  * no scoped value has no stored preference, and resolution falls through to the
  * next rung (the server-rendered attribute, then the built-in default).
  *

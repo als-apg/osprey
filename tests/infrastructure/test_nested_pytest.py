@@ -2,6 +2,7 @@
 
 A child that keeps writing runs to its end however long it takes; a child that
 writes nothing for the stall window is stopped and its output reported. A
+finished run says how long it sat silent before it exited. A
 nested run's temporary directories, and the pruning pytest does of them at
 exit, stay inside a root of its own.
 """
@@ -25,6 +26,16 @@ def test_a_run_that_keeps_writing_is_not_stopped_by_its_length():
     )
     assert result.returncode == 0
     assert result.stdout.count(".") == 6
+
+
+def test_a_finished_run_reports_its_silence_before_exit():
+    result = run_nested_pytest(
+        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(1)"],
+        cwd=None,
+        env=None,
+    )
+    assert result.returncode == 0
+    assert result.quiet_before_exit >= 0.8
 
 
 def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():

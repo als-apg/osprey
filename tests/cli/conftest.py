@@ -256,7 +256,7 @@ def terminal_probe(
         def test_the_fact_is_in_the_default_view(terminal_probe, monkeypatch):
             # The group callback loads an ancestor .env straight into os.environ.
             monkeypatch.setattr(
-                "osprey.utils.config.load_project_dotenv", lambda *a, **k: None
+                "osprey_connectors.config.load_project_dotenv", lambda *a, **k: None
             )
             result = CliRunner().invoke(cli, ["up"])
 

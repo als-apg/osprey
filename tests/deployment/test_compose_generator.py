@@ -2,8 +2,8 @@
 
 An "attached" project (built with ``deploy_services: false``, connecting to
 another project's already-deployed services stack) is what declares no
-deployed_services — the hello-world preset's own default build deploys one
-service (openobserve). Two failure modes have to stay fixed for the empty
+deployed_services — the hello-world preset's own default build deploys two
+services (telemetry_store, telemetry_gateway). Two failure modes have to stay fixed for the empty
 case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import errno
+import functools
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ import re
 import subprocess
 import sys
 import threading
-from collections.abc import Iterator
+import time
 from pathlib import Path
 from typing import IO, Any
 from unittest import mock
@@ -32,7 +33,6 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
-import osprey.channel_roster as channel_roster
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     SECOND_LANE_KEYS,
@@ -43,30 +43,28 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
+    _dedupe_compose_files,
     _host_dial_address,
+    derived_compose_dirs,
+    find_existing_compose_files,
+    guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
     resolve_user_volume_names,
+    simulator_log_mount_sources,
 )
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
+    CONTROL_IDENTITY_CONTAINER_PATH,
+)
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
-from tests._graph_index import build_index_from_ttl
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
+from tests._preset_data import bundle_data_root
+from tests._renders import tier_render
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -87,7 +85,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -363,7 +361,7 @@ _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
 
 
 def _control_identity_context() -> dict[str, Any]:
-    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+    """The control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
 
     Every bluesky lane's queueserver renames root to its lane identity before
     ``start-re-manager`` runs, so the template reads both keys with no fallback:
@@ -371,6 +369,7 @@ def _control_identity_context() -> dict[str, Any]:
     """
     return {
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
 
@@ -568,7 +567,7 @@ def test_service_templates_honor_a_port_override_pin() -> None:
         },
     )
     assert '"127.0.0.1:31017:27017"' in mongo
-    assert "20801" not in mongo
+    assert ":20801:" not in mongo
 
     bluesky = _render_template_through_injection(
         "services/bluesky/docker-compose.yml.j2",
@@ -579,7 +578,7 @@ def test_service_templates_honor_a_port_override_pin() -> None:
         },
     )
     assert '"127.0.0.1:31090:31090"' in bluesky
-    assert "20080" not in bluesky
+    assert ":20080:" not in bluesky
 
     postgres = _render_template_through_injection(
         "services/postgresql/docker-compose.yml.j2",
@@ -1076,7 +1075,7 @@ def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
         pytest.param({"simulation": {"state_dir": "run/scenarios"}}, id="explicit-state-dir"),
     ],
 )
-def test_va_state_mount_matches_what_the_engine_writes(
+def test_va_state_mount_matches_the_scenario_state_dir(
     tmp_path: Path, relocation: dict[str, Any]
 ) -> None:
     """The mount source and the writer's target are one directory.
@@ -1085,62 +1084,15 @@ def test_va_state_mount_matches_what_the_engine_writes(
     relocating the agent-data root, or naming the state dir outright. The mount
     is rendered relative to the pinned compose project directory — the repo root
     — so resolving it from there must land on exactly the path
-    ``resolve_state_dir`` hands the engine.
+    ``resolve_simulation_state_dir`` resolves, where ``sim apply`` writes.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     config: dict[str, Any] = {"project_root": str(tmp_path), **relocation}
     rendered = _render_va_template(config)
     source = re.search(r"- (\S+):/state/simulation:ro", rendered).group(1)
 
-    assert (tmp_path / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
-
-
-# ---------------------------------------------------------------------------
-# Virtual Accelerator noise level
-# ---------------------------------------------------------------------------
-# How noisy a synthesised reading is decides whether a demo looks alive and
-# whether a test comparing two reads can. It is a property of the simulated
-# machine, so it is a config key like the simulation file beside it — with the
-# same fall-through to the mock connector, so `osprey sim` scenarios behave the
-# same whichever connector serves them. The rendered value is the DEFAULT of
-# the compose interpolation: a deployment that exports VA_NOISE_LEVEL in its
-# .env still wins.
-
-
-def _va_noise_config(**levels: float) -> dict[str, Any]:
-    """A config naming ``noise_level`` on the connector types given."""
-    return {
-        "control_system": {
-            "connector": {name: {"noise_level": level} for name, level in levels.items()}
-        }
-    }
-
-
-def test_va_noise_level_comes_from_the_virtual_accelerator_key() -> None:
-    rendered = _render_va_template(_va_noise_config(virtual_accelerator=0.05))
-
-    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.05}"' in rendered
-
-
-def test_va_noise_level_falls_through_to_the_mock_connector() -> None:
-    """One machine model, one noise level — the VA need not restate it."""
-    rendered = _render_va_template(_va_noise_config(mock=0.2))
-
-    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.2}"' in rendered
-
-
-def test_va_noise_level_prefers_its_own_key_to_the_mock_one() -> None:
-    rendered = _render_va_template(_va_noise_config(mock=0.2, virtual_accelerator=0.05))
-
-    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.05}"' in rendered
-
-
-def test_va_noise_level_is_empty_when_neither_key_is_set() -> None:
-    """An empty default leaves the entrypoint's own 0.01 in force."""
-    rendered = _render_va_template({})
-
-    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"' in rendered
+    assert (tmp_path / source).resolve() == resolve_simulation_state_dir(config, tmp_path).resolve()
 
 
 # The worker process reads OSPREY config directly (get_facility_timezone while
@@ -1157,18 +1109,6 @@ def test_worker_template_sets_config_file() -> None:
     assert f"CONFIG_FILE: /app/{_WORKER_PROJECT_NAME}/{RENDERED_CONFIG_RELPATH}" in rendered, (
         "dispatch worker must set CONFIG_FILE so the worker process (and the CLI "
         "subprocess it spawns) resolve config from the mounted project image layout"
-    )
-
-
-# The worker runs on the compose bridge network, so the OpenObserve store is
-# reachable only by its service DNS name — never localhost. The compose declares
-# the host explicitly (rather than sniffing the runtime) so telemetry emit works
-# identically under docker and podman; the resolver reads it as an override.
-def test_worker_template_declares_openobserve_host() -> None:
-    rendered = _render_worker_template(env_present=True)
-    assert "OSPREY_OTEL_OPENOBSERVE_HOST: openobserve" in rendered, (
-        "dispatch worker must declare the in-network OpenObserve host so an "
-        "in-container agent targets the service DNS name, not its own loopback"
     )
 
 
@@ -1357,7 +1297,7 @@ def test_worker_without_the_axis_joins_the_compose_network() -> None:
     rendered = _render_worker_template(env_present=True)
 
     assert "\n    networks:\n      - osprey-network\n" in rendered
-    assert rendered.endswith("\nnetworks:\n  osprey-network:")
+    assert rendered.endswith("\nnetworks:\n  osprey-network:\n")
     assert "network_mode" not in rendered
     assert "DISPATCH_WORKER_BIND" not in rendered, (
         "on the compose bridge the worker must keep the code default (0.0.0.0), "
@@ -1379,6 +1319,14 @@ def test_worker_on_the_host_namespace_declares_no_network() -> None:
         "a file whose only service runs on the host namespace must declare no network"
     )
     assert "osprey-network" not in rendered
+
+
+def test_every_worker_runs_with_no_new_privileges() -> None:
+    """The worker runs the agent, so no process in it may gain a privilege."""
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    for index in (1, 2):
+        assert _worker_service(rendered, index)["security_opt"] == ["no-new-privileges:true"]
 
 
 def test_worker_binds_loopback_only_on_the_host_namespace() -> None:
@@ -1486,17 +1434,22 @@ def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
 
 
 def test_worker_telemetry_host_follows_the_axis() -> None:
-    """The store is the compose service on the bridge, localhost on the host.
+    """The gateway is the compose service on the bridge, the dial address on the host.
 
-    Left unset the emitter's own fallback sees a container and reaches for the
-    service name, which under host resolves to nothing — so host mode has to
-    say localhost rather than simply omit the variable.
+    Under host the service name resolves to nothing, so host mode has to name
+    the interface the gateway publishes on rather than its service key.
     """
-    bridge = _render_worker_template(env_present=True)
-    host = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+    bridge = _render_worker_template(env_present=True, deployed_services=["telemetry_gateway"])
+    host = _render_worker_template(
+        env_present=True,
+        deployed_services=["telemetry_gateway"],
+        dispatch_worker={"network": "host"},
+    )
 
-    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "openobserve"
-    assert _worker_service(host)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "localhost"
+    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_GATEWAY_HOST"] == "telemetry_gateway"
+    host_value = _worker_service(host)["environment"]["OSPREY_OTEL_GATEWAY_HOST"]
+    assert host_value != "telemetry_gateway"
+    assert host_value in {"localhost", "127.0.0.1"}
 
 
 def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
@@ -2059,9 +2012,9 @@ def test_bluesky_tiled_absent_when_disabled() -> None:
 
 _TILED_KEY = "k3y"
 
-#: How long a held start script is given to say why it is not serving. Far above
-#: what a loaded host needs to start the stub, so only a script that says
-#: nothing at all runs into it.
+#: How long a held start script is given to report its failed upgrade, the
+#: reason it is not serving. Far above what a loaded host needs to start the
+#: stub, so only a script that never reports it runs into it.
 _TILED_REASON_TIMEOUT_S = 30.0
 
 
@@ -2074,10 +2027,10 @@ def _run_tiled_start(
     escape is undone, so the script runs as the container's shell would run it.
     The stub records each invocation and exits *upgrade_rc* for
     ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
-    once it has written its first line to stderr it is checked alive after that
-    long, then sent SIGTERM, and the completed process is ``None``. The hold is
-    timed from that line, not from the spawn, so how long the stub takes to
-    start never eats into it.
+    once its stderr carries the failed-upgrade line it is checked alive for
+    *hold_s* more, then sent SIGTERM, and the completed process is ``None``.
+    The hold is timed from that line, not from the spawn, so how long the
+    stub takes to start never eats into it.
 
     Returns the recorded invocations, the completed process, and stderr.
     """
@@ -2111,23 +2064,25 @@ def _run_tiled_start(
         proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
         assert proc.stderr is not None
         lines: list[str] = []
-        said_something = threading.Event()
+        failed_line = threading.Event()
 
         def _collect(stream: IO[str]) -> None:
             for line in stream:
                 lines.append(line)
-                said_something.set()
-            # End of file with nothing said still ends the wait below.
-            said_something.set()
+                if "upgrade-database failed" in line:
+                    failed_line.set()
 
         reader = threading.Thread(target=_collect, args=(proc.stderr,), daemon=True)
         reader.start()
         try:
-            if not said_something.wait(timeout=_TILED_REASON_TIMEOUT_S):
-                pytest.fail(
-                    "the start script wrote nothing to stderr within "
-                    f"{_TILED_REASON_TIMEOUT_S:.0f} s: its reason for not serving never arrived"
-                )
+            deadline = time.monotonic() + _TILED_REASON_TIMEOUT_S
+            while not failed_line.wait(timeout=0.05):
+                if proc.poll() is not None or time.monotonic() > deadline:
+                    pytest.fail(
+                        "the start script never reported the failed upgrade within "
+                        f"{_TILED_REASON_TIMEOUT_S:.0f} s (exit {proc.poll()}); "
+                        f"stderr: {''.join(lines)!r}"
+                    )
             try:
                 proc.wait(timeout=hold_s)
                 pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
@@ -2252,35 +2207,19 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
 
     runner = CliRunner()
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # into the bluesky service context, so a set written after the build would
-    # never reach a worker. Chosen from the deployment's own channel roster --
-    # the facility's knowledge graph or channel-finder database -- never a
-    # hardcoded preset channel.
-    authored_correctors: dict[str, tuple[str, str]] = {}
+    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
 
-    def author_devices(repo: Path) -> None:
-        nonlocal authored_correctors
-        records = _orm_stack.roster_records(repo)
-        authored_correctors = _orm_stack.select_correctors(records)
-        _orm_stack.write_devices_file(
-            repo, correctors=authored_correctors, bpms=_orm_stack.select_bpms(records)
-        )
-
-    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path, pre_build=author_devices)
-
-    # -- the authored device file reached the bluesky build context ----------
-    # The render mounts this staged copy into the queueserver worker, so a plan
-    # may address exactly these names. Asserted here because it is the ONE thing
-    # about this deploy config that the compose text alone cannot show: an
-    # authored file that failed to stage leaves a worker that browses plans and
-    # runs none.
+    # -- the build's device view reached the bluesky build context ----------
+    # The staged file is the build's Bluesky devices view, written from the
+    # facility file, and the render mounts it into the queueserver worker; the
+    # stack chooses its correctors and BPMs from it. Asserted here because it
+    # is the ONE thing about this deploy config that the compose text alone
+    # cannot show: a view that failed to stage leaves a worker that browses
+    # plans and runs none.
+    staged = _orm_stack.staged_devices_file(project_dir.parent).read_text(encoding="utf-8")
+    assert staged.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/1"
     staged_correctors, staged_bpms = _orm_stack.staged_devices(project_dir.parent)
-    assert set(staged_correctors) == set(authored_correctors), (
-        "the build must stage the device file this deploy config authored, "
-        f"not a different set: {sorted(staged_correctors)}"
-    )
+    assert staged_correctors, "the staged device file must name the correctors the stack drives"
     assert staged_bpms, "the staged device file must name the BPMs the orm plan reads"
 
     # -- execution_method: subprocess (the only backend OSPREY ships) --------
@@ -2351,6 +2290,66 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "channel_limits.json under the same /app/project root as config.yml, "
         "from the build zone the deployed config is read from"
     )
+
+
+def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: Path) -> None:
+    """The plan-stack lanes size a sweep from a corrector a limits record
+    bounds and read it back on monitors the same model solves for.
+
+    ``bounded_corrector`` must name a staged corrector whose record carries
+    both ends of a band, and ``select_bpms(..., model=...)`` must yield only
+    monitor bindings of that corrector's model: a monitor of another model
+    cannot respond to the sweep.
+    """
+    from click.testing import CliRunner
+
+    from tests.e2e import _facility_select, _orm_stack
+
+    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+
+    setpoint, readback, model = _facility_select.bounded_corrector(repo)
+    entry = _orm_stack.channel_limits(repo)[setpoint]
+    assert float(entry["min_value"]) < float(entry["max_value"]), entry
+    assert _orm_stack.select_correctors(repo, count=None, model=model)[setpoint] == (
+        setpoint,
+        readback,
+    )
+
+    bpms = _orm_stack.select_bpms(repo, count=None, model=model)
+    assert bpms, f"model {model} serves no monitor the worker registered"
+    view = _facility_select.repo_view(repo)
+    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
+
+
+def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
+    """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
+
+    The lane sweeps one model's correctors, the model whose corrector a limits
+    record bounds. A write the model cannot solve is refused and leaves the
+    model serving, so a corrector that loses the beam at the sweep's span would
+    fail the lane's first write rather than yield a response column.
+    """
+    from click.testing import CliRunner
+
+    from osprey_connectors.simulation.composite import Composite, WriteRefusedError
+    from osprey_connectors.simulation.view import SimulatorView
+    from tests.e2e import _facility_select, _orm_stack, test_orm_roundtrip
+
+    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+
+    model = _facility_select.bounded_corrector(repo)[2]
+    correctors = _orm_stack.select_correctors(repo, test_orm_roundtrip.CORRECTOR_COUNT, model=model)
+    composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
+    for setpoint in sorted(correctors):
+        before = composite.get(setpoint)
+        for value in (-test_orm_roundtrip.SPAN_A, test_orm_roundtrip.SPAN_A):
+            try:
+                composite.set({setpoint: value})
+            except WriteRefusedError as exc:
+                raise AssertionError(f"{setpoint} at {value} A is refused: {exc}") from exc
+            assert composite.get(setpoint) == pytest.approx(value), setpoint
+        composite.set({setpoint: before})
 
 
 # ---------------------------------------------------------------------------
@@ -2435,6 +2434,44 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     assert sys.executable not in staged_text, (
         "the staging interpreter must not appear anywhere in the staged config"
     )
+
+
+def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staged ``config.yml`` is byte for byte what PyYAML's own emitter writes for it.
+
+    The staging write goes through the libyaml-backed safe dumper; a real
+    generated project's flattened config, re-emitted by the pure-Python
+    ``yaml.dump`` with the same options, must give the same text.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    project_dir = _create_project(
+        TemplateManager(),
+        project_name="staged-bytes",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    service_dir = project_dir / "services" / "worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
+    monkeypatch.chdir(project_dir)
+
+    setup_build_dir(
+        str(Path("services") / "worker" / "docker-compose.yml.j2"),
+        {"project_name": "staged-bytes", "build_dir": "./build"},
+        {"copy_src": False},
+    )
+
+    staged = (project_dir / "build" / "services" / "worker" / "config.yml").read_text()
+    flattened = yaml.safe_load(staged)
+    assert len(staged.splitlines()) > 100 and flattened.get("execution"), (
+        "the staged config must be the flattened project config, not the verbatim fallback"
+    )
+    assert staged == yaml.dump(flattened, default_flow_style=False, sort_keys=False)
 
 
 def test_setup_build_dir_stages_the_execution_block_verbatim(
@@ -2563,89 +2600,10 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
         assert controls_server["command"] != host_python
 
 
-# ---------------------------------------------------------------------------
-# OpenObserve telemetry add-on: Docker-free compose render gate
-#
-# The opt-in ``openobserve`` service pulls a single public OTLP-native store so
-# the agent can emit telemetry to a local backend. It is a pure-image service
-# (no Dockerfile, no wheel, no src) — the closest analog is ``postgresql``.
-# These gates render the packaged template through the SAME deployed_services
-# gating path the CLI uses (``_copy_service_templates`` -> ``prepare_compose_files``,
-# mirroring ``test_prepare_compose_files_no_services_renders_root_only``), never
-# a container: they assert the compose text alone.
-#
-# Shared constants that must match the telemetry resolver stream: compose service
-# (and in-network DNS host) ``openobserve``, port ``5080``, root-cred env vars
-# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. These gates assert the
-# image *reference and override var*, never a specific tag; where a gate needs
-# the tag it reads it out of the template with ``_pinned_openobserve_tag``.
-# ---------------------------------------------------------------------------
-
-_OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
-_OPENOBSERVE_TEMPLATE = (
-    _REPO_ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "services"
-    / "openobserve"
-    / "docker-compose.yml.j2"
+_BLUESKY_TEMPLATE = (
+    _REPO_ROOT / "src" / "osprey" / "templates" / "services" / "bluesky" / "docker-compose.yml.j2"
 )
-
-
-def _pinned_openobserve_tag() -> str:
-    """Return the openobserve tag the compose template pins.
-
-    The image line follows the uniform env → config → default chain
-    (``${OSPREY_OPENOBSERVE_IMAGE:-{{ … | default('<ref>:<tag>') }}}``); the
-    pinned tag lives in the innermost Jinja ``default('…')``.
-    """
-    text = _OPENOBSERVE_TEMPLATE.read_text(encoding="utf-8")
-    match = re.search(
-        r"default\('" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^')\s]+)'\)",
-        text,
-    )
-    assert match, "compose template no longer pins the openobserve image in the expected form"
-    return match.group(1)
-
-
-def test_ci_openobserve_pinned_to_ghcr_mirror() -> None:
-    """CI must pull openobserve from the ghcr mirror, pinned to the compose tag.
-
-    Two foot-guns in one assertion:
-
-    * If the override drifts back to ``public.ecr.aws`` the rate-limit flakiness
-      returns — ECR Public throttles anonymous pulls per source IP and
-      GitHub-hosted runners share egress IPs.
-    * The mirror is populated by hand (mirror-openobserve.yml) for one tag at a
-      time, so moving the compose template's pin without moving CI's leaves every
-      deploy lane pulling a tag that was never mirrored — a hard, confusing
-      failure far from the line that caused it.
-
-    Both remain latent until a runner happens to hit them, so guard statically.
-    """
-    pinned = _pinned_openobserve_tag()
-    overrides = re.findall(
-        r"OSPREY_OPENOBSERVE_IMAGE:\s*(\S+)", _CI_WORKFLOW.read_text(encoding="utf-8")
-    )
-    assert overrides, (
-        "CI no longer overrides OSPREY_OPENOBSERVE_IMAGE — deploy lanes fall back to ECR"
-    )
-    for ref in overrides:
-        assert ref.startswith("ghcr.io/"), (
-            f"CI pins {ref!r}, not the ghcr mirror. A non-ghcr ref (e.g. ECR Public) "
-            "reintroduces the anonymous-pull rate-limit flakiness."
-        )
-        assert ref.endswith(f":{pinned}"), (
-            f"CI pins {ref!r} but the compose template pins :{pinned}. Bump both "
-            "together, and run the mirror workflow for the new tag first."
-        )
-
-
-_BLUESKY_TEMPLATE = _OPENOBSERVE_TEMPLATE.parents[1] / "bluesky" / "docker-compose.yml.j2"
 _CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
@@ -2686,14 +2644,13 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
 @pytest.mark.parametrize(
     ("key", "template", "image_ref"),
     [
-        ("services.openobserve.image", _OPENOBSERVE_TEMPLATE, _OPENOBSERVE_IMAGE_REF),
         (
             "services.bluesky.tiled_image",
             _BLUESKY_TEMPLATE,
             "ghcr.io/bluesky/tiled",
         ),
     ],
-    ids=["openobserve", "tiled"],
+    ids=["tiled"],
 )
 def test_the_manifest_default_matches_the_compose_default(
     key: str, template: Path, image_ref: str
@@ -2713,145 +2670,6 @@ def test_the_manifest_default_matches_the_compose_default(
     )
 
 
-def _write_openobserve_config(
-    project_path: Path, deployed_services: list[str], retention_days: int | None = None
-) -> Path:
-    """Write a config.yml that declares ``services.openobserve`` and return its path.
-
-    Unlike the module's ``_write_config`` helper (which declares no services),
-    this always declares the ``openobserve`` service block — ``deployed_services``
-    controls only whether it is *launched*, exercising the opt-in gating.
-    """
-    config_path = project_path / "config.yml"
-    yaml_rt = YAML()
-    oo_service: dict = {"path": "./services/openobserve", "port": 5080}
-    if retention_days is not None:
-        oo_service["retention_days"] = retention_days
-    config: dict = {
-        "project_name": "oo-fixture",
-        "project_root": str(project_path),
-        "build_dir": str(project_path / "build"),
-        # Real configs always carry system.timezone; the compose template uses it
-        # bare (the postgresql/VA precedent has no default), so declare it here.
-        "system": {"timezone": "UTC"},
-        "services": {"openobserve": oo_service},
-        "deployed_services": deployed_services,
-    }
-    with open(config_path, "w") as fh:
-        yaml_rt.dump(config, fh)
-    return config_path
-
-
-def _render_project_compose(
-    config_path: Path, project_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> str:
-    """Copy service templates, render via ``prepare_compose_files``, return the text.
-
-    Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
-    the service ``path`` both resolve relative to cwd), then joins every rendered
-    compose file so callers can assert on the aggregate text. The caller's
-    ``monkeypatch`` owns the cwd change, so it is undone at test teardown.
-    """
-    _copy_service_templates(project_path)
-
-    monkeypatch.chdir(project_path)
-    _, compose_files = prepare_compose_files(str(config_path))
-    return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-
-
-def test_openobserve_renders_when_deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With ``openobserve`` in deployed_services the compose renders (exit 0) with
-    the expected image reference, port, named volume, and root-cred env vars.
-
-    The service name, port, and env var names are the shared constants the
-    telemetry resolver stream also depends on — a drift here silently breaks the
-    agent's OTLP push against the local store.
-    """
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-
-    # The service block and its in-network DNS host name.
-    assert "\n  openobserve:\n" in rendered
-
-    # Image reference + overridable pin (assert the ref and the override var, not
-    # the specific to-confirm tag).
-    assert f"${{OSPREY_OPENOBSERVE_IMAGE:-{_OPENOBSERVE_IMAGE_REF}:" in rendered
-
-    # Exposed port 5080 (host:container).
-    assert ":5080:5080/tcp" in rendered
-
-    # container_name is namespaced per-project (project_name is "oo-fixture"), not
-    # the host-global "osprey-openobserve" — so two projects can run the store on
-    # one host without colliding. In-network reach is by the service key
-    # "openobserve", which is unaffected.
-    assert "container_name: oo-fixture-openobserve" in rendered
-    assert "osprey-openobserve" not in rendered
-
-
-def test_openobserve_retention_env_default_rendered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Omitting retention_days renders the 14-day growth bound (the compose default)."""
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
-
-
-def test_openobserve_retention_env_custom_rendered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
-    config_path = _write_openobserve_config(
-        tmp_path, deployed_services=["openobserve"], retention_days=30
-    )
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
-
-    # Named data volume for persistence (both the mount and the top-level decl).
-    assert "openobserve_data:/data" in rendered
-    assert "\nvolumes:\n  openobserve_data:\n" in rendered
-
-    # Root credentials sourced from compose env with overridable defaults, using
-    # the exact env var names the resolver expects.
-    assert "ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-" in rendered
-    assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
-
-
-def test_openobserve_absent_when_not_deployed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With ``openobserve`` declared but NOT in deployed_services it must not
-    render — the opt-in posture. Only the root compose is produced, with no
-    openobserve service, image, or volume anywhere in the output.
-    """
-    config_path = _write_openobserve_config(tmp_path, deployed_services=[])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-
-    assert "openobserve" not in rendered, (
-        f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
-    )
-
-
-def test_openobserve_service_config_lookup_succeeds(tmp_path: Path) -> None:
-    """``osprey health`` accepts a service only when it resolves under both
-    ``services:`` and (for deployment) ``deployed_services:``. Health is out of
-    this module's scope, so this asserts the underlying seam it relies on:
-    ``find_service_config`` resolves the declared ``openobserve`` entry to its
-    packaged compose template path.
-    """
-    from osprey.deployment.compose_generator import find_service_config
-
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    yaml_rt = YAML()
-    with open(config_path) as fh:
-        config = yaml_rt.load(fh)
-
-    service_config, template_path = find_service_config(config, "openobserve")
-    assert service_config is not None, "openobserve must resolve as a declared service"
-    assert service_config.get("port") == 5080
-    assert template_path == "./services/openobserve/docker-compose.yml.j2"
-
-
 def test_find_service_config_resolves_flat_names_only() -> None:
     """Services resolve only by their flat short name under ``services:``. Dotted
     spellings (``osprey.<name>`` / ``applications.<app>.<name>``) are not a
@@ -2861,11 +2679,11 @@ def test_find_service_config_resolves_flat_names_only() -> None:
     """
     from osprey.deployment.compose_generator import find_service_config
 
-    config = {"services": {"openobserve": {"path": "./services/openobserve"}}}
+    config = {"services": {"postgresql": {"path": "./services/postgresql"}}}
 
-    assert find_service_config(config, "openobserve")[0] is not None
-    assert find_service_config(config, "osprey.openobserve") == (None, None)
-    assert find_service_config(config, "applications.app.openobserve") == (None, None)
+    assert find_service_config(config, "postgresql")[0] is not None
+    assert find_service_config(config, "osprey.postgresql") == (None, None)
+    assert find_service_config(config, "applications.app.postgresql") == (None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -2954,8 +2772,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
 
 def test_postgres_password_reads_minted_env_var() -> None:
     """POSTGRES_PASSWORD sources ARIEL_DB_PASSWORD from .env (minted by deploy
-    up), falling back to the legacy config key, then the dev default — the
-    same single-source convention as openobserve's ZO_ROOT_USER_PASSWORD."""
+    up), falling back to the legacy config key, then the dev default."""
     svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
     assert svc["environment"]["POSTGRES_PASSWORD"] == "${ARIEL_DB_PASSWORD:-ariel}"
 
@@ -3237,23 +3054,48 @@ def test_recorder_and_store_agree_on_the_mongo_password_fallback() -> None:
     assert recorder == store == "${MONGO_ROOT_PASSWORD:-osprey}"
 
 
-def test_recorder_reads_the_channel_manifest_the_va_serves() -> None:
-    """The channel list is the same build-derived variable the VA reads,
-    resolved against the same mount path.
+def test_recorder_mounts_only_the_simulator_view_and_no_variable_names_it() -> None:
+    """The channel list is the simulator view the build writes, mounted read-only.
 
-    It must be the manifest. ``channel_limits.json`` is a *write-safety
-    projection* of that manifest, not a second copy of it: it carries one entry
-    per address (read-only ones included — the DCCT current sits there as
-    ``{"writable": false}``), plus top-level metadata keys ``_comment``,
-    ``_version``, ``_description`` and ``defaults``. So its key set is not a
-    channel list, and reading it as one would hand the recorder four names no
-    IOC serves. The manifest is the single channel source the IOC and the
-    recorder have to share; anything else is a second source free to drift.
+    It is the only build data the recorder sees. No environment variable names
+    it, because the view sits at one place in every render.
     """
     svc = _recorder_service(va_co_deployed=True)
-    assert svc["environment"]["VA_CHANNELS_FILE"] == "${VA_CHANNELS_FILE:-}"
-    assert "./build/data/simulation:/data/simulation:ro" in svc["volumes"]
-    assert not any("channel_limits" in mount for mount in svc["volumes"]), svc["volumes"]
+    assert [m for m in svc["volumes"] if isinstance(m, str) and "build/data" in m] == [
+        "./build/data/simulator:/data/simulator:ro"
+    ]
+    assert not any("simulator" in str(value) for value in svc["environment"].values())
+
+
+def _host_path(volumes: list[str], container_path: str) -> str:
+    """The host path a bind mount in ``volumes`` puts at ``container_path``."""
+    for mount in volumes:
+        source, target = mount.split(":")[:2]
+        if container_path == target or container_path.startswith(target.rstrip("/") + "/"):
+            return source.rstrip("/") + container_path[len(target.rstrip("/")) :]
+    raise AssertionError(f"no mount covers {container_path}: {volumes}")
+
+
+def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
+    """The IOC serves and the recorder records one ``addresses.json`` on the host."""
+    from osprey.services.archiver_recorder.config import DEFAULT_DATA_DIR as RECORDER_VIEW
+    from osprey.services.virtual_accelerator import entrypoint
+    from osprey_connectors.simulation.view import ADDRESSES_FILE, VIEW_RELPATH
+
+    deployed = ["mongodb", "archiver_recorder", "virtual_accelerator"]
+    va = yaml.safe_load(
+        _render_service_template(
+            "virtual_accelerator/docker-compose.yml.j2", "proj-a", deployed_services=deployed
+        )
+    )["services"]["virtual-accelerator"]
+    recorder = _recorder_service(va_co_deployed=True)
+
+    va_data = va["environment"].get("VA_DATA_DIR") or entrypoint.DEFAULT_DATA_DIR
+    va_file = f"{va_data}/{VIEW_RELPATH.name}/{ADDRESSES_FILE}"
+    recorder_file = f"{RECORDER_VIEW}/{ADDRESSES_FILE}"
+
+    assert _host_path(va["volumes"], va_file) == "./build/data/simulator/addresses.json"
+    assert _host_path(recorder["volumes"], recorder_file) == _host_path(va["volumes"], va_file)
 
 
 def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:
@@ -3262,16 +3104,18 @@ def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:
     take effect without a restart. CWD is the image WORKDIR, so without
     CONFIG_FILE every lookup errors "No config.yml found".
 
-    The mount is the REPO ROOT, deliberately unlike the bluesky bridge's staged
+    The mount is the RENDER, deliberately unlike the bluesky bridge's staged
     copy: a copy is rewritten only by ``osprey build``, so the poll would
     re-read a stale copy and the flip would silently need a rebuild. It is a
     directory rather than the single file because a single-file bind pins an
     inode at container start, and editors that save by rename leave a new one
-    behind — see the template's mount comment.
+    behind — see the template's mount comment. And it is ``./build``, never
+    the repo root, where the deployment's secret files live.
     """
     svc = _recorder_service(va_co_deployed=True)
     assert svc["environment"]["CONFIG_FILE"] == "/app/project/build/config.yml"
-    assert ".:/app/project:ro" in svc["volumes"]
+    assert "./build:/app/project/build:ro" in svc["volumes"]
+    assert not any(mount.split(":")[0] in (".", "./") for mount in svc["volumes"]), svc["volumes"]
     assert not any("archiver_recorder/config.yml" in mount for mount in svc["volumes"]), svc[
         "volumes"
     ]
@@ -3311,16 +3155,29 @@ def _packaged_compose_template(rel_path: str):
     ``jinja2.Template`` has no loader, so that import raises ``TemplateNotFound``;
     every test render therefore goes through an Environment rooted at the
     packaged ``templates/`` directory instead. Nothing else changes: the default
-    Undefined mode is production's, so ``| default(...)`` chains behave exactly
-    as they do under ``osprey up``, and the lookup stays CWD-independent.
+    Undefined mode and the kept trailing newline are production's, so
+    ``| default(...)`` chains behave exactly as they do under ``osprey up``, and
+    the lookup stays CWD-independent.
+    """
+    return _packaged_templates_environment().get_template(rel_path)
+
+
+@functools.cache
+def _packaged_templates_environment():
+    """The one Environment :func:`_packaged_compose_template` compiles through.
+
+    Shared so each template, and each macro file it imports, is parsed once per
+    module rather than once per call; Jinja's own cache still reloads a template
+    whose file changed.
     """
     from importlib import resources
 
     from jinja2 import Environment, FileSystemLoader
 
     templates_root = resources.files("osprey").joinpath("templates")
-    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
-    return env.get_template(rel_path)
+    return Environment(
+        loader=FileSystemLoader(str(templates_root)), autoescape=False, keep_trailing_newline=True
+    )
 
 
 def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:
@@ -3356,6 +3213,11 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_env_present": False,
         "deployed_services": [],
         "control_system": {},
+        "osprey_simulator_log_sources": simulator_log_mount_sources(),
+        "osprey_guarded_run_mount": {
+            "source": f"./{guarded_run_relpath()}",
+            "target": f"/app/{project_name}/{guarded_run_relpath()}",
+        },
         **_control_identity_context(),
     }
     ctx.update(overrides)
@@ -3788,13 +3650,13 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # Wheel-build memo (Task 3.1) + Dockerfile-scoped staging (Task 3.2)
 #
 # One `--dev` deploy stages the SAME wheel into many build contexts (every
-# Dockerfile-bearing service context, the project-image root, each persona
+# Dockerfile-bearing service context, the project-image root, each render
 # project), and rebuild_deployment renders the compose files twice (its own
 # prepare_compose_files + the delegated deploy_up's). The isolated-env
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
-# (postgresql, openobserve) never install the wheel.
+# (postgresql, telemetry_store) never install the wheel.
 # ---------------------------------------------------------------------------
 
 
@@ -3820,10 +3682,10 @@ def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Pat
 
 # METADATA for the fixture wheel _write_fixture_wheel builds: two plain base
 # deps, one dep kept behind a non-extra (python_version) marker, two extra-gated
-# deps that must stay OUT of the local-requirements manifest, and the
-# osprey-connectors workspace requirement that must ALSO stay out — the
-# connectors wheel is staged beside this one, so a PyPI requirement for it
-# would fail until a satisfying release exists there.
+# deps that must stay OUT of the local-requirements manifest, and one
+# requirement per workspace member that must ALSO stay out — each member wheel
+# is staged beside this one, so a PyPI requirement for it would fail until a
+# satisfying release exists there.
 _FIXTURE_WHEEL_METADATA = (
     "Metadata-Version: 2.1\n"
     "Name: osprey-framework\n"
@@ -3831,6 +3693,7 @@ _FIXTURE_WHEEL_METADATA = (
     "Requires-Dist: softioc>=4.5\n"
     "Requires-Dist: aiohttp\n"
     "Requires-Dist: osprey-connectors<0.2.0,>=0.1.0\n"
+    "Requires-Dist: pyaml-cs-osprey!=2026.6.2a0,>=2026.6.2\n"
     'Requires-Dist: tomli>=2; python_version < "3.11"\n'
     'Requires-Dist: pytest>=8; extra == "dev"\n'
     'Requires-Dist: sphinx; extra == "docs"\n'
@@ -3848,8 +3711,8 @@ _FIXTURE_CONNECTORS_WHEEL_METADATA = (
     'Requires-Dist: pytest>=8; extra == "dev"\n'
 )
 
-# The manifest the two fixture wheels must produce together: extras and the
-# workspace-local osprey-connectors requirement excluded, the shared dep
+# The manifest the fixture wheels must produce together: extras and the
+# workspace-member requirements excluded, the shared dep
 # deduplicated, non-extra markers verbatim, sorted, one per line, trailing
 # newline.
 _FIXTURE_WHEEL_EXPECTED_MANIFEST = (
@@ -3865,14 +3728,33 @@ def _write_fixture_wheel(path: Path) -> None:
         whl.writestr("osprey_framework-0.0.0.dist-info/METADATA", _FIXTURE_WHEEL_METADATA)
 
 
-def _write_fixture_connectors_wheel(path: Path) -> None:
-    """Write a minimal valid osprey-connectors wheel zip with real METADATA."""
+def _member_wheel_name(member: str) -> str:
+    """The wheel filename the spy builds for a workspace member."""
+    return f"{member.replace('-', '_')}-0.0.0-py3-none-any.whl"
+
+
+def _write_fixture_member_wheel(path: Path, member: str) -> None:
+    """Write a minimal valid workspace-member wheel zip with real METADATA.
+
+    osprey-connectors carries the deps the manifest contract is checked
+    against; any other member carries no base requirement of its own.
+    """
     import zipfile
 
+    metadata = (
+        _FIXTURE_CONNECTORS_WHEEL_METADATA
+        if member == "osprey-connectors"
+        else f"Metadata-Version: 2.1\nName: {member}\nVersion: 0.0.0\n"
+    )
     with zipfile.ZipFile(path, "w") as whl:
-        whl.writestr(
-            "osprey_connectors-0.0.0.dist-info/METADATA", _FIXTURE_CONNECTORS_WHEEL_METADATA
-        )
+        whl.writestr(f"{member.replace('-', '_')}-0.0.0.dist-info/METADATA", metadata)
+
+
+#: Every wheel a --dev staging must drop into a build context: the framework
+#: plus one per workspace member.
+_EXPECTED_STAGED_WHEELS = sorted(
+    ["osprey_framework-0.0.0-py3-none-any.whl"] + [_member_wheel_name(m) for m in WORKSPACE_MEMBERS]
+)
 
 
 @pytest.fixture
@@ -3894,13 +3776,14 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
         if isinstance(cmd, list) and cmd[1:3] == ["-m", "build"]:
             calls.append(list(cmd))
             outdir = cmd[cmd.index("--outdir") + 1]
-            # The build cwd says WHICH workspace member is being built: the
-            # framework builds at the checkout root, the connectors wheel in
-            # its packages/ subdirectory.
-            if str(kwargs.get("cwd", "")).endswith("osprey-connectors"):
-                _write_fixture_connectors_wheel(
-                    Path(outdir, "osprey_connectors-0.0.0-py3-none-any.whl")
-                )
+            # The build cwd says WHICH distribution is being built: the
+            # framework builds at the checkout root, each workspace member in
+            # its packages/<member> subdirectory. The parent check matters: a
+            # checkout root may itself share a member's basename.
+            cwd = Path(str(kwargs.get("cwd", "")))
+            member = cwd.name
+            if cwd.parent.name == "packages" and member in WORKSPACE_MEMBERS:
+                _write_fixture_member_wheel(Path(outdir, _member_wheel_name(member)), member)
             else:
                 _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -3918,7 +3801,7 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     Drives the real service-context staging (``prepare_compose_files`` with
     dev_mode) plus two further ``_copy_local_framework_for_override`` calls
     with distinct out_dirs — the same helper the project-image build
-    (``_build_project_image``) and persona builds (``build_persona_images``)
+    (``_build_project_image``) and render builds (``build_render_images``)
     invoke against their own contexts. Every context must still receive its
     own wheel copy (the memo caches the BUILD, not the copy).
     """
@@ -3928,26 +3811,25 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     _copy_service_templates(tmp_path)
 
     project_image_ctx = tmp_path / "project-image-ctx"
-    persona_ctx = tmp_path / "persona-ctx"
+    render_ctx = tmp_path / "render-ctx"
     project_image_ctx.mkdir()
-    persona_ctx.mkdir()
+    render_ctx.mkdir()
 
     monkeypatch.chdir(tmp_path)
     prepare_compose_files(str(config_path), dev_mode=True)
     assert _copy_local_framework_for_override(str(project_image_ctx)) is True
-    assert _copy_local_framework_for_override(str(persona_ctx)) is True
+    assert _copy_local_framework_for_override(str(render_ctx)) is True
 
-    assert len(spy_wheel_build) == 2, (
+    assert len(spy_wheel_build) == 1 + len(WORKSPACE_MEMBERS), (
         f"the wheel build subprocess must run exactly once per distribution "
-        f"(framework + connectors), ran {len(spy_wheel_build)}x"
+        f"(framework + each workspace member), ran {len(spy_wheel_build)}x"
     )
     service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
-    for ctx in (service_ctx, project_image_ctx, persona_ctx):
+    for ctx in (service_ctx, project_image_ctx, render_ctx):
         staged = sorted(w.name for w in ctx.glob("*.whl"))
-        assert staged == [
-            "osprey_connectors-0.0.0-py3-none-any.whl",
-            "osprey_framework-0.0.0-py3-none-any.whl",
-        ], f"expected both wheels staged into {ctx}, found {staged}"
+        assert staged == _EXPECTED_STAGED_WHEELS, (
+            f"expected every wheel staged into {ctx}, found {staged}"
+        )
         assert (ctx / "osprey-local-requirements.txt").is_file(), (
             f"no local-requirements manifest staged next to the wheels in {ctx}"
         )
@@ -3965,9 +3847,9 @@ def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
     prepare_compose_files(str(config_path), dev_mode=True)
     prepare_compose_files(str(config_path), dev_mode=True)
 
-    assert len(spy_wheel_build) == 2, (
+    assert len(spy_wheel_build) == 1 + len(WORKSPACE_MEMBERS), (
         f"the wheel build subprocess must run exactly once per distribution "
-        f"(framework + connectors), ran {len(spy_wheel_build)}x"
+        f"(framework + each workspace member), ran {len(spy_wheel_build)}x"
     )
 
 
@@ -4270,9 +4152,9 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     attempts = 3
     all_samples: list[dict[str, str]] = []
     for attempt in range(attempts):
-        # Both staged wheels (framework + connectors), keyed by distribution
-        # name — BuildKit content-hashes each COPY'd wheel, so both must be
-        # reproducible for the layer cache to hold.
+        # Every staged wheel (framework + workspace members), keyed by
+        # distribution name — BuildKit content-hashes each COPY'd wheel, so
+        # each must be reproducible for the layer cache to hold.
         wheels: list[dict[str, Path]] = []
         digests: list[dict[str, str]] = []
         # Four samples: before and after each of the two builds. Only when all
@@ -4288,7 +4170,9 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             if not _copy_local_framework_for_override(str(out_dir)):
                 pytest.skip("dev wheel build unavailable in this environment")
             staged = {w.name.split("-")[0]: w for w in out_dir.glob("*.whl")}
-            assert sorted(staged) == ["osprey_connectors", "osprey_framework"]
+            assert sorted(staged) == sorted(
+                ["osprey_framework"] + [m.replace("-", "_") for m in WORKSPACE_MEMBERS]
+            )
             wheels.append(staged)
             digests.append(
                 {name: hashlib.sha256(w.read_bytes()).hexdigest() for name, w in staged.items()}
@@ -6828,7 +6712,7 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
     container port — which is what `archiver_read` inside the worker connects
     to. The Docker-level proof of the same claim rides the archiver-world e2e.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+    from osprey_connectors.archiver.mongodb_archiver_connector import address_overrides
 
     rendered = _render_worker_template(
         env_present=True, deployed_services=["dispatch_worker", "mongodb"]
@@ -6925,7 +6809,7 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
     # no path-derived label.
-    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
@@ -7368,7 +7252,7 @@ def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
     assert "/config.yml:ro\n    networks:\n      - osprey-network\n    healthcheck:\n" in rendered
     # The file-level stanza still closes the file, still one blank line after
     # the healthcheck.
-    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
@@ -7788,7 +7672,7 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
     assert "writes_enabled" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
-    assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key to set"
+    assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
 
 
 def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(
@@ -7981,7 +7865,7 @@ def _unchecked_limits_config(database_path: object) -> dict:
         "writes_enabled": True,
         "limits_checking": {
             "enabled": False,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": database_path,
         },
     }
@@ -8050,11 +7934,11 @@ def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
         "connector": {
             "virtual_accelerator": {
                 "writes_enabled": True,
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
             "epics": {
                 "writes_enabled": False,
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
         },
         "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
@@ -8083,11 +7967,11 @@ def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_rea
         "connector": {
             "virtual_accelerator": {
                 "writes_enabled": True,
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
             "epics": {
                 "writes_enabled": False,
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
         },
         "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
@@ -8252,95 +8136,33 @@ def test_inject_project_metadata_mirror_absolute_path_is_not_reanchored(tmp_path
 # ---------------------------------------------------------------------------
 # Bluesky plan-device staging (``_stage_bluesky_devices``)
 #
-# The build decides ONCE per render which devices the queueserver worker can
-# drive, and writes that decision twice: as the staged
-# ``bluesky_devices.yml`` and as the ``bluesky_devices`` render-context key the
-# compose template gates its mount on. These tests pin the decision order (mock
-# first, authored file next, a roster-derived set last), the refusal an
-# authored file earns, the honest browse-only line each roster absence earns,
-# and the two properties that are easy to lose in a re-render: a stale file is
-# removed when nothing is staged, and the two-lane double render lands on
-# identical bytes.
-#
-# What the derived set is derived FROM is the point of the feature: this
-# facility's own channel roster -- the knowledge graph or the channel-finder
-# database ``detect_pipeline_config`` selects -- and never
-# ``channel_limits.json``, which gates a subset of the channels a facility has
-# and had a build reporting 144 devices for a 2908-channel machine.
+# ``osprey build`` writes the Bluesky devices view into the render's
+# ``data/bluesky_devices.yml``; the staging step copies it unchanged into the
+# bluesky build context and returns the ``bluesky_devices`` render-context key
+# the compose template gates its mount on. A mock control system stages
+# nothing, and a stale file is removed whenever nothing is staged.
 # ---------------------------------------------------------------------------
 
-DEVICES_KEY = "bluesky.devices_file"
+#: Where the view sits, relative to the render root.
+VIEW_RELPATH = "data/bluesky_devices.yml"
 
-#: What ``BlueskyConfig.devices_file`` defaults to, so these assertions are
-#: about the path operators actually deploy rather than a fixture-only one.
-DEFAULT_DEVICES_RELPATH = "data/bluesky_devices.yml"
-
-#: The demo machine OSPREY ships, described twice from one source: as the
-#: knowledge-graph corpus the ``graph`` paradigm reads, and as the tier-3
-#: hierarchical database every other paradigm reads. That is what lets the two
-#: paradigm tests below be checked against ONE address set.
-_DEMO_DATA = _REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
-_DEMO_CORPUS_RELPATH = "demo_machine.ttl"
-_DEMO_HIERARCHICAL = _DEMO_DATA / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
-
-#: What the shipped demo machine holds, pinned alongside
-#: ``tests/channel_roster/`` and
-#: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``. These are
-#: the numbers this feature exists for: the build it replaced reported ``144
-#: settable / 144 readable`` because it enumerated the write-limits projection.
-DEMO_WRITES = 396
-DEMO_READS = 2512
-
-#: How a graph-mode project spells the search index the roster reads (the
-#: ``services.graphdb.index_path`` default), and how the roster names it. Every
-#: fact and every absence about a graph-derived device set says this.
-_INDEX_SPELLING = "./data/channel_databases/graph.duckdb"
-_GRAPH_SOURCE = f"the channel index built from the facility knowledge graph ({_INDEX_SPELLING})"
-
-#: Prefix every hand-written corpus below carries, as the knowledge-graph
-#: seeder mints them.
-_CORPUS_PREAMBLE = """\
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
+#: A view as the build writes it: its schema line, one settable, one readable.
+_VIEW_TEXT = """\
+schema: osprey.facility.bluesky_devices/1
+# Generated by OSPREY.
+settables:
+- name: SR:MAG:HCM:01:CURRENT:SP
+  setpoint: SR:MAG:HCM:01:CURRENT:SP
+  readback: SR:MAG:HCM:01:CURRENT:RB
+readables:
+- name: SR:DIAG:BPM:01:POSITION:X
+  pv: SR:DIAG:BPM:01:POSITION:X
 """
 
-#: A device document the worker loads in full — one settable, one readable.
-_VALID_DEVICE_DOCUMENT = {
-    "settables": [
-        {
-            "name": "SR:MAG:HCM:01:CURRENT:SP",
-            "setpoint": "SR:MAG:HCM:01:CURRENT:SP",
-            "readback": "SR:MAG:HCM:01:CURRENT:RB",
-        }
-    ],
-    "readables": [{"name": "SR:DIAG:BPM:01:POSITION:X", "pv": "SR:DIAG:BPM:01:POSITION:X"}],
-}
-
 
 @pytest.fixture
-def cold_roster_cache() -> Iterator[None]:
-    """Start and leave every device test with an empty roster cache.
-
-    The roster memoizes per source file across the whole build process, which
-    is what makes a two-lane render read the corpus once. That cache outlives a
-    test, so one left populated would hand its answer to whatever runs next.
-    """
-    channel_roster._roster_cache.clear()
-    yield
-    channel_roster._roster_cache.clear()
-
-
-@pytest.fixture
-def devices_facts(
-    monkeypatch: pytest.MonkeyPatch,
-    cold_roster_cache: None,  # noqa: ARG001 - the roster cache is cold before the render reads it
-) -> list[str]:
-    """Collect the operator-facing facts the staging step reports.
-
-    Patched on the module, the way ``test_stage_graphdb_store`` reads facts:
-    what matters is the line an operator is handed, and asserting on it here
-    keeps the wording under test rather than only under review.
-    """
+def devices_facts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Collect the operator-facing facts the staging step reports."""
     from osprey.deployment import compose_generator
 
     facts: list[str] = []
@@ -8360,151 +8182,30 @@ def _devices_out_dir(tmp_path: Path) -> Path:
 def _devices_config(
     config_dir: Path,
     *,
-    devices_file: str | None = DEFAULT_DEVICES_RELPATH,
     control_system_type: str = "virtual_accelerator",
-    deployed_services: tuple[str, ...] = ("bluesky",),
-    limits_database: str | None = None,
-    channel_finder: dict | None = None,
-    graphdb: dict | None = None,
     lanes: tuple[str, ...] = ("bluesky",),
-    project_root: Path | None = None,
+    in_process: bool = False,
 ) -> dict:
-    """The slice of render config the staging step reads.
-
-    ``devices_file`` is written per LANE because that is where the build
-    injector puts it (``_facility_plan_keys``); ``lanes`` exists so the
-    two-lane shape can be spelled without restating the whole block. A config
-    built here names no roster source at all, which is a real deployment state
-    (and the one the browse-only tests below use) -- the two builders under it
-    add the two shapes a facility ships.
-    """
-    services: dict[str, dict] = {}
-    for lane in lanes:
-        block: dict = {"path": "./services/bluesky"}
-        if devices_file is not None:
-            block["devices_file"] = devices_file
-        services[lane] = block
-    if graphdb is not None:
-        services["graphdb"] = graphdb
+    """The slice of render config the staging step reads."""
     control_system: dict = {"type": control_system_type, "writes_enabled": False}
-    if limits_database is not None:
-        control_system["limits_checking"] = {"enabled": True, "database_path": limits_database}
-    config: dict = {
+    if in_process:
+        control_system["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
+    return {
         "project_name": "hwt-fixture",
         "config_dir": str(config_dir),
-        "project_root": str(project_root if project_root is not None else config_dir),
-        "services": services,
-        "deployed_services": list(deployed_services),
+        "project_root": str(config_dir),
+        "services": {lane: {"path": "./services/bluesky"} for lane in lanes},
+        "deployed_services": list(lanes),
         "control_system": control_system,
     }
-    if channel_finder is not None:
-        config["channel_finder"] = channel_finder
-    return config
 
 
-def _graph_devices_config(
-    config_dir: Path, *, ttl_path: str | None = "data/demo_machine.ttl", **kwargs
-) -> dict:
-    """A graph-paradigm project: the roster is the corpus at ``ttl_path``.
-
-    ``ttl_path`` is render-relative -- resolved against the loaded config's own
-    directory -- so it is spelled the way a project spells it rather than as an
-    absolute fixture path.
-    """
-    graphdb: dict = {} if ttl_path is None else {"ttl_path": ttl_path}
-    return _devices_config(
-        config_dir, channel_finder={"pipeline_mode": "graph"}, graphdb=graphdb, **kwargs
-    )
-
-
-def _database_devices_config(
-    config_dir: Path,
-    *,
-    path: Path,
-    pipeline_mode: str = "hierarchical",
-    db_type: str | None = None,
-    **kwargs,
-) -> dict:
-    """A database-paradigm project: the roster is that paradigm's own database.
-
-    ``database.path`` is anchored on the working directory rather than the
-    render, so these fixtures hand it an absolute path.
-    """
-    database: dict = {"path": str(path)}
-    if db_type is not None:
-        database["type"] = db_type
-    return _devices_config(
-        config_dir,
-        channel_finder={
-            "pipeline_mode": pipeline_mode,
-            "pipelines": {pipeline_mode: {"database": database}},
-        },
-        **kwargs,
-    )
-
-
-def _write_device_file(path: Path, document: object) -> Path:
-    """Author a device file at ``path`` (parents created)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-    return path
-
-
-def _corpus(path: Path, addresses: dict[str, str], *, index: bool = True) -> Path:
-    """Write a knowledge-graph corpus binding each address to its direction.
-
-    ``addresses`` maps a channel address to the predicate its binding carries
-    (``writesSignal`` / ``readsSignal``), which is what makes the graph a
-    roster: the corpus STATES which channels are settable rather than leaving
-    it to be inferred from address grammar.
-
-    The search index a build derives from the corpus is written beside it, at
-    the default ``services.graphdb.index_path`` under the render holding
-    ``data/`` -- because that file, not the corpus, is what the roster reads.
-    ``index=False`` stages the corpus alone, for the cases about a render
-    nothing derived.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    bindings = "".join(
-        f'<https://narad.example.org/binding/b{index_no}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index_no} .\n"
-        for index_no, (address, predicate) in enumerate(addresses.items())
-    )
-    path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
-    if index:
-        build_index_from_ttl(path)
-    return path
-
-
-def _demo_graph_project(root: Path) -> dict:
-    """Stage the shipped demo corpus into *root* and derive its index.
-
-    The corpus is copied rather than read where it ships: a render owns the
-    index it derives, and deriving one into the packaged template tree would
-    write into the source checkout.
-    """
-    import shutil
-
-    corpus = root / "data" / _DEMO_CORPUS_RELPATH
-    corpus.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_DEMO_DATA / _DEMO_CORPUS_RELPATH, corpus)
-    build_index_from_ttl(corpus)
-    return _graph_devices_config(root, ttl_path=f"data/{_DEMO_CORPUS_RELPATH}")
-
-
-def _flat_database(path: Path, addresses: list[str]) -> Path:
-    """Write an in-context flat channel database enumerating ``addresses``."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps([{"channel": address, "address": address} for address in addresses]),
-        encoding="utf-8",
-    )
-    return path
-
-
-def _staged_document(out_dir: Path) -> dict:
-    """The device document the staging step wrote into ``out_dir``."""
-    return yaml.safe_load((out_dir / "bluesky_devices.yml").read_text(encoding="utf-8"))
+def _write_view(render: Path) -> Path:
+    """Write the view at ``render/data/bluesky_devices.yml``."""
+    view = render / VIEW_RELPATH
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text(_VIEW_TEXT, encoding="utf-8")
+    return view
 
 
 def _stage_devices(config: dict, out_dir: Path, source_dir: str = "services/bluesky") -> bool:
@@ -8513,150 +8214,60 @@ def _stage_devices(config: dict, out_dir: Path, source_dir: str = "services/blue
     return _stage_bluesky_devices(config, source_dir, str(out_dir))
 
 
-# ---------------------------------------------------------------------------
-# The derivation predicate itself (``_plan_derived_devices``)
-#
-# One decision, two callers: the staging step below acts on it, and the
-# per-lane limits-posture gate refuses the build on it before any service
-# directory is written. A gate reading a different predicate than the stager
-# would either refuse a browse-only build or wave a derived one through, so the
-# answer is pinned on its own here.
-# ---------------------------------------------------------------------------
-
-
-def _plan(config: dict):
-    from osprey.deployment.compose_generator import _plan_derived_devices
-
-    return _plan_derived_devices(config)
-
-
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_the_predicate_derives_for_a_relative_absent_file_with_a_roster(tmp_path: Path) -> None:
-    """The whole predicate in its true case: a facility that says which
-    channels it has, and a deployment that authored no device file."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    plan = _plan(_graph_devices_config(tmp_path))
-
-    assert plan.derives is True
-    assert plan.authored_present is False
-    assert plan.roster is not None and plan.roster.source is not None
-
-
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_the_predicate_never_reads_a_roster_for_a_mock_control_system(tmp_path: Path) -> None:
-    """A mock drives no channels, so the corpus is not parsed for it at all."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    plan = _plan(_graph_devices_config(tmp_path, control_system_type="mock"))
-
-    assert (plan.derives, plan.is_mock) == (False, True)
-    assert plan.roster is None, "the mock decision is made before any source is read"
-
-
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_the_predicate_never_reads_a_roster_when_a_file_is_authored(tmp_path: Path) -> None:
-    """An authored file wins, and the build does not second-guess it."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-
-    plan = _plan(_graph_devices_config(tmp_path))
-
-    assert (plan.derives, plan.authored_present) == (False, True)
-    assert plan.roster is None
-
-
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_the_predicate_refuses_to_derive_around_an_absolute_path(tmp_path: Path) -> None:
-    """An absolute path is operator-owned: absent means "not staged yet"."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    plan = _plan(
-        _graph_devices_config(tmp_path, devices_file=str(tmp_path / "facility" / "devices.yml"))
-    )
-
-    assert (plan.derives, plan.authored_present) == (False, False)
-    assert plan.roster is None
-
-
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_the_predicate_does_not_derive_without_a_roster_source(tmp_path: Path) -> None:
-    """No source, no derivation -- and the absence travels with the answer,
-    so the caller reporting it does not have to re-derive why."""
-    plan = _plan(_devices_config(tmp_path))
-
-    assert plan.derives is False
-    assert plan.roster is not None
-    assert plan.roster.absence is not None
-
-
-def test_devices_are_staged_for_the_bluesky_service_only(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """Every other service render skips the decision entirely.
-
-    The staged file and the render-context key belong to the bluesky build
-    context; a service that renders no device mount must not pay for the
-    lookup, and must certainly not report a browse-only posture that is not
-    about it.
-    """
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    out_dir = tmp_path / "build" / "services" / "openobserve"
-    out_dir.mkdir(parents=True)
-
-    staged = _stage_devices(_devices_config(tmp_path), out_dir, source_dir="services/openobserve")
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [], "a non-bluesky render must report nothing about plan devices"
-
-
-def test_mock_control_system_stages_nothing_even_with_an_authored_file(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """The mock decision comes FIRST, so a file cannot override it.
-
-    A mock connector drives no channels, so its lanes are browse-only whatever
-    is on disk. Ordering this branch after the authored-file lookup would let a
-    device file make a mock deployment render a plan-device mount and look like
-    it can steer something.
-    """
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
+def test_the_view_is_staged_byte_equal(tmp_path: Path, devices_facts: list[str]) -> None:
+    view = _write_view(tmp_path)
     out_dir = _devices_out_dir(tmp_path)
 
-    staged = _stage_devices(_devices_config(tmp_path, control_system_type="mock"), out_dir)
+    staged = _stage_devices(_devices_config(tmp_path), out_dir)
+
+    staged_path = out_dir / "bluesky_devices.yml"
+    assert staged is True
+    assert staged_path.read_bytes() == view.read_bytes()
+    assert oct(staged_path.stat().st_mode & 0o777) == "0o644", (
+        "the worker reads the file as a container user that is not the host user "
+        "who rendered it, so the mode is set rather than inherited"
+    )
+    assert devices_facts == [f"bluesky plan devices: 1 settable / 1 readable from {VIEW_RELPATH}"]
+
+
+def test_the_view_is_read_from_the_config_directory(tmp_path: Path) -> None:
+    render = tmp_path / "render"
+    view = _write_view(render)
+    _write_view(tmp_path).write_text("settables: []\n", encoding="utf-8")
+    out_dir = _devices_out_dir(tmp_path)
+    config = _devices_config(render)
+    config["project_root"] = str(tmp_path)
+
+    assert _stage_devices(config, out_dir) is True
+    assert (out_dir / "bluesky_devices.yml").read_bytes() == view.read_bytes()
+
+
+def test_the_simulator_in_process_stages_nothing(tmp_path: Path, devices_facts: list[str]) -> None:
+    _write_view(tmp_path)
+    out_dir = _devices_out_dir(tmp_path)
+
+    staged = _stage_devices(_devices_config(tmp_path, in_process=True), out_dir)
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == ["bluesky plans browse-only: a mock control system drives no channels"]
+    assert devices_facts == [
+        "bluesky plans browse-only: the simulator in process serves no Channel Access"
+    ]
 
 
-@pytest.mark.usefixtures("devices_facts")
-def test_mock_control_system_removes_a_file_an_earlier_render_staged(tmp_path: Path) -> None:
-    """Switching a deployment to the mock takes its devices away.
-
-    The incremental path reuses the build context, so a file left by the render
-    before the switch would go on being mounted into a worker that is now
-    supposed to be browse-only.
-    """
+def test_the_simulator_in_process_removes_a_file_an_earlier_render_staged(tmp_path: Path) -> None:
+    _write_view(tmp_path)
     out_dir = _devices_out_dir(tmp_path)
     (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
 
-    staged = _stage_devices(_devices_config(tmp_path, control_system_type="mock"), out_dir)
+    staged = _stage_devices(_devices_config(tmp_path, in_process=True), out_dir)
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-@pytest.mark.usefixtures("devices_facts")
-def test_control_system_block_without_a_type_is_treated_as_the_mock(tmp_path: Path) -> None:
-    """An unset connector type resolves to the mock, here as everywhere.
-
-    Read through ``resolve_control_system_type`` rather than compared against
-    the raw key: a second answer to "what does this config select" is how a
-    guard ends up disagreeing with the factory it guards.
-    """
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
+def test_a_control_system_without_a_type_is_the_simulator_in_process(tmp_path: Path) -> None:
+    _write_view(tmp_path)
     config = _devices_config(tmp_path)
     config["control_system"].pop("type")
     out_dir = _devices_out_dir(tmp_path)
@@ -8665,794 +8276,48 @@ def test_control_system_block_without_a_type_is_treated_as_the_mock(tmp_path: Pa
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_authored_device_file_is_copied_into_the_build_context(
+def test_no_view_stages_nothing_and_removes_a_stale_file(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """The authored file lands under the name the template mounts.
-
-    The staged name is fixed (``bluesky_devices.yml``) rather than carried over
-    from the authored filename: the compose template mounts a literal source,
-    so a project that authored ``devices/beamline.yml`` must still be mounted.
-    """
-    authored = _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
     out_dir = _devices_out_dir(tmp_path)
+    (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
 
     staged = _stage_devices(_devices_config(tmp_path), out_dir)
 
-    staged_path = out_dir / "bluesky_devices.yml"
-    assert staged is True
-    assert staged_path.read_bytes() == authored.read_bytes(), (
-        "the authored document is staged verbatim; the build validates it, it does not rewrite it"
-    )
-    assert oct(staged_path.stat().st_mode & 0o777) == "0o644", (
-        "the worker reads the file as a container user that is not the host user "
-        "who rendered it, so the mode is set rather than inherited"
-    )
-    assert devices_facts == [
-        f"bluesky plan devices: 1 settable / 1 readable from {DEFAULT_DEVICES_RELPATH}"
-    ], (
-        "the fact names the configured spelling and both counts — not the resolved "
-        "path, which for a build is a staging directory nobody can retype"
-    )
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_authored_device_file_under_a_custom_name_is_staged_too(tmp_path: Path) -> None:
-    """A project that named its own file gets it staged under the mount name."""
-    authored = _write_device_file(tmp_path / "devices" / "beamline.yml", _VALID_DEVICE_DOCUMENT)
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_devices_config(tmp_path, devices_file="devices/beamline.yml"), out_dir)
-
-    assert staged is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_authored_device_file_is_resolved_against_the_config_directory(tmp_path: Path) -> None:
-    """A relative path is authored against the CONFIG, not the repo root.
-
-    The build renders from a staging tree whose config sits below the repo
-    root, so the same relative path names two different files on disk. Anchoring
-    on ``config_dir`` is what makes the render read the one the deployed config
-    actually points at — the same anchor ``resolve_limits_mount`` probes with.
-    """
-    decoy = {"readables": [{"name": "DECOY", "pv": "DECOY:RB"}]}
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, decoy)
-    config_dir = tmp_path / "build"
-    authored = _write_device_file(config_dir / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_devices_config(config_dir, project_root=tmp_path), out_dir)
-
-    assert staged is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes(), (
-        "the file beside the loaded config wins over the same relative path at the repo root"
-    )
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_authored_device_file_is_read_from_any_lane_that_names_one(tmp_path: Path) -> None:
-    """A second-lane deploy stages one file, from whichever lane carries it.
-
-    The device set is a property of the facility, so both lanes carry the same
-    value and either may be read. Pinned because the lookup order is what makes
-    the two-lane double render land on one answer.
-    """
-    authored = _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    config = _devices_config(tmp_path, lanes=("bluesky", "bluesky_va"), devices_file=None)
-    config["services"]["bluesky_va"]["devices_file"] = DEFAULT_DEVICES_RELPATH
-    out_dir = _devices_out_dir(tmp_path)
-
-    assert _stage_devices(config, out_dir) is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_malformed_authored_file_refuses_the_render_naming_the_key_and_the_entry(
-    tmp_path: Path,
-) -> None:
-    """A file the worker would half-load refuses the build, precisely.
-
-    The worker's loader is fail-soft — it skips a malformed entry with a
-    warning — so a deployment built from this file comes up healthy and
-    silently missing exactly those devices. The refusal therefore names the
-    profile key an operator edits and the entry that is wrong, rather than
-    reporting that "the build" failed.
-    """
-    authored = _write_device_file(
-        tmp_path / DEFAULT_DEVICES_RELPATH,
-        {"settables": [{"name": "SR:MAG:HCM:01:CURRENT:SP"}]},
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_devices(_devices_config(tmp_path), out_dir)
-
-    assert DEVICES_KEY in excinfo.value.reason, "the refusal names the key, not 'the build'"
-    assert "settables[0]" in excinfo.value.reason, "the refusal names the offending entry"
-    assert "'setpoint'" in excinfo.value.reason
-    assert str(authored) in excinfo.value.reason
-    assert DEVICES_KEY in excinfo.value.remedy
-    assert not (out_dir / "bluesky_devices.yml").exists(), (
-        "a refused render must stage nothing at all"
-    )
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_refusal_lists_every_problem_rather_than_the_first(tmp_path: Path) -> None:
-    """Both halves of a bad file are reported in one pass.
-
-    A 13k-entry file has to be repairable without bisecting it, which means one
-    refusal has to carry every problem — including a duplicate name, which the
-    worker drops silently and would otherwise ship a file listing more devices
-    than the deployment exposes.
-    """
-    _write_device_file(
-        tmp_path / DEFAULT_DEVICES_RELPATH,
-        {
-            "settables": [
-                {"name": "SR:MAG:HCM:01:CURRENT:SP", "setpoint": "SR:MAG:HCM:01:CURRENT:SP"},
-                {"name": "SR:MAG:HCM:01:CURRENT:SP", "setpoint": "SR:MAG:HCM:02:CURRENT:SP"},
-            ],
-            "readables": [{"name": "SR:DIAG:BPM:01:POSITION:X"}],
-        },
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_devices(_devices_config(tmp_path), out_dir)
-
-    assert "settables[1]" in excinfo.value.reason, "the duplicate name is a problem, not a warning"
-    assert "readables[0]" in excinfo.value.reason
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_unknown_top_level_key_refuses_the_render(tmp_path: Path) -> None:
-    """A typo'd section name is refused, not partially loaded.
-
-    ``readable:`` for ``readables:`` is how this presents itself, and the
-    worker answers it by building NO devices at all — a deployment that looks
-    healthy and exposes nothing.
-    """
-    _write_device_file(
-        tmp_path / DEFAULT_DEVICES_RELPATH,
-        {"readable": [{"name": "SR:DIAG:BPM:01:POSITION:X", "pv": "SR:DIAG:BPM:01:POSITION:X"}]},
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_devices(_devices_config(tmp_path), out_dir)
-
-    assert "readable" in excinfo.value.reason
-    assert DEVICES_KEY in excinfo.value.reason
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_unparseable_authored_file_refuses_the_render(tmp_path: Path) -> None:
-    """A file that is not YAML/JSON at all refuses too.
-
-    The worker treats it as an empty device set, which is the same
-    healthy-and-empty deployment a malformed entry produces, so it earns the
-    same refusal rather than a warning nobody reads.
-    """
-    authored = tmp_path / DEFAULT_DEVICES_RELPATH
-    authored.parent.mkdir(parents=True, exist_ok=True)
-    authored.write_text("settables: [ this: is: not: yaml\n", encoding="utf-8")
-    out_dir = _devices_out_dir(tmp_path)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_devices(_devices_config(tmp_path), out_dir)
-
-    assert DEVICES_KEY in excinfo.value.reason
-    assert not (out_dir / "bluesky_devices.yml").exists()
-
-
-def test_an_empty_authored_file_is_valid_and_stages(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """Authoring an empty document is a statement, and it is honoured.
-
-    An empty (or readables-only) file is valid to the worker's own validator,
-    so the build stages it and reports the zero counts rather than falling
-    through to a derivation the operator did not ask for.
-    """
-    authored = tmp_path / DEFAULT_DEVICES_RELPATH
-    authored.parent.mkdir(parents=True, exist_ok=True)
-    authored.write_text("# no devices yet\n", encoding="utf-8")
-    config = _graph_devices_config(tmp_path)
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(config, out_dir)
-
-    assert staged is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes(), (
-        "an authored file wins over the derivation even when it lists nothing"
-    )
-    assert devices_facts == [
-        f"bluesky plan devices: 0 settable / 0 readable from {DEFAULT_DEVICES_RELPATH}"
-    ]
-
-
-def test_the_shipped_demo_machine_is_derived_from_its_knowledge_graph(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """FR1: the whole machine reaches the worker, and the fact names the corpus.
-
-    396 settables and 2512 readables is what the demo facility has. Every
-    settable whose ``:RB`` sibling the corpus enumerates carries it as its
-    readback, so a plan that sets a corrector reads back the channel the
-    facility pairs with it rather than its own setpoint.
-    """
-    config = _demo_graph_project(tmp_path)
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(config, out_dir)
-
-    document = _staged_document(out_dir)
-    assert staged is True
-    assert len(document["settables"]) == DEMO_WRITES
-    assert len(document["readables"]) == DEMO_READS
-    assert sum("readback" in entry for entry in document["settables"]) == DEMO_WRITES
-    assert devices_facts == [
-        f"bluesky plan devices: {DEMO_WRITES} settable / {DEMO_READS} readable derived "
-        f"from {_GRAPH_SOURCE}"
-    ], (
-        "the fact names the artifact the device set is a projection of, spelled the "
-        "way the config spells it — a build resolves a relative index into its own "
-        "staging tree, and a `build/.tmp/...` path is not a thing an operator edits"
-    )
-
-
-def test_the_same_demo_tree_in_hierarchical_mode_derives_the_same_machine(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """FR2: the paradigm decides which file is read, never which machine it is.
-
-    The demo tree ships the same facility twice -- as the corpus and as the
-    tier-3 hierarchical database -- so a project that switches
-    ``pipeline_mode`` gets the same addresses out, with the fact naming the
-    database it actually read rather than the ``.ttl`` sitting beside it.
-    """
-    graph_dir = _devices_out_dir(tmp_path / "graph")
-    database_dir = _devices_out_dir(tmp_path / "database")
-
-    _stage_devices(_demo_graph_project(tmp_path), graph_dir)
-    _stage_devices(_database_devices_config(_DEMO_DATA, path=_DEMO_HIERARCHICAL), database_dir)
-
-    from_graph = _staged_document(graph_dir)
-    from_database = _staged_document(database_dir)
-    assert {entry["name"] for entry in from_database["settables"]} == {
-        entry["name"] for entry in from_graph["settables"]
-    }
-    assert {entry["name"] for entry in from_database["readables"]} == {
-        entry["name"] for entry in from_graph["readables"]
-    }
-    assert devices_facts[1] == (
-        f"bluesky plan devices: {DEMO_WRITES} settable / {DEMO_READS} readable derived "
-        f"from the channel finder database ({_DEMO_HIERARCHICAL})"
-    )
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_a_settable_the_roster_could_not_pair_carries_no_readback_key(tmp_path: Path) -> None:
-    """A readback is emitted only where the roster actually found a sibling.
-
-    Restating the setpoint as its own readback would claim a pairing the
-    facility never described, and the worker already reads the setpoint back
-    when the key is absent -- so the honest document says nothing at all.
-    """
-    _corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {
-            "SR:MAG:HCM:01:CURRENT:SP": "writesSignal",
-            "SR:MAG:HCM:01:CURRENT:RB": "readsSignal",
-            "SR:MAG:VCM:02:CURRENT:SP": "writesSignal",
-        },
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is True
-    assert _staged_document(out_dir)["settables"] == [
-        {
-            "name": "SR:MAG:HCM:01:CURRENT:SP",
-            "setpoint": "SR:MAG:HCM:01:CURRENT:SP",
-            "readback": "SR:MAG:HCM:01:CURRENT:RB",
-        },
-        {"name": "SR:MAG:VCM:02:CURRENT:SP", "setpoint": "SR:MAG:VCM:02:CURRENT:SP"},
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Staging: channels whose direction the source could not state
-#
-# A record with no direction becomes no device (``devices_document`` emits
-# neither a settable nor a readable for it), so these cases decide whether a
-# drifted source can shrink the worker's namespace without saying so: a corpus
-# binding carrying neither -- or both -- of writesSignal/readsSignal is how it
-# happens in practice.
-# ---------------------------------------------------------------------------
-
-
-def _directionless_corpus(path: Path, addresses: dict[str, str], *, unstated: list[str]) -> Path:
-    """A corpus whose ``unstated`` bindings carry no direction predicate.
-
-    Written out here rather than through :func:`_corpus`: a binding that names a
-    ``fullPv`` and neither ``writesSignal`` nor ``readsSignal`` is the drifted
-    shape, and there is no way to spell it in a table of address -> predicate.
-    The index the roster reads is derived from it the same way.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    bindings = "".join(
-        f'<https://narad.example.org/binding/b{index_no}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index_no} .\n"
-        for index_no, (address, predicate) in enumerate(addresses.items())
-    )
-    bindings += "".join(
-        f'<https://narad.example.org/binding/u{index_no}> narad_p:fullPv "{address}" .\n'
-        for index_no, address in enumerate(unstated)
-    )
-    path.write_text(_CORPUS_PREAMBLE + bindings, encoding="utf-8")
-    build_index_from_ttl(path)
-    return path
-
-
-def test_a_healthy_roster_omits_nothing_and_says_nothing_about_omissions(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """The control case: every channel points somewhere, so the fact is the
-    counts and nothing else."""
-    _corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is True
-    assert devices_facts == [
-        f"bluesky plan devices: 1 settable / 1 readable derived from {_GRAPH_SOURCE}"
-    ]
-
-
-def test_channels_with_no_direction_are_counted_into_the_fact_not_dropped(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """A partly directionless source stages a SMALLER machine, and says so.
-
-    The counts alone cannot show it: ``1 settable / 1 readable`` from a
-    four-channel facility reads as a small machine rather than as a source that
-    could not say which way half of it points. Naming the shortfall is what
-    turns a silent drop into something an operator can go and fix.
-    """
-    _directionless_corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-        unstated=["A:B:D:SP", "A:B:D:RB"],
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    document = _staged_document(out_dir)
-    assert staged is True, "the channels that DO point somewhere are still a device set"
-    assert [entry["name"] for entry in document["settables"]] == ["A:B:C:SP"]
-    assert [entry["name"] for entry in document["readables"]] == ["A:B:C:RB"]
-    assert devices_facts == [
-        f"bluesky plan devices: 1 settable / 1 readable derived from {_GRAPH_SOURCE}"
-        "; 2 channels whose direction the source could not state were omitted"
-    ]
-
-
-def test_one_omitted_channel_is_named_in_the_singular(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """The shortfall clause is a sentence an operator reads, not a counter."""
-    _directionless_corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal"},
-        unstated=["A:B:D:SP"],
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    assert devices_facts[0].endswith(
-        "; 1 channel whose direction the source could not state was omitted"
-    )
-
-
-def test_a_roster_that_states_no_direction_at_all_stages_nothing(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """All-directionless is browse-only, never an empty device file.
-
-    Every record would become no device, so the staged document would carry an
-    empty settables list and an empty readables list -- which the worker, the
-    agent and every later reader take as "this facility has no channels", over
-    the top of a facility that has four. The build refuses to say that: nothing
-    is staged, and the fact names the source and the count it could not place.
-    """
-    _directionless_corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {},
-        unstated=["A:B:C:SP", "A:B:C:RB", "A:B:D:SP", "A:B:D:RB"],
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
     assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists(), (
-        "a settable-free device file is the one thing this must never stage"
-    )
-    assert devices_facts == [
-        f"bluesky plans browse-only: {_GRAPH_SOURCE} enumerates 4 channels and states "
-        "a direction for none of them"
-    ]
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_a_directionless_roster_removes_a_file_an_earlier_render_derived(tmp_path: Path) -> None:
-    """And the stale file goes with it, as for every other non-staging decision."""
-    _directionless_corpus(tmp_path / "data" / "demo_machine.ttl", {}, unstated=["A:B:C:SP"])
-    out_dir = _devices_out_dir(tmp_path)
-    (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
-
-    assert _stage_devices(_graph_devices_config(tmp_path), out_dir) is False
     assert not (out_dir / "bluesky_devices.yml").exists()
+    assert devices_facts == [f"bluesky plans browse-only: this render has no {VIEW_RELPATH}"]
 
 
-@pytest.mark.usefixtures("devices_facts")
-def test_a_live_target_lane_derives_from_the_roster_too(tmp_path: Path) -> None:
-    """Deriving for a live lane is deliberate, not an oversight.
-
-    No virtual accelerator is required, and this step never asks which target a
-    lane points at. A device in the worker's namespace is a name a plan MAY
-    reference, never a write that has happened: the gates that decide whether a
-    write lands sit on the write path, and the build refuses per lane when a
-    target has writes enabled without an enabled limits posture. Withholding
-    the machine's own channels here would add no gate -- it would only hide the
-    channels an agent is allowed to READ.
-    """
-    _corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(
-        _graph_devices_config(
-            tmp_path, control_system_type="epics", deployed_services=("bluesky",)
-        ),
-        out_dir,
-    )
-
-    assert staged is True, "no virtual accelerator is required to enumerate a facility"
-    assert [entry["name"] for entry in _staged_document(out_dir)["settables"]] == ["A:B:C:SP"]
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_the_derived_file_names_its_source_in_its_own_header(tmp_path: Path) -> None:
-    """A reader of the staged file can see what it is a projection of."""
-    corpus = _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    out_dir = _devices_out_dir(tmp_path)
-
-    _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    header = (out_dir / "bluesky_devices.yml").read_text(encoding="utf-8")
-    assert "the facility knowledge graph" in header
-    assert _INDEX_SPELLING in header, "the header credits the source as the config spells it"
-    assert str(corpus.parent) not in header, (
-        "not the resolved path: staged into a build tree, that names a directory the "
-        "reader of this file cannot open"
-    )
-
-
-def test_an_absent_absolute_devices_file_is_never_derived_around(
+def test_devices_are_staged_for_the_bluesky_service_only(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """An absolute path is operator-owned: used if present, never substituted.
+    _write_view(tmp_path)
+    out_dir = tmp_path / "build" / "services" / "postgresql"
+    out_dir.mkdir(parents=True)
 
-    It names a file outside the repo, so its absence means the operator has not
-    staged it yet -- not that OSPREY should decide the device set for them. A
-    derivation here would mount generated devices under a path the deployment
-    says an operator owns, and go on doing it silently once they DO author the
-    file at a path the build was never re-pointed at.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    absolute = tmp_path / "facility" / "devices.yml"
-    config = _graph_devices_config(tmp_path, devices_file=str(absolute))
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(config, out_dir)
-
-    assert staged is False
-    assert not absolute.exists(), "the operator's path must not be created by the build"
-    assert not (out_dir / "bluesky_devices.yml").exists(), (
-        "the facility's roster is right there and would derive a device set -- an "
-        "absolute devices_file is what says not to"
-    )
-    assert devices_facts == [
-        f"bluesky plans browse-only: {DEVICES_KEY} is {str(absolute)!r} and no file is there"
-    ]
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_an_absolute_devices_file_that_exists_is_staged(tmp_path: Path) -> None:
-    """The other half of the absolute-path rule: present means used, as written."""
-    absolute = _write_device_file(tmp_path / "facility" / "devices.yml", _VALID_DEVICE_DOCUMENT)
-    config = _devices_config(tmp_path, devices_file=str(absolute))
-    out_dir = _devices_out_dir(tmp_path)
-
-    assert _stage_devices(config, out_dir) is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == absolute.read_bytes()
-
-
-def test_no_roster_source_at_all_is_browse_only_not_a_refusal(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """A live-target lane whose project enumerates no channels still builds.
-
-    Absence is fail-soft: nothing is derived because nothing describes this
-    facility, and the worker comes up able to browse plans and run none --
-    which the operator is told in the roster's own words rather than left to
-    infer from an empty device list.
-    """
-    config = _devices_config(tmp_path, control_system_type="epics")
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(config, out_dir)
+    staged = _stage_devices(_devices_config(tmp_path), out_dir, source_dir="services/postgresql")
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [
-        "bluesky plans browse-only: No channel roster source is configured, so the set "
-        "of channels this facility has is unknown."
-    ]
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_a_stale_device_file_is_removed_when_nothing_is_staged(tmp_path: Path) -> None:
-    """Dropping the VA takes the previous render's devices away with it.
-
-    The gate and the file are one decision: leaving the file behind would let a
-    template whose mount is gated off still ship a build context holding a
-    device set the deployment no longer stands behind.
-    """
-    out_dir = _devices_out_dir(tmp_path)
-    (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
-
-    staged = _stage_devices(_devices_config(tmp_path, control_system_type="epics"), out_dir)
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-
-
-def test_graph_mode_naming_no_corpus_names_every_key_that_would_declare_one(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """The remedy is a config edit, so the fact names the keys to edit.
-
-    The store is never dialed to find out: the corpus on disk is what the
-    deploy seeds it from, and an unreachable store would be reported as an
-    empty facility rather than as the configuration gap it is.
-    """
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_graph_devices_config(tmp_path, ttl_path=None), out_dir)
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [
-        "bluesky plans browse-only: Graph mode is configured but names no readable "
-        "knowledge-graph corpus, so the set of channels this facility has is unknown; "
-        "the corpus is declared by services.graphdb.ttl_path, services.graphdb.index_path "
-        "and services.graphdb.uri."
-    ]
-
-
-def test_a_database_whose_directions_cannot_be_derived_stages_nothing(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """Membership without direction is browse-only, never a settable-free file.
-
-    A paradigm database carrying no ``:SP`` addresses, on a deployment with no
-    limits file, leaves no rule that could tell a settable channel from a
-    readable one. Staging the readables alone would be indistinguishable,
-    everywhere downstream, from a facility that genuinely has nothing settable
-    -- so nothing is staged and the fact names the database to fix.
-    """
-    database = _flat_database(tmp_path / "channels.json", ["FAC:BPM:01:X", "FAC:BPM:01:Y"])
-    config = _database_devices_config(
-        tmp_path, path=database, pipeline_mode="in_context", db_type="flat"
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(config, out_dir)
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [
-        f"bluesky plans browse-only: The channels in {database} are known, but which of "
-        "them are settable is not: that source carries no write-limits database and no "
-        "':SP' addresses to derive a direction from."
-    ]
-
-
-def test_a_roster_source_that_enumerates_nothing_is_browse_only(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """A source that parsed cleanly and declares nothing stages nothing.
-
-    Reported in the roster's words -- a staging or seeding gap -- rather than
-    staged as an empty device file, which would tell the worker this facility
-    has no channels.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {})
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [
-        f"bluesky plans browse-only: The channel roster source at {_INDEX_SPELLING} "
-        "was read and declares no channels, which is a staging or seeding gap rather "
-        "than a facility with none."
-    ]
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_an_index_that_is_there_and_unreadable_refuses_the_render(tmp_path: Path) -> None:
-    """Fail-closed on a corrupt source -- the other half of the three-way rule.
-
-    An absent source is a facility this project did not describe. One that is
-    there and cannot be read is a facility it meant to describe and got wrong,
-    and deriving past it would hand the worker a namespace nobody authored
-    while the build reported success.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"}, index=False)
-    index_path = tmp_path / "data" / "channel_databases" / "graph.duckdb"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_bytes(b"this is not a database at all <<<")
-    out_dir = _devices_out_dir(tmp_path)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    assert _INDEX_SPELLING in excinfo.value.reason, (
-        "the refusal names the file to repair, as the config spells it"
-    )
-    assert DEVICES_KEY in excinfo.value.remedy, (
-        "the remedy names the way out that does not need the source"
-    )
-    assert not (out_dir / "bluesky_devices.yml").exists()
-
-
-def test_a_configured_source_that_is_simply_absent_is_browse_only(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """ "Not there" is fail-soft; only "there and unreadable" refuses.
-
-    A tree whose index has not been built yet must not become a build failure
-    -- the same distinction the virtual-accelerator manifest draws between a
-    namespace a project did not ship and one it shipped broken.
-    """
-    out_dir = _devices_out_dir(tmp_path)
-
-    staged = _stage_devices(_graph_devices_config(tmp_path), out_dir)
-
-    assert staged is False
-    assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == [
-        f"bluesky plans browse-only: The channel roster source at {_INDEX_SPELLING} "
-        "is not there, so the set of channels this facility has is unknown; it is "
-        "declared by services.graphdb.ttl_path, services.graphdb.index_path and "
-        "services.graphdb.uri. Build it with `osprey knowledge build-index`, or re-run "
-        "`osprey build`."
-    ], "the roster says absent rather than broken, and this seam stays fail-soft on it"
-
-
-def test_a_lane_carrying_no_devices_file_key_reports_the_unconfigured_fact(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
-    """A hand-edited config that dropped the key gets a distinct line.
-
-    The injector writes ``devices_file`` on every lane of every deploy, so an
-    absent key means someone edited config.yml — and "names no file" is a
-    different thing to fix than "names a file that is not there".
-    """
-    config = _devices_config(tmp_path, devices_file=None, control_system_type="epics")
-    out_dir = _devices_out_dir(tmp_path)
-
-    assert _stage_devices(config, out_dir) is False
-    assert devices_facts == [f"bluesky plans browse-only: no {DEVICES_KEY} is configured"]
+    assert devices_facts == []
 
 
 def test_the_two_lane_double_render_stages_identical_bytes(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
-    """Both lanes render this one directory, and the second call is a no-op.
-
-    A two-lane deploy renders ``services/bluesky`` twice into one build
-    context. A running deployment may have the staged file bind-mounted while
-    that happens, so the second pass has to land on the same decision and the
-    same bytes rather than briefly removing or rewriting them differently.
-    """
-    _corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-    )
-    config = _graph_devices_config(
-        tmp_path,
-        lanes=("bluesky", "bluesky_va"),
-        deployed_services=("bluesky", "bluesky_va", "virtual_accelerator"),
-    )
-    out_dir = _devices_out_dir(tmp_path)
-
-    first = _stage_devices(config, out_dir)
-    first_bytes = (out_dir / "bluesky_devices.yml").read_bytes()
-    second = _stage_devices(config, out_dir)
-
-    assert (first, second) == (True, True)
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == first_bytes
-    assert devices_facts[0] == devices_facts[1], "each lane reports the same device set"
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_the_double_render_is_idempotent_for_an_authored_file(tmp_path: Path) -> None:
-    """Same property on the copy path, where the second write overwrites."""
-    authored = _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    config = _devices_config(tmp_path, lanes=("bluesky", "bluesky_live"))
+    """Both lanes render this one directory; the second copy lands the same bytes."""
+    view = _write_view(tmp_path)
+    config = _devices_config(tmp_path, lanes=("bluesky", "bluesky_va"))
     out_dir = _devices_out_dir(tmp_path)
 
     assert _stage_devices(config, out_dir) is True
     assert _stage_devices(config, out_dir) is True
-    assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
-    assert list((out_dir).iterdir()) == [out_dir / "bluesky_devices.yml"], (
-        "the atomic write must leave no temp file behind in the build context"
+    assert (out_dir / "bluesky_devices.yml").read_bytes() == view.read_bytes()
+    assert list(out_dir.iterdir()) == [out_dir / "bluesky_devices.yml"], (
+        "the atomic copy leaves no temp file behind in the build context"
     )
-
-
-@pytest.mark.usefixtures("devices_facts")
-def test_the_roster_source_is_read_once_across_both_lanes_and_the_snapshot(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """One build, one parse of the facility's corpus.
-
-    A two-lane deploy stages this directory twice and the channel snapshot asks
-    the same question a third time, against a corpus that is multiple megabytes
-    at a real facility. Reading it once is what makes one authoritative roster
-    affordable -- and every consumer then answers from the same read, so they
-    cannot disagree about which channels exist.
-    """
-    from osprey.deployment.channel_snapshot import compute_channel_snapshot
-
-    _corpus(
-        tmp_path / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-    )
-    real_reader = channel_roster.read_graph_roster
-    parses: list[Path] = []
-
-    def counting_reader(source):
-        parses.append(source.path)
-        return real_reader(source)
-
-    monkeypatch.setattr(channel_roster, "read_graph_roster", counting_reader)
-    config = _graph_devices_config(tmp_path, lanes=("bluesky", "bluesky_va"))
-    out_dir = _devices_out_dir(tmp_path)
-
-    _stage_devices(config, out_dir)
-    _stage_devices(config, out_dir)
-    snapshot = compute_channel_snapshot(config)
-
-    assert len(parses) == 1, f"the corpus was parsed {len(parses)} times in one build"
-    assert snapshot.channels == ["A:B:C:RB", "A:B:C:SP"], (
-        "the snapshot and the device file must be two views of one roster"
-    )
+    assert devices_facts[0] == devices_facts[1]
 
 
 # ---------------------------------------------------------------------------
@@ -9491,17 +8356,9 @@ def _devices_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 def _devices_render_config(repo: Path) -> dict:
-    config = _graph_devices_config(repo, deployed_services=("bluesky", "virtual_accelerator"))
+    config = _devices_config(repo)
     config.update({"build_dir": "./build", "deployment": {}, "system": {"timezone": "UTC"}})
     return config
-
-
-def _render_repo_corpus(repo: Path) -> Path:
-    """Give the render repo a roster to derive its device set from."""
-    return _corpus(
-        repo / "data" / "demo_machine.ttl",
-        {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-    )
 
 
 #: The stand-in service template both entry points render, relative to the repo
@@ -9513,11 +8370,9 @@ def _render_devices_service(entry_point: str, repo: Path, config: dict) -> Path:
     """Render the bluesky service through ``entry_point`` and hand back its
     build context.
 
-    The two renderers are spelled apart only here. ``setup_build_dir`` creates
-    the context itself, while ``_incremental_setup_build_dir`` -- the fallback a
-    busy build directory takes -- is handed one that already exists; every
-    assertion after this point is the same for both, which is the whole claim
-    the parametrized tests make.
+    ``setup_build_dir`` creates the context itself, while
+    ``_incremental_setup_build_dir`` -- the fallback a busy build directory
+    takes -- is handed one that already exists.
     """
     from osprey.deployment.compose_generator import (
         _incremental_setup_build_dir,
@@ -9535,22 +8390,16 @@ def _render_devices_service(entry_point: str, repo: Path, config: dict) -> Path:
 
 @pytest.mark.parametrize("entry_point", ["full", "incremental"])
 @pytest.mark.usefixtures("devices_facts")
-def test_both_render_paths_stage_the_file_and_carry_the_gate(
+def test_both_render_paths_stage_the_view_and_carry_the_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     entry_point: str,
 ) -> None:
-    """``bluesky_devices`` reaches the template from either renderer.
-
-    The incremental path is the fallback a busy build directory takes, and a
-    deployment that fell back to it must not lose its device mount — the file
-    and the flag are staged in the same place in both.
-    """
     repo = _devices_render_repo(tmp_path, monkeypatch)
-    _render_repo_corpus(repo)
+    view = _write_view(repo)
     out_dir = _render_devices_service(entry_point, repo, _devices_render_config(repo))
 
-    assert (out_dir / "bluesky_devices.yml").is_file()
+    assert (out_dir / "bluesky_devices.yml").read_bytes() == view.read_bytes()
     rendered = (out_dir / "docker-compose.yml").read_text(encoding="utf-8")
     assert (
         "./build/services/bluesky/bluesky_devices.yml:"
@@ -9560,16 +8409,16 @@ def test_both_render_paths_stage_the_file_and_carry_the_gate(
 
 @pytest.mark.parametrize("entry_point", ["full", "incremental"])
 @pytest.mark.usefixtures("devices_facts")
-def test_both_render_paths_gate_the_mount_off_when_nothing_is_staged(
+def test_both_render_paths_gate_the_mount_off_in_process(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     entry_point: str,
 ) -> None:
-    """Fail-closed in both: no file staged, no mount rendered."""
     repo = _devices_render_repo(tmp_path, monkeypatch)
+    _write_view(repo)
     config = _devices_render_config(repo)
-    config["control_system"]["type"] = "epics"
-    config["deployed_services"] = ["bluesky"]
+    config["control_system"]["type"] = "virtual_accelerator"
+    config["control_system"]["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
     out_dir = _render_devices_service(entry_point, repo, config)
 
     assert not (out_dir / "bluesky_devices.yml").exists()
@@ -9581,16 +8430,11 @@ def test_the_real_render_context_carries_the_gate_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The key is typed by the renderer, not defaulted by the template.
-
-    ``| default(false)`` in the template is a belt for hand-built contexts; the
-    render itself must always state the answer, so a template that drops the
-    filter cannot silently start reading an absent key.
-    """
+    """The key is typed by the renderer, not defaulted by the template."""
     from osprey.deployment import compose_generator
 
     repo = _devices_render_repo(tmp_path, monkeypatch)
-    _render_repo_corpus(repo)
+    _write_view(repo)
     contexts: list[dict] = []
     real = compose_generator.render_template
 
@@ -9659,28 +8503,27 @@ class TestImagePinVersion:
 
 
 # ---------------------------------------------------------------------------
-# A derived device set behind an armed lane
+# A staged device set behind an armed lane
 #
 # OSPREY requires no channel-limits database. Limits checking is opt-in per
 # target, and the connector's per-write check is the enforcement point -- so a
-# build that derives the worker's device set from the facility's own roster
-# renders whatever posture the config states, armed or not.
+# build that stages the worker's device set renders whatever posture the config
+# states, armed or not.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("cold_roster_cache")
-def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
+def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The render that derives the device set does not second-guess the posture.
+    """The render that stages the device set does not second-guess the posture.
 
-    A derived set is OSPREY's list of what the queueserver worker MAY move, not
-    a write that has happened: a derived device goes through the same connector
+    A staged set is OSPREY's list of what the queueserver worker MAY move, not
+    a write that has happened: a staged device goes through the same connector
     as any other channel write and meets the same optional, per-target limits
     check there. A build that refused this config would make limits checking
-    mandatory for every facility that lets OSPREY derive its devices, which is
-    the opposite of the opt-in the connector implements.
+    mandatory for every facility running a Bluesky lane, which is the opposite
+    of the opt-in the connector implements.
     """
     repo = tmp_path / "repo"
     (repo / "services" / "bluesky").mkdir(parents=True)
@@ -9692,7 +8535,7 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
     (repo / "services" / "docker-compose.yml.j2").write_text(
         "networks:\n  osprey-network:\n", encoding="utf-8"
     )
-    _corpus(repo / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
+    _write_view(repo)
     config_path = repo / "config.yml"
     yaml_writer = YAML()
     with open(config_path, "w") as fh:
@@ -9702,11 +8545,8 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
                 "build_dir": "./build",
                 "deployed_services": ["bluesky"],
                 "services": {
-                    "bluesky": {
-                        "path": "./services/bluesky",
-                        "devices_file": DEFAULT_DEVICES_RELPATH,
-                    },
-                    "graphdb": {"ttl_path": "data/demo_machine.ttl"},
+                    "bluesky": {"path": "./services/bluesky"},
+                    "graphdb": {"ttl_path": "data/graph/facility.ttl"},
                 },
                 "channel_finder": {"pipeline_mode": "graph"},
                 "control_system": {
@@ -9714,7 +8554,7 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
                     "writes_enabled": True,
                     "limits_checking": {
                         "enabled": False,
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     },
                 },
             },
@@ -9724,7 +8564,9 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
 
     config, compose_files = prepare_compose_files(str(config_path))
 
-    assert _plan(config).derives is True, "the render under test must DERIVE the device set"
+    assert (repo / "build" / "services" / "bluesky" / "bluesky_devices.yml").is_file(), (
+        "the render under test must STAGE the device set"
+    )
     assert compose_files, "the armed, unchecked lane must render its compose files"
     assert "limits_mount" not in config, (
         "no limits database is configured, so nothing is mounted for one"
@@ -10071,8 +8913,11 @@ class TestBuildPathProvisionsTheControlTree:
         environment here — the record the build provisions for has to be the
         record that account's own process writes.
         """
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+        from osprey_connectors.identity import (
+            AUDIT_IDENTITY_ENV,
+            TERMINAL_USER_ENV,
+            acting_identity,
+        )
 
         monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "rung-two")
@@ -10096,8 +8941,7 @@ class TestBuildPathProvisionsTheControlTree:
         container may be unable to read.
         """
         from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import TERMINAL_USER_ENV
+        from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity
 
         monkeypatch.setenv(TERMINAL_USER_ENV, "BuildAcct")
         assert acting_identity() == "BuildAcct", "the ladder accepts what the seam refuses"
@@ -10497,22 +9341,22 @@ def _web_terminal_services(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _persona_backed_roster() -> dict[str, Any]:
-    """The reference roster with each user behind a persona of its own.
+def _render_backed_roster() -> dict[str, Any]:
+    """The reference roster with each user behind a render of its own.
 
-    Two personas built from two different projects read their agent-data root at
+    Two renders built from two different projects read their agent-data root at
     two different in-container paths, which is the case a hardcoded mount target
     gets wrong for one of them.
     """
     config = copy.deepcopy(EXAMPLE_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["personas"] = {
-        "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
-        "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+    web_terminals["renders"] = {
+        "operator": tier_render("operator", "dls-operator", project_path="../dls-operator"),
+        "physicist": tier_render("physicist", "dls-physicist", project_path="../dls-physicist"),
     }
     web_terminals["users"] = [
-        {"name": "alice", "index": 0, "persona": "operator"},
-        {"name": "bob", "index": 1, "persona": "physicist"},
+        {"name": "alice", "index": 0, "tier": "operator"},
+        {"name": "bob", "index": 1, "tier": "physicist"},
     ]
     return config
 
@@ -10550,7 +9394,7 @@ class TestTerminalControlContextBind:
         Read back rather than spelled, because the whole point of the bind's
         target is that it follows that directory — the one the process inside
         actually resolves its agent-data root to. A literal here would pin the
-        reference config's path and pass for a persona that reads its root
+        reference config's path and pass for a render that reads its root
         somewhere else entirely.
         """
         mounts = [
@@ -10600,17 +9444,17 @@ class TestTerminalControlContextBind:
 
             assert declared == [f"OSPREY_CONTROL_CONTEXT_DIR={target}"], (name, declared)
 
-    def test_control_context_dir_follows_each_personas_own_agent_data_root(self) -> None:
-        """Two personas, two in-container roots, two targets — derived, not fixed.
+    def test_control_context_dir_follows_each_renders_own_agent_data_root(self) -> None:
+        """Two renders, two in-container roots, two targets — derived, not fixed.
 
-        A persona-backed roster separates a derived target from a hardcoded one:
+        A render-backed roster separates a derived target from a hardcoded one:
         each container resolves its agent-data root under its OWN project
         directory, so one literal path would mount the record directory where
         only one of the two writes.
         """
         targets = {
             name: self._control_mounts(service)[0].split(":")[1]
-            for name, service in _web_terminal_services(_persona_backed_roster()).items()
+            for name, service in _web_terminal_services(_render_backed_roster()).items()
         }
 
         assert targets == {
@@ -10730,10 +9574,11 @@ class TestTerminalControlContextBind:
 # ---------------------------------------------------------------------------
 # The control-identity module (``_stage_control_identity_module``)
 #
-# The dispatch worker and every bluesky lane mount ``control_identity.py``
-# unconditionally, so for those two build contexts staging is mandatory: the
-# file is always there, byte-for-byte the packaged module, or the render
-# refuses. Every other context carries no copy at all.
+# The dispatch worker and every bluesky lane bind the staged
+# ``control_identity/`` directory unconditionally, so for those two build
+# contexts staging is mandatory: the directory holds exactly the script and
+# its catalog closure, byte-for-byte, or the render refuses. Every other
+# context carries no copy at all.
 # ---------------------------------------------------------------------------
 
 #: A stand-in service template: what is under test is that the module lands
@@ -10746,10 +9591,22 @@ services:
 """
 
 
-def _control_identity_source_bytes() -> bytes:
-    from osprey.deployment import control_identity
+def _control_identity_files() -> dict[str, Path]:
+    """The script and its closure, as the catalog names them."""
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
 
-    return Path(control_identity.__file__).read_bytes()
+    return BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+
+
+def _assert_staged_closure(staged_dir: Path) -> None:
+    """*staged_dir* holds exactly the script and its closure, byte for byte."""
+    files = _control_identity_files()
+    assert sorted(p.name for p in staged_dir.iterdir()) == sorted(files)
+    for name, source in files.items():
+        assert (staged_dir / name).read_bytes() == source.read_bytes(), name
 
 
 def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
@@ -10759,15 +9616,15 @@ def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
-def test_stage_control_identity_copies_the_module_byte_for_byte(
+def test_stage_control_identity_copies_the_closure_byte_for_byte(
     tmp_path: Path, service: str
 ) -> None:
-    """A mandatory context receives the packaged module, unchanged."""
+    """A mandatory context receives the script and its closure in one directory, unchanged."""
     out_dir = tmp_path / service
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
 
 
 @pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
@@ -10777,17 +9634,20 @@ def test_stage_control_identity_skips_every_other_context(tmp_path: Path, servic
     out_dir.mkdir()
 
     assert _stage_control_identity(out_dir, f"services/{service}") is False
-    assert not (out_dir / "control_identity.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
-    """A copy an earlier build left in a non-mandatory context is removed."""
+    """The directory, and top-level copies an earlier build left, are removed
+    from a non-mandatory context."""
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    (out_dir / "control_identity").mkdir(parents=True)
+    for name in _control_identity_files():
+        (out_dir / name).write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert not (out_dir / "control_identity.py").exists()
+    assert list(out_dir.iterdir()) == []
 
 
 def test_stage_control_identity_stale_removal_failure_only_warns(
@@ -10798,37 +9658,45 @@ def test_stage_control_identity_stale_removal_failure_only_warns(
     from osprey.deployment import compose_generator
 
     out_dir = tmp_path / "bluesky_web"
-    out_dir.mkdir()
+    (out_dir / "control_identity").mkdir(parents=True)
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
 
-    def refuse(path: str) -> None:
+    def refuse(path: str, *args: object, **kwargs: object) -> None:
         raise PermissionError(errno.EACCES, "denied", path)
 
     monkeypatch.setattr(compose_generator.os, "remove", refuse)
+    monkeypatch.setattr(compose_generator.shutil, "rmtree", refuse)
     with caplog.at_level(logging.WARNING):
         assert _stage_control_identity(out_dir, "services/bluesky_web") is False
-    assert "stale control-identity module" in caplog.text
+    assert "stale control-identity file" in caplog.text
 
 
 @pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
 def test_stage_control_identity_raises_when_the_copy_fails(tmp_path: Path, service: str) -> None:
     """A mandatory context whose copy cannot be written refuses the render:
-    its compose file mounts the module unconditionally."""
-    missing_out_dir = tmp_path / "does-not-exist"
+    its compose file binds the directory unconditionally."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+    # A file where the directory goes: nothing can be staged into it.
+    (out_dir / "control_identity").write_text("", encoding="utf-8")
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _stage_control_identity(missing_out_dir, f"services/{service}")
-    assert "control_identity.py" in excinfo.value.reason
+        _stage_control_identity(out_dir, f"services/{service}")
+    assert "control_identity" in excinfo.value.reason
     assert excinfo.value.remedy
 
 
 def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
-    """A re-stage overwrites whatever an earlier build left behind."""
+    """A re-stage leaves exactly the closure, whatever an earlier build left behind."""
     out_dir = tmp_path / "dispatch_worker"
-    out_dir.mkdir()
-    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+    staged_dir = out_dir / "control_identity"
+    staged_dir.mkdir(parents=True)
+    for name in _control_identity_files():
+        (staged_dir / name).write_text("# stale\n", encoding="utf-8")
+    (staged_dir / "retired_helper.py").write_text("# stale\n", encoding="utf-8")
 
     assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(staged_dir)
 
 
 def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -10861,11 +9729,12 @@ def test_both_render_paths_stage_the_control_identity_module(
     if entry_point == "full":
         setup_build_dir(template, config, {})
     else:
-        out_dir.mkdir(parents=True)
-        (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+        (out_dir / "control_identity").mkdir(parents=True)
+        for name in _control_identity_files():
+            (out_dir / "control_identity" / name).write_text("# stale\n", encoding="utf-8")
         _incremental_setup_build_dir(template, config, {}, str(out_dir))
 
-    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    _assert_staged_closure(out_dir / "control_identity")
     assert (out_dir / "docker-compose.yml").is_file()
 
 
@@ -11013,16 +9882,18 @@ def test_both_render_paths_carry_the_ca_bundles(
 def test_inject_project_metadata_carries_control_identity_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The container path the module is mounted at and each lane's identity
-    reach every render context, goldens included."""
+    """The container directory the staged script is bound at, the script's path
+    inside it, and each lane's identity reach every render context, goldens
+    included."""
     from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
     from osprey.deployment.compose_generator import _inject_project_metadata
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 
     monkeypatch.chdir(tmp_path)
     context = _inject_project_metadata({})
 
     assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert context["control_identity_container_dir"] == CONTROL_IDENTITY_CONTAINER_DIR
+    assert CONTROL_IDENTITY_CONTAINER_PATH.startswith(CONTROL_IDENTITY_CONTAINER_DIR + "/")
     assert context["lane_control_identities"] == {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
@@ -11048,8 +9919,6 @@ def _dispatch_worker_services(rendered: str) -> dict:
 
 def test_dispatch_worker_control_identity_is_per_worker() -> None:
     """Every worker carries its own ``osprey-dispatch-<i>`` identity."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 3})
 
     services = _dispatch_worker_services(rendered)
@@ -11070,14 +9939,78 @@ def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
         validate_identity(body["environment"]["OSPREY_CONTROL_IDENTITY"], allow_service=True)
 
 
-def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
-    """The staged module is bind-mounted read-only at the path the env names."""
-    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-
+def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only() -> None:
+    """The staged directory -- the script the env names and its closure -- is
+    bound read-only, once, and is the worker's only control-identity bind."""
     rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
 
-    expected = (
-        f"./build/services/dispatch_worker/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
-    )
+    mount = f"./build/services/dispatch_worker/control_identity:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"
     for body in _dispatch_worker_services(rendered).values():
-        assert body["volumes"].count(expected) == 1, body["volumes"]
+        assert [v for v in body["volumes"] if "control_identity" in v] == [mount]
+
+
+# ---------------------------------------------------------------------------
+# The files `osprey up` finds are the files the build wrote
+# ---------------------------------------------------------------------------
+
+
+def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
+    """A deployment running the store and gateway, its web terminals signing in by *auth_method*."""
+    config_path = tmp_path / "config.yml"
+    with config_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(
+            {
+                "project_name": "derived-fixture",
+                "project_root": str(tmp_path),
+                "build_dir": str(tmp_path / "build"),
+                "system": {"timezone": "UTC"},
+                "deploy": {"host": "deploy-host", "fqdn": "deploy-host.example.org"},
+                "services": {
+                    "telemetry_store": {"path": "./services/telemetry_store"},
+                    "telemetry_gateway": {"path": "./services/telemetry_gateway"},
+                },
+                "deployed_services": ["telemetry_store", "telemetry_gateway"],
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "auth": {"method": auth_method, "allow_insecure_http": True},
+                        "users": [{"name": "alice", "index": 0}],
+                        "default_tier": "assistant",
+                        "renders": {
+                            "assistant": tier_render("assistant", "derived-fixture-assistant")
+                        },
+                    }
+                },
+            },
+            handle,
+        )
+    return config_path
+
+
+@pytest.mark.parametrize(("auth_method", "history_expected"), [("password", True), ("none", False)])
+def test_up_finds_exactly_the_compose_files_the_build_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auth_method: str, history_expected: bool
+) -> None:
+    """Build and up agree on the stack, derived services included.
+
+    The history page has no ``deployed_services`` entry: the build renders it
+    because the config deploys the store under sign-in. ``osprey up`` and
+    ``osprey down`` hand compose what :func:`find_existing_compose_files`
+    reports, so a lookup that walked ``deployed_services`` alone left the
+    container the build rendered out of every stack it started.
+    """
+    config_path = _write_store_config(tmp_path, auth_method)
+    _copy_service_templates(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    config, built = prepare_compose_files(str(config_path))
+    found = _dedupe_compose_files(
+        find_existing_compose_files(config, config["deployed_services"], base=tmp_path)
+    )
+
+    assert [os.path.normpath(path) for path in found] == [os.path.normpath(path) for path in built]
+    history_compose = os.path.normpath(
+        tmp_path / "build" / "services" / "history" / "docker-compose.yml"
+    )
+    assert (history_compose in {os.path.normpath(p) for p in built}) is history_expected
+    assert ("history" in derived_compose_dirs(config)) is history_expected

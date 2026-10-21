@@ -2,10 +2,9 @@
 the facility-knowledge runtime read path is imported.
 
 rdflib is a core dependency, but inside the facility-knowledge package only
-the offline TTL seeder and the TTL generator
-(:mod:`osprey.services.facility_knowledge.ttl_generator`) import it — as does
-the graph-mode channel snapshot (:mod:`osprey.deployment.channel_snapshot`) —
-and all of them do so lazily, keeping it out of the runtime read path;
+the offline TTL seeder imports it — as does the graph-mode channel snapshot
+(:mod:`osprey.deployment.channel_snapshot`) — and both do so lazily, keeping it
+out of the runtime read path;
 neo4j belongs exclusively to the graph seeder (:mod:`.seeder.graph_seeder`) and
 the graph MCP server (:mod:`osprey.mcp_server.graph`), both of which import it
 lazily inside the functions that dial the store. Importing any of those modules
@@ -26,6 +25,8 @@ uses only neo4j-driver APIs that exist on both the 5.x and 6.x driver lines.
 from __future__ import annotations
 
 import ast
+import functools
+import json
 import os
 import subprocess
 import sys
@@ -90,6 +91,52 @@ def _run_absent_check(
     return result.returncode == 0, result.stderr
 
 
+#: The two drivers every plain import check looks for. One child answers both
+#: for a given import, so the rdflib and neo4j checks of one module share it.
+_DRIVERS = ("rdflib", "neo4j")
+
+_DRIVERS_CHECK_TEMPLATE = """\
+{setup}
+import json
+import sys
+_report = {{}}
+for _package in {packages!r}:
+    _prefix = _package + "."
+    _leaked = [m for m in sys.modules if m == _package or m.startswith(_prefix)]
+    if _leaked:
+        print(_package + " leaked into sys.modules: " + repr(_leaked), file=sys.stderr)
+    _report[_package] = _leaked
+print(json.dumps(_report))
+"""
+
+
+@functools.cache
+def _driver_report(import_stmt: str) -> tuple[dict[str, list[str]] | None, str]:
+    """Run *import_stmt* in a fresh interpreter once; report what each driver leaked.
+
+    Returns:
+        ``(report, stderr)``: *report* maps each of :data:`_DRIVERS` to the
+        modules of it found in ``sys.modules``, or is ``None`` when the child
+        failed before reporting (an import error is a failure, not a pass).
+    """
+    code = _DRIVERS_CHECK_TEMPLATE.format(setup=import_stmt, packages=_DRIVERS)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_S,
+    )
+    if result.returncode != 0:
+        return None, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1]), result.stderr
+
+
+def _run_driver_check(package: str, import_stmt: str) -> tuple[bool, str]:
+    """Whether *package* (one of :data:`_DRIVERS`) stayed out after *import_stmt*."""
+    report, stderr = _driver_report(import_stmt)
+    return report is not None and not report[package], stderr
+
+
 def _run_isolation_check(import_stmt: str) -> tuple[bool, str]:
     """Run *import_stmt* in a subprocess and check that rdflib is not in sys.modules.
 
@@ -100,7 +147,7 @@ def _run_isolation_check(import_stmt: str) -> tuple[bool, str]:
         Tuple of (rdflib_absent, stderr_output).  *rdflib_absent* is True when
         rdflib was not imported as a side-effect.
     """
-    return _run_absent_check("rdflib", import_stmt)
+    return _run_driver_check("rdflib", import_stmt)
 
 
 def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
@@ -117,7 +164,7 @@ def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
         Tuple of (neo4j_absent, stderr_output).  *neo4j_absent* is True when
         neo4j was not imported as a side-effect.
     """
-    return _run_absent_check("neo4j", import_stmt)
+    return _run_driver_check("neo4j", import_stmt)
 
 
 _MULTI_ABSENT_CHECK_TEMPLATE = """\
@@ -198,9 +245,6 @@ def _discover_modules(package: str, *, exclude: frozenset[str] = frozenset()) ->
 #: is the ``python -m`` entry point, not an importable surface.
 GRAPH_MCP_MODULES = _discover_modules("osprey.mcp_server.graph", exclude=frozenset({"__main__"}))
 
-#: Every module of the offline TTL generator.
-TTL_GENERATOR_MODULES = _discover_modules("osprey.services.facility_knowledge.ttl_generator")
-
 #: Modules the guard must cover no matter what discovery turns up — a floor that
 #: turns a silently-empty ``rglob`` into a red test rather than a vacuous pass.
 REQUIRED_GRAPH_MCP_MODULES = frozenset(
@@ -213,18 +257,6 @@ REQUIRED_GRAPH_MCP_MODULES = frozenset(
         "osprey.mcp_server.graph.tools.example_queries",
         "osprey.mcp_server.graph.tools.get_schema",
         "osprey.mcp_server.graph.tools.read_cypher",
-    }
-)
-
-#: Likewise for the TTL generator. ``emitter`` is intentionally absent: it is
-#: discovered automatically once it lands, so no follow-up edit is needed here.
-REQUIRED_TTL_GENERATOR_MODULES = frozenset(
-    {
-        "osprey.services.facility_knowledge.ttl_generator",
-        "osprey.services.facility_knowledge.ttl_generator.direction",
-        "osprey.services.facility_knowledge.ttl_generator.mml_source",
-        "osprey.services.facility_knowledge.ttl_generator.model",
-        "osprey.services.facility_knowledge.ttl_generator.ontology_map",
     }
 )
 
@@ -445,51 +477,6 @@ class TestGraphMcpServerDriverIsolation:
         assert ok, f"neo4j leaked while the graph server failed to start:\n{stderr}"
 
 
-class TestTtlGeneratorRdflibIsolation:
-    """The TTL generator holds rdflib behind function-local imports.
-
-    Its modules are pure data/model code; only the emitter's serialization step
-    touches rdflib, and it does so inside the function that writes Turtle.
-    """
-
-    def test_discovery_covers_the_known_ttl_generator_modules(self):
-        """Discovery must find at least the modules the generator is built from."""
-        missing = REQUIRED_TTL_GENERATOR_MODULES - set(TTL_GENERATOR_MODULES)
-        assert not missing, f"module discovery missed ttl_generator modules: {sorted(missing)}"
-
-    @pytest.mark.parametrize("module", TTL_GENERATOR_MODULES)
-    def test_ttl_generator_module_does_not_import_rdflib(self, module: str):
-        """Importing any ttl_generator module must leave rdflib out of sys.modules."""
-        ok, stderr = _run_isolation_check(f"import {module}")
-        assert ok, f"rdflib leaked after importing {module}:\n{stderr}"
-
-    @pytest.mark.parametrize("module", TTL_GENERATOR_MODULES)
-    def test_ttl_generator_module_does_not_import_neo4j(self, module: str):
-        """The generator writes a file; it must never reach for the graph driver."""
-        ok, stderr = _run_neo4j_isolation_check(f"import {module}")
-        assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
-
-    def test_mml_source_names_no_yaml_rdflib_or_neo4j_import(self):
-        """The MML source takes a parsed mapping; it imports no YAML, rdflib or neo4j.
-
-        Checked on the module's own source: the ``facility_knowledge`` package
-        root already loads YAML for OKF documents, so a ``sys.modules`` probe
-        could not tell the MML source's imports from its parent package's.
-        """
-        path = REPO_ROOT / "src/osprey/services/facility_knowledge/ttl_generator/mml_source.py"
-        forbidden = {"yaml", "rdflib", "neo4j"}
-        hits = []
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                names = [node.module]
-            else:
-                continue
-            hits.extend(name for name in names if name.split(".")[0] in forbidden)
-        assert not hits, f"mml_source imports {sorted(hits)}"
-
-
 class TestGraphIndexImportIsolation:
     """``channel_finder.graph_index`` must stay import-light, lazy exports included.
 
@@ -524,25 +511,22 @@ class TestGraphIndexImportIsolation:
         assert ok, f"resolving graph_index's lazy exports leaked a blocked dependency:\n{stderr}"
 
 
-class TestChannelRosterGraphImportIsolation:
-    """``osprey.channel_roster`` and its graph reader must stay import-light.
+class TestChannelRosterImportIsolation:
+    """``osprey.channel_roster`` and its facility-file reader import no graph stack.
 
-    ``registered_channels`` dispatches to :mod:`osprey.channel_roster.graph`
-    for the graph paradigm, and that reader parses the Turtle corpus — via
-    rdflib — at call time, not at import time; see its module docstring. This
-    check only pins the import-time half of that contract: rdflib, neo4j and
-    ``osprey.services.qmd`` must all stay out of ``sys.modules`` merely from
-    importing the package and the reader function, before any corpus is read.
+    The roster reads the facility file a build writes, so rdflib, neo4j and
+    ``osprey.services.qmd`` stay out of ``sys.modules`` after importing the
+    package and its reader.
     """
 
     def test_import_stays_light(self):
-        """Importing the roster package and the graph reader must not leak a driver."""
+        """Importing the roster package and its reader leaks no graph dependency."""
         ok, stderr = _run_multi_absent_check(
             ("rdflib", "neo4j", "osprey.services.qmd"),
             "import osprey.channel_roster\n"
-            "from osprey.channel_roster.graph import read_graph_roster\n",
+            "from osprey.channel_roster.sources import read_facility_roster\n",
         )
-        assert ok, f"channel_roster.graph import leaked a blocked dependency:\n{stderr}"
+        assert ok, f"channel_roster import leaked a blocked dependency:\n{stderr}"
 
 
 #: Builds the Channel Finder app without serving it: the module-level imports
@@ -597,7 +581,7 @@ class TestChannelFinderAppImportIsolation:
             "services:\n"
             "  graphdb:\n"
             "    uri: bolt://localhost:7687\n"
-            "    ttl_path: ./data/facility_knowledge/facility.ttl\n",
+            "    ttl_path: ./data/facility/knowledge/facility.ttl\n",
             encoding="utf-8",
         )
         return {"CONFIG_FILE": str(config), "OSPREY_CONFIG": str(config)}

@@ -32,7 +32,7 @@
     present, because the resolver degrades to UTC rather than failing.
     design_system/static/js/facility-time.js reads it. Double-quoted because a
     zone id never contains a quote. -#}
-<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}" data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
+<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}" data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if not rail_docs_visible %} data-rail-docs="hidden"{% endif %}{% if not rail_feedback_visible %} data-rail-feedback="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -115,6 +115,8 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/undo-notice.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/rail-more-menu.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
@@ -297,7 +299,7 @@
   <div class="shell-body">
 
     <!-- Left icon rail: one entry per enabled panel + the add-panel control,
-         stacked in a single 74px column, with the two non-panel controls
+         stacked in a single 74px column, with the non-panel controls
          pinned to the far end. Entries are populated by panel-manager.js
          through panel-rail.js; the "+" menu by panel-add-menu.js. -->
     <div class="panel-rail-region">
@@ -321,8 +323,12 @@
            carries the longer phrase the label abbreviates.
            The docs href is filled in at boot from GET /api/panels.docs_url;
            the anchor stays hidden until it has one (rail-utility.js).
-           Activity opens the Session Activity Log in a new tab on the
-           session the terminal is on at click time (activity-log-link.js). -->
+           Docs and Feedback each hide from their own right-click menu and come
+           back from ⋯ More, which also holds the controls used too rarely to
+           earn a cell: the tour, the activity log and the SYSTEM panel when it
+           is off the rail (rail-more-menu.js). ⋯ More cannot be hidden. A
+           hidden Feedback button stays in the DOM, withdrawn by CSS: the bar's
+           Feedback item and the feedback boot forward to it by id. -->
       <div class="panel-utility" id="panel-utility">
         <a class="panel-utility-btn" id="panel-docs-link"
            target="_blank" rel="noopener"
@@ -345,25 +351,21 @@
           </span>
           <span class="panel-utility-label">Feedback</span>
         </button>
-        <button class="panel-utility-btn" id="panel-tour-btn" type="button"
-                title="Take the tour" aria-label="Tour">
-          <span class="panel-utility-icon" data-icon="tour" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="8" cy="8" r="6"/>
-              <path d="M10.5 5.5L9 9L5.5 10.5L7 7Z"/>
-            </svg>
-          </span>
-          <span class="panel-utility-label">Tour</span>
-        </button>
-        <button class="panel-utility-btn" id="panel-activity-btn" type="button"
-                title="Open the activity log in a new tab" aria-label="Activity">
-          <span class="panel-utility-icon" data-icon="activity" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 8.5H5L6.5 4.5L9.5 11.5L11 8.5H14"/>
-            </svg>
-          </span>
-          <span class="panel-utility-label">Activity</span>
-        </button>
+        <div class="rail-more" id="rail-more">
+          <button class="panel-utility-btn" id="rail-more-btn" type="button"
+                  title="More" aria-label="More"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="rail-more-menu">
+            <span class="panel-utility-icon" data-icon="more" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="panel-utility-label">More</span>
+          </button>
+          <div class="rail-more-menu" id="rail-more-menu" role="menu" aria-label="More"></div>
+        </div>
       </div>
     </div>
 

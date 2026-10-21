@@ -104,7 +104,7 @@ async def artifact_register(
                 # hands out repo-root-relative pointers. A relative path the
                 # agent produced therefore resolved one zone too deep here —
                 # and only in containers, where the two coincide, did it work.
-                from osprey.utils.workspace import load_osprey_config, resolve_project_root
+                from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
                 source = resolve_project_root(load_osprey_config()) / source
             entry = store.save_from_path(
@@ -274,7 +274,7 @@ async def artifact_delete_all(scope: str) -> str:
         store = get_artifact_store()
         # One action, one activity frame: the store fires its delete listener
         # once per removed entry, and a scope bigger than the web terminal's
-        # 50-frame history ring would evict the ring's whole content with
+        # 50-frame history buffer would evict the buffer's whole content with
         # copies of the same delete. Suppress the per-entry frames and report
         # the summary instead.
         with suppress_delete_frames():
@@ -355,6 +355,13 @@ async def artifact_get(artifact_id: str) -> str:
             "file_path": str(file_path) if file_path else None,
             "gallery_url": url,
         }
+        # Project the one provenance shape that can reconnect a gallery image
+        # to ARIEL. Do not return arbitrary metadata: artifacts may carry
+        # implementation details unrelated to a user's question.
+        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+        logbook_picture = metadata.get("logbook_picture")
+        if isinstance(logbook_picture, dict):
+            result["logbook_picture"] = logbook_picture
         return json.dumps(result, default=str)
 
     except ToolError:

@@ -24,21 +24,28 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.graphdb_service import (
+    DEFAULT_TTL_PATH,
+    GRAPHDB_SERVICE_NAME,
+    GRAPHDB_TTL_PATH_CONFIG_KEY,
+)
 from osprey.deployment.host_binding import (
     BIND_ENV_KEY,
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
-from osprey.errors import BuildProfileError
+from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
+    config_update_fields,
     load_config_document,
     save_config_document,
 )
-from osprey.utils.facility import resolve_facility_name
-from osprey.utils.logger import get_logger
+from osprey.utils.facility import facility_name as identity_name
 from osprey_connectors import types as connector_types
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
@@ -65,6 +72,32 @@ logger = get_logger("build")
 _BUNDLED_WORKER_TARGET_RE = re.compile(
     r"^(?P<prefix>https?://dispatch-worker-(?P<index>\d+):)(?P<port>\d+)(?P<suffix>/.*)?$"
 )
+
+
+def graphdb_corpus_fill(config: Mapping[str, Any]) -> dict[str, str]:
+    """Return the corpus key a ``services.graphdb`` block leaves unspelled.
+
+    Every render with a graph store seeds it from the graph view the build
+    writes, :data:`~osprey.deployment.graphdb_service.DEFAULT_TTL_PATH`. A
+    profile that names a corpus of its own keeps it: the fill supplies the key
+    only where the profile's block does not address it.
+
+    Args:
+        config: A profile's ``config:`` overlay, in either spelling -- dotted
+            keys, nested mappings, or a mix.
+
+    Returns:
+        ``{"services.graphdb.ttl_path": DEFAULT_TTL_PATH}`` when the overlay
+        carries a ``services.graphdb`` block without a ``ttl_path``, else an
+        empty mapping.
+    """
+    from .build_profile_archiver import _expand_dotted
+
+    services = _expand_dotted(dict(config)).get("services")
+    block = services.get(GRAPHDB_SERVICE_NAME) if isinstance(services, Mapping) else None
+    if not isinstance(block, Mapping) or "ttl_path" in block:
+        return {}
+    return {GRAPHDB_TTL_PATH_CONFIG_KEY: DEFAULT_TTL_PATH}
 
 
 def _worker_port(worker_port_base: int, index: int, stride: int) -> int:
@@ -363,14 +396,19 @@ def _copy_service_templates(project_path: Path) -> int:
     # under `services:`.  deployed_services come first (preserving prior
     # behavior exactly), then any declared key not already present.  Bundling a
     # declared-but-not-deployed template keeps it inert until deployed, so
-    # opt-in add-ons (e.g. the openobserve telemetry backend) can be turned on
-    # later via a `deployed_services` edit + `osprey up`, no rebuild.
+    # opt-in add-ons can be turned on later via a `deployed_services` edit +
+    # `osprey up`, no rebuild.
     deployed = [str(s) for s in config.get("deployed_services", [])]
     names = list(deployed)
     for declared in services_config:
         name = str(declared)
         if name not in names:
             names.append(name)
+    # The history page is never a deployed_services entry: it is rendered
+    # exactly when the deployment runs the store and signs people in.
+    if history_page_deployed(config) and HISTORY_SERVICE not in names:
+        names.append(HISTORY_SERVICE)
+        deployed.append(HISTORY_SERVICE)
 
     if not names:
         return 0
@@ -563,7 +601,9 @@ def _declare_bundled_host_bindings(
         save_config_document(config_path, config)
 
 
-def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: Path) -> None:
+def _inject_dispatch(
+    dispatch: DispatchConfig, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+) -> None:
     """Wire the event-dispatch feature into a built project.
 
     1. Resolve and copy the triggers file to ``<project>/triggers.yml``.
@@ -591,14 +631,19 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         dispatch: Validated dispatch configuration from the build profile.
         profile_dir: Directory containing the build profile (triggers source).
         project_path: Root of the built project.
+        facility_name: The facility's display name, handed in memory by a
+            build whose facility file is not yet in the project. ``""`` reads
+            the project's facility identity instead.
 
     Raises:
-        BuildProfileError: If the configured triggers file cannot be resolved.
+        BuildProfileError: If the configured triggers file cannot be resolved,
+            or ``dispatch.tier`` names a tier the workers may not run
+            (:func:`~osprey.cli.build_profile_schema.dispatch_tier_errors`).
     """
     from ruamel.yaml import YAML
 
     from osprey.cli.build_profile_presets import resolve_triggers_path
-    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
+    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE, dispatch_tier_errors
 
     # The default is spelled twice on purpose (here and on ``DispatchConfig``):
     # every read site of a build knob says what an omitted knob means, so this
@@ -606,6 +651,16 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # DispatchConfig that never went through the profile loader.
     network = dispatch.network or DEFAULT_NETWORK_MODE
     on_host_network = network == "host"
+
+    # 0. Refuse a tier a headless run may not hold, before anything is written.
+    # The deployment's own render is what the tier inherits, so a flag the tier
+    # does not spell is judged on the value already in config.yml.
+    config_path = project_path / "config.yml"
+    if dispatch.tier is not None:
+        base_config = load_config_document(config_path) if config_path.exists() else None
+        tier_errors = dispatch_tier_errors(dispatch.tier, profile_dir, base_config)
+        if tier_errors:
+            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tier_errors))
 
     # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
     source = resolve_triggers_path(profile_dir, dispatch.triggers)
@@ -679,7 +734,6 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         _refresh_service_dir(src_dir, dest_dir, name, owned)
 
     # 3. Write config.yml entries + register in deployed_services.
-    config_path = project_path / "config.yml"
     if not config_path.exists():
         logger.warning("config.yml not found. Skipping the dispatch config registration.")
         return
@@ -697,8 +751,9 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     dispatcher_config: dict[str, Any] = {
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
-        # The override wins; otherwise the dispatcher shows the name every other surface shows.
-        "facility_name": dispatch.facility_name or resolve_facility_name(config, ""),
+        # The dispatcher shows the facility identity's name, the one every other
+        # surface shows.
+        "facility_name": facility_name or identity_name(project_path, config.get("project_name")),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
@@ -722,6 +777,11 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     if declared_env:
         dispatcher_config["env"] = list(declared_env)
         worker_config["env"] = list(declared_env)
+    # The tier the workers run, by name: the image it maps to is resolved where
+    # every other render's image is, never spelled here. Written only when set,
+    # so an unset dispatch.tier leaves config.yml as it was.
+    if dispatch.tier is not None:
+        worker_config["tier"] = dispatch.tier
     if on_host_network:
         # One profile knob, both halves: the compose templates read the mode off
         # their own service block, so the single ``dispatch.network`` value is
@@ -750,9 +810,9 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # Derive the whole web.panels.events entry from dispatcher_port so the port
     # is a single source of truth — url, the `/dashboard` path, the tab's label
     # and the `/health` endpoint the tab health-gates on. Written here, in the
-    # deployment's own render, because every web-terminal persona built beside
+    # deployment's own render, because every web-terminal render built beside
     # it is TOLD this entry from this render (osprey.deployment.reach): a key
-    # left out here is a key no persona ever sees. Filled only where the
+    # left out here is a key no render ever sees. Filled only where the
     # profile has not already set an explicit value via a config override
     # (merged earlier in the build); explicit overrides take precedence, and
     # an explicit ``url`` leaves the whole entry alone.
@@ -815,13 +875,16 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 #: The control-system targets a bluesky plan lane can serve, keyed by the
 #: ``control_system.type`` each is spelled with in a rendered config.yml.
 #:
-#: Derived rather than written out: the keys are the types the queue worker can
-#: build devices over (:data:`~osprey_connectors.types.CHANNEL_ACCESS_TYPES`)
-#: and each value is the target that type is the baseline of
+#: Derived rather than written out: the keys are the types whose transport is
+#: Channel Access, the one the queue worker can build devices over
+#: (:func:`~osprey_connectors.types.speaks_channel_access`), and each value is
+#: the target that type is the baseline of
 #: (:func:`~osprey_connectors.types.baseline_target`), so a type added to either
-#: upstream reaches the lane renderer without a second edit here. ``MOCK`` and
-#: ``DOOCS`` fall out for the reason they were left out by hand: a lane the
-#: worker cannot execute over is not a lane to render.
+#: upstream reaches the lane renderer without a second edit here. ``DOOCS``
+#: falls out for the reason it was left out by hand: a lane the worker cannot
+#: execute over is not a lane to render. The simulator served in process keeps
+#: its row, because its type is the served one's; the baseline check refuses it
+#: by its transport.
 #:
 #: ``LIVE_STANDIN`` is in because the stand-in is a control target in its own
 #: right — a soft IOC this deployment runs for itself, with its own connector
@@ -830,7 +893,8 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
     cs_type: connector_types.baseline_target({"type": cs_type})
-    for cs_type in connector_types.CHANNEL_ACCESS_TYPES
+    for cs_type in connector_types.SET_CONTROL_SYSTEM_TYPES
+    if connector_types.speaks_channel_access({"type": cs_type})
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the
@@ -934,17 +998,23 @@ def _standin_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
 
 
 def _rendered_control_system_type(config: Any) -> str:
-    """The ``control_system.type`` the rendered config carries, ``mock`` if none.
+    """The ``control_system.type`` the rendered config selects.
 
     Read from the rendered ``config.yml`` rather than from the profile, because
     that is the value every other holder resolves the deployment baseline from
     — injectors run after ``_apply_config_overrides``, so the key is already
-    final by the time this is called.
+    final by the time this is called. Resolved by the factory's own resolver, so
+    a section that states no type names the simulator it falls back to.
     """
-    control_system = config.get("control_system") or {}
-    if not hasattr(control_system, "get"):
-        return "mock"
-    return str(control_system.get("type") or "mock")
+    return connector_types.resolve_control_system_type(config.get("control_system"))
+
+
+def _speaks_channel_access(config: Any) -> bool:
+    """Whether the rendered deployment's own connector speaks Channel Access."""
+    try:
+        return connector_types.speaks_channel_access(config.get("control_system"))
+    except ValueError:
+        return False
 
 
 def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> str:
@@ -974,7 +1044,7 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
     """
     cs_type = _rendered_control_system_type(config)
     target = _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE.get(cs_type)
-    if target is None:
+    if target is None or not _speaks_channel_access(config):
         raise BuildProfileError(
             f"bluesky.second_lane needs a switchable deployment baseline: the lane "
             f"pair is {'/'.join(sorted(_SECOND_LANE_SERVICE_KEY))}, and "
@@ -1075,12 +1145,6 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     The contract here is MIXED, and the split is deliberate.
 
-    ``devices_file`` is written ALWAYS, on every lane of every deploy, authored
-    or defaulted. A deployment always addresses devices, so its absence would
-    not mean "no device file" — it would mean the staging step has to re-derive
-    this default for itself, which is how the build and the bridge end up
-    disagreeing about which file is authoritative.
-
     ``plan_dir`` and ``excluded_plans`` stay omit-when-unset, because for them
     the ABSENCE is the signal the compose template's ``{% if %}`` guards read:
     an unset ``plan_dir`` means no mount and no ``BLUESKY_PLAN_DIRS`` env var at
@@ -1088,15 +1152,14 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     ``os.pathsep`` join is done Python-side because the Jinja render context has
     no ``os`` module.
 
-    ``device_page_size`` is a THIRD contract: omit-when-EQUALS-DEFAULT. It is
-    neither always-written like ``devices_file`` nor omit-when-unset like its
-    two neighbours, because the key is never unset — it is an ``int`` with a
-    dataclass default, so "unset" and "authored at the default" arrive here as
-    the same value and cannot be told apart. Writing it unconditionally would
-    put a line into every existing project's config.yml and an env var into
-    every rendered bridge, changing renders that are otherwise unchanged; so
-    the line is written only when the profile asks for something OTHER than the
-    default. A profile that authors the default explicitly therefore renders no
+    ``device_page_size`` is a SECOND contract: omit-when-EQUALS-DEFAULT. It is
+    not omit-when-unset like ``plan_dir`` and ``excluded_plans``, because the
+    key is never unset — it is an ``int`` with a dataclass default, so "unset"
+    and "authored at the default" arrive here as the same value and cannot be
+    told apart. Writing it unconditionally would put a line into every existing
+    project's config.yml and an env var into every rendered bridge, changing
+    renders that are otherwise unchanged; so the line is written only when the
+    profile asks for something OTHER than the default. A profile that authors the default explicitly therefore renders no
     line at all — and that is exactly right, because the bridge falls back to
     the same default when the env var is absent, so the two spellings deploy
     identical behaviour. The comparison is against
@@ -1112,7 +1175,7 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     # than a literal repeated on this side of the build.
     from osprey.cli.build_profile_schema import BlueskyConfig
 
-    keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
+    keys: dict[str, Any] = {}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
@@ -1284,10 +1347,8 @@ def _inject_bluesky(
         # than inferring a control target it is never told about. `target` and
         # the addressing keys are the LANE-SCOPED ones: a single-lane block on
         # any other baseline still carries neither (the stand-in case below is
-        # the one exception, and the comment there says why). That is a
-        # narrower claim than it used to be — the facility plan keys are NOT
-        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
-        # every lane of every deploy, single-lane deploys included.
+        # the one exception, and the comment there says why). The facility
+        # plan keys are NOT lane-scoped.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {
@@ -1360,7 +1421,7 @@ def _inject_bluesky(
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
-        "terminals receive it only for personas entitled to it; the rest are "
+        "terminals receive it only for renders entitled to it; the rest are "
         "refused with launch_token_required and hand arming to the operator."
     )
     logger.debug(
@@ -1410,11 +1471,10 @@ def _ensure_va_connector_gateways(config: Any) -> bool:
     :func:`~osprey.utils.config_writer.anchored_put` so a section comment
     trailing the last entry stays anchored where it was.
 
-    ``probe_channel`` is deliberately NOT written. The channel a VA serves comes
-    from that project's own machine model, so no value could be derived here,
-    and a placeholder would make the target look eligible while naming a channel
-    nothing serves. Eligibility reports the missing probe_channel as the reason
-    the target is not switchable yet, which is the honest thing for it to say.
+    ``probe_channel`` is deliberately NOT written. The build holds a stated
+    served probe to the facility file, and the channel to probe is the
+    deployment's choice among the channels that file holds. Eligibility reports
+    a missing probe_channel as the reason the target is not switchable yet.
 
     Args:
         config: The round-trip-loaded ``config.yml`` document, mutated in place.
@@ -1476,7 +1536,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
        ``control_system.connector.live_standin``, is derived earlier on the
        override path (:mod:`osprey.cli.build_profile_standin`); the facility's
        ``epics`` block is the ``live`` target and is never written here.
-    4. Print a post-build hint (data/simulation prerequisite + image note).
+    4. Print a post-build hint (simulator view prerequisite + image note).
 
     Thin mirror of :func:`_inject_bluesky`: one config block per container — no
     source-tree staging, no registry logic. Where the bluesky injector's second
@@ -1581,7 +1641,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
             "    Targets:    rehearse on it with `control_target_set standin`; "
             "`control_target_set live` reaches the `epics` gateways your facility "
             "authored, and still asks for this profile's own operator "
-            "acknowledgment and strict limits. A deployment may start on the "
+            "acknowledgment. A deployment may start on the "
             "stand-in with `osprey set connector=live_standin`."
         )
     if wrote_gateways:
@@ -1592,8 +1652,8 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
             "to a channel your machine model serves to make the target switchable."
         )
     logger.debug(
-        "    Data:       requires <project>/data/simulation/machine.json "
-        "(the simulation preset provisions this; without it the IOC SystemExits)."
+        "    Data:       requires <project>/data/simulator/addresses.json "
+        "(the build writes it from data/facility/; without it the IOC exits)."
     )
     logger.debug(
         "    Images:     `osprey up` builds the virtual-accelerator image "
@@ -2093,13 +2153,6 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
             continue
         _refresh_service_dir(src_dir, dest_services_root / name, name, owned)
 
-    # 1a. The recorder bind-mounts the simulation data dir read-only to read the
-    # channel manifest. An app bundle that ships no such tree would leave the
-    # mount source missing, and the container runtime materializes a missing
-    # source itself, root-owned — which then locks the host out of a directory
-    # inside its own project. Same guard, same reason, as the VA injector's.
-    (project_path / "data" / "simulation").mkdir(parents=True, exist_ok=True)
-
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
@@ -2167,4 +2220,40 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         "    Recording:  the recorder writes only while control_system.type is "
         "'virtual_accelerator'. On any other control system it idles. It "
         "re-reads that setting on an interval, so the flip needs no restart."
+    )
+
+
+#: The limits view's file, relative to the render root.
+LIMITS_DATABASE_PATH = "data/channel_limits.json"
+
+
+def _inject_limits_database(project_path: Path) -> None:
+    """Name the limits view as the render's limits database.
+
+    A render that states a limits block, deployment-wide or for one connector
+    type, reads its limits from the file the limits view writes. The path is
+    written deployment-wide: a deployment mounts one limits database. A config
+    stating no limits block gains nothing.
+
+    Args:
+        project_path: Root of the render.
+    """
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return
+    section = load_config_document(config_path).get("control_system")
+    if not isinstance(section, Mapping):
+        return
+    leaf = connector_types.LIMITS_CHECKING_LEAF
+    block = section.get(leaf)
+    connector = section.get("connector")
+    per_type = isinstance(connector, Mapping) and any(
+        isinstance(entry, Mapping) and leaf in entry for entry in connector.values()
+    )
+    if block is None and not per_type:
+        return
+    if block is not None and not isinstance(block, Mapping):
+        return
+    config_update_fields(
+        config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}
     )

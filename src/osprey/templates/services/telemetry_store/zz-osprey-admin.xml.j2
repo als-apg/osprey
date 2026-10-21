@@ -1,0 +1,17 @@
+{#- Rendered into build/services/telemetry_store/zz-osprey-admin.xml and
+    mounted as /etc/clickhouse-server/users.d/zz-osprey-admin.xml. The image
+    creates the admin from .env.telemetry-admin as an XML user open to every
+    network, which ALTER USER cannot change; this file sorts after the image's
+    own and narrows it to the container's loopback. -#}
+{%- set store = osprey_telemetry_store -%}
+<clickhouse>
+    <users>
+        <{{ store.admin_user }}>
+            <networks replace="replace">
+                <ip>::1</ip>
+                <ip>127.0.0.1</ip>
+            </networks>
+            <access_management>1</access_management>
+        </{{ store.admin_user }}>
+    </users>
+</clickhouse>

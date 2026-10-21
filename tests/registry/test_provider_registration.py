@@ -492,6 +492,9 @@ from osprey.models.providers.base import BaseProvider
 class HouseOpenAIProvider(BaseProvider):
     name = "openai"
     requires_api_key = False
+    requires_base_url = False
+    requires_model_id = False
+    supports_proxy = False
 """
         )
         import sys

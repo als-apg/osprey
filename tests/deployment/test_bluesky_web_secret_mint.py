@@ -29,6 +29,7 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import prepare_compose_files
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
+from tests._renders import tier_render
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def _clean_secret_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     path = tmp_path / ".env"
     return parse_dotenv_file(path) if path.is_file() else {}
@@ -162,8 +163,8 @@ def _render_sidecar_env(project: Path, roster: dict | None, monkeypatch) -> dict
             "bluesky": {"port": 10080},
         },
         "system": {"timezone": "UTC"},
-        # What a persona-less roster user's entitlement is answered by: the
-        # deployment's own project declares the BLUESKY tab.
+        # The deployment's own project declares the BLUESKY tab, which grants
+        # no roster user anything: each is entitled by its render's render.
         "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
     }
     if roster is not None:
@@ -181,15 +182,15 @@ def _render_sidecar_env(project: Path, roster: dict | None, monkeypatch) -> dict
     return rendered["services"]["bluesky-web"]["environment"]
 
 
-def _write_persona(project: Path, name: str, *, declares_panel: bool) -> dict:
-    """Render one persona project whose config decides its users' entitlement."""
-    persona_dir = project / "build" / f"demo-{name}"
-    persona_dir.mkdir(parents=True, exist_ok=True)
+def _write_render(project: Path, name: str, *, declares_panel: bool) -> dict:
+    """Render one tier project whose config decides its users' entitlement."""
+    layer_dir = project / "build" / f"demo-{name}"
+    layer_dir.mkdir(parents=True, exist_ok=True)
     panels = {"bluesky": {"url": "http://localhost:10071"}} if declares_panel else {}
-    (persona_dir / "config.yml").write_text(
+    (layer_dir / "config.yml").write_text(
         yaml.safe_dump({"web": {"panels": panels}}), encoding="utf-8"
     )
-    return {"project_path": f"build/demo-{name}"}
+    return tier_render(name, f"demo-{name}", project_path=f"build/demo-{name}")
 
 
 def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, monkeypatch):
@@ -201,14 +202,15 @@ def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, 
     panel action gets attributed to the wrong account.
     """
     roster = {
-        "personas": {
-            "operator": _write_persona(tmp_path, "operator", declares_panel=True),
-            "viewer": _write_persona(tmp_path, "viewer", declares_panel=False),
+        "default_tier": "viewer",
+        "renders": {
+            "operator": _write_render(tmp_path, "operator", declares_panel=True),
+            "viewer": _write_render(tmp_path, "viewer", declares_panel=False),
         },
         "users": [
-            {"name": "alice-b", "index": 0, "persona": "operator"},
-            {"name": "bob", "index": 1, "persona": "viewer"},
-            # No persona: runs the deploy config, which shows the tab.
+            {"name": "alice-b", "index": 0, "tier": "operator"},
+            {"name": "bob", "index": 1, "tier": "viewer"},
+            # No render of its own: runs the default, which hides the tab.
             {"name": "carol", "index": 2},
         ],
     }
@@ -220,12 +222,12 @@ def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, 
         for name in environment
         if name.startswith(ROSTER_SECRET_ENV_PREFIX) and name != _OWNERS_ENV
     )
-    assert granted == ["OSPREY_TERMINAL_SECRET_ALICE_B", "OSPREY_TERMINAL_SECRET_CAROL"], (
+    assert granted == ["OSPREY_TERMINAL_SECRET_ALICE_B"], (
         "the grant must cover exactly the users whose project declares the BLUESKY tab"
     )
 
     owners = dict(pair.split("=", 1) for pair in environment[_OWNERS_ENV].split(",") if pair)
-    assert owners == {"ALICE_B": "alice-b", "CAROL": "carol"}, (
+    assert owners == {"ALICE_B": "alice-b"}, (
         "every granted secret needs its owner named, and nobody else's"
     )
     assert sorted(ROSTER_SECRET_ENV_PREFIX + suffix for suffix in owners) == granted, (
@@ -240,8 +242,8 @@ def test_a_deployment_with_no_entitled_user_renders_no_owner_map(tmp_path, monke
     and two spellings of one state is how the gate grows a branch nothing
     tests."""
     roster = {
-        "personas": {"viewer": _write_persona(tmp_path, "viewer", declares_panel=False)},
-        "users": [{"name": "bob", "index": 0, "persona": "viewer"}],
+        "renders": {"viewer": _write_render(tmp_path, "viewer", declares_panel=False)},
+        "users": [{"name": "bob", "index": 0, "tier": "viewer"}],
     }
 
     environment = _render_sidecar_env(tmp_path, roster, monkeypatch)
@@ -262,8 +264,8 @@ def test_the_owner_map_is_not_a_second_derivation_of_the_username(tmp_path, monk
     spellings differ at all.
     """
     roster = {
-        "personas": {"operator": _write_persona(tmp_path, "operator", declares_panel=True)},
-        "users": [{"name": "alice-b", "index": 0, "persona": "operator"}],
+        "renders": {"operator": _write_render(tmp_path, "operator", declares_panel=True)},
+        "users": [{"name": "alice-b", "index": 0, "tier": "operator"}],
     }
 
     environment = _render_sidecar_env(tmp_path, roster, monkeypatch)

@@ -35,7 +35,7 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
-from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 from tests.interfaces.web_terminal._fakes import FakePtySession

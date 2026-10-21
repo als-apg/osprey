@@ -27,11 +27,15 @@ from osprey.services.python_executor.write_surface import (
     _ARMED_CA_PROVIDER,
     _ARMED_CHECKED,
     _ARMED_RPC,
+    _CLIENT_LIBRARY_NAMES,
+    _CLIENT_LIBRARY_SYMBOLS,
+    _CLIENT_LOADER_ROWS,
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
+    CLIENT_PACKAGES,
 )
-from osprey.utils.logger import get_logger
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("execution_wrapper")
 
@@ -66,6 +70,11 @@ READONLY_REFUSAL_MARKER = "readonly execution mode"
 #: object per line. Appended per attempt, so a killed run leaves the list of
 #: the writes it reached.
 WRITES_LEDGER_FILENAME = "writes.jsonl"
+
+#: The ``failure_kind`` a readwrite run's record carries when its control
+#: target's lock was held by another run at entry, so no user code ran. A busy
+#: lock that user code asks for itself is the code's own error and carries none.
+FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
 #: Refusal prefix the filesystem guard carries in a readonly run. It embeds
 #: :data:`READONLY_REFUSAL_MARKER` so that a write refused into the render zone
@@ -130,9 +139,9 @@ def _armed_rows(table: dict[tuple[str, str], str]) -> tuple[tuple[str, tuple[str
 def armed_contract(*, refuse_rpc: bool) -> dict:
     """The keyword arguments of ``raw_put_block.install("armed", ...)``.
 
-    One place computes them, so every process that arms the block — the
-    executor's generated script and the notebook kernel alike — refuses the
-    same client entry points with the same marker.
+    One place computes them, so the executor's generated script — the one
+    process that arms the block — refuses the same client entry points with
+    the same marker.
     """
     return {
         "blocked_targets": _armed_rows(_ARMED_BLOCKED),
@@ -143,6 +152,22 @@ def armed_contract(*, refuse_rpc: bool) -> dict:
         "ca_provider_targets": _armed_rows(
             {row: reason for row, reason in _ARMED_CHECKED.items() if row[0] in _ARMED_CA_PROVIDER}
         ),
+    }
+
+
+def no_client_contract() -> dict:
+    """The keyword arguments of ``raw_put_block.install("no_client", ...)``.
+
+    The notebook kernel is its one caller; it is never embedded into an
+    executor script. Every value is a literal read from the write-surface
+    tables at call time, so the kernel refuses exactly the packages the
+    executor's import check denies.
+    """
+    return {
+        "denied_packages": tuple(sorted(CLIENT_PACKAGES)),
+        "library_names": tuple(_CLIENT_LIBRARY_NAMES),
+        "library_symbols": tuple(_CLIENT_LIBRARY_SYMBOLS),
+        "loader_targets": tuple((dotted, tuple(attrs)) for dotted, attrs in _CLIENT_LOADER_ROWS),
     }
 
 
@@ -301,6 +326,30 @@ class ExecutionWrapper:
     def _get_imports(self) -> str:
         """Get standard imports."""
         imports = """
+# Interrupt prologue. The executor cancels a run by sending SIGINT, and a child
+# inherits an ignored SIGINT from a parent that ignores it (SIG_IGN survives
+# exec, and Python keeps it), so the default handler is put back first: an
+# interrupt then raises KeyboardInterrupt, which the handlers below record
+# before the script leaves through os._exit like any other run.
+import signal
+
+
+def _osprey_set_sigint(handler):
+    try:
+        signal.signal(signal.SIGINT, handler)
+    except (ValueError, OSError):
+        pass  # not the main thread of the main interpreter: nothing to install
+
+
+def _osprey_ignore_sigint():
+    # Once the script is done or failing, a late interrupt has nothing left to
+    # stop; ignoring it keeps a KeyboardInterrupt from escaping the tail past
+    # the metadata persistence and os._exit.
+    _osprey_set_sigint(signal.SIG_IGN)
+
+
+_osprey_set_sigint(signal.default_int_handler)
+
 # Standard imports for agent execution
 import sys
 import json
@@ -473,7 +522,7 @@ if not _execution_dir.exists():
             # Runtime Channel Limits Checking (Embedded Config)
             try:
                 import json
-                from osprey.connectors.control_system.limits_validator import (
+                from osprey_connectors.control_system.limits_validator import (
                     LimitsValidator, ChannelLimitsConfig
                 )
 
@@ -489,7 +538,7 @@ if not _execution_dir.exists():
                         min_value=config_dict.get('min_value'),
                         max_value=config_dict.get('max_value'),
                         max_step=config_dict.get('max_step'),  # Include max_step from serialized config
-                        writable=config_dict.get('writable', True)
+                        writable=config_dict['writable']
                     )
 
                 # Create validator with embedded config
@@ -993,8 +1042,9 @@ if not _execution_dir.exists():
         ``osprey`` cannot be imported — no guard name leaks into the user code,
         and this process never imports ``osprey.runtime``, whose package import
         registers an exit handler. The tables are emitted as literals read from
-        this module's globals at emission time; the framework rows are the
-        deferred half, patched when the script imports their module.
+        this module's globals at emission time; the framework rows and cffi's
+        loader row are the deferred half, patched when the script imports their
+        module, so the install itself imports neither.
 
         The connector side of the same contract lives in
         ``osprey_connectors.control_system.base`` (refuses ``write_channel``
@@ -1003,7 +1053,7 @@ if not _execution_dir.exists():
         """
         if self.execution_mode != "readonly":
             return ""
-        deferred = _FRAMEWORK_WRITE_TARGETS
+        deferred = _FRAMEWORK_WRITE_TARGETS + _CLIENT_LOADER_ROWS
         eager = tuple(row for row in _READONLY_WRITE_TARGETS if row not in deferred)
         return _embedded_raw_put_block(
             (
@@ -1226,6 +1276,47 @@ if not _execution_dir.exists():
         """
         ).strip()
 
+    def _get_run_lock(self) -> str:
+        """Take a readwrite run's control-target lock.
+
+        Empty when readonly: a readonly run takes no lock. Runs first inside
+        the user-code ``try``, so whatever it raises is the run's recorded
+        failure and the user code never starts. The control target's
+        :func:`~osprey.runtime.guarded_run.lock` is entered and held until the
+        run's record is saved (see :meth:`_get_cleanup_and_export`); another
+        holder makes it raise
+        :class:`~osprey.runtime.guarded_run.OspreyRunBusy`, which the record
+        marks with :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. The entered context
+        is kept in ``_osprey_run_lock``, set only once the entry succeeded. An
+        interpreter that cannot import ``osprey.runtime`` cannot take the lock
+        either, and runs without it.
+        """
+        if self.execution_mode != "readwrite":
+            return ""
+        return textwrap.indent(
+            textwrap.dedent(
+                f"""
+                # The control target's lock, held until the record is saved.
+                try:
+                    from osprey.runtime.guarded_run import OspreyRunBusy as _OspreyRunBusy
+                    from osprey.runtime.guarded_run import lock as _osprey_lock
+                except ImportError:
+                    _osprey_lock = _OspreyRunBusy = None
+                if _osprey_lock is not None:
+                    _osprey_entering = _osprey_lock(None)
+                    try:
+                        _osprey_entering.__enter__()
+                    except _OspreyRunBusy:
+                        execution_metadata["failure_kind"] = {FAILURE_KIND_GUARDED_RUN_BUSY!r}
+                        raise
+                    _osprey_run_lock = _osprey_entering
+                    del _osprey_entering
+                del _osprey_lock, _OspreyRunBusy
+                """
+            ).strip(),
+            "        ",
+        )
+
     def _wrap_user_code(self, user_code: str) -> str:
         """Execute user code directly (synchronous).
 
@@ -1240,15 +1331,21 @@ if not _execution_dir.exists():
         return f"""
     # Execute user code
     try:
+{self._get_run_lock()}
 {indented_code}
+
+        # The script is done: an interrupt from here on has nothing to stop.
+        _osprey_ignore_sigint()
 
         # Mark successful execution
         execution_metadata["success"] = True
         execution_metadata["error_type"] = None
         execution_metadata["end_time"] = _datetime.now().astimezone().isoformat()
 
-    except Exception as user_code_error:
-        # Capture user code errors
+    except (Exception, KeyboardInterrupt) as user_code_error:
+        # Capture user code errors, an interrupt included (error_type
+        # 'KeyboardInterrupt'), so the tail still persists the record.
+        _osprey_ignore_sigint()
         execution_metadata["success"] = False
         execution_metadata["error_type"] = type(user_code_error).__name__
         execution_metadata["error_message"] = str(user_code_error)
@@ -1269,13 +1366,25 @@ if not _execution_dir.exists():
         The process then leaves with :func:`os._exit`, the way
         ``osprey_connectors.ipc.host`` does, rather than through interpreter
         shutdown. A control-system client holds native state whose shutdown
-        hooks can block or crash the process — pyepics' ``finalize_libca``
-        wedges once Channel Access was used from a worker thread, which the
-        EPICS connector always does — and a child that will not exit is
-        reported by the executor as a timeout long after its script finished.
+        hooks can block or crash the process — under aioca those are aioca's
+        ``atexit`` teardown, which calls ``ca_context_destroy``, and the
+        shutdown of the connector's Channel Access event-loop thread — and a
+        child that will not exit is reported by the executor as a timeout long
+        after its script finished.
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.
+        A readwrite run's control-target lock (see :meth:`_get_run_lock`)
+        is released just before that exit, once every persistence step has
+        run, so no other guarded run starts on the target before this run's
+        record is saved.
+
+        An interrupted run takes the same way out. The executor cancels a run
+        with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
+        default handler, the ``KeyboardInterrupt`` is recorded (error_type
+        ``'KeyboardInterrupt'``), and every handler
+        here first ignores further ``SIGINT``, so no second interrupt can carry
+        an exception past the persistence and ``os._exit``.
         """
 
         # Output captured content so the host process can see it
@@ -1303,7 +1412,24 @@ if not _execution_dir.exists():
         # Build the complete code block properly
         base_cleanup = textwrap.dedent(
             """
+            except KeyboardInterrupt:
+                # Interrupted (the executor's cancel sends SIGINT). Recorded like
+                # a failure, so the tail below persists the record, echoes the
+                # output and leaves through os._exit - never interpreter
+                # shutdown, where a client's shutdown hook can wedge the child.
+                _osprey_ignore_sigint()
+                execution_metadata["success"] = False
+                execution_metadata["error_type"] = "KeyboardInterrupt"
+                execution_metadata["error"] = "Interrupted (SIGINT) before the script finished"
+                execution_metadata["traceback"] = traceback.format_exc()
+                print(f"\\n{'='*60}", file=sys.stderr)
+                print("PYTHON EXECUTION INTERRUPTED (KeyboardInterrupt)", file=sys.stderr)
+                print(f"{'='*60}", file=sys.stderr)
+                print(f"{traceback.format_exc()}", file=sys.stderr)
+                print(f"{'='*60}\\n", file=sys.stderr)
+
             except Exception as e:
+                _osprey_ignore_sigint()
                 execution_metadata["success"] = False
                 execution_metadata["error"] = str(e)
                 execution_metadata["traceback"] = traceback.format_exc()
@@ -1319,6 +1445,7 @@ if not _execution_dir.exists():
                 print(f"{'='*60}\\n", file=sys.stderr)
 
             finally:
+                _osprey_ignore_sigint()
                 # Restore stdout/stderr and capture output
                 sys.stdout = original_stdout
                 sys.stderr = original_stderr
@@ -1437,6 +1564,13 @@ if not _execution_dir.exists():
                 traceback.print_exc()
                 _osprey_exit_status = 1
             finally:
+                # A readwrite run's lock is released once its record is saved.
+                _osprey_held_lock = globals().get('_osprey_run_lock')
+                if _osprey_held_lock is not None:
+                    try:
+                        _osprey_held_lock.__exit__(None, None, None)
+                    except BaseException:
+                        traceback.print_exc()
                 # Leave without interpreter shutdown: a control-system client's
                 # shutdown hooks can block or crash the process, and everything
                 # the executor reads is persisted or flushed by now.

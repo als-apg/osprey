@@ -145,7 +145,7 @@ describe('loadArtifacts', () => {
           ok: true,
           json: () => Promise.resolve({
             artifacts: [
-              { name: 'claude-md-ariel', category: 'config', status: 'framework', output_path: 'CLAUDE.md' },
+              { name: 'claude-md-logbook', category: 'config', status: 'framework', output_path: 'CLAUDE.md' },
             ],
           }),
         });

@@ -78,7 +78,8 @@ def project_dir(tmp_path):
     render.mkdir()
     config = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
@@ -181,7 +182,7 @@ async def test_inspect_config_content(project_dir):
     with _patch_config_path(project_dir), _patch_load_config(config):
         result = json.loads(await fn())
 
-    assert result["config"]["control_system"]["type"] == "mock"
+    assert result["config"]["control_system"]["type"] == "virtual_accelerator"
     assert result["config"]["control_system"]["writes_enabled"] is True
 
 
@@ -493,7 +494,10 @@ async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     config_path = project_dir / "config.yml"
     config_path.write_text(
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "ariel:\n"
         "  database:\n"
         "    uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@db:5432/ariel\n"
@@ -507,7 +511,10 @@ async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     # What ``load_osprey_config`` hands back, and what used to be reported
     # verbatim: every placeholder already replaced by its environment value.
     expanded = {
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
         "ariel": {"database": {"uri": "postgresql://ariel:hunter2-from-the-env@db:5432/ariel"}},
         "models": {"providers": {"anthropic": {"api_key": "sk-ant-from-the-env"}}},
     }
@@ -531,7 +538,10 @@ async def test_inspect_masks_a_secret_typed_into_the_config(project_dir):
     fn = _get_setup_inspect()
     (project_dir / "config.yml").write_text(
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "models:\n"
         "  providers:\n"
         "    anthropic:\n"
@@ -669,7 +679,10 @@ async def test_inspect_masks_a_secret_typed_into_a_nested_block(project_dir):
     fn = _get_setup_inspect()
     (project_dir / "config.yml").write_text(
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "ariel:\n"
         "  search_modules:\n"
         "    keyword:\n"

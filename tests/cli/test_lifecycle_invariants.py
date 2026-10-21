@@ -40,6 +40,7 @@ is registered, which a hand-written list would not be.
 from __future__ import annotations
 
 import bisect
+import functools
 import re
 import sys
 from pathlib import Path
@@ -145,6 +146,17 @@ def _scan(pattern: re.Pattern[str]) -> list[tuple[str, int, str]]:
     return hits
 
 
+@functools.cache
+def _scan_once(pattern: re.Pattern[str]) -> tuple[tuple[str, int, str], ...]:
+    """:func:`_scan`, memoised per pattern for the module's lifetime.
+
+    The SC-7 sweep and its exemption-liveness check walk ``src/`` with the same
+    patterns; sharing one walk per pattern changes no hit, only how often it
+    is computed.
+    """
+    return tuple(_scan(pattern))
+
+
 def _unexplained(
     hits: list[tuple[str, int, str]], allowlist: dict[str, str]
 ) -> list[tuple[str, int, str]]:
@@ -208,6 +220,8 @@ def test_the_exemption_sets_name_only_commands_that_exist() -> None:
     pass.
     """
     registered = set(LazyGroup().list_commands(ctx=None))
+    # MODE_EXEMPT_FLAGS is keyed by top-level command: ``facility`` is there for
+    # ``--print-exporter``, which its verb ``facility import mml`` owns.
     named = _EXEMPT | set(MODE_EXEMPT_FLAGS)
     assert named - registered == set(), (
         f"repo_resolver exempts commands the CLI does not register: {sorted(named - registered)}"
@@ -248,7 +262,7 @@ _PROJECT_FLAG = re.compile(r"--project(?![-\w])")
 
 def test_no_repo_scoped_verb_carries_a_project_flag() -> None:
     """SC-5: ``--project`` survives only on the commands the resolver exempts."""
-    hits = _scan(_PROJECT_FLAG)
+    hits = list(_scan_once(_PROJECT_FLAG))
     assert hits, "the --project scan matched nothing at all — the pattern is broken"
     offenders = _unexplained(hits, _PROJECT_FLAG_ALLOWLIST)
     assert offenders == [], "`--project` appears outside the recorded exemptions:\n" + _describe(
@@ -258,7 +272,7 @@ def test_no_repo_scoped_verb_carries_a_project_flag() -> None:
 
 def test_every_project_flag_exemption_still_has_something_to_explain() -> None:
     """A file that no longer spells ``--project`` should leave the allowlist."""
-    seen = {path for path, _, _ in _scan(_PROJECT_FLAG)}
+    seen = {path for path, _, _ in _scan_once(_PROJECT_FLAG)}
     stale = sorted(set(_PROJECT_FLAG_ALLOWLIST) - seen)
     assert stale == [], f"allowlist entries with no remaining occurrence: {stale}"
 
@@ -407,6 +421,15 @@ _RETIRED_SPELLINGS = {
     "the renamed `users env-production` verb": re.compile(r"\benv-production\b"),
     "the retired sibling-profile layout": re.compile(r"-profile/profile\.yml"),
     "the retired positional build invocation": re.compile(r"\bosprey build \S+ \S*profile\.ya?ml"),
+    "the deleted `channel-finder build-database` verb": re.compile(
+        r"\bchannel-finder build-database\b"
+    ),
+    "the deleted `channel-finder generate` verb": re.compile(r"\bchannel-finder generate\b"),
+    "the deleted `knowledge build-ttl` verb": re.compile(r"\bknowledge build-ttl\b"),
+    "the deleted `knowledge seed-graph` verb": re.compile(r"\bknowledge seed-graph\b"),
+    "the deleted `knowledge build-index` verb": re.compile(r"\bknowledge build-index\b"),
+    "the deleted `mml` group": re.compile(r"\bosprey mml\b"),
+    "the deleted `knowledge compile-ontology` verb": re.compile(r"\bknowledge compile-ontology\b"),
 }
 
 #: One line each pattern MUST match, so every pattern proves it still works.
@@ -433,6 +456,17 @@ _RETIRED_SPELLING_EXAMPLES = {
     "the renamed `users env-production` verb": "osprey users env-production --output .env.users",
     "the retired sibling-profile layout": "reads my-facility-profile/profile.yml",
     "the retired positional build invocation": "osprey build my-app ./my-profile/profile.yml",
+    "the deleted `channel-finder build-database` verb": (
+        "osprey channel-finder build-database --csv data/raw/address_list.csv"
+    ),
+    "the deleted `channel-finder generate` verb": "osprey channel-finder generate --demo",
+    "the deleted `knowledge build-ttl` verb": "osprey knowledge build-ttl data/demo.ttl",
+    "the deleted `knowledge seed-graph` verb": "osprey knowledge seed-graph --force",
+    "the deleted `knowledge build-index` verb": "osprey knowledge build-index --ttl data/demo.ttl",
+    "the deleted `mml` group": "osprey mml import mymachine.storagering.ao.json",
+    "the deleted `knowledge compile-ontology` verb": (
+        "osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json"
+    ),
 }
 
 
@@ -529,7 +563,7 @@ def test_no_shipped_text_names_a_command_or_layout_that_is_gone(
     that somebody chose to open.
     """
     offenders = [
-        hit for hit in _scan(pattern) if (hit[0], hit[2]) not in _RETIRED_SPELLING_ALLOWLIST
+        hit for hit in _scan_once(pattern) if (hit[0], hit[2]) not in _RETIRED_SPELLING_ALLOWLIST
     ]
     assert offenders == [], f"Shipped text still names {what}:\n" + _describe(offenders)
 
@@ -542,7 +576,9 @@ def test_every_retired_spelling_exemption_still_has_something_to_explain() -> No
     re-argued rather than inherited.
     """
     seen = {
-        (path, line) for pattern in _RETIRED_SPELLINGS.values() for path, _, line in _scan(pattern)
+        (path, line)
+        for pattern in _RETIRED_SPELLINGS.values()
+        for path, _, line in _scan_once(pattern)
     }
     stale = sorted(set(_RETIRED_SPELLING_ALLOWLIST) - seen)
     assert stale == [], f"allowlist entries with no remaining occurrence: {stale}"

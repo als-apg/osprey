@@ -1,0 +1,73 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fv-title fv-desc">
+  <title id="fv-title">The shared vocabulary: what a device class and a signal say, how the build pairs a setpoint with its readback, and what the graph stores</title>
+  <desc id="fv-desc">Top: the vocabulary, src/osprey/facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 114 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, which a facility cannot extend; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
+  <defs>
+    <marker id="fv-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fv-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+
+  <!-- 1. vocabulary -->
+  <rect class="nb-ext" x="40" y="20" width="920" height="150" rx="8"/>
+  <text class="te" x="60" y="42">THE VOCABULARY</text>
+  <text class="ts" x="190" y="42">src/osprey/facility/schema/vocabulary.yaml · carried from NARAD</text>
+  <text class="ta" x="60" y="74">DEVICE CLASSES (42)</text>
+  <text class="ts" x="220" y="74">Quadrupole, BeamPositionMonitor, AcceleratingCavity, … + aliases</text>
+  <text class="ts t-acc" x="220" y="89">a facility adds its own in classes.yaml</text>
+  <text class="ta" x="60" y="118">SIGNAL ROLES (114)</text>
+  <text class="ts" x="220" y="118">current_setpoint, current_readback, gap_setpoint, gap_readback, …</text>
+  <text class="ts t-acc" x="220" y="133">closed: a quantity it lacks is a change to OSPREY</text>
+  <text class="ta" x="60" y="156">PROPERTIES (15)</text>
+  <text class="ts" x="220" y="156">betax, s_position, length, …</text>
+
+  <line class="e-acc" x1="100" y1="170" x2="100" y2="210" marker-end="url(#fv-arr-acc)"/>
+  <text class="ta ta-acc" x="114" y="194">EVERY CLASS AND SIGNAL CHECKED BY THE BUILD · UNKNOWN = STOP</text>
+
+  <!-- 2. two channels -->
+  <rect class="nb-foc" x="40" y="210" width="920" height="200" rx="8"/>
+  <text class="te" x="60" y="232">TWO CHANNEL RECORDS</text>
+  <text class="ts" x="230" y="232">on device SR/ID01, class Undulator (classes.yaml, parent Magnet)</text>
+
+  <rect class="nb" x="60" y="248" width="380" height="72" rx="4"/>
+  <text class="ta" x="76" y="268">address</text>
+  <text class="ts" x="140" y="268">SR:ID:01:GAP:SP</text>
+  <text class="ta" x="76" y="288">role</text>
+  <text class="ts" x="140" y="288">setpoint</text>
+  <text class="ta" x="76" y="308">signal</text>
+  <text class="ts" x="140" y="308"><tspan class="t-acc">gap</tspan>_setpoint</text>
+
+  <rect class="nb" x="560" y="248" width="380" height="72" rx="4"/>
+  <text class="ta" x="576" y="268">address</text>
+  <text class="ts" x="640" y="268">SR:ID:01:GAP:RB</text>
+  <text class="ta" x="576" y="288">role</text>
+  <text class="ts" x="640" y="288">readback</text>
+  <text class="ta" x="576" y="308">signal</text>
+  <text class="ts" x="640" y="308"><tspan class="t-acc">gap</tspan>_readback</text>
+
+  <line class="e-acc" x1="440" y1="284" x2="560" y2="284" marker-end="url(#fv-arr-acc)"/>
+  <text class="ta ta-acc" x="500" y="276" text-anchor="middle">PAIRED</text>
+
+  <text class="ts" x="60" y="350">The build pairs a setpoint with the readback on the same device or place whose signal names the same quantity (the signal less</text>
+  <text class="ts" x="60" y="366">its setpoint or readback word), when that owner holds one of each and they agree in type. Stating <tspan class="t-acc">pair:</tspan> on the setpoint overrides it.</text>
+  <text class="ts" x="60" y="392">The pair is what a Bluesky settable reads back, and what every settled write waits on.</text>
+
+  <line class="e" x1="100" y1="410" x2="100" y2="450" marker-end="url(#fv-arr)"/>
+  <text class="ta" x="114" y="434">GRAPH VIEW</text>
+
+  <!-- 3. graph -->
+  <rect class="nb" x="40" y="450" width="920" height="130" rx="8"/>
+  <text class="te" x="60" y="472">IN THE GRAPH</text>
+  <text class="ts" x="160" y="472">data/graph/facility.ttl, in NARAD terms</text>
+  <rect class="nb-st" x="60" y="490" width="190" height="30" rx="15"/>
+  <text class="ts" x="155" y="509" text-anchor="middle">SR/ID01 : Undulator</text>
+  <line class="e" x1="250" y1="505" x2="340" y2="505" marker-end="url(#fv-arr)"/>
+  <text class="ta" x="295" y="496" text-anchor="middle">hasBinding</text>
+  <rect class="nb-st" x="340" y="490" width="220" height="30" rx="15"/>
+  <text class="ts" x="450" y="509" text-anchor="middle">SR:ID:01:GAP:RB</text>
+  <line class="e" x1="560" y1="505" x2="660" y2="505" marker-end="url(#fv-arr)"/>
+  <text class="ta" x="610" y="496" text-anchor="middle">readsSignal</text>
+  <rect class="nb-st" x="660" y="490" width="170" height="30" rx="15"/>
+  <text class="ts" x="745" y="509" text-anchor="middle">gap_readback</text>
+  <text class="ts" x="60" y="552">“what are the undulator gaps?” → channels that readsSignal gap_readback, on Undulator devices</text>
+</svg>
+</div>

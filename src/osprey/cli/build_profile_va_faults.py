@@ -1,4 +1,4 @@
-"""The ``virtual_accelerator.live_standin:`` refusals, and the fault-set grammar.
+"""The ``virtual_accelerator.live_standin:`` refusals.
 
 ``live_standin: <port>`` stands a SECOND soft-IOC up and gives the deployment a
 THIRD control target, ``standin``, configured from a block of its own
@@ -16,7 +16,7 @@ rules belong beside the block, but they are *reported* from validate's single
 accumulator so a facility fixing a profile meets every problem it has in one
 pass.
 
-Three of them are about the third target rather than about ports:
+Two of them are about the third target rather than about ports:
 
 * :func:`standin_baseline_errors` — a deployment baselined on ``live_standin``
   that builds no stand-in. The baseline names a machine this build does not
@@ -26,21 +26,11 @@ Three of them are about the third target rather than about ports:
   OWN store, which is legal only where the baseline is a simulated machine or
   the stand-in itself; on a baseline naming the facility's own machine that
   store would be read as the real machine's past.
-* :func:`live_standin_lattice_errors` — a readout perturbation with no lattice
-  behind it. The IOC treats a perturbation on ``VA_LATTICE=none`` as
-  fatal at boot (``services/virtual_accelerator/entrypoint.py``). Left alone
-  that is a container in a crash loop, hours after the build reported success.
-
-The perturbation grammar itself is parsed here too
-(:func:`shipped_bpm_errors_field_errors`), mirroring the container-side splitting
-without importing it: ``entrypoint.py`` runs inside the VA image and reads
-``os.environ``, so it is not importable from a build.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 # The one nested-tree walker, borrowed rather than repeated for the same reason
@@ -62,23 +52,6 @@ from osprey_connectors.types import (
 # second answer free to disagree with the renderer's.
 from .build_profile_archiver import VAArchiverConfig, _expand_dotted
 from .build_profile_schema import VAConfig
-
-#: Environment variable carrying the stand-in's shipped readout perturbation.
-#: Named here so the build-time render check (which owns the default's value)
-#: and this grammar check name the same variable.
-STANDIN_BPM_ERRORS_ENV = "VA_STANDIN_BPM_ERRORS"
-
-#: The only BPM fields the SHIPPED default is allowed to perturb.
-#:
-#: A stand-in exists so an operator can rehearse against a machine that reads
-#: back plausibly wrong, and a static transverse offset is the one perturbation
-#: that stays legible: the orbit is displaced, every downstream number follows,
-#: and nothing about the readout chain is lying about its own gain. Gains,
-#: polarities, roll and noise all change what a correction *means* rather than
-#: what the machine is doing, which is a rehearsal that teaches the wrong
-#: lesson. Facilities remain free to set ``VA_BPM_ERRORS`` themselves; this
-#: bounds what OSPREY ships turned on.
-STANDIN_BPM_ERROR_FIELDS = frozenset({"offset_x", "offset_y"})
 
 #: Key of the VA gateway table, in the nested spelling a rendered config reads.
 #: Mirrors ``_VA_CONNECTOR_PATH`` in ``build_injectors``; the two ends of the
@@ -102,7 +75,6 @@ def live_standin_errors(
     va_port: int,
     claimed_ports: Mapping[str, int],
     config: Any,
-    profile_dir: Path,
 ) -> list[str]:
     """Every reason a profile's ``live_standin`` port cannot be built.
 
@@ -112,8 +84,6 @@ def live_standin_errors(
         claimed_ports: Dotted key → port for every other port this profile
             spends, from :meth:`BuildProfile._claimed_ports`.
         config: The profile's resolved ``config:`` block.
-        profile_dir: The profile root — also the deployment repo root, and so
-            the directory whose env chain the containers are handed.
 
     Returns:
         The accumulated failures, empty when the stand-in validates.
@@ -142,8 +112,6 @@ def live_standin_errors(
                     f"collides with {key} ({claimed_ports[key]})"
                 )
         errors.extend(_gateway_collision_errors(live_standin, config))
-
-    errors.extend(live_standin_lattice_errors(profile_dir))
     return errors
 
 
@@ -318,146 +286,3 @@ def _baseline_type(config: Any) -> str:
         dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_KEY)
     )
     return baseline
-
-
-def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = None) -> str:
-    """The readout perturbation the stand-in would actually boot with.
-
-    The compose file renders the stand-in's ``VA_BPM_ERRORS`` from the
-    deployment's ``VA_STANDIN_BPM_ERRORS``, so a chain that names the key
-    answers this on its own — including with an EMPTY value, which is an empty
-    perturbation rather than an absent one. Turning the shipped faults off is
-    the documented way out of :func:`live_standin_lattice_errors`, and it can
-    only be that if an empty value is honored rather than rounded back up.
-
-    **The fallback is the deployment's own machine, and it is
-    lattice-conditional.** Both halves are asked of
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
-    rather than restated here: the perturbation is the one the served tree's
-    ``machine.json`` states, and it applies only to a deployment serving a
-    lattice, since it names offsets on a model and there is nothing to displace
-    without one. That is the same function the render side writes the compose
-    interpolation from, over the same two roots, so validation and the rendered
-    file cannot come to different answers about what the container receives.
-
-    Args:
-        project_root: The deployment repo root, whose env chain the containers
-            are handed. Also the profile root at validation time.
-        build_dir: The published output zone, when the caller has one — handed
-            on to the lattice resolver, whose chain it extends.
-
-    Returns:
-        The perturbation spec, stripped; empty when the stand-in ships none.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        default_bpm_errors_for_lattice,
-        served_data_root,
-    )
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
-
-    chain: dict[str, str] = merge_chain(Path(project_root))
-    if STANDIN_BPM_ERRORS_ENV in chain:
-        return chain[STANDIN_BPM_ERRORS_ENV].strip()
-    lattice = resolved_va_lattice(project_root, build_dir)
-    return default_bpm_errors_for_lattice(
-        lattice != VA_LATTICE_DEFAULT,
-        served_data_root(Path(project_root), build_dir),
-    ).strip()
-
-
-def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = None) -> list[str]:
-    """Reasons the stand-in would exit at boot for want of a lattice.
-
-    The stand-in ships a readout perturbation, and the IOC refuses a
-    perturbation it cannot apply: with ``VA_LATTICE=none`` there is no model to
-    displace, and the entrypoint raises rather than serving a machine that
-    ignores the faults it was configured with.
-
-    Both halves are read the way the deployment will read them —
-    :func:`effective_standin_bpm_errors` for the perturbation,
-    :func:`~osprey.utils.dotenv.resolved_va_lattice` for the lattice — which
-    narrows this to exactly one shape: a chain that ASKED for a fault set, on a
-    lattice that cannot apply it. A deployment that never asked has nothing to
-    refuse, because a tree's own default belongs to a served lattice and the
-    render gives a latticeless stand-in an empty set. So a facility may pin
-    ``VA_LATTICE=none`` and still rehearse; only its own non-empty
-    ``VA_STANDIN_BPM_ERRORS`` beside that pin is a build that cannot boot.
-
-    Only the env chain is read here, at build time as at validation time. The
-    other half of "what will VA_LATTICE be" — whether this render generated a
-    channel manifest, which is what an UNPINNED chain resolves through — is
-    knowable only once a render exists, and is asked on the deployment side
-    (``compose_generator``) against the same resolver.
-
-    Args:
-        project_root: The deployment repo root, whose env chain the containers
-            are handed. Also the profile root at validation time.
-        build_dir: The published output zone, when the caller has one — handed
-            straight to the lattice resolver, whose chain it extends.
-
-    Returns:
-        The accumulated failures, empty when the stand-in has a lattice or
-        ships no perturbation to need one.
-    """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
-
-    if not effective_standin_bpm_errors(project_root, build_dir):
-        return []
-
-    lattice: str = resolved_va_lattice(project_root, build_dir)
-    if lattice != VA_LATTICE_DEFAULT:
-        return []
-    return [
-        f"virtual_accelerator.live_standin ships a readout perturbation, but this "
-        f"deployment's env chain resolves VA_LATTICE={lattice!r}. There is no "
-        f"model to displace, so the stand-in's IOC exits at boot rather than serving "
-        f"a machine that ignores the faults it was configured with. Name the "
-        f"deployment's lattice file in VA_LATTICE, or turn the perturbation off "
-        f"with {STANDIN_BPM_ERRORS_ENV}= (empty)."
-    ]
-
-
-def shipped_bpm_errors_field_errors(spec: str) -> list[str]:
-    """Fields a ``VA_BPM_ERRORS``-shaped spec perturbs that the shipped default may not.
-
-    The grammar is ``DEVICE:field=value[,field=value...];DEVICE:...``, split
-    exactly the way the container's ``_parse_bpm_errors`` splits it — ``;``
-    between devices, ``:`` between a device and its fields, ``,`` between
-    fields, ``=`` between a field and its value — so a spec this accepts is one
-    the IOC will read the same way. Nothing here validates values or bounds:
-    the IOC owns those, and repeating them would be a second set of limits free
-    to drift from the ones that actually apply.
-
-    An entry too malformed to name a field is left alone rather than reported
-    twice — the IOC refuses it by name at boot, and this check is about *which*
-    fields a default perturbs, not whether it parses.
-
-    Args:
-        spec: The env-var value to read.
-
-    Returns:
-        One failure per field outside :data:`STANDIN_BPM_ERROR_FIELDS`, in the
-        order the spec spells them.
-    """
-    errors: list[str] = []
-    for entry in spec.split(";"):
-        entry = entry.strip()
-        if not entry:
-            continue
-        device, sep, fields_raw = entry.partition(":")
-        if not sep or not device.strip() or not fields_raw.strip():
-            continue
-        for field_kv in fields_raw.split(","):
-            field_kv = field_kv.strip()
-            if not field_kv:
-                continue
-            field, _, _value = field_kv.partition("=")
-            field = field.strip()
-            if field in STANDIN_BPM_ERROR_FIELDS:
-                continue
-            errors.append(
-                f"{STANDIN_BPM_ERRORS_ENV} entry {entry!r} perturbs {field!r}; the "
-                f"shipped stand-in default is "
-                f"{'/'.join(sorted(STANDIN_BPM_ERROR_FIELDS))} only"
-            )
-    return errors

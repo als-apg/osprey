@@ -16,12 +16,13 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
-from osprey.deployment.errors import CapturedProcessError
+from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
 from osprey.deployment.subprocess_capture import (
     SPOOL_RETENTION,
     _mismatched_volumes,
     run_captured,
 )
+from tests._container_support import wait_until_ready
 
 
 @pytest.fixture(autouse=True)
@@ -510,3 +511,168 @@ class TestKeptVolumeWarning:
             )
 
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+# ---------------------------------------------------------------------------
+# Bounded runs: a time limit and a watch.
+#
+# A `compose up` can wait forever (podman-compose retries a dependency's
+# health once a second with no limit). A bounded run stops its child — and
+# everything the child started — past its limit, and calls a watch while it
+# runs so the operator sees what it is waiting on. These are real processes:
+# the property under test is that a grandchild dies with its parent.
+# ---------------------------------------------------------------------------
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _assert_gone(pid: int) -> None:
+    """Probe for :func:`wait_until_ready`: raise while ``pid`` is still in the process table."""
+    assert not _alive(pid), "the grandchild outlived the stopped run"
+
+
+def _spawner(pid_file: Path) -> list[str]:
+    """Argv for a child that starts a long-lived grandchild and records its pid.
+
+    The grandchild is what a `podman compose` dispatcher leaves behind: the
+    provider process it started.
+    """
+    body = (
+        "import subprocess, sys, time\n"
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(p.pid))\n"
+        "print('started', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    return [sys.executable, "-c", body]
+
+
+def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not (path.exists() and path.read_text()):
+        assert time.monotonic() < deadline, f"{path} never written"
+        time.sleep(0.02)
+
+
+@pytest.mark.real_bounded_run
+class TestBoundedRun:
+    def test_a_run_inside_its_limit_returns_like_any_other(self, tmp_path):
+        result = run_captured(_echo("done"), spool_name="bounded", repo_root=tmp_path, timeout=30)
+        assert result.returncode == 0
+        assert "done" in result.spool_path.read_text()
+
+    def test_a_non_zero_exit_still_raises_under_check(self, tmp_path):
+        with pytest.raises(CapturedProcessError) as excinfo:
+            run_captured(
+                [sys.executable, "-c", "raise SystemExit(3)"],
+                spool_name="bounded",
+                repo_root=tmp_path,
+                timeout=30,
+            )
+        assert excinfo.value.returncode == 3
+
+    def test_past_its_limit_the_child_and_its_grandchild_are_stopped(self, tmp_path):
+        pid_file = tmp_path / "grandchild.pid"
+
+        with pytest.raises(CapturedProcessTimeout) as excinfo:
+            run_captured(_spawner(pid_file), spool_name="bounded", repo_root=tmp_path, timeout=1.5)
+
+        assert excinfo.value.timeout == 1.5
+        assert excinfo.value.returncode is None
+        assert "started" in excinfo.value.spool_path.read_text()
+        grandchild = int(pid_file.read_text())
+        # The runner waits for the group's live members; a killed orphan stays a zombie that
+        # os.kill(pid, 0) still finds until launchd reaps it, so this waits for the reap.
+        wait_until_ready(
+            lambda: _assert_gone(grandchild),
+            "the stopped run's grandchild",
+            timeout=5.0,
+            interval=0.05,
+        )
+
+    def test_an_interrupt_stops_the_group_and_propagates(self, tmp_path):
+        pid_file = tmp_path / "grandchild.pid"
+
+        def watch(_elapsed, _spool):
+            _wait_for_file(pid_file)
+            raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            run_captured(
+                _spawner(pid_file),
+                spool_name="bounded",
+                repo_root=tmp_path,
+                watch=watch,
+                watch_interval=0.2,
+            )
+        wait_until_ready(
+            lambda: _assert_gone(int(pid_file.read_text())),
+            "the interrupted run's grandchild",
+            timeout=5.0,
+            interval=0.05,
+        )
+
+    def test_the_watch_sees_the_time_run_and_the_spool(self, tmp_path):
+        seen: list[tuple[float, Path | None]] = []
+        run_captured(
+            [sys.executable, "-c", "import time; print('x', flush=True); time.sleep(0.7)"],
+            spool_name="bounded",
+            repo_root=tmp_path,
+            watch=lambda elapsed, spool: seen.append((elapsed, spool)),
+            watch_interval=0.2,
+        )
+        assert seen, "the watch never ran while the child did"
+        elapsed = [e for e, _ in seen]
+        assert elapsed == sorted(elapsed)
+        assert all(spool is not None and spool.name.startswith("bounded-") for _, spool in seen)
+
+    def test_a_watch_that_raises_changes_nothing(self, tmp_path):
+        def watch(_elapsed, _spool):
+            raise RuntimeError("cosmetic")
+
+        result = run_captured(
+            [sys.executable, "-c", "import time; time.sleep(0.5)"],
+            spool_name="bounded",
+            repo_root=tmp_path,
+            watch=watch,
+            watch_interval=0.1,
+        )
+        assert result.returncode == 0
+
+    def test_a_line_watcher_cannot_be_combined_with_a_bound(self, tmp_path):
+        with pytest.raises(TypeError):
+            run_captured(
+                _echo("x"),
+                spool_name="bounded",
+                repo_root=tmp_path,
+                timeout=5,
+                on_line=lambda line: None,
+            )
+
+    @pytest.mark.usefixtures("verbose_reporter")
+    def test_verbose_mode_is_bounded_too(self, tmp_path):
+        with pytest.raises(CapturedProcessTimeout) as excinfo:
+            run_captured(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                spool_name="bounded",
+                repo_root=tmp_path,
+                timeout=0.5,
+            )
+        assert excinfo.value.spool_path is None
+
+
+def test_a_stopped_runs_detail_is_its_failure_detail():
+    """The caller's account of a stall is what the failure report prints."""
+    from osprey.deployment.subprocess_capture import captured_failure_detail
+
+    exc = CapturedProcessTimeout(["docker", "compose", "up"], 60.0, None)
+    exc.detail = "Waiting on: x (starting)."
+    assert captured_failure_detail(exc) == "Waiting on: x (starting)."

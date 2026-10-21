@@ -190,6 +190,20 @@ def test_every_state_dir_file_is_written_group_readable_mode(tmp_path):
 
 
 @pytest.mark.usefixtures("data_root")
+def test_the_record_lands_group_readable_under_an_owner_only_umask():
+    """The mode is set on the file itself, so umask 077 cannot narrow it."""
+    previous = os.umask(0o077)
+    try:
+        path = control_context.write_record(
+            control_context.ControlContext(target="live", generation=0)
+        )
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@pytest.mark.usefixtures("data_root")
 def test_a_writer_created_state_dir_is_exactly_mode_2770():
     """Setgid group-shared, and never left world-readable by the writer."""
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
@@ -567,6 +581,63 @@ def test_nothing_but_a_positive_int_names_a_process(monkeypatch, value):
     assert control_context.is_process_alive(value) is False
 
 
+# --- the claim rule --------------------------------------------------------
+
+
+def test_claimed_unswitched_record_follows_baseline(caplog):
+    """A record nobody has switched follows the deployment's baseline."""
+    owner = control_context.Owner(kind="web_terminal", pid=4242, port=8090)
+    record = control_context.ControlContext(target="live", generation=0, owner=owner)
+
+    with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
+        result = control_context.claimed(record, "va")
+
+    assert result.target == "va"
+    assert result.generation == 0
+    assert result.owner == owner
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "live" in warnings[0] and "va" in warnings[0]
+
+
+def test_claimed_switched_record_is_kept(caplog):
+    """A switch mints generation + 1, so a record past generation 0 was chosen."""
+    record = control_context.ControlContext(target="live", generation=3)
+
+    with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
+        result = control_context.claimed(record, "va")
+
+    assert result is record
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_claimed_keeps_posture_narrowings():
+    """Narrowings only ever refuse, so following the baseline keeps every one."""
+    record = control_context.ControlContext(
+        target="live",
+        generation=0,
+        posture={"live": "sandbox", "va": "sandbox"},
+        last_switch={"generation": 0, "status": "refused"},
+    )
+
+    result = control_context.claimed(record, "va")
+
+    assert result.target == "va"
+    assert result.posture == {"live": "sandbox", "va": "sandbox"}
+    assert result.last_switch == {"generation": 0, "status": "refused"}
+
+
+def test_claimed_same_target_is_identity(caplog):
+    """A record already on the baseline is returned as it is, with nothing logged."""
+    record = control_context.ControlContext(target="va", generation=0)
+
+    with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
+        result = control_context.claimed(record, "va")
+
+    assert result is record
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
 # --- the per-server reports ------------------------------------------------
 
 
@@ -782,19 +853,6 @@ def test_a_filename_that_encodes_no_pid_is_swept():
 
     assert _sweep(directory) == [junk]
     assert not junk.exists()
-
-
-def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
-    _write_report(data_root, 4321, _report_payload(4321))
-    monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
-    seen = []
-
-    _sweep(
-        control_context.state_dir(),
-        salvage=lambda path: seen.append(control_context.read_report(path)),
-    )
-
-    assert [r.server_pid for r in seen] == [4321]
 
 
 @pytest.mark.usefixtures("data_root")

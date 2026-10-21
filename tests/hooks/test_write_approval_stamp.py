@@ -509,6 +509,47 @@ def test_an_unwritable_state_directory_still_renders_the_prompt(
     assert output["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
+@pytest.mark.usefixtures("session")
+def test_a_link_planted_at_the_stamps_temporary_name_is_never_followed(
+    approval, root, state_dir, tmp_path
+):
+    """The stamp is replaced whole through a fresh hidden file, at mode 0640."""
+    publish(root)
+    approval.build_approval_output("Channel write", hook_input_for(write_payload()))
+    (name,) = stamp_files(state_dir)
+    victim = tmp_path / "victim"
+    victim.write_text("untouched", encoding="utf-8")
+    planted = state_dir / f"{name}.tmp"
+    planted.symlink_to(victim)
+
+    previous = os.umask(0o077)
+    try:
+        approval.build_approval_output("Channel write", hook_input_for(write_payload()))
+    finally:
+        os.umask(previous)
+
+    assert victim.read_text(encoding="utf-8") == "untouched"
+    assert planted.is_symlink()
+    stamp = state_dir / name
+    assert not stamp.is_symlink()
+    assert stamp.stat().st_mode & 0o777 == 0o640
+    assert len(stamps_in(state_dir)) == 1
+
+
+@pytest.mark.usefixtures("session")
+def test_without_the_file_helper_no_stamp_is_written_and_the_prompt_renders(
+    approval, root, state_dir, monkeypatch
+):
+    """A missing helper is the "no stamp" outcome: a refused cross-check, never a crash."""
+    publish(root)
+    monkeypatch.setattr(approval, "_safety_file", None)
+
+    output = approval.build_approval_output("Channel write", hook_input_for(write_payload()))
+
+    assert "OSPREY APPROVAL REQUIRED" in reason_of(output)
+    assert stamps_in(state_dir) == []
+
+
 # ---------------------------------------------------------------------------
 # housekeeping
 # ---------------------------------------------------------------------------

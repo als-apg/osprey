@@ -8,7 +8,7 @@ must therefore list ``OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"`` plus one
 ``OSPREY_TERMINAL_SECRET_<USER>: ${...:-}`` per entitled user, and its web gate
 (``osprey.interfaces.web_auth`` harvesting the roster, ``WebAuthMiddleware``
 checking ``X-Osprey-Terminal-Secret``) must accept exactly those. ``osprey
-build`` once rendered the sidecar's compose BEFORE the personas whose rendered
+build`` once rendered the sidecar's compose BEFORE the renders whose rendered
 ``config.yml`` decide entitlement — and read them from a build zone the build
 in flight had not published yet — so the grant came out empty and every user's
 panel answered ``401 invalid credential``. The one test on that seam asserted
@@ -20,7 +20,7 @@ deploy ``.env`` written by the SAME writers ``osprey up`` calls, the sidecar
 started by ``docker compose`` from the compose files the build wrote (the
 as-built list, resolved the way the start verbs resolve it), and four requests
 at the gate that pin the whole chain: alice's own roster secret admits her,
-bob's is refused because his persona shows no BLUESKY tab, no credential is
+bob's is refused because his render shows no BLUESKY tab, no credential is
 refused, the deployment-wide secret admits.
 
 Kept OUT of ``tests/e2e/`` deliberately: files there carrying ``dockerbuild``
@@ -71,7 +71,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
-from osprey.deployment.compose_generator import compose_base_cmd, resolve_project_name
+from osprey.deployment.compose_generator import compose_base_cmd
 from osprey.deployment.container_lifecycle import (
     _QSERVER_ZMQ_PRIVATE_KEY_SUFFIX,
     _QSERVER_ZMQ_PUBLIC_KEY_SUFFIX,
@@ -81,18 +81,18 @@ from osprey.deployment.container_lifecycle import (
     as_built_compose_files,
 )
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
-from osprey.deployment.web_terminals.personas import (
-    config_declares_bluesky_panel,
-    resolve_personas,
-)
 from osprey.deployment.web_terminals.provision import _provision_terminal_secrets
+from osprey.deployment.web_terminals.roster import (
+    config_declares_bluesky_panel,
+    resolve_cards,
+)
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from tests._container_support import docker_cli_unavailable_reason
-from tests.cli.test_persona_presets import _build_persona_stack
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests.cli.test_tier_app_presets import _build_render_stack
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 pytestmark = [
@@ -102,8 +102,8 @@ pytestmark = [
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
-# The osprey.* tree reached via /src is shim-backed: config/logger/connectors
-# live in the osprey-connectors workspace member, so its source joins the
+# The osprey.* tree reached via /src imports config/logger/connectors from
+# the osprey-connectors workspace member, so its source joins the
 # mount and the PYTHONPATH — the distribution is not yet installable from
 # PyPI inside the harness image.
 _CONNECTORS_SRC_DIR = _REPO_ROOT / "packages" / "osprey-connectors" / "src"
@@ -115,8 +115,8 @@ _SERVICE = "bluesky-web"
 _PANEL_PATH = "/bluesky/?embedded=true"
 
 #: The two roster users the assertions name. ``alice`` is the ``readwrite``
-#: persona (declares the BLUESKY tab); ``bob`` is ``readonly`` (does not).
-#: The fixture re-checks both entitlements off the persona renders, so a
+#: render (declares the BLUESKY tab); ``bob`` is ``readonly`` (does not).
+#: The fixture re-checks both entitlements off the renders, so a
 #: preset change fails there with the reason rather than as a bare 401.
 _ENTITLED_USER = "alice"
 _UNENTITLED_USER = "bob"
@@ -350,17 +350,15 @@ def _write_override(path: Path, *, image: str, container_name: str, container_po
 
 
 def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
-    """Which roster users' persona renders declare the BLUESKY tab.
+    """Which roster users' renders declare the BLUESKY tab.
 
     The same question the build's grant answers, asked of the same files, so
     the assertions below rest on what the preset actually renders rather than
     on this module's memory of it.
     """
-    entries = resolve_personas(
+    entries = resolve_cards(
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
-        (host_config.get("facility") or {}).get("prefix") or "",
-        project_name=resolve_project_name(host_config),
         strict=True,
     )
     return {
@@ -408,7 +406,7 @@ def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.
 def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     """The sidecar of a real control-assistant build, up on an ephemeral port."""
     tmp_path = tmp_path_factory.mktemp("bluesky-roster")
-    repo = _build_persona_stack(tmp_path / "my-facility")
+    repo = _build_render_stack(tmp_path / "my-facility")
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     assert "bluesky_web" in host_config["deployed_services"]
 
@@ -491,7 +489,7 @@ def test_an_entitled_users_own_roster_secret_opens_the_panel(sidecar: Sidecar):
 
 
 def test_an_unentitled_users_secret_is_refused(sidecar: Sidecar):
-    """Bob's persona shows no BLUESKY tab, so the build hands the sidecar no
+    """Bob's render shows no BLUESKY tab, so the build hands the sidecar no
     key of his. His secret is a real value the roster mint wrote (every user
     gets one for their own terminal's front door) and it is refused here as
     a wrong credential, not as a missing one — the sidecar never learned it."""

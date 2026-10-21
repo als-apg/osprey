@@ -4,7 +4,8 @@ Verifies that:
 - The agent appears in FRAMEWORK_AGENTS with the correct metadata and a
   ``python`` server dependency.
 - resolve_agents() enables pyat-specialist by default when the python server is
-  resolved, disables it when the python server is disabled, and honors a config
+  resolved and the render serves a deck-bearing model, disables it when the
+  python server is disabled or no served model has a deck, and honors a config
   override.
 - The agent template renders the exact tools/disallowedTools/maxTurns frontmatter
   and the distinctive body behaviors, and produces no output when disabled.
@@ -23,6 +24,8 @@ from pathlib import Path
 import pytest
 
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
+from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,10 +45,17 @@ AGENT_TEMPLATE_ROOT = (
 )
 
 
+#: The simulator view's directory relative to the deployment root, as a render
+#: names it.
+_SIMULATOR_DIR = f"{BUILD_DIR_NAME}/{VIEW_RELPATH}"
+
+
 def _base_ctx(**overrides):
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
+        "served_decks": [{"model": "SR", "path": f"{_SIMULATOR_DIR}/decks/SR.json"}],
+        "simulator_dir": _SIMULATOR_DIR,
     }
     ctx.update(overrides)
     return ctx
@@ -77,7 +87,7 @@ class TestPyatSpecialistAgentCatalog:
         assert adef.description
 
     def test_the_description_names_no_particular_machine(self):
-        """This sentence is rendered into every persona's prompt, everywhere.
+        """This sentence is rendered into every render's prompt, everywhere.
 
         It is the framework speaking about a framework agent, so it can only
         say what the agent computes against — the lattice model this
@@ -147,6 +157,41 @@ class TestPyatSpecialistAgentResolved:
         agents = resolve_agents(cfg, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
         assert agent["enabled"] is False
+
+    def test_disabled_when_no_served_model_has_a_deck(self):
+        """A render serving no deck-bearing model has nothing for the agent to load."""
+        ctx = _base_ctx(served_decks=[])
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents({}, ctx, resolved_servers=servers)
+        agent = _get_agent(agents)
+        assert agent["enabled"] is False
+
+    def test_a_hand_enable_without_a_served_deck_leaves_it_out(self, caplog):
+        """Switched on by hand with no deck to load, the agent stays out and the
+        build says why in one line."""
+        ctx = _base_ctx(served_decks=[])
+        servers = resolve_servers({}, ctx)
+        with caplog.at_level("WARNING", logger="osprey.registry.mcp"):
+            agents = resolve_agents(
+                {"agents": {"pyat-specialist": {"enabled": True}}},
+                ctx,
+                resolved_servers=servers,
+            )
+        assert _get_agent(agents)["enabled"] is False
+        lines = [r.getMessage() for r in caplog.records if "pyat-specialist" in r.getMessage()]
+        assert lines == ["Agent 'pyat-specialist' is left out: it needs a served model with a deck"]
+
+    def test_a_hand_enable_with_a_served_deck_says_nothing(self, caplog):
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        with caplog.at_level("WARNING", logger="osprey.registry.mcp"):
+            agents = resolve_agents(
+                {"agents": {"pyat-specialist": {"enabled": True}}},
+                ctx,
+                resolved_servers=servers,
+            )
+        assert _get_agent(agents)["enabled"] is True
+        assert not [r for r in caplog.records if "pyat-specialist" in r.getMessage()]
 
     def test_can_be_disabled_via_config(self):
         ctx = _base_ctx()
@@ -275,7 +320,7 @@ class TestPyatSpecialistAgentTemplate:
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         assert "disable_6d" in rendered
-        assert "ring4d.disable_6d()" in rendered
+        assert "lattice4d.disable_6d()" in rendered
 
     def test_body_edge_case_silent_nan(self, template_manager):
         """Edge case: pyAT returns NaN without raising — must guard results."""

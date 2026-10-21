@@ -17,7 +17,7 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile
 from osprey.cli.derived_keys import DERIVED_KEYS, derived_key_errors, is_derived_key
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

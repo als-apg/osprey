@@ -14,7 +14,7 @@ Example document::
 
     # Accelerator Complex
 
-    The storage ring is fed by ...
+    The main accelerator is fed by ...
 """
 
 from __future__ import annotations

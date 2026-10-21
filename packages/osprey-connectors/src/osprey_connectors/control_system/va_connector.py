@@ -1,9 +1,9 @@
 """
 Virtual Accelerator control system connector.
 
-Provides the ``virtual_accelerator`` connector type: a config-selectable
-seam distinct from ``mock`` and ``epics`` for facilities running a
-containerized PyAT-backed soft-IOC as their control system.
+Provides the ``virtual_accelerator`` connector type served over Channel
+Access: a config-selectable seam distinct from ``epics`` for facilities
+running a containerized PyAT-backed soft-IOC as their control system.
 
 """
 

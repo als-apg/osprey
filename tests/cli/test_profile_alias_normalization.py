@@ -28,7 +28,7 @@ from osprey.cli.build_profile_presets import (
     PRESET_DATA_BUNDLE_KEY,
     preset_data_bundle,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
@@ -92,11 +92,11 @@ def test_a_preset_naming_a_bundle_resolves_cleanly(fake_presets: Path) -> None:
 def test_an_inherited_bundle_key_is_consumed_too(fake_presets: Path) -> None:
     """The key is consumed on EVERY preset layer, not only the one named.
 
-    Regression for the persona path: the ``control-assistant-*`` presets carry
+    Regression for the render path: the ``control-assistant-*`` presets carry
     no ``app_template:`` of their own and reach the base one through
     ``extends:``. Popping only at the named preset left the inherited key in
     the merged raw, where the unknown-key check refused it — so
-    ``osprey init --preset control-assistant`` failed on every persona while
+    ``osprey init --preset control-assistant`` failed on every render while
     ``hello-world``, which has no children, still worked.
     """
     _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "hello_world"})
@@ -107,39 +107,40 @@ def test_an_inherited_bundle_key_is_consumed_too(fake_presets: Path) -> None:
     assert profile.name == "child"
 
 
-def _presets_extending(base: str) -> list[str]:
-    """Every bundled preset whose ``extends:`` names ``base``.
+def _bundled_layers() -> list[str]:
+    """Every bundled tier and app, as its repo-relative file.
 
-    Derived rather than listed, so a persona preset added later is covered the
-    day it ships. Read verbatim (``_read_preset_document``) because the point of
-    these presets is the key ``_load_preset_raw`` consumes.
+    Derived rather than listed, so a tier or app added later is covered the
+    day it ships.
     """
-    target = build_profile_presets._normalize_preset_name(base)
-    found = []
-    for name in build_profile_presets.list_presets():
-        raw, _path = build_profile_presets._read_preset_document(name)
-        parent = raw.get("extends")
-        if (
-            isinstance(parent, str)
-            and build_profile_presets._normalize_preset_name(parent) == target
-        ):
-            found.append(name)
-    return found
+    return [f"tiers/{name}.yml" for name in build_profile_presets.list_tiers()] + [
+        f"apps/{name}.yml" for name in build_profile_presets.list_apps()
+    ]
 
 
-def test_the_persona_presets_are_discoverable() -> None:
+def test_the_bundled_layers_are_discoverable() -> None:
     """Guards the parametrization below from passing vacuously."""
-    assert _presets_extending("control-assistant")
+    assert build_profile_presets.list_tiers()
+    assert build_profile_presets.list_apps()
 
 
-@pytest.mark.parametrize("preset", _presets_extending("control-assistant"))
-def test_every_shipped_persona_preset_resolves(preset: str) -> None:
-    """The same regression against the real presets `osprey init` materializes.
+@pytest.fixture(scope="module")
+def control_assistant_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The repo ``osprey init --preset control-assistant`` materializes."""
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
-    Each of these inherits the base preset's bundle key, and every one of them
-    is resolved while a `control-assistant` repo is being initialized.
+    return build_exemplar_repo(tmp_path_factory.mktemp("exemplar") / "repo")
+
+
+@pytest.mark.parametrize("layer", _bundled_layers())
+def test_every_shipped_layer_resolves(control_assistant_repo: Path, layer: str) -> None:
+    """The same regression against the real layers `osprey init` materializes.
+
+    Each tier and app resolves over a root profile whose data tree came from
+    the preset's consumed bundle key, and every one of them is resolved while a
+    `control-assistant` repo is being initialized.
     """
-    profile, _dir = resolve_build_profile(None, preset)
+    profile, _dir = resolve_build_profile(control_assistant_repo / layer, None)
 
     assert profile.name
 
@@ -207,14 +208,19 @@ def test_a_cyclic_extends_chain_terminates(fake_presets: Path) -> None:
 
 
 def test_every_bundled_preset_names_a_packaged_bundle() -> None:
-    """The shipped presets must resolve to a data tree that exists on disk."""
+    """The shipped presets must resolve to packaged data that exists on disk.
+
+    The app template's ``data/`` and the facility together are the data tree:
+    an app template with no ``data/`` of its own ships its data as a facility.
+    """
     from osprey.cli.build_profile import list_presets
+    from osprey.cli.profile_cmd import _preset_data
     from osprey.cli.templates.manager import TemplateManager
 
-    template_root = Path(TemplateManager().template_root)
+    manager = TemplateManager()
     for name in build_profile_presets.list_presets():
-        bundle = preset_data_bundle(name)
-        assert (template_root / "apps" / bundle / "data").is_dir(), f"{name} -> {bundle}"
+        composed = _preset_data(manager, name)
+        assert composed.app_data.is_dir() or composed.facility_root is not None, name
     assert list_presets()
 
 
@@ -241,7 +247,7 @@ def test_a_preset_build_keeps_its_own_bundle(fake_presets: Path) -> None:
 
 
 def test_a_preset_build_inherits_the_bundle_through_extends(fake_presets: Path) -> None:
-    """A persona preset names no bundle of its own; the base one answers.
+    """A tier preset names no bundle of its own; the base one answers.
 
     The recorded name is the preset asked for, and the bundle is resolved from
     there — so recording the nearest preset is enough, whatever depth the key
@@ -325,7 +331,7 @@ def test_a_recorded_provenance_wins_over_the_extends_chain(
     about its origin, so it is asked first.
     """
     _write_yaml(fake_presets / "base.yml", {"name": "base", "app_template": "hello_world"})
-    _write_yaml(fake_presets / "other.yml", {"name": "other", "app_template": "ariel_standalone"})
+    _write_yaml(fake_presets / "other.yml", {"name": "other", "app_template": "some_bundle"})
     profile_file = _write_yaml(
         tmp_path / "profile.yml",
         {
@@ -337,7 +343,7 @@ def test_a_recorded_provenance_wins_over_the_extends_chain(
 
     profile, _dir = resolve_build_profile(profile_file, None)
 
-    assert _profile_data_bundle(profile) == "ariel_standalone"
+    assert _profile_data_bundle(profile) == "some_bundle"
 
 
 def test_an_unshipped_provenance_preset_falls_through_to_the_chain(

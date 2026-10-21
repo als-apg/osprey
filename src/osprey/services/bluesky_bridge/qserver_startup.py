@@ -62,6 +62,7 @@ resolve fine — so they cannot catch a regression here; the AST pin in
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
@@ -113,8 +114,9 @@ def resolve_control_system_type() -> str:
     A single-lane deployment — every project rendered before the lane axis
     existed — declares no target, and the ladder's first rung is then exactly
     what this function has always answered: ``control_system.type``, fail-SAFE
-    to ``"mock"`` when the config cannot be read at all, because the mock
-    connector never touches Channel Access. A lane that DOES declare a target
+    to the factory's own fallback when the config cannot be read at all — the
+    simulator, which an unreadable config serves in process, so it never
+    touches Channel Access. A lane that DOES declare a target
     resolves through it instead, which is how two lanes over one mounted
     config.yml build two different connectors.
 
@@ -155,7 +157,7 @@ def worker_writes_enabled() -> bool:
     whatever the deployment says.
     """
     from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
     from osprey_connectors.control_system.base import is_readonly_run
     from osprey_connectors.types import WRITES_ENABLED_KEY, type_writes_enabled
 
@@ -170,14 +172,17 @@ def worker_writes_enabled() -> bool:
     return armed and not is_readonly_run()
 
 
-def build_connector_config(control_system_type: str) -> dict[str, Any]:
+def build_connector_config(control_system_type: str, section: Any) -> dict[str, Any]:
     """The ``type_config`` mapping ``ConnectorFactory`` consumes for ``control_system_type``.
 
-    Channel Access types (:data:`osprey_connectors.types.CHANNEL_ACCESS_TYPES`)
-    get a gateway-less config with a connect timeout: a gateway-less config makes
+    *section* is the deployment's ``control_system:`` mapping, which together
+    with the type decides the connector's wire
+    (:func:`osprey_connectors.types.connector_transport`). A connector that
+    speaks Channel Access gets a gateway-less config with a connect timeout: a gateway-less config makes
     ``connect()`` skip the block that sets process-wide ``EPICS_CA_*`` env, so
     the compose-inherited ``EPICS_CA_NAME_SERVERS`` survives untouched. Anything
-    else is forwarded through with no type-specific config, so an unrecognized
+    else is forwarded through with no type-specific config but its venue — the
+    simulator served in process keeps ``serving: in_process`` — so an unrecognized
     value surfaces as ``ConnectorFactory``'s own "Unknown control system type"
     error rather than being silently mis-wired to a connector nobody asked for.
 
@@ -189,14 +194,24 @@ def build_connector_config(control_system_type: str) -> dict[str, Any]:
     :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
     from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
-    from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+    from osprey_connectors.types import (
+        IN_PROCESS,
+        SERVING_LEAF,
+        TRANSPORT_CA,
+        TRANSPORT_IN_PROCESS,
+        connector_transport,
+    )
 
-    if control_system_type in CHANNEL_ACCESS_TYPES:
+    transport = connector_transport(section, control_system_type)
+    if transport == TRANSPORT_CA:
         return {
             "type": control_system_type,
             "connector": {control_system_type: {TIMEOUT_KEY: DEFAULT_TIMEOUT_S}},
         }
-    return {"type": control_system_type, "connector": {control_system_type: {}}}
+    # The venue travels with the type, so the factory builds the simulator the
+    # section serves in process rather than its container.
+    block = {SERVING_LEAF: IN_PROCESS} if transport == TRANSPORT_IN_PROCESS else {}
+    return {"type": control_system_type, "connector": {control_system_type: block}}
 
 
 async def create_connector() -> Any:
@@ -206,22 +221,27 @@ async def create_connector() -> Any:
     "connector is the single control-system interface" shape the bridge used
     when it executed plans in-process.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
     from osprey.services.bluesky_bridge.queue_backend import (
         resolve_lane_connector_type,
         resolve_lane_identity,
     )
+    from osprey_connectors.config import get_config_value
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     control_system_type, lane_degraded = resolve_lane_connector_type()
     if lane_degraded:
         logger.warning("qserver_startup: %s", lane_degraded)
+    try:
+        section = get_config_value("control_system", {})
+    except (FileNotFoundError, KeyError, RuntimeError):
+        section = {}
     register_builtin_connectors()  # idempotent; must run before create
     # Built in two steps rather than through `create_control_system_connector`
     # so the TYPE stamp can be cleared BEFORE `connect()`: a connector loads its
     # limits validator inside connect(), keyed on the stamp, so a clear that
     # came afterwards would leave the validator built against the wrong block.
     connector, type_config = ConnectorFactory.build_control_system_connector(
-        build_connector_config(control_system_type),
+        build_connector_config(control_system_type, section),
         # This lane's OWN target, not the deployment baseline: a two-lane
         # deployment is exactly where the two differ, and the machine this
         # worker drives is the one its lane declares.
@@ -329,7 +349,16 @@ async def build_devices(
     if connector is None:
         connector = await create_connector()
 
-    devices = dict(await connector_devices.build_devices(setpoints, readbacks, connector))
+    from osprey_connectors.types import is_simulated
+
+    devices = dict(
+        await connector_devices.build_devices(
+            setpoints,
+            readbacks,
+            connector,
+            simulated=is_simulated(resolve_control_system_type()),
+        )
+    )
     logger.info(
         "qserver_startup: built %d connector-mediated device(s) (%d setpoint(s), %d readback(s))",
         len(devices),
@@ -574,10 +603,9 @@ def _json_safe(value: Any) -> Any:
     """
     unwrap = getattr(value, "item", None)
     if callable(unwrap):
-        try:
+        # a non-scalar `.item()`; fall through to repr
+        with contextlib.suppress(Exception):
             value = unwrap()
-        except Exception:  # a non-scalar `.item()`; fall through to repr
-            pass
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     return repr(value)
@@ -954,7 +982,7 @@ def build_namespace(
 # guard is exactly "am I being run as the startup script?" — importing this
 # module normally, as the unit tests do, leaves the wiring untouched.
 if __name__ == "__main__":  # pragma: no cover - exercised only by a real RE worker
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     configure_logging()
     globals().update(build_namespace())

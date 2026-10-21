@@ -5,7 +5,7 @@ name: Writes Kill Switch
 description: Blocks ALL write operations under a readonly write posture or an unarmed target
 summary: Blocks write operations when the deployment is sandboxed or the target is not armed
 event: PreToolUse
-tools: channel_write, phoebus_drive, execute, execute_file, queue_add, queue_start
+tools: channel_write, phoebus_drive, execute, execute_file, pyaml_measure, queue_add, queue_start
 safety_layer: 1
 ---
 
@@ -63,7 +63,7 @@ order:
    operation staged on a writes-armed deployment included.
 2. **Deployment posture, per target.** Write posture is a property of the
    machine a call would reach, not of the deployment as a whole: a facility can
-   arm its virtual accelerator and leave its ring unarmed. So the question is
+   arm its virtual accelerator and leave its real machine unarmed. So the question is
    only answerable once the call has been pointed at a target — the one the
    control-context record names — and the answer comes from
    `control_system.connector.<type>.writes_enabled` over
@@ -100,6 +100,7 @@ stage-2 refusal under `writes_disabled`, because a different action lifts it.
 A record is written before the deny is emitted and can never cost it.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -226,7 +227,7 @@ def _is_lane_addressed(short_name):
     the lane-bound tools name their lane and refuse in-tool, and the one that
     only stages work composes tokenless by contract, so nothing it stages reaches
     a machine on its own. Gating them on the deployment's target would refuse a
-    plan queued for the simulator because the deployment points at the ring.
+    plan queued for the simulator because the deployment points at the real machine.
 
     The set is data, read from this render's hook_config, never a name spelled
     in this file — a renamed tool would otherwise detach its carve-out here
@@ -371,7 +372,8 @@ def _record_refusal(hook_input, tool_name, reason, detail=None):
     re-grants those tools via ``allow`` and leans on the hard deny. An
     unwritable audit zone costs a record, never the decision.
     """
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "writes-check",
             hook_input,
@@ -380,8 +382,6 @@ def _record_refusal(hook_input, tool_name, reason, detail=None):
             reason=reason,
             detail=detail,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
 
 
 def _deny_posture(hook_input, tool_name, target=None):
@@ -399,15 +399,14 @@ def _deny_posture(hook_input, tool_name, target=None):
     the decision.
     """
     detail = f"target={target}" if target else None
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook(
             "writes-check",
             hook_input,
             status="deny",
             detail="reason=posture" + (f" {detail}" if detail else ""),
         )
-    except Exception:
-        pass  # logging must never cost the deny
     _record_refusal(hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=detail)
     scope = _POSTURE_DENY_SCOPE.format(target=target) if target else ""
     output = {
@@ -429,15 +428,14 @@ def _deny_posture_unknown(hook_input, tool_name):
     spelling while the ledger keeps "could not be read" apart from "was
     narrowed". Same no-raise rule as :func:`_deny_posture`.
     """
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook(
             "writes-check",
             hook_input,
             status="deny",
             detail=f"reason={_POSTURE_UNKNOWN_DETAIL}",
         )
-    except Exception:
-        pass  # logging must never cost the deny
     _record_refusal(
         hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=_POSTURE_UNKNOWN_DETAIL
     )

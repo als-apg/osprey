@@ -8,7 +8,7 @@ Phase 4's complete-mediation mandate OVERRIDES that ruling: direct CA from
 mediation is closing. This module is the replacement device layer — every
 plan read and every plan write, for every device built here, goes through
 the OSPREY connector
-(:class:`osprey.connectors.control_system.base.ControlSystemConnector`):
+(:class:`osprey_connectors.control_system.base.ControlSystemConnector`):
 reads via ``connector.read_channel``, writes via
 ``connector.write_channel_checked``, which raises on any refused, failed,
 mismatched or unconfirmed write so a bad write aborts the RunEngine rather
@@ -33,28 +33,33 @@ import-clean of ophyd.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from collections.abc import Sequence
 from typing import Any
 
-from bluesky.protocols import DataKey, Hints, Reading
+from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
+
+from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
+from osprey_connectors.settle import Landing, settle, settle_bound
 
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
 
-#: Env var carrying how close a readback must come to the demand before
-#: ``ConnectorSettable.set()`` calls a move settled. Authored per facility in
-#: the build profile and rendered into the compose file; the container cannot
-#: read `config.yml`, so the env var is the whole channel.
+#: Env var carrying the floor on how close a readback must come to the demand
+#: before ``ConnectorSettable.set()`` calls a move settled. Authored per
+#: facility in the build profile and rendered into the compose file; the
+#: container cannot read `config.yml`, so the env var is the whole channel. The
+#: floor is never a ceiling: a device's declared tolerance applies on every
+#: lane when it is wider, and its readback's motion band does on a simulated
+#: lane.
 SETTLE_TOLERANCE_ENV = "BLUESKY_SETTLE_TOLERANCE"
 
-#: Used when the variable is unset. A float-noise bound on a setpoint/readback
-#: pair the underlying IOC keeps in exact software sync — the right value for a
-#: device whose readback is the setpoint echoed back, and far too strict for a
-#: device that physically moves, which is exactly why a facility authors it.
+#: Used when the variable is unset. A float-noise bound: the floor for a
+#: setpoint/readback pair kept in exact software sync. A device that settles
+#: wider carries its tolerance, or its readback's motion band, in the device
+#: file.
 DEFAULT_SETTLE_TOLERANCE = 1e-9
 
 #: Env var bounding how long ``ConnectorSettable.set()`` polls the readback
@@ -114,19 +119,6 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
     return value
 
 
-_READBACK_POLL_INTERVAL_S = 0.05
-"""Sleep between readback polls in ``ConnectorSettable.set()``."""
-
-SETPOINT_KEY_SUFFIX = "_setpoint"
-"""Suffix of the data key a :class:`ConnectorSettable` with a *distinct*
-readback reports its demand under: ``<name>_setpoint`` beside ``<name>``.
-The same convention as ophyd's positioners (``<name>_setpoint`` beside the
-``<name>`` readback), so a plan that settle-checks a slow device -- an
-insertion-device gap, a ramping magnet -- reads where the device is and where
-it was told to go off one device, without a second device aliasing the
-setpoint channel."""
-
-
 class ConnectorSettable(StandardReadable):
     """A settable/readable PV pair mediated entirely by the OSPREY connector.
 
@@ -135,10 +127,12 @@ class ConnectorSettable(StandardReadable):
     write can bypass the connector's reference monitor. ``set()`` writes the
     setpoint through ``connector.write_channel_checked`` — which raises on
     any refusal, failure, mismatch, or unconfirmed write, aborting the
-    RunEngine — then polls the (possibly separate) readback channel through
-    ``connector.read_channel`` until it settles within :func:`settle_tolerance`
-    of the demanded value, or raises ``TimeoutError`` once the
-    :func:`settle_timeout_s` budget runs out. ``read()``/``describe()`` are overridden
+    RunEngine — then waits in the shared settle step
+    (:func:`osprey_connectors.settle.settle`) for the (possibly separate)
+    readback to come within :func:`osprey_connectors.settle.settle_bound` of
+    the demand, with :func:`settle_tolerance` as the floor and
+    :func:`settle_timeout_s` as the budget.
+    ``read()``/``describe()`` are overridden
     to return the *live* readback via the connector on every call — never a
     cached/soft value — so a plan's ``trigger_and_read`` document always
     reflects the current mediated state.
@@ -163,6 +157,9 @@ class ConnectorSettable(StandardReadable):
     in the worker's namespace twice. An aliased device reports one key: its
     readback IS its demand.
 
+    The device is Bluesky-``Locatable``, so ``bps.locate`` answers where it
+    was told to go and where it is, both read live through the connector.
+
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
     owns the ``self._connector`` attribute (its internal
@@ -177,15 +174,23 @@ class ConnectorSettable(StandardReadable):
         setpoint_pv: str,
         readback_pv: str | None = None,
         name: str = "",
+        settle_tolerance: float | None = None,
+        settle_relative: float | None = None,
+        motion_band: float | None = None,
+        simulated: bool = False,
     ) -> None:
         self._osprey_connector = connector
         self._setpoint_pv = setpoint_pv
         self._readback_pv = readback_pv or setpoint_pv
+        self._settle_tolerance = settle_tolerance
+        self._settle_relative = settle_relative
+        self._motion_band = motion_band
+        self._simulated = simulated
         super().__init__(name=name)
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
-        """Write ``value`` through the connector, then wait for readback settle.
+        """Write ``value`` through the connector, then wait for its readback to settle.
 
         Raises:
             ChannelWriteBlockedError: The write was refused and no value was
@@ -201,11 +206,15 @@ class ConnectorSettable(StandardReadable):
                 plan: an unconfirmed or mismatched write is a false premise
                 for every step that follows it.
             ConnectionError: Propagated unchanged from the connector's
-                Channel Access layer.
+                Channel Access layer on the write.
             TimeoutError: Either propagated unchanged from the connector's
-                write, or raised directly by this method when ``readback``
-                does not settle within :func:`settle_tolerance` of ``value``
-                within :func:`settle_timeout_s` seconds.
+                write, or a ``SettleTimeoutError`` when ``readback`` does not
+                settle within its bound of ``value`` within
+                :func:`settle_timeout_s` seconds.
+            SettleReadError: A ``ChannelReadFailedError``: the readback could
+                not be read while settling, or answered no value; names the
+                readback. A readback that answers no value aborts the plan at
+                once rather than after the settle timeout.
 
             Every one of these propagates uncaught through the
             ``AsyncStatus`` this method is wrapped in, aborting the
@@ -233,19 +242,28 @@ class ConnectorSettable(StandardReadable):
         # defaults: the facility authors them in its profile and they reach the
         # container as env vars, so the value in force is whatever the process
         # environment says at the moment the move starts.
-        tolerance = settle_tolerance()
-        timeout_s = settle_timeout_s()
-        deadline = time.monotonic() + timeout_s
-        while True:
-            reading = await self._osprey_connector.read_channel(self._readback_pv)
-            if abs(reading.value - value) <= tolerance:
-                return
-            if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"Readback '{self._readback_pv}' did not settle to {value} "
-                    f"within {timeout_s}s (last read: {reading.value})"
-                )
-            await asyncio.sleep(_READBACK_POLL_INTERVAL_S)
+        bound = settle_bound(
+            self._tolerance_record(),
+            value,
+            motion=self._motion_band or 0.0,
+            simulated=self._simulated,
+            floor=settle_tolerance(),
+        )
+        # The floor is always a number, so the bound always is.
+        assert bound is not None
+        await settle(
+            self._osprey_connector,
+            [Landing(self._setpoint_pv, self._readback_pv, value, bound)],
+            timeout_s=settle_timeout_s(),
+        )
+
+    def _tolerance_record(self) -> dict[str, float] | None:
+        """The device's declared tolerance as the facility states one, or ``None``."""
+        if self._settle_tolerance is not None:
+            return {"absolute": self._settle_tolerance}
+        if self._settle_relative is not None:
+            return {"relative": self._settle_relative}
+        return None
 
     @property
     def has_distinct_readback(self) -> bool:
@@ -261,6 +279,20 @@ class ConnectorSettable(StandardReadable):
         readback, and the key would restate ``<name>``.
         """
         return f"{self.name}{SETPOINT_KEY_SUFFIX}"
+
+    async def locate(self) -> Location[Any]:
+        """Return where the device was told to go and where it is, read live.
+
+        A device with a distinct readback reads its readback channel, then its
+        setpoint channel, in :meth:`read`'s order. An aliased device makes one
+        read and reports that value for both: its readback IS its demand.
+        Values are returned as the connector gives them.
+        """
+        reading = await self._osprey_connector.read_channel(self._readback_pv)
+        if not self.has_distinct_readback:
+            return Location(setpoint=reading.value, readback=reading.value)
+        demand = await self._osprey_connector.read_channel(self._setpoint_pv)
+        return Location(setpoint=demand.value, readback=reading.value)
 
     async def read(self) -> dict[str, Reading[Any]]:
         """Return the live readback value, read fresh through the connector.
@@ -370,6 +402,8 @@ async def build_devices(
     settables: Sequence[SettableSpec] = (),
     readables: Sequence[ReadableSpec] = (),
     connector: Any = None,
+    *,
+    simulated: bool = False,
 ) -> dict[str, Any]:
     """Build and connect connector-mediated settable/readable devices, keyed by name.
 
@@ -388,6 +422,10 @@ async def build_devices(
         connector: The OSPREY control-system connector every built device
             delegates its reads/writes to. Every device shares this same
             connector instance.
+        simulated: Whether the connector serves the simulator, so a device
+            without a declared tolerance settles within its readback's
+            motion band. False, the fail-safe toward hardware, leaves such a
+            device on the profile's floor.
 
     Returns:
         Mapping of device name to connected device instance.
@@ -409,6 +447,10 @@ async def build_devices(
             settable_spec.setpoint_pv,
             settable_spec.readback_pv,
             name=settable_spec.name,
+            settle_tolerance=settable_spec.settle_tolerance,
+            settle_relative=settable_spec.settle_relative,
+            motion_band=settable_spec.motion_band,
+            simulated=simulated,
         )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(

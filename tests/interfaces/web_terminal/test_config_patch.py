@@ -34,7 +34,7 @@ SAMPLE_CONFIG = """\
 project_name: "test-project"
 
 control_system:
-  type: "mock"  # Options: mock | epics
+  type: "virtual_accelerator"  # Options: virtual_accelerator | epics
   writes_enabled: false  # Master safety switch
   limits_checking:
     enabled: false
@@ -108,7 +108,7 @@ class TestPatchEndpoint:
         assert "# ============================================================" in text
         assert "# Test Config" in text
         assert "# Comments must survive PATCH operations." in text
-        assert "# Options: mock | epics" in text
+        assert "# Options: virtual_accelerator | epics" in text
         assert "# Master safety switch" in text
 
     def test_patch_empty_updates_rejected(self, client):

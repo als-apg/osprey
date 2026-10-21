@@ -809,21 +809,36 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
 
     config = _config_block(profile)
     deployed = _dotted(config, "deployed_services")
-    if isinstance(deployed, list) and "openobserve" in deployed:
-        # With no port key the store sits at the layout's openobserve slot in
-        # THIS profile's block, so the base is read from the profile rather
-        # than defaulted: a deployment that moved its base has to be probed
-        # inside its own block, not at whatever holds the framework default.
+    deployed = deployed if isinstance(deployed, list) else []
+    # With no port key a service sits at its layout slot in THIS profile's
+    # block, so the base is read from the profile rather than defaulted: a
+    # deployment that moved its base has to be probed inside its own block, not
+    # at whatever holds the framework default.
+    if "telemetry_store" in deployed:
         port = _as_port(
-            _dotted(config, "services.openobserve.port"),
-            default_port("openobserve", base=_profile_port_base(config)),
+            _dotted(config, "services.telemetry_store.port"),
+            default_port("telemetry_store", base=_profile_port_base(config)),
         )
         probes.append(
             Probe(
                 kind="http",
-                label=f"openobserve: telemetry store on {port}",
+                label=f"telemetry-store: query interface on {port}",
                 port=port,
-                path="/healthz",
+                path="/ping",
+            )
+        )
+    if "telemetry_gateway" in deployed:
+        # The collector answers a bare GET on its receiver with an error page,
+        # so the honest probe is that the port accepts a connection.
+        port = _as_port(
+            _dotted(config, "services.telemetry_gateway.port"),
+            default_port("telemetry_gateway", base=_profile_port_base(config)),
+        )
+        probes.append(
+            Probe(
+                kind="tcp",
+                label=f"telemetry-gateway: OTLP receiver on {port}",
+                port=port,
             )
         )
 
@@ -893,7 +908,7 @@ def _web_terminals(profile: dict[str, Any]) -> dict[str, Any] | None:
 
     Resolved through :func:`effective_web_terminals` rather than by reading
     ``modules.web_terminals`` directly, because a ``config:`` block is a flat
-    bag of dotted keys and the bundled persona presets inherit their parent's
+    bag of dotted keys and the bundled tier presets inherit their parent's
     whole subtree (``enabled: true`` and all) while switching the module off
     with a separate, deeper ``modules.web_terminals.enabled: false``. Reading
     the subtree key alone answers "enabled" for a profile the build treats as
@@ -927,7 +942,7 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # deployment resolves it: the profile's `nginx_port` when it sets one, else
     # the gateway slot of the block the profile's own `deployment.port_base`
     # names. Re-wrapped into the single rendered-config shape the resolver
-    # takes, the same way the openobserve probe above reaches the base.
+    # takes, the same way the telemetry probes above reach the base.
     profile_config = _config_block(profile)
     port_base = _profile_port_base(profile_config)
     probes = [
@@ -947,22 +962,17 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # of the panel family in THIS profile's block — the same base the landing
     # page above was resolved against, so the two never drift apart.
     base = _as_port(web.get("web_base_port"), default_port("web", base=port_base))
-    users = web.get("users")
-    for position, entry in enumerate(users if isinstance(users, list) else []):
-        if isinstance(entry, str):
-            name, index = entry, position
-        elif isinstance(entry, dict):
-            name = str(entry.get("name", ""))
-            index = _as_port(entry.get("index"), position)
-        else:
-            continue
-        if not name:
-            continue
+    # Every card the deployment runs, shared app cards included, placed the way
+    # the render places them. Lenient: a probe list is advisory, and an entry
+    # the render would refuse is lint's to report, not this reader's to raise on.
+    from osprey.deployment.web_terminals.roster import roster_entries
+
+    for entry in roster_entries(web, strict=False):
         probes.append(
             Probe(
                 kind="http",
-                label=f"terminal ({name})",
-                port=base + index,
+                label=f"terminal ({entry['name']})",
+                port=base + entry["index"],
                 path=TERMINAL_LIVENESS_PATH,
             )
         )

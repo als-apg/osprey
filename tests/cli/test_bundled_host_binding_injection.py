@@ -57,7 +57,6 @@ def test_a_host_dispatch_pair_declares_both_bind_variables(tmp_path: Path) -> No
     profile_dir.mkdir()
     dispatch = DispatchConfig(
         triggers="tutorial_triggers.yml",
-        facility_name="ERF",
         channel_strip_prefix="ERF:",
         network="host",
     )

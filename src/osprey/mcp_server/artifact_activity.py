@@ -35,8 +35,8 @@ and is silently dropped. A missed frame for a rare case beats three frames for
 every run; the run's own emit still shows the activity.
 
 **Bulk deletes report a summary, not a flood.** ``artifact_delete_all`` over a
-gallery bigger than the browser-side history ring (50 frames) would evict the
-ring's entire contents with per-entry delete frames — everything the operator
+gallery bigger than the browser-side history buffer (50 frames) would evict the
+buffer's entire contents with per-entry delete frames — everything the operator
 could scroll back to would be one repeated delete. The tool therefore wraps the
 store call in :func:`suppress_delete_frames` (per-entry delete frames are
 dropped at the enqueue) and reports the whole action as one
@@ -83,7 +83,7 @@ _BOOKKEEPING_CATEGORY = "code_output"
 
 #: Backlog bound. When the web terminal is unreachable each notify costs up to
 #: a second, so a bulk delete can outrun the worker; the frames are
-#: ephemeral UI signals (the browser-side history ring holds 50) and dropping
+#: ephemeral UI signals (the browser-side history buffer holds 50) and dropping
 #: the overflow is strictly better than growing a queue nobody will read.
 _MAX_PENDING = 256
 

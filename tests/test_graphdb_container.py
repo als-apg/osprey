@@ -40,6 +40,7 @@ from tests._graphdb_container import (
     WatchedSession,
     WatchedStore,
     _store_answers,
+    graphdb_store,
     watched_graphdb_store,
 )
 from tests._tree_scan import python_sources
@@ -638,6 +639,64 @@ def test_the_watched_store_waits_on_its_own_container(monkeypatch: pytest.Monkey
     assert isinstance(probe, functools.partial)
     assert probe.func is _store_answers
     assert probe.args == (URI,)
+
+
+def test_the_store_answers_before_its_uri_is_yielded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The store's URI is handed out only once the store answers; a store that never does fails.
+
+    The wait is the store's own probe on the container just started, and it
+    is fail-hard: an unanswered wait propagates out of the ``with`` and the
+    container is still stopped.
+    """
+
+    class _StartedContainer:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def get_connection_url(self) -> str:
+            return URI
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    started = _StartedContainer()
+    events: list[str] = []
+    waits: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def wait_until_ready(*args: object, **kwargs: object) -> None:
+        events.append("waited")
+        waits.append((args, kwargs))
+
+    monkeypatch.setattr("tests._graphdb_container.start_or_skip", lambda factory, *, label: started)
+    monkeypatch.setattr("tests._graphdb_container.wait_until_ready", wait_until_ready)
+
+    with graphdb_store(Path("plugins"), label=LABEL) as uri:
+        events.append("body")
+
+    assert uri == URI
+    assert events == ["waited", "body"]
+    (probe, *_rest), kwargs = waits[0]
+    assert kwargs["container"] is started
+    assert isinstance(probe, functools.partial)
+    assert probe.func is _store_answers
+    assert probe.args == (URI,)
+    assert started.stopped
+
+    unanswered = _StartedContainer()
+
+    def never_answers(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("store did not answer")
+
+    monkeypatch.setattr(
+        "tests._graphdb_container.start_or_skip", lambda factory, *, label: unanswered
+    )
+    monkeypatch.setattr("tests._graphdb_container.wait_until_ready", never_answers)
+
+    with pytest.raises(AssertionError, match="store did not answer"):
+        with graphdb_store(Path("plugins"), label=LABEL):
+            pytest.fail("the body ran on a store that never answered")
+
+    assert unanswered.stopped
 
 
 class _FakeDriver:

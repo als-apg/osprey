@@ -158,7 +158,7 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-#: The ``permissions.deny`` entries every persona must ship before a deployment
+#: The ``permissions.deny`` entries every render must ship before a deployment
 #: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a
 #: host-network egress path an agent can take from *outside* the python
 #: executor, which is where the open-mode socket guard sits: a shell, the
@@ -170,7 +170,7 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
 #: Every entry is spelled exactly as :data:`DENY_DEFAULTS` spells it — that
 #: tuple is what ``settings.json.j2`` writes into the artifact this gate reads,
 #: and the comparison is literal (see
-#: :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`).
+#: :func:`~osprey.deployment.web_terminals.roster.settings_json_denies`).
 #: A strict subset of it, deliberately: ``Edit`` and ``EnterWorktree`` write
 #: files rather than reaching the network, and ``mcp__claude_ai_*`` is left out
 #: because a

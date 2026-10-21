@@ -201,11 +201,11 @@ def test_passthrough_key_rejects_a_bad_entry(value):
 @pytest.fixture
 def reset_config_caches(monkeypatch):
     """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
@@ -223,7 +223,11 @@ def _write_mock_project(root) -> None:
     (root / "config.yml").write_text(
         yaml.dump(
             {
-                "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "limits_checking": {"enabled": False},
+                },
                 "execution": {"execution_method": "subprocess"},
                 "python_executor": {"execution_timeout_seconds": 60},
             }

@@ -21,17 +21,18 @@ and stores ``yaml.safe_load`` of every ``config.yml`` the build emits, one file
 per rendered project::
 
     tests/fixtures/explicit_config/<preset>/<mode>/root.yml
-    tests/fixtures/explicit_config/<preset>/<mode>/<persona>.yml
+    tests/fixtures/explicit_config/<preset>/<mode>/<name>.yml
 
-``root.yml`` is ``build/config.yml``; each ``<persona>.yml`` is
-``build/<project>-<persona>/config.yml``.
+``root.yml`` is ``build/config.yml``; each ``<name>.yml`` is
+``build/<project>-<name>/config.yml``, the render the build makes of
+``tiers/<name>.yml`` or ``apps/<name>.yml``.
 
 Completeness
 ------------
 A build writes ``config.yml`` in three more places: ``build/.image/*/build/``
 (the container copies), and ``build/services/*/`` (one per deployed service).
-Every one of them is a re-serialization of the root or of a persona render, so
-capturing root + personas captures the whole surface. That is not assumed — the
+Every one of them is a re-serialization of the root or of a tier or app render,
+so capturing root + tiers + apps captures the whole surface. That is not assumed — the
 script re-reads every ``config.yml`` under ``build/`` and refuses to write a
 cell whose extra documents do not each equal a captured one. If a future render
 grows a document that is genuinely its own, the freeze fails loudly with the
@@ -49,7 +50,7 @@ listed under ``masked_keys`` in ``meta.json``:
     business; which providers reach the render is this fixture's business.
 ``project_root``
     Deleted. The absolute path of the scratch directory the freeze ran in.
-    Verified to be the only machine-specific value in the render: the script
+    Verified to be the only machine-specific path in the render: the script
     re-scans every masked document for the scratch root and for the invoking
     user's home directory and fails if either survives.
 ``execution.environment``
@@ -57,6 +58,9 @@ listed under ``masked_keys`` in ``meta.json``:
     ``execution.environment.python`` resolves to an interpreter path on a
     machine that has one, so the block cannot be frozen. ``execution_method``
     is kept.
+``deployment.host_identity``
+    Deleted (and ``deployment`` with it when nothing else is left).
+    ``osprey build`` records the account that ran it, which differs per host.
 
 The CLI runs with every ``*_API_KEY`` variable removed from the environment, so
 which provider keys happen to be exported on the freezing machine cannot reach
@@ -123,12 +127,10 @@ DEFAULT_BASELINE = "246198f1c"
 #: in this repo, so a faithful baseline needs both.
 BASELINE_SOURCE_DIRS: tuple[str, ...] = ("src", "packages/osprey-connectors/src")
 
-#: The presets whose renders are frozen. The four the feature converts.
+#: The presets whose renders are frozen: every preset ``osprey init`` ships.
 PRESETS: tuple[str, ...] = (
     "hello-world",
     "control-assistant",
-    "ariel-standalone",
-    "channel-finder-standalone",
 )
 
 #: Deployment name used for every cell. A constant, because the repo directory
@@ -152,6 +154,7 @@ STRIPPED_KEYS: Mapping[str, str] = {
     "execution.environment": (
         "execution.environment.python resolves to an interpreter path on a machine that has one"
     ),
+    "deployment.host_identity": "the account that ran the build, recorded by osprey build",
 }
 
 #: Keys replaced rather than deleted, with what replaces them.
@@ -159,8 +162,9 @@ REPLACED_KEYS: Mapping[str, str] = {
     "api.providers": "sorted list of provider names, in place of the catalog mapping",
 }
 
-#: Build-tree directories that never hold a persona render.
-_NON_PERSONA_BUILD_DIRS = frozenset({"services", "data", "docker", "_mcp_servers"})
+#: The deployment-repo directories whose files each render a project of their
+#: own, at ``build/<project_name>-<file stem>/``.
+LAYER_DIRS: tuple[str, ...] = ("tiers", "apps")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -200,7 +204,7 @@ def modes_for_preset(preset: str) -> list[str | None]:
     Returns:
         Either ``[None]`` or the full list of valid mode names.
     """
-    from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+    from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 
     agents = _packaged_preset(preset).get("agents") or []
     if CHANNEL_FINDER_AGENT not in agents:
@@ -237,6 +241,14 @@ def mask_document(document: Mapping[str, Any]) -> dict[str, Any]:
         execution = dict(execution)
         execution.pop("environment")
         masked["execution"] = execution
+
+    deployment = masked.get("deployment")
+    if isinstance(deployment, Mapping) and "host_identity" in deployment:
+        deployment = {k: v for k, v in deployment.items() if k != "host_identity"}
+        if deployment:
+            masked["deployment"] = deployment
+        else:
+            masked.pop("deployment")
 
     return masked
 
@@ -427,15 +439,21 @@ def _failure_reason(result: subprocess.CompletedProcess[str]) -> str:
 def collect_rendered_configs(project: Path) -> dict[str, dict[str, Any]]:
     """The documents a build emitted, keyed by the render they belong to.
 
+    The renders are discovered from the deployment repo, not from the build
+    tree: every file directly under ``tiers/`` and ``apps/`` renders one project
+    at ``build/<project_name>-<file stem>/``, so each of those must hold a
+    ``config.yml``. Reading the source side means a render the build failed to
+    write is an error here rather than a cell that silently lost a document.
+
     Args:
         project: The deployment repo, containing ``build/``.
 
     Returns:
-        ``{"root": …}`` plus one entry per persona, keyed by the persona name
-        (the render directory with the ``<project_name>-`` prefix removed).
+        ``{"root": …}`` plus one entry per tier and app, keyed by its file stem.
 
     Raises:
-        RuntimeError: If ``build/config.yml`` is absent.
+        RuntimeError: If ``build/config.yml`` or a tier's or app's render is
+            absent, or a tier and an app share a name.
     """
     build = project / "build"
     root_path = build / "config.yml"
@@ -443,19 +461,22 @@ def collect_rendered_configs(project: Path) -> dict[str, dict[str, Any]]:
         raise RuntimeError(f"no build/config.yml under {project}")
 
     captured = {"root": yaml.safe_load(root_path.read_text(encoding="utf-8"))}
-    for candidate in sorted(build.iterdir()):
-        if not candidate.is_dir() or candidate.name.startswith("."):
+    for dirname in LAYER_DIRS:
+        layer_dir = project / dirname
+        if not layer_dir.is_dir():
             continue
-        if candidate.name in _NON_PERSONA_BUILD_DIRS:
-            continue
-        config = candidate / "config.yml"
-        if not config.is_file():
-            continue
-        persona = candidate.name
-        prefix = f"{project.name}-"
-        if persona.startswith(prefix):
-            persona = persona[len(prefix) :]
-        captured[persona] = yaml.safe_load(config.read_text(encoding="utf-8"))
+        for layer in sorted(layer_dir.iterdir(), key=lambda entry: entry.name):
+            if not layer.is_file() or layer.name.startswith("."):
+                continue
+            name = layer.stem
+            if name in captured:
+                raise RuntimeError(f"{dirname}/{layer.name}: a second render named {name!r}")
+            config = build / f"{project.name}-{name}" / "config.yml"
+            if not config.is_file():
+                raise RuntimeError(
+                    f"{dirname}/{layer.name} has no render: {config.relative_to(project)} is absent"
+                )
+            captured[name] = yaml.safe_load(config.read_text(encoding="utf-8"))
     return captured
 
 
@@ -463,7 +484,7 @@ def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any
     """Check that every ``config.yml`` in the build tree is one of the captured ones.
 
     The container copies under ``build/.image/`` and the per-service copies under
-    ``build/services/`` are re-serializations of the root or of a persona render.
+    ``build/services/`` are re-serializations of the root or of a tier or app render.
     This asserts it rather than trusting it, so a render that grows a genuinely
     distinct document is caught here instead of leaving a hole in the fixture.
 
@@ -516,7 +537,8 @@ def freeze_cell(
 
     Returns:
         The cell's record for ``cells.json``: ``preset``, ``mode``, ``status``
-        (``frozen``/``refused``/``failed``), and either the persona names and
+        (``frozen``/``refused``/``failed``), and either the tier and app render
+        names (under ``renders``, the key ``meta.json`` records them by) and
         checked paths or the reason it was skipped.
     """
     mode_dir = mode or UNSET_MODE_DIR
@@ -553,10 +575,10 @@ def freeze_cell(
             encoding="utf-8",
         )
 
-    personas = sorted(name for name in masked if name != "root")
+    renders = sorted(name for name in masked if name != "root")
     record.update(
         status="frozen",
-        personas=personas,
+        renders=renders,
         documents=sorted(f"{name}.yml" for name in masked),
         build_configs_checked=checked,
     )
@@ -617,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
         "--preset",
         action="append",
         choices=PRESETS,
-        help="Freeze only this preset (repeatable). Default: all four.",
+        help="Freeze only this preset (repeatable). Default: all of them.",
     )
     args = parser.parse_args(argv)
 
@@ -658,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
                     # documents belong to the cell, and how many config.yml
                     # files in the build tree were proved to be one of them.
                     completeness[record["directory"]] = {
-                        "personas": record.pop("personas"),
+                        "renders": record.pop("renders"),
                         "documents": record.pop("documents"),
                         "build_configs_checked": len(record.pop("build_configs_checked")),
                     }

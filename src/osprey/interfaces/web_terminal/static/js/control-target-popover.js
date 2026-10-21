@@ -31,7 +31,7 @@
  * module cannot see. Confirms state scope, endpoint and consequence only.
  *
  * **A confirm can be waived, mostly.** Both confirms carry a "don't ask
- * again" checkbox — per gesture, per machine, per persona (scopedStorageKey),
+ * again" checkbox — per gesture, per machine, per render (scopedStorageKey),
  * remembered only when the operator confirms. The one exception is turning
  * writes ON for a live machine, which keeps asking always: it is the gesture
  * after which hardware can move. A waived dialog is re-shown by holding Shift

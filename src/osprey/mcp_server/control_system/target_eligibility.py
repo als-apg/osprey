@@ -53,13 +53,11 @@ target inherits when its own block says nothing about itself.
 Session-relativity
 ------------------
 Availability is not a property of a target alone; it is a property of a target
-*and the session asking*. FR-8 gates a switch **to** the live machine on strict
-limits posture plus an operator acknowledgment, and a switch **to** the stand-in
-on the limits posture alone — the stand-in really is dialled and really behaves
-like hardware, but the acknowledgment it needs was already given at build time
-by the ``virtual_accelerator.live_standin`` line that stood it up. Both are
-waived **except** when the target is the deployment's own baseline and the
-session is returning to it — stranding a session on the simulator is the less
+*and the session asking*. FR-8 gates a switch **to** the live machine on an
+operator acknowledgment; the stand-in needs none — the acknowledgment it needs
+was already given at build time by the ``virtual_accelerator.live_standin``
+line that stood it up. The acknowledgment is waived when the target is the
+deployment's own baseline and the session is returning to it — stranding a session on the simulator is the less
 safe outcome, so coming home is never gated, and the baseline a deployment comes
 home to may be ``standin`` as readily as ``live``. The exemption covers the
 Channel Access shape of a connector block too — its gateways, the role this
@@ -115,8 +113,14 @@ from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
+from osprey_connectors.config import unresolved_placeholders
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
+from osprey_connectors.honesty import (
+    VA_MOCK_ARCHIVER_WHY,
+    _invents_history,
+    _target_section,
+    pairing_for_target,
+)
 from osprey_connectors.ipc.verification import (
     Endpoint,
     TargetDerivation,
@@ -134,12 +138,9 @@ from osprey_connectors.standin import (
     live_standin_active,
 )
 from osprey_connectors.types import (
-    CHANNEL_ACCESS_TYPES,
-    INVENTED_HISTORY_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
-    LimitsPosture,
-    type_limits_posture,
+    speaks_channel_access,
 )
 
 # -- Config keys, spelled once ---------------------------------------------
@@ -180,11 +181,10 @@ REASON_GATEWAYS_MISSING = "gateways_missing"
 REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
 REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
-#: A target that is never the real machine — the virtual accelerator, the
-#: stand-in, the mock — selects an endpoint the live machine derives.
+#: A target that is never the real machine — the simulator or the stand-in —
+#: selects an endpoint the live machine derives.
 REASON_REACHES_LIVE_MACHINE = "reaches_live_machine"
 REASON_INVENTED_HISTORY = "invented_history"
-REASON_LIMITS_POSTURE = "limits_posture"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
 REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
@@ -343,20 +343,6 @@ def _is_set(value: Any) -> bool:
     return bool(value)
 
 
-def _limits_posture(config: Any, connector_type: str) -> LimitsPosture:
-    """The limits posture *connector_type* runs under, with its answering key.
-
-    Per connector type rather than per deployment, for the reason the write
-    posture is: a deployment with a live machine beside a virtual accelerator
-    holds one posture per machine, and a relaxation written for the simulator
-    must not decide what the live gate sees. The resolved value travels with the
-    key that answered so a refusal sends the operator to the line they can
-    actually edit — the per-type one when a per-type block spoke, the
-    deployment-wide one when none did.
-    """
-    return type_limits_posture(_section(config, "control_system"), connector_type)
-
-
 def _selected_role_missing(
     config: Any, derivation: TargetDerivation, target: str
 ) -> Eligibility | None:
@@ -385,7 +371,9 @@ def _selected_role_missing(
     )
 
 
-def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
+def narrowing_refusal(
+    config: Any, target: str, *, config_path: str | None = None
+) -> Eligibility | None:
     """What narrowing *target* to read-only would cost the deployment, if anything.
 
     A narrowing moves the selected gateway role, and a deployment whose block
@@ -403,6 +391,7 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
     Args:
         config: The full rendered config mapping.
         target: The target the operator is considering narrowing.
+        config_path: See :func:`derive_endpoints`.
 
     Returns:
         The refusal narrowing would earn, or ``None`` when the target stays
@@ -413,7 +402,9 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
         # ``readonly_run`` is pinned false rather than read: the question is
         # what the *narrowing* costs, and a run that is already read-only would
         # otherwise answer it for every target at once.
-        derivation = derive_endpoints(config, target, writes_enabled=False, readonly_run=False)
+        derivation = derive_endpoints(
+            config, target, writes_enabled=False, readonly_run=False, config_path=config_path
+        )
     except ValueError as exc:
         return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
     return _selected_role_missing(config, derivation, target)
@@ -437,6 +428,7 @@ def evaluate_eligibility(
     direction: str = DIRECTION_AWAY,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
+    config_path: str | None = None,
 ) -> Eligibility:
     """Whether *target* could be switched to, from config alone.
 
@@ -444,7 +436,9 @@ def evaluate_eligibility(
     answer names the nearest thing to fix rather than the whole list:
 
     1. the target resolves to a connector type at all;
-    2. ``control_system.connector.<type>`` exists;
+    2. ``control_system.connector.<type>`` exists, and carries no env-var
+       placeholder its resolution left unsubstituted
+       (:data:`REASON_TARGET_UNRESOLVABLE`);
     3. its ``gateways`` table is non-empty and carries the role this deployment
        would select *for this target* (a target armed for writes with only a read
        gateway selects ``read_only`` and is eligible; a target with only a write
@@ -465,14 +459,12 @@ def evaluate_eligibility(
        derives from the same config (:data:`REASON_REACHES_LIVE_MACHINE`);
     6. honesty: pointing a session at a machine this deployment stands up for
        itself — the virtual accelerator or the stand-in — while the archiver
-       resolves to the mock would pair an invented present with an invented
-       past;
-    7. FR-8 posture, only for a switch *toward* a target, and split by which
-       machine it is: the strict limits posture applies to ``live`` **and**
-       ``standin``, both of which behave like hardware; the operator
-       acknowledgment applies to ``live`` alone, since the stand-in's
-       equivalent was said at build time by ``virtual_accelerator.live_standin``
-       (:data:`REASON_LIMITS_POSTURE`, :data:`REASON_OPERATOR_ACK_MISSING`);
+       synthesizes its history would pair an invented present with an
+       invented past;
+    7. FR-8 posture, only for a switch *toward* ``live``: the operator
+       acknowledgment. The stand-in's equivalent was said at build time by
+       ``virtual_accelerator.live_standin``
+       (:data:`REASON_OPERATOR_ACK_MISSING`);
     8. for ``live`` only, and only toward it: the archive is not the stand-in's.
        A deployment that records its own store beside a stand-in records the
        stand-in, and a real machine's readings must not land in that store
@@ -507,6 +499,10 @@ def evaluate_eligibility(
             which is what check 3 is asked about; it never makes a target
             eligible or ineligible on its own. The effective *writes_enabled*
             above already folds it in, so overriding it alone changes nothing.
+        config_path: The project config the child reads, which an unset
+            virtual-accelerator gateway port is filled from; see
+            :func:`derive_endpoints`. ``None`` reads ``CONFIG_FILE``, else
+            ``./config.yml``.
 
     Returns:
         The verdict, its machine-readable reason, and a sentence naming the fix.
@@ -517,6 +513,7 @@ def evaluate_eligibility(
             target,
             writes_enabled=_resolved_writes(config, target, writes_enabled),
             readonly_run=readonly_run,
+            config_path=config_path,
         )
     except ValueError as exc:
         # Fail-closed at the resolver becomes a reason here: eligibility is the
@@ -525,6 +522,7 @@ def evaluate_eligibility(
         return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
 
     connector_type = derivation.connector_type
+    control_system_section = _section(config, "control_system")
     block_key = f"control_system.connector.{connector_type}"
     raw_block = connector_block(config, connector_type)
 
@@ -535,6 +533,19 @@ def evaluate_eligibility(
             f"Target {target!r} resolves to connector type {connector_type!r}, but "
             f"this config has no '{block_key}' block. Configure that block (its "
             "gateways and probe_channel) to make the target switchable.",
+        )
+
+    # Never waived on a return: a placeholder is not an endpoint anything can
+    # dial, and left verbatim it would compare equal to itself in the
+    # post-connect check.
+    unresolved = unresolved_placeholders(raw_block)
+    if unresolved:
+        return Eligibility(
+            False,
+            REASON_TARGET_UNRESOLVABLE,
+            f"Refusing target {target!r}: '{block_key}' still carries "
+            f"{', '.join(sorted(set(unresolved)))} after environment resolution. "
+            "Set the variable before switching to this target.",
         )
 
     # Returning to a deployment's own baseline is exempt — a session stranded on
@@ -551,17 +562,17 @@ def evaluate_eligibility(
         # table. Judging such a block on its gateways would report the protocol
         # as a key nobody filled in, or worse, walk a deployment on another
         # control system through checks that read a Channel Access address.
-        if connector_type not in CHANNEL_ACCESS_TYPES:
-            speaks = ", ".join(repr(t) for t in CHANNEL_ACCESS_TYPES)
+        if not speaks_channel_access(control_system_section, connector_type):
+            transport = derivation.transport or "an unknown transport"
             return Eligibility(
                 False,
                 REASON_CONNECTOR_NOT_SWITCHABLE,
                 f"Target {target!r} resolves to connector type "
-                f"{connector_type!r}, which the switch has no way to dial: it "
-                f"points a connector host at a gateway named in "
-                f"'{block_key}.gateways', and only {speaks} are reached that "
-                f"way. The deployment still runs on {connector_type!r} — what "
-                "it cannot do is move a session onto it.",
+                f"{connector_type!r} over {transport}, which the switch has no way "
+                f"to dial: it points a connector host at a gateway named in "
+                f"'{block_key}.gateways', and only a Channel Access connector is "
+                f"reached that way. The deployment still runs on {connector_type!r} "
+                "— what it cannot do is move a session onto it.",
             )
 
         if not _sub(raw_block, "gateways"):
@@ -603,7 +614,7 @@ def evaluate_eligibility(
             "machine this facility authored.",
         )
 
-    collision = live_collision(config, derivation)
+    collision = live_collision(config, derivation, config_path=config_path)
     if collision is not None:
         chosen, live = collision.selected, collision.live
         return Eligibility(
@@ -618,7 +629,7 @@ def evaluate_eligibility(
             f"'{block_key}.gateways' at its own server.",
         )
 
-    if connector_type in INVENTED_HISTORY_TYPES:
+    if _invents_history(_target_section(control_system_section, connector_type)):
         pairing = pairing_for_target(config, target)
         if pairing.is_invented_history:
             return Eligibility(
@@ -630,25 +641,6 @@ def evaluate_eligibility(
                 f"archiver.type is {pairing.archiver_phrase}. Set `archiver.type` to "
                 "a real archiver — this deployment's own store — before switching a "
                 "session onto this target.",
-            )
-
-    if switching_away and target in (TARGET_LIVE, TARGET_STANDIN):
-        # The strict limits posture guards both machines an operator meets
-        # hardware behaviour on. The stand-in really is dialled, really refuses
-        # out-of-limit writes and really carries `real_machine` — a rehearsal on
-        # a permissive posture would rehearse the wrong facility.
-        posture = _limits_posture(config, connector_type)
-        if not posture.strict:
-            # Both keys off the posture, so a per-type block that answered is
-            # the line the operator is sent to and the deployment-wide one it
-            # overrides is not mentioned at all.
-            enabled_key = posture.key("enabled")
-            allow_unlisted_key = posture.key("allow_unlisted_channels")
-            return Eligibility(
-                False,
-                REASON_LIMITS_POSTURE,
-                f"Switching to target {target!r} requires the strict limits posture: "
-                f"'{enabled_key}' true and '{allow_unlisted_key}' false.",
             )
 
     if target == TARGET_LIVE and switching_away:
@@ -711,6 +703,7 @@ def target_availability(
     *,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
+    config_path: str | None = None,
 ) -> TargetAvailability:
     """The roster's session-relative answer for one target.
 
@@ -736,6 +729,7 @@ def target_availability(
             a posture read twice could differ between them if the operator
             narrowed the target in between.
         readonly_run: See :func:`derive_endpoints`.
+        config_path: See :func:`evaluate_eligibility`.
     """
     resolved_writes = _resolved_writes(config, target, writes_enabled)
     direction = switch_direction(target, control_target, baseline_target)
@@ -745,6 +739,7 @@ def target_availability(
         direction=direction,
         writes_enabled=resolved_writes,
         readonly_run=readonly_run,
+        config_path=config_path,
     )
     from_baseline = evaluate_eligibility(
         config,
@@ -752,6 +747,7 @@ def target_availability(
         direction=switch_direction(target, baseline_target, baseline_target),
         writes_enabled=resolved_writes,
         readonly_run=readonly_run,
+        config_path=config_path,
     )
 
     if target == control_target:
@@ -1167,6 +1163,7 @@ def evaluate_switch(
     reports: Sequence[Any] = (),
     writes_enabled: bool | None = None,
     kernel_name: KernelNameResolver | None = None,
+    config_path: str | None = None,
 ) -> GateVerdict:
     """Whether this deployment may switch to *wanted* right now.
 
@@ -1219,6 +1216,7 @@ def evaluate_switch(
             busy-client refusal. The gate calls it and opens nothing itself:
             the sidecar the answer comes from is the terminal's, and the tool
             inside a controls server has none to ask.
+        config_path: See :func:`evaluate_eligibility`.
 
     Returns:
         The verdict. ``allowed`` is the flag to branch on; ``reachability``
@@ -1272,6 +1270,7 @@ def evaluate_switch(
         baseline,
         writes_enabled=resolved_writes,
         readonly_run=False,
+        config_path=config_path,
     )
     if not availability.available_now:
         return GateVerdict(

@@ -73,9 +73,11 @@ class TestPatternDetection:
 
         # Should work the same regardless of control_system_type
         result_epics = detect_control_system_operations(code, control_system_type="epics")
-        result_mock = detect_control_system_operations(code, control_system_type="mock")
+        result_simulator = detect_control_system_operations(
+            code, control_system_type="virtual_accelerator"
+        )
 
-        assert result_epics["has_writes"] == result_mock["has_writes"]
+        assert result_epics["has_writes"] == result_simulator["has_writes"]
         assert result_epics["has_writes"] is True
 
     def test_custom_patterns_merged_with_framework(self):
@@ -101,7 +103,7 @@ class TestPatternDetection:
 
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=mock_config,
             ),
         ):
@@ -194,7 +196,7 @@ class TestPatternDetection:
 
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=mock_config,
             ),
         ):

@@ -22,20 +22,24 @@ from typing import Any
 import pytest
 
 from osprey_connectors.types import (
-    CHANNEL_ACCESS_TYPES,
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
+    IN_PROCESS,
     INVENTED_HISTORY_TYPES,
     LIVE_STANDIN,
-    MOCK,
     ONE_REAL_MACHINE,
     STANDIN_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
+    TRANSPORT_CA,
+    TRANSPORT_DOOCS,
+    TRANSPORT_IN_PROCESS,
     VIRTUAL_ACCELERATOR,
     baseline_target,
+    connector_transport,
+    is_simulated,
     resolve_control_system_type,
     resolve_target,
 )
@@ -49,6 +53,13 @@ def _section(control_system_type: Any = ..., connector: Any = ...) -> dict[str, 
     if connector is not ...:
         section["connector"] = connector
     return section
+
+
+def _in_process(connector: Any = ...) -> dict[str, Any]:
+    """The simulator served in process, with *connector* blocks beside its own."""
+    blocks = connector if isinstance(connector, dict) else {}
+    own = {**blocks.get(VIRTUAL_ACCELERATOR, {}), "serving": IN_PROCESS}
+    return _section(VIRTUAL_ACCELERATOR, {**blocks, VIRTUAL_ACCELERATOR: own})
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +80,11 @@ def test_the_stand_in_is_a_type_of_its_own_whose_history_is_invented():
 
 
 def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
-    """The one class the queue worker executes plans against; the rest browse."""
-    assert CHANNEL_ACCESS_TYPES == (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
-    assert MOCK not in CHANNEL_ACCESS_TYPES
-    assert DOOCS not in CHANNEL_ACCESS_TYPES
+    """The one wire the queue worker executes plans against; the rest browse."""
+    for connector_type in (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN):
+        assert connector_transport({"type": connector_type}) == TRANSPORT_CA
+    assert connector_transport({"type": DOOCS}) == TRANSPORT_DOOCS
+    assert connector_transport(_in_process()) == TRANSPORT_IN_PROCESS
 
 
 # ---------------------------------------------------------------------------
@@ -85,11 +97,11 @@ def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
     [
         _section(EPICS),
         _section(VIRTUAL_ACCELERATOR),
-        _section(MOCK),
+        _in_process(),
         _section(),
         None,
     ],
-    ids=["epics-baseline", "va-baseline", "mock-baseline", "no-type", "no-section"],
+    ids=["epics-baseline", "va-baseline", "in-process-baseline", "no-type", "no-section"],
 )
 def test_va_resolves_to_the_virtual_accelerator_whatever_the_baseline_is(section: Any):
     assert resolve_target(section, TARGET_VA) == VIRTUAL_ACCELERATOR
@@ -117,7 +129,7 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
         _section(EPICS),
         _section(VIRTUAL_ACCELERATOR),
         _section(LIVE_STANDIN),
-        _section(MOCK),
+        _in_process(),
         _section(),
         None,
     ],
@@ -125,7 +137,7 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
         "epics-baseline",
         "va-baseline",
         "standin-baseline",
-        "mock-baseline",
+        "in-process-baseline",
         "no-type",
         "no-section",
     ],
@@ -159,14 +171,13 @@ def test_live_passes_an_unknown_baseline_type_through_unjudged():
 
 
 @pytest.mark.parametrize(
-    "baseline", [VIRTUAL_ACCELERATOR, MOCK], ids=["va-baseline", "mock-baseline"]
+    "serving", ["served", IN_PROCESS], ids=["va-baseline", "in-process-baseline"]
 )
-def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline: str):
+def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(serving: str):
     section = _section(
-        baseline,
+        VIRTUAL_ACCELERATOR,
         {
-            "virtual_accelerator": {"timeout_s": 5.0},
-            "mock": {"noise_level": 0.0},
+            "virtual_accelerator": {"timeout_s": 5.0, "serving": serving},
             "epics": {"gateways": {"read_only": {"address": "gw"}}},
         },
     )
@@ -181,7 +192,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline:
 )
 def test_live_on_a_simulated_baseline_refuses_without_a_connector_table(connector: Any):
     with pytest.raises(ValueError):
-        resolve_target(_section(MOCK, connector), TARGET_LIVE)
+        resolve_target(_section(None, connector), TARGET_LIVE)
 
 
 @pytest.mark.parametrize(
@@ -246,9 +257,9 @@ def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: An
 
 
 def test_live_never_falls_back_to_hardware_on_a_bare_config():
-    """An empty config resolves to the mock baseline; live has to raise, not guess."""
+    """An empty config resolves to the simulator in process; live has to raise, not guess."""
     for section in ({}, None, _section(), _section(None)):
-        assert resolve_control_system_type(section) == MOCK
+        assert resolve_control_system_type(section) == VIRTUAL_ACCELERATOR
         with pytest.raises(ValueError):
             resolve_target(section, TARGET_LIVE)
 
@@ -304,7 +315,6 @@ def test_a_stand_in_baseline_is_never_returned_as_its_own_live_type():
         "live ",
         "epics",
         "virtual_accelerator",
-        "mock",
         "live_standin",
         0,
         True,
@@ -318,7 +328,6 @@ def test_a_stand_in_baseline_is_never_returned_as_its_own_live_type():
         "padded",
         "connector-type-epics",
         "connector-type-va",
-        "connector-type-mock",
         "connector-type-standin",
         "zero",
         "bool",
@@ -340,12 +349,12 @@ def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
 # ---------------------------------------------------------------------------
 
 
-def test_the_no_argument_resolver_keeps_its_mock_fallback():
-    assert resolve_control_system_type(None) == MOCK
-    assert resolve_control_system_type({}) == MOCK
-    assert resolve_control_system_type({"type": None}) == MOCK
-    assert resolve_control_system_type({"type": ""}) == MOCK
-    assert resolve_control_system_type("not-a-mapping") == MOCK
+def test_the_no_argument_resolver_falls_back_to_the_simulator():
+    assert resolve_control_system_type(None) == VIRTUAL_ACCELERATOR
+    assert resolve_control_system_type({}) == VIRTUAL_ACCELERATOR
+    assert resolve_control_system_type({"type": None}) == VIRTUAL_ACCELERATOR
+    assert resolve_control_system_type({"type": ""}) == VIRTUAL_ACCELERATOR
+    assert resolve_control_system_type("not-a-mapping") == VIRTUAL_ACCELERATOR
     assert resolve_control_system_type({"type": EPICS}) == EPICS
     assert resolve_control_system_type({"type": " epics "}) == " epics "
 
@@ -357,9 +366,8 @@ def test_the_no_argument_resolver_keeps_its_mock_fallback():
         (LIVE_STANDIN, TARGET_STANDIN),
         (EPICS, TARGET_LIVE),
         (DOOCS, TARGET_LIVE),
-        (MOCK, TARGET_LIVE),
     ],
-    ids=["va", "standin", "epics", "doocs", "mock"],
+    ids=["va", "standin", "epics", "doocs"],
 )
 def test_the_baseline_target_is_the_machine_the_section_selects(
     control_system_type: str, expected: str
@@ -367,10 +375,10 @@ def test_the_baseline_target_is_the_machine_the_section_selects(
     assert baseline_target(_section(control_system_type)) == expected
 
 
-def test_a_deployment_that_named_no_machine_is_still_on_the_live_target():
-    """``live`` may be underivable there; it is still the target it describes."""
-    for section in ({}, None, _section(), _section(None)):
-        assert baseline_target(section) == TARGET_LIVE
+def test_a_deployment_that_named_no_machine_is_on_the_simulator():
+    """A section that states no type is the simulator in process, baselined on ``va``."""
+    for section in ({}, None, _section(), _section(None), _in_process()):
+        assert baseline_target(section) == TARGET_VA
 
 
 def test_resolving_a_target_does_not_mutate_the_section():
@@ -381,3 +389,19 @@ def test_resolving_a_target_does_not_mutate_the_section():
     resolve_target(section, TARGET_VA)
 
     assert section == before
+
+
+@pytest.mark.parametrize(
+    ("section", "simulated"),
+    [
+        (_section(VIRTUAL_ACCELERATOR), True),
+        (_in_process(), True),
+        (None, True),
+        (_section(EPICS), False),
+        (_section(DOOCS), False),
+        (_section(LIVE_STANDIN), False),
+    ],
+    ids=["served-simulator", "in-process-simulator", "no-section", "epics", "doocs", "standin"],
+)
+def test_is_simulated_answers_for_the_type_a_section_selects(section: Any, simulated: bool):
+    assert is_simulated(resolve_control_system_type(section)) is simulated

@@ -1,6 +1,6 @@
 """Shipped prompts name only tools and config keys that exist.
 
-Two guards. The persona templates (``CLAUDE*.md.j2``) forbid and recommend
+Two guards. The render templates (``CLAUDE*.md.j2``) forbid and recommend
 tools by name, and a name is a tool when an MCP server registers it or when
 both pinned CLI builds list it; any other name is an instruction the agent
 cannot follow — ``python_execute`` was the module, the tool is
@@ -29,16 +29,29 @@ MCP_SERVER_ROOT = PACKAGE_ROOT / "mcp_server"
 CONFIG_KEY_MANIFEST = PACKAGE_ROOT / "profiles" / "config_key_manifest.yml"
 
 # ---------------------------------------------------------------------------
-# 4. Every tool a persona names is a registered tool
+# 4. Every tool a render names is a registered tool
 # ---------------------------------------------------------------------------
 
 
 def registered_tool_names() -> set[str]:
-    """Every ``@<server>.tool`` function name under ``osprey.mcp_server``, by AST."""
+    """Every tool name registered under ``osprey.mcp_server``, by AST.
+
+    A ``@<server>.tool`` decorated function, and a ``<server>.tool(fn, name="...")``
+    call that registers a tool only when the render asks for it.
+    """
     names: set[str] = set()
     for path in sorted(MCP_SERVER_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "tool"
+                and node.args
+            ):
+                for keyword in node.keywords:
+                    if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
+                        names.add(keyword.value.value)
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for decorator in node.decorator_list:
@@ -61,15 +74,15 @@ def registered_tool_names() -> set[str]:
 _TOOL_MENTION = re.compile(r"`(?:mcp__[a-z_]+__)?([A-Za-z][A-Za-z0-9_]*|\*)`")
 
 
-def _persona_templates() -> list[Path]:
+def _render_templates() -> list[Path]:
     return sorted(CLAUDE_CODE_TEMPLATES.glob("CLAUDE*.md.j2"))
 
 
-def test_every_tool_a_persona_names_is_registered() -> None:
+def test_every_tool_a_render_names_is_registered() -> None:
     registry = registered_tool_names()
     assert len(registry) > 50, "tool registry scan found too few tools to be trusted"
-    templates = _persona_templates()
-    assert templates, "no persona templates found"
+    templates = _render_templates()
+    assert templates, "no render templates found"
     harness = tools_every_build_has()
 
     offenders: list[str] = []
@@ -81,7 +94,7 @@ def test_every_tool_a_persona_names_is_registered() -> None:
                 if name == "*" or name in harness or name in registry:
                     continue
                 offenders.append(f"  {path.name}:{lineno}: {match.group(0)}")
-    assert offenders == [], "A persona names a tool no MCP server registers:\n" + "\n".join(
+    assert offenders == [], "A render names a tool no MCP server registers:\n" + "\n".join(
         offenders
     )
 

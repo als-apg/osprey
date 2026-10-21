@@ -134,13 +134,18 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         HostBinding(),
         "its socat forwarder listens on every interface and no variable narrows it",
     ),
+    "telemetry_gateway": BundledHostBinding(
+        HostBinding(),
+        "its Collector configuration binds the receiver and the metrics endpoint "
+        "on every interface and no variable narrows them",
+    ),
 }
 """OSPREY's declaration for each bundled template that can render ``network: host``.
 
 Keyed by bundled template name, which is also the ``services.<name>`` key the
 template reads. One entry per template importing ``_network_axis.j2``; an
-undeclared entry (qmd) still belongs here, so a profile cannot declare on
-OSPREY's behalf what the template does not do."""
+undeclared entry (qmd, telemetry_gateway) still belongs here, so a profile
+cannot declare on OSPREY's behalf what the template does not do."""
 
 
 def osprey_owns_binding(name: str, *, template: str | None, claimed: bool) -> bool:

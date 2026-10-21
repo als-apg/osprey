@@ -214,7 +214,7 @@ class TestLoadCategoriesFromConfig:
                 return default
 
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_builder",
+            "osprey_connectors.config.get_config_builder",
             lambda **kw: _FakeConfigBuilder(),
         )
 
@@ -231,7 +231,7 @@ class TestLoadCategoriesFromConfig:
                 return default
 
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_builder",
+            "osprey_connectors.config.get_config_builder",
             lambda **kw: _EmptyConfigBuilder(),
         )
 

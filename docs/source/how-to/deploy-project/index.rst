@@ -33,10 +33,12 @@ Overview
 copies source and configuration into a per-service build directory; ``osprey
 up`` hands the result to Docker or Podman Compose. A deployment created from the
 ``control-assistant`` preset deploys a full stack out of the box:
-``postgresql``, ``openobserve``, ``event_dispatcher`` and ``dispatch_worker``,
+``postgresql``, ``telemetry_store`` and ``telemetry_gateway``,
+``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
 ``bluesky_web``, and the multi-user web-terminal stack. Even the minimal
-``hello-world`` preset deploys one service (``openobserve``, for telemetry).
+``hello-world`` preset deploys the telemetry pair (``telemetry_store`` and
+``telemetry_gateway``).
 You only need this page when you add or customize a containerized service.
 
 Service Configuration
@@ -81,13 +83,14 @@ build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql`` and ``openobserve``, the ``control-assistant`` preset
+Alongside ``postgresql`` and the telemetry store, the ``control-assistant`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
-operator opens (``http_port_host``), the Turtle corpus to load (``ttl_path``,
-resolved against the ``config.yml`` directory), and the JVM memory the container
-runs with.
+operator opens (``http_port_host``), the corpus the store seeds (``ttl_path``,
+resolved against the ``config.yml`` directory, and filled with the graph view the
+build writes from the facility file, ``data/graph/facility.ttl``, when the block
+does not spell one), and the JVM memory the container runs with.
 
 Two more keys bound what one *query* may cost rather than what the container may
 use: ``query_timeout_s`` (15 seconds by default) is the transaction timeout the
@@ -98,24 +101,67 @@ truncated. The OSPREY agent's graph search reads both, and tells you when a
 result was cut short. Raising them spends the agent's context window rather than
 the store's memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
-query tools, the read-only posture, and how to generate a corpus of your own —
-see :doc:`/how-to/facility-knowledge/use-facility-graph`.
+query tools and the read-only posture — see
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The block carries **no password**, deliberately — the same convention
 ``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
 project ``.env`` when it is unset, and the container reads it from there; a
 password written into ``config.yml`` would be read by nobody.
 
-On a first bring-up the deploy starts the store ahead of the rest of the stack,
-bootstraps it, and imports ``ttl_path`` — a store that came up empty would answer
-every query with zero rows, which reads as wrong data rather than as no data.
-Later deploys find the corpus already there and leave it alone. If bootstrapping
-or seeding fails the deploy warns and carries on, naming ``osprey knowledge
-seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
+Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
+compares the store's seed marker with the digest of ``ttl_path``. A store that
+already holds that corpus is left alone; any other store, an empty one included,
+is wiped and the corpus imported, so a changed facility file reaches the store
+on the next ``osprey build && osprey up`` with no seeding step. A store whose graph configuration is
+not OSPREY's is replaced the same way. If bootstrapping or seeding fails the
+deploy warns and carries on, naming ``osprey build && osprey up``, which
+finishes the job once the cause is fixed.
 
 To query a graph store this deployment does *not* run, point the block at it
 instead of deploying one — see
 :ref:`Pointing at a store the facility runs <graph-external-store>`.
+
+.. _deploy-telemetry-store:
+
+The telemetry store (``telemetry_store``)
+-----------------------------------------
+
+Every preset deploys ``telemetry_store`` and ``telemetry_gateway`` together: a
+ClickHouse database holding the agent's telemetry and the audit ledger, and the
+OpenTelemetry Collector that feeds it. What they hold and how the agent reaches
+them is in :doc:`/how-to/health-and-monitoring/monitor-agent`; who may read
+them, in :doc:`/how-to/health-and-monitoring/read-the-record`. Three things
+about running them belong here.
+
+**The schema is OSPREY's.** ``osprey up`` creates every table of the database
+``telemetry`` and, on each later run, compares the live tables with this
+release's. A change the store can make in place — a new column or index, a new
+retention — is applied. Any other change — a different sorting, partition or
+primary key, a column whose type or default changed, a column or index removed
+or redefined — is refused, naming the table and the difference, and nothing is
+touched. Such a change is migrated by hand, renaming and copying, as the
+store's administrator (``osprey_admin``, password in ``.env.telemetry-admin``):
+
+1. Rename the table: ``RENAME TABLE telemetry.<table> TO telemetry.<table>_pre_<version>``.
+2. Run ``osprey up``. It creates the table anew, empty, and the stack runs on it.
+3. Copy the rows back one daily partition at a time:
+   ``INSERT INTO telemetry.<table> (<columns>) SELECT <columns> FROM telemetry.<table>_pre_<version> WHERE toDate(Timestamp) = '<day>'``,
+   naming the columns both tables share (``TimeUnix`` in place of ``Timestamp``
+   for the metrics tables).
+4. Drop the renamed table once the counts agree.
+
+**The gateway keeps its place in each ledger file** in its own volume. A gateway
+that loses that volume reads every ledger file from the start again, once, and
+the ledger rows still inside the retention window are stored a second time. Readers and the history
+page drop duplicates on each table's natural key (:ref:`agent-record-dedup`),
+so nothing else needs doing.
+
+**The ledger directories are fixed at build time.** ``osprey build`` gives the
+gateway one reader per ``var/audit/<identity>/`` directory it finds. A directory
+that appears afterwards is *not fed until the next build*; ``osprey health``
+lists it under ``telemetry_gateway`` until ``osprey build`` and ``osprey up``
+have run.
 
 CLI Commands
 ============
@@ -162,6 +208,13 @@ environment overrides the recorded value for one invocation; use it only for
 a stack you know runs there. When a host has both runtimes installed and
 ``auto`` skips one because its probe failed, the build logs a warning naming
 the probe.
+
+On a host with the ``podman-docker`` package (standard on RHEL), ``docker`` is
+podman's Docker-CLI emulation: it answers every probe because podman does.
+``auto`` recognises it and records ``podman``, which is what such a host runs
+on. A ``docker`` set explicitly on such a host is refused rather than quietly
+re-pointed, with the setting to change; a ``docker`` an earlier build recorded
+from ``auto`` is fixed by running ``osprey build`` again.
 
 .. _compose-provider-compatibility:
 
@@ -320,6 +373,49 @@ rendered. Steps 1–9 happen at build time, step 10 at start:
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 
+.. _deployment-start-waits:
+
+How ``osprey up`` waits
+-----------------------
+
+A start is finished when the stack answers, not when compose returns.
+
+**Each compose start is watched and bounded.** Every 30 seconds a ``compose
+up`` that is still running prints which of the project's containers are not up
+yet (``created``, ``starting``, ``unhealthy``, ``exited``) and the last line
+compose wrote. podman-compose waits on a dependency's health with no limit of
+its own, so a dependency that is never created (a full disk) or never becomes
+healthy (a service that fails at startup) would otherwise hold the start
+forever. Past the time limit the start is stopped and fails with what it was
+waiting on and the last log lines of every container that exited or is
+unhealthy. Ctrl-C prints the same account.
+
+**Web terminals are waited for.** With ``modules.web_terminals`` enabled,
+``up`` runs each web-stack service's own healthcheck until it passes and
+reports each one as it does (``· terminal alice ready (21s)``). A terminal
+that stops, or does not answer within the window, fails the start; nothing is
+torn down, and the message names the terminals that are serving beside the
+ones that are not, with the log lines of each one that is not. While a
+terminal's app is still starting, nginx answers for it with a page that
+reloads itself instead of a bare ``502 Bad Gateway``.
+
+Both limits are settings: the environment variable wins over the top-level
+config key, and each takes a number of seconds.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 35 30
+
+   * - Config key
+     - Environment variable
+     - Default
+   * - ``compose_up_timeout``
+     - ``OSPREY_COMPOSE_UP_TIMEOUT``
+     - ``1800`` (30 minutes)
+   * - ``web_terminal_ready_timeout``
+     - ``OSPREY_WEB_TERMINAL_READY_TIMEOUT``
+     - ``300`` (5 minutes)
+
 Keeping a Rendered Deployment Up to Date
 ========================================
 
@@ -471,6 +567,12 @@ hints; on macOS, start Docker Desktop or run ``podman machine start``.
 ps``) to answer, says it is still waiting after 5 seconds, and stops after 2
 minutes. Run the same command yourself; if it hangs there too, restart the
 runtime.
+
+**A start stopped at its time limit, or a terminal was not ready:** the
+failure lists what was still pending and the last log lines of each container
+that exited or is unhealthy; that log is usually the cause. If the start is
+only slow (images pulled over a slow link, a loaded host), raise the limit
+(:ref:`deployment-start-waits`).
 
 **"Unsupported compose provider":** the host's compose implementation is not
 one OSPREY can drive correctly, and it stopped before starting anything. The

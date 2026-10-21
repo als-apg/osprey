@@ -7,18 +7,13 @@ repository's own pytest configuration.
 
 from __future__ import annotations
 
-import os
 import sys
 import textwrap
 from pathlib import Path
 
-from tests._nested_pytest import run_nested_pytest
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-
-#: Keys of the outer run that must not reach an inner pytest: its worker id,
-#: its diagnostics directory, and any options it was started with.
-_OUTER_RUN_KEYS = ("PYTEST_XDIST_", "PYTEST_ADDOPTS", "OSPREY_CI_DIAG_DIR")
 
 
 def test_only_a_failing_tests_temporary_directory_outlives_it(tmp_path: Path) -> None:
@@ -53,7 +48,7 @@ def test_only_a_failing_tests_temporary_directory_outlives_it(tmp_path: Path) ->
         )
     )
 
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_OUTER_RUN_KEYS)}
+    env = outer_run_free_env()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     result = run_nested_pytest(
         [

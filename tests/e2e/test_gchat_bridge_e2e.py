@@ -666,12 +666,10 @@ def _terminate(proc: subprocess.Popen | None) -> None:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
-        try:
+        # Ignored SIGKILL within the grace window; teardown is best-effort, so leave
+        # it for the OS to reap rather than hang the test.
+        with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            # Ignored SIGKILL within the grace window; teardown is best-effort, so leave
-            # it for the OS to reap rather than hang the test.
-            pass
 
 
 def _find_osprey_console_script() -> Path:

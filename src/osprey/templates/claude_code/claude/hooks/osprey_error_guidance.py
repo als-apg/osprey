@@ -33,7 +33,8 @@ stdin ──► Parse JSON
               ▼
          Map error_type to class
          (Connection/Validation/
-          Data/Execution/Safety/
+          Data/Unanswered/
+          Execution/Safety/
           Internal)
               │
               ▼
@@ -132,6 +133,11 @@ ERROR_CLASS_MAP = {
     "invalid_item": "Validation",
     # A page offset outside an earlier answer: the message names the range.
     "bad_offset": "Validation",
+    # A lattice figure that is not computed for the inputs on screen: the
+    # message names its status and the suggestion the step that fixes it.
+    "figure_not_current": "Validation",
+    # A lattice figure the selected model cannot draw: pick another figure.
+    "figure_unavailable": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
@@ -148,6 +154,9 @@ ERROR_CLASS_MAP = {
     "nothing_running": "Data",
     # An earlier answer whose run record was swept: say so, work from its opening.
     "no_longer_available": "Data",
+    # ---- Unanswered: every item asked for was tried and none answered; the
+    # envelope's details.missing names each one with its source's text.
+    "nothing_answered": "Unanswered",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
     "lattice_error": "Execution",

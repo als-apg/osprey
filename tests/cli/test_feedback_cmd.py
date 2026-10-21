@@ -48,6 +48,7 @@ from osprey.cli.feedback_cmd import (
     stream_volume_contexts,
 )
 from osprey.deployment.web_terminals import lifecycle
+from tests._renders import tier_render
 
 _PROJECT = "demo"
 _IMAGE = "registry.example.org/physics/web-terminal:latest"
@@ -59,7 +60,14 @@ def _config(users: list[str]) -> dict[str, Any]:
         "project_name": _PROJECT,
         "facility": {"prefix": "dls"},
         "registry": {"url": "registry.example.org/physics"},
-        "modules": {"web_terminals": {"enabled": True, "users": list(users)}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": list(users),
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", f"{_PROJECT}-assistant")},
+            }
+        },
     }
 
 

@@ -1,0 +1,1836 @@
+{
+ "columns": [
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Timestamp",
+   "table": "audit_ledger",
+   "type": "DateTime64(9)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceId",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanId",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceFlags",
+   "table": "audit_ledger",
+   "type": "UInt8"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SeverityText",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SeverityNumber",
+   "table": "audit_ledger",
+   "type": "UInt8"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Body",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "audit_ledger",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "audit_ledger",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "LogAttributes",
+   "table": "audit_ledger",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "ResourceAttributes['osprey.user']",
+   "default_kind": "MATERIALIZED",
+   "name": "User",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.session_id']",
+   "default_kind": "MATERIALIZED",
+   "name": "SessionId",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.tool_use_id']",
+   "default_kind": "MATERIALIZED",
+   "name": "ToolUseId",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.session']",
+   "default_kind": "MATERIALIZED",
+   "name": "TerminalSession",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.surface']",
+   "default_kind": "MATERIALIZED",
+   "name": "Surface",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.on_behalf_of']",
+   "default_kind": "MATERIALIZED",
+   "name": "OnBehalfOf",
+   "table": "audit_ledger",
+   "type": "String"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.actor']",
+   "default_kind": "MATERIALIZED",
+   "name": "Actor",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "LogAttributes['osprey.audit.decision']",
+   "default_kind": "MATERIALIZED",
+   "name": "Decision",
+   "table": "audit_ledger",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "toFloat64OrNull(LogAttributes['osprey.audit.duration_ms'])",
+   "default_kind": "MATERIALIZED",
+   "name": "DurationMs",
+   "table": "audit_ledger",
+   "type": "Nullable(Float64)"
+  },
+  {
+   "default_expression": "(LogAttributes['osprey.audit.incomplete']) = 'true'",
+   "default_kind": "MATERIALIZED",
+   "name": "Incomplete",
+   "table": "audit_ledger",
+   "type": "Bool"
+  },
+  {
+   "default_expression": "(LogAttributes['osprey.audit.truncated']) = 'true'",
+   "default_kind": "MATERIALIZED",
+   "name": "Truncated",
+   "table": "audit_ledger",
+   "type": "Bool"
+  },
+  {
+   "default_expression": "(LogAttributes['osprey.audit.unparsed']) = 'true'",
+   "default_kind": "MATERIALIZED",
+   "name": "Unparsed",
+   "table": "audit_ledger",
+   "type": "Bool"
+  },
+  {
+   "default_expression": "(LogAttributes['osprey.audit.time_unparsed']) = 'true'",
+   "default_kind": "MATERIALIZED",
+   "name": "TimeUnparsed",
+   "table": "audit_ledger",
+   "type": "Bool"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "audit_ledger",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Timestamp",
+   "table": "otel_logs",
+   "type": "DateTime64(9)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceId",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanId",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceFlags",
+   "table": "otel_logs",
+   "type": "UInt8"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SeverityText",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SeverityNumber",
+   "table": "otel_logs",
+   "type": "UInt8"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Body",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_logs",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_logs",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "LogAttributes",
+   "table": "otel_logs",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "ResourceAttributes['osprey.user']",
+   "default_kind": "MATERIALIZED",
+   "name": "User",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "LogAttributes['session.id']",
+   "default_kind": "MATERIALIZED",
+   "name": "SessionId",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "ResourceAttributes['terminal.session']",
+   "default_kind": "MATERIALIZED",
+   "name": "TerminalSession",
+   "table": "otel_logs",
+   "type": "String"
+  },
+  {
+   "default_expression": "LogAttributes['event.name']",
+   "default_kind": "MATERIALIZED",
+   "name": "Event",
+   "table": "otel_logs",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_logs",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeDroppedAttrCount",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricName",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricDescription",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricUnit",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Attributes",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StartTimeUnix",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TimeUnix",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Count",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "UInt64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Sum",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Scale",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ZeroCount",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "UInt64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "PositiveOffset",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "PositiveBucketCounts",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(UInt64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "NegativeOffset",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "NegativeBucketCounts",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(UInt64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.FilteredAttributes",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TimeUnix",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(DateTime)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.Value",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.SpanId",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TraceId",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Flags",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Min",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Max",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "AggregationTemporality",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_metrics_exponential_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_metrics_gauge",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_metrics_gauge",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeDroppedAttrCount",
+   "table": "otel_metrics_gauge",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_metrics_gauge",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricName",
+   "table": "otel_metrics_gauge",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricDescription",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricUnit",
+   "table": "otel_metrics_gauge",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Attributes",
+   "table": "otel_metrics_gauge",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StartTimeUnix",
+   "table": "otel_metrics_gauge",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TimeUnix",
+   "table": "otel_metrics_gauge",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Value",
+   "table": "otel_metrics_gauge",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Flags",
+   "table": "otel_metrics_gauge",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.FilteredAttributes",
+   "table": "otel_metrics_gauge",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TimeUnix",
+   "table": "otel_metrics_gauge",
+   "type": "Array(DateTime)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.Value",
+   "table": "otel_metrics_gauge",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.SpanId",
+   "table": "otel_metrics_gauge",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TraceId",
+   "table": "otel_metrics_gauge",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_metrics_gauge",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_metrics_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_metrics_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeDroppedAttrCount",
+   "table": "otel_metrics_histogram",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_metrics_histogram",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricName",
+   "table": "otel_metrics_histogram",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricDescription",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricUnit",
+   "table": "otel_metrics_histogram",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Attributes",
+   "table": "otel_metrics_histogram",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StartTimeUnix",
+   "table": "otel_metrics_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TimeUnix",
+   "table": "otel_metrics_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Count",
+   "table": "otel_metrics_histogram",
+   "type": "UInt64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Sum",
+   "table": "otel_metrics_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "BucketCounts",
+   "table": "otel_metrics_histogram",
+   "type": "Array(UInt64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ExplicitBounds",
+   "table": "otel_metrics_histogram",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.FilteredAttributes",
+   "table": "otel_metrics_histogram",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TimeUnix",
+   "table": "otel_metrics_histogram",
+   "type": "Array(DateTime)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.Value",
+   "table": "otel_metrics_histogram",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.SpanId",
+   "table": "otel_metrics_histogram",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TraceId",
+   "table": "otel_metrics_histogram",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Flags",
+   "table": "otel_metrics_histogram",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Min",
+   "table": "otel_metrics_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Max",
+   "table": "otel_metrics_histogram",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "AggregationTemporality",
+   "table": "otel_metrics_histogram",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_metrics_histogram",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_metrics_sum",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_metrics_sum",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeDroppedAttrCount",
+   "table": "otel_metrics_sum",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_metrics_sum",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricName",
+   "table": "otel_metrics_sum",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricDescription",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricUnit",
+   "table": "otel_metrics_sum",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Attributes",
+   "table": "otel_metrics_sum",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StartTimeUnix",
+   "table": "otel_metrics_sum",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TimeUnix",
+   "table": "otel_metrics_sum",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Value",
+   "table": "otel_metrics_sum",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Flags",
+   "table": "otel_metrics_sum",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.FilteredAttributes",
+   "table": "otel_metrics_sum",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TimeUnix",
+   "table": "otel_metrics_sum",
+   "type": "Array(DateTime)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.Value",
+   "table": "otel_metrics_sum",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.SpanId",
+   "table": "otel_metrics_sum",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Exemplars.TraceId",
+   "table": "otel_metrics_sum",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "AggregationTemporality",
+   "table": "otel_metrics_sum",
+   "type": "Int32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "IsMonotonic",
+   "table": "otel_metrics_sum",
+   "type": "Bool"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_metrics_sum",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_metrics_summary",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceSchemaUrl",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeAttributes",
+   "table": "otel_metrics_summary",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeDroppedAttrCount",
+   "table": "otel_metrics_summary",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeSchemaUrl",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_metrics_summary",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricName",
+   "table": "otel_metrics_summary",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricDescription",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "MetricUnit",
+   "table": "otel_metrics_summary",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Attributes",
+   "table": "otel_metrics_summary",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StartTimeUnix",
+   "table": "otel_metrics_summary",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TimeUnix",
+   "table": "otel_metrics_summary",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Count",
+   "table": "otel_metrics_summary",
+   "type": "UInt64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Sum",
+   "table": "otel_metrics_summary",
+   "type": "Float64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ValueAtQuantiles.Quantile",
+   "table": "otel_metrics_summary",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ValueAtQuantiles.Value",
+   "table": "otel_metrics_summary",
+   "type": "Array(Float64)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Flags",
+   "table": "otel_metrics_summary",
+   "type": "UInt32"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_metrics_summary",
+   "type": "DateTime"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Timestamp",
+   "table": "otel_traces",
+   "type": "DateTime64(9)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceId",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanId",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ParentSpanId",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "TraceState",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanName",
+   "table": "otel_traces",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanKind",
+   "table": "otel_traces",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ServiceName",
+   "table": "otel_traces",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ResourceAttributes",
+   "table": "otel_traces",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeName",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "ScopeVersion",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "SpanAttributes",
+   "table": "otel_traces",
+   "type": "Map(LowCardinality(String), String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Duration",
+   "table": "otel_traces",
+   "type": "UInt64"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StatusCode",
+   "table": "otel_traces",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "StatusMessage",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Events.Timestamp",
+   "table": "otel_traces",
+   "type": "Array(DateTime64(9))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Events.Name",
+   "table": "otel_traces",
+   "type": "Array(LowCardinality(String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Events.Attributes",
+   "table": "otel_traces",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Links.TraceId",
+   "table": "otel_traces",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Links.SpanId",
+   "table": "otel_traces",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Links.TraceState",
+   "table": "otel_traces",
+   "type": "Array(String)"
+  },
+  {
+   "default_expression": "",
+   "default_kind": "",
+   "name": "Links.Attributes",
+   "table": "otel_traces",
+   "type": "Array(Map(LowCardinality(String), String))"
+  },
+  {
+   "default_expression": "ResourceAttributes['osprey.user']",
+   "default_kind": "MATERIALIZED",
+   "name": "User",
+   "table": "otel_traces",
+   "type": "LowCardinality(String)"
+  },
+  {
+   "default_expression": "SpanAttributes['session.id']",
+   "default_kind": "MATERIALIZED",
+   "name": "SessionId",
+   "table": "otel_traces",
+   "type": "String"
+  },
+  {
+   "default_expression": "now()",
+   "default_kind": "DEFAULT",
+   "name": "InsertedAt",
+   "table": "otel_traces",
+   "type": "DateTime"
+  }
+ ],
+ "indexes": [
+  {
+   "expr": "ToolUseId",
+   "granularity": 1,
+   "name": "idx_tool",
+   "table": "audit_ledger",
+   "type_full": "bloom_filter"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "audit_ledger",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "SessionId",
+   "granularity": 1,
+   "name": "idx_session",
+   "table": "otel_logs",
+   "type_full": "bloom_filter"
+  },
+  {
+   "expr": "Event",
+   "granularity": 1,
+   "name": "idx_event",
+   "table": "otel_logs",
+   "type_full": "set(64)"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_logs",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_key",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_value",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_key",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_value",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "TimeUnix",
+   "granularity": 1,
+   "name": "idx_time_minmax",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_metrics_exponential_histogram",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_key",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_value",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_key",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_value",
+   "table": "otel_metrics_gauge",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "TimeUnix",
+   "granularity": 1,
+   "name": "idx_time_minmax",
+   "table": "otel_metrics_gauge",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_metrics_gauge",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_key",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_value",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_key",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_value",
+   "table": "otel_metrics_histogram",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "TimeUnix",
+   "granularity": 1,
+   "name": "idx_time_minmax",
+   "table": "otel_metrics_histogram",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_metrics_histogram",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_key",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_value",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_key",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_value",
+   "table": "otel_metrics_sum",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "TimeUnix",
+   "granularity": 1,
+   "name": "idx_time_minmax",
+   "table": "otel_metrics_sum",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_metrics_sum",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_key",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ScopeAttributes)",
+   "granularity": 1,
+   "name": "idx_scope_attr_value",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_key",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(Attributes)",
+   "granularity": 1,
+   "name": "idx_attr_value",
+   "table": "otel_metrics_summary",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "TimeUnix",
+   "granularity": 1,
+   "name": "idx_time_minmax",
+   "table": "otel_metrics_summary",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_metrics_summary",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "TraceId",
+   "granularity": 1,
+   "name": "idx_trace_id",
+   "table": "otel_traces",
+   "type_full": "bloom_filter(0.001)"
+  },
+  {
+   "expr": "mapKeys(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_key",
+   "table": "otel_traces",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(ResourceAttributes)",
+   "granularity": 1,
+   "name": "idx_res_attr_value",
+   "table": "otel_traces",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapKeys(SpanAttributes)",
+   "granularity": 1,
+   "name": "idx_span_attr_key",
+   "table": "otel_traces",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "mapValues(SpanAttributes)",
+   "granularity": 1,
+   "name": "idx_span_attr_value",
+   "table": "otel_traces",
+   "type_full": "bloom_filter(0.01)"
+  },
+  {
+   "expr": "Duration",
+   "granularity": 1,
+   "name": "idx_duration",
+   "table": "otel_traces",
+   "type_full": "minmax"
+  },
+  {
+   "expr": "InsertedAt",
+   "granularity": 1,
+   "name": "idx_inserted",
+   "table": "otel_traces",
+   "type_full": "minmax"
+  }
+ ],
+ "tables": [
+  {
+   "comment": "3dc11b58663c8def88d84c15c39ac8135a250a453caa0df8c50d98e0e34b902c",
+   "engine_full": "MergeTree PARTITION BY toDate(Timestamp) ORDER BY (User, SessionId, Timestamp) TTL toDateTime(Timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "audit_ledger",
+   "partition_key": "toDate(Timestamp)",
+   "primary_key": "User, SessionId, Timestamp",
+   "sorting_key": "User, SessionId, Timestamp"
+  },
+  {
+   "comment": "8bc9d1287bce432c16442d70035f401b39f2fb9a2a1149a9cf2ec946fd9ad440",
+   "engine_full": "MergeTree PARTITION BY toDate(Timestamp) ORDER BY (User, Event, SessionId, Timestamp) TTL toDateTime(Timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_logs",
+   "partition_key": "toDate(Timestamp)",
+   "primary_key": "User, Event, SessionId, Timestamp",
+   "sorting_key": "User, Event, SessionId, Timestamp"
+  },
+  {
+   "comment": "8ab27b5c96f0e7ec7ec91700246bd721dd0c289e8386a1a78c2dbd300c953afb",
+   "engine_full": "MergeTree PARTITION BY toDate(TimeUnix) ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix) TTL toDateTime(TimeUnix) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_metrics_exponential_histogram",
+   "partition_key": "toDate(TimeUnix)",
+   "primary_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix",
+   "sorting_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix"
+  },
+  {
+   "comment": "d4141d220d46752b7d33b4a43cfa3338b101d93e9411c9ce5904b96c85e9e444",
+   "engine_full": "MergeTree PARTITION BY toDate(TimeUnix) ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix) TTL toDateTime(TimeUnix) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_metrics_gauge",
+   "partition_key": "toDate(TimeUnix)",
+   "primary_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix",
+   "sorting_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix"
+  },
+  {
+   "comment": "5eb9c88a8a1b40808cddcd9ec2b124b73b0634c360dd2e7f3d4c10bf3202a795",
+   "engine_full": "MergeTree PARTITION BY toDate(TimeUnix) ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix) TTL toDateTime(TimeUnix) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_metrics_histogram",
+   "partition_key": "toDate(TimeUnix)",
+   "primary_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix",
+   "sorting_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix"
+  },
+  {
+   "comment": "d74974e236be242f7a0f5487413f89438bc8e1e52f26412e90777f688464acf9",
+   "engine_full": "MergeTree PARTITION BY toDate(TimeUnix) ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix) TTL toDateTime(TimeUnix) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_metrics_sum",
+   "partition_key": "toDate(TimeUnix)",
+   "primary_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix",
+   "sorting_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix"
+  },
+  {
+   "comment": "58e8ca330abd213bd12b08d60f6df6fa27d969056d96e5bc21530d2ac05a0133",
+   "engine_full": "MergeTree PARTITION BY toDate(TimeUnix) ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix) TTL toDateTime(TimeUnix) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_metrics_summary",
+   "partition_key": "toDate(TimeUnix)",
+   "primary_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix",
+   "sorting_key": "ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix"
+  },
+  {
+   "comment": "fc8fb869b426e61a4ccd09d833d6e6755e58ce46200cefc75b5329356742fb2a",
+   "engine_full": "MergeTree PARTITION BY toDate(Timestamp) ORDER BY (ServiceName, SpanName, toDateTime(Timestamp)) TTL toDateTime(Timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, non_replicated_deduplication_window = 1000",
+   "name": "otel_traces",
+   "partition_key": "toDate(Timestamp)",
+   "primary_key": "ServiceName, SpanName, toDateTime(Timestamp)",
+   "sorting_key": "ServiceName, SpanName, toDateTime(Timestamp)"
+  }
+ ]
+}

@@ -9,12 +9,16 @@ in the same ``{date, <PV>: value}`` documents. There is one store and one
 timeline — a reader cannot tell seeded history from recorded history except by
 the one thing that should distinguish them, which is when it happened.
 
-It records **only** while ``control_system.type`` is ``virtual_accelerator``,
-and re-reads that setting from the mounted config on an interval rather than
-latching it at startup, so the documented post-build flip takes effect without
-restarting the service. On any other control system it idles: a real machine's
-readings do not belong in an archive whose earlier half is synthesized, and a
-mock control system has nothing worth recording.
+It records in exactly two cases, and neither implies the other: the
+deployment's own ``control_system.type`` is ``virtual_accelerator`` served
+over the network, or the deployment's archive is its live stand-in's,
+whatever that type says. In every other case it idles — on a real machine,
+whose readings do not belong in an archive whose earlier half is
+synthesized, and on the simulator served in process, which puts no channels
+on a network to sample. It re-reads those facts from the mounted config on
+an interval rather than latching them at startup, so the documented
+post-build flip takes effect without restarting the service. The rule lives
+in :meth:`~osprey.services.archiver_recorder.recorder.Recorder.refresh_enablement`.
 
 Storage stays bounded without ever losing the recorded record, via the two
 expiry tiers :func:`~osprey.services.archiver_recorder.store.expiry_for`

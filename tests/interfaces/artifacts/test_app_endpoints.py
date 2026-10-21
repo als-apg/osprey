@@ -497,7 +497,7 @@ class TestGalleryFacilityTimezone:
     def test_zone_comes_from_the_primed_config(self, tmp_path, monkeypatch):
         """The zone is resolved after config priming points the resolver at
         this deployment's config."""
-        import osprey.utils.config as config_module
+        import osprey_connectors.config as config_module
 
         for name in ("_default_config", "_default_configurable", "_tz_drift_warned"):
             monkeypatch.setattr(config_module, name, getattr(config_module, name))
@@ -544,7 +544,7 @@ class TestAppLifecycle:
         """A config.yml in the workspace root is loaded at app construction
         (custom artifact categories come from it), while one the loader
         rejects must not take the gallery down with it."""
-        import osprey.utils.config as config_module
+        import osprey_connectors.config as config_module
 
         # Snapshot the config singletons; monkeypatch restores them at teardown
         # so priming the default config cannot leak into other tests.
@@ -670,7 +670,7 @@ class TestIndexArtifactDirMeta:
         ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
     )
     def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
-        from osprey.utils.workspace import repo_root_for_agent_data
+        from osprey_connectors.workspace import repo_root_for_agent_data
 
         root_path = Path(root)
         repo_root = repo_root_for_agent_data(root_path, base_dir)

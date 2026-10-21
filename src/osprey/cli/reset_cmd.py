@@ -56,7 +56,7 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
       .env         everything in it that a deploy did not mint, which is your
                    provider keys.
 
-    The source zone is never touched: profile.yml, data/, personas/, triggers.yml
+    The source zone is never touched: profile.yml, data/, tiers/, triggers.yml
     and .git are exactly what they were. After a reset, `osprey build && osprey
     up -d` gives you the same deployment with no state.
 

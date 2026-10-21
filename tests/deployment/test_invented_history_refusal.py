@@ -32,7 +32,10 @@ VA_ARCHIVER_UNSET = {"control_system": {"type": "virtual_accelerator"}}
 # said otherwise.
 INERT_FLAT_ARCHIVER = VA_MOCK_NESTED | {"archiver.type": "mongodb_archiver"}
 INERT_FLAT_ARCHIVER_ONLY = VA_ARCHIVER_UNSET | {"archiver.type": "mongodb_archiver"}
-INERT_FLAT_CONTROL_SYSTEM = VA_MOCK_NESTED | {"control_system.type": "mock"}
+INERT_FLAT_CONTROL_SYSTEM = VA_MOCK_NESTED | {
+    "control_system.type": "virtual_accelerator",
+    "control_system.connector.virtual_accelerator.serving": "in_process",
+}
 
 
 @pytest.mark.parametrize(
@@ -61,7 +64,7 @@ def test_the_refusal_names_the_file_to_fix_and_the_ways_out():
 
     assert "config.yml" in message
     assert "va_archiver" in message
-    assert "'mock'" in message
+    assert "control_system.connector.virtual_accelerator.serving: in_process" in message
 
 
 @pytest.mark.parametrize(
@@ -76,7 +79,13 @@ def test_the_refusal_names_the_file_to_fix_and_the_ways_out():
             id="va-with-its-store",
         ),
         pytest.param(
-            {"control_system": {"type": "mock"}, "archiver": {"type": "mock_archiver"}},
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+                "archiver": {"type": "mock_archiver"},
+            },
             id="honestly-storeless",
         ),
         pytest.param(

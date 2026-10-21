@@ -39,7 +39,7 @@ from osprey.cli.deploy_scaffold_templates import (
     build_verify_context,
     render,
 )
-from osprey.port_layout import default_port
+from osprey.port_layout import INDEX_MAX, default_port
 from tests.cli.test_init_verb import RETIRED_VERB_STRINGS
 from tests.fixtures.lifecycle_repo import (
     GITLAB_CI_YML,
@@ -316,9 +316,12 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
         ("landing page", f"http://localhost:{nginx}/"),
         ("terminal (alice)", f"http://localhost:{web}/health"),
         ("terminal (bob)", f"http://localhost:{web + 1}/health"),
-        ("terminal (logbook)", f"http://localhost:{web + 2}/health"),
-        ("terminal (carol)", f"http://localhost:{web + 3}/health"),
-        ("terminal (knowledge)", f"http://localhost:{web + 4}/health"),
+        ("terminal (carol)", f"http://localhost:{web + 2}/health"),
+        # Shared apps take slots counted down from the top of the user block,
+        # in `shared:` order: logbook, knowledge, channel-finder.
+        ("terminal (channel-finder)", f"http://localhost:{web + INDEX_MAX - 2}/health"),
+        ("terminal (knowledge)", f"http://localhost:{web + INDEX_MAX - 1}/health"),
+        ("terminal (logbook)", f"http://localhost:{web + INDEX_MAX}/health"),
     ]
 
 
@@ -335,6 +338,14 @@ def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
 
     http_only = {key: value for key, value in profile.items() if key != "virtual_accelerator"}
     http_only["services"] = {}
+    # The telemetry gateway is probed by connection, so an HTTP-only profile
+    # deploys the store without it.
+    http_only["config"] = {
+        **profile["config"],
+        "deployed_services": [
+            name for name in profile["config"]["deployed_services"] if name != "telemetry_gateway"
+        ],
+    }
     assert "probe_tcp" not in render(VERIFY_TEMPLATE, build_verify_context(http_only))
 
 
@@ -367,7 +378,7 @@ def test_the_automatic_run_is_claimed_only_where_it_happens(profile: dict[str, A
     the web tier must not be told the run is automatic.
 
     BOTH ways of switching the module off are checked. A ``config:`` block is a
-    flat bag of dotted keys, and the bundled persona presets inherit the whole
+    flat bag of dotted keys, and the bundled tier presets inherit the whole
     ``modules.web_terminals:`` subtree — ``enabled: true`` and all — while
     switching it off with a separate, deeper ``modules.web_terminals.enabled:
     false``. Reading the subtree key alone answers "enabled" for a profile the
@@ -383,7 +394,7 @@ def test_the_automatic_run_is_claimed_only_where_it_happens(profile: dict[str, A
     subtree_key = copy.deepcopy(profile)
     subtree_key["config"]["modules.web_terminals"]["enabled"] = False
 
-    # The persona-preset spelling: the inherited subtree above still says
+    # The render-preset spelling: the inherited subtree above still says
     # `enabled: true`, and only this deeper key turns the module off.
     deeper_key = copy.deepcopy(profile)
     deeper_key["config"]["modules.web_terminals.enabled"] = False

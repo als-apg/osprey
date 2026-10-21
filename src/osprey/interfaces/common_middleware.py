@@ -185,7 +185,7 @@ TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 #: resolved. :func:`is_exempt_path` refuses a dot-segment on the same grounds.
 #:
 #: Not the same question as
-#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE`, which
 #: is stricter and gates the roster at render time — that one asks which names a
 #: deployment can keep apart (one audit directory each, one nginx location
 #: each), this one asks which names this process can spell. A rendered
@@ -215,7 +215,7 @@ def url_mount_prefix(user: str) -> str:
     ``user`` is spliced unescaped, so callers pass a name that has already
     cleared :data:`MOUNT_SEGMENT_RE` (as :func:`compute_url_prefix` checks) or
     the roster's
-    :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`. The
+    :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE`. The
     helper validates nothing, because each caller already refuses a bad name
     with its own message.
 
@@ -1796,7 +1796,7 @@ class WebAuthMiddleware:
         """File one ``401``/``403`` in the unified ledger.
 
         The record's *actor* is this container's own audit identity, filled in
-        by the writer from :func:`~osprey.utils.identity.acting_identity` (this
+        by the writer from :func:`~osprey_connectors.identity.acting_identity` (this
         layer names none) — never the forwarded account. The two are different
         questions: the actor says which deployment identity's ledger this
         belongs in (and which file it can be written to), while the account is

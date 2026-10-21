@@ -92,6 +92,17 @@ def test_fresh_volume_gets_onboarding_trust_and_version(render_dir, config_dir):
     assert seeded  # every action is reported for the entrypoint log
 
 
+def test_the_seeded_state_file_is_owner_only_whatever_the_umask(render_dir, config_dir):
+    """It holds account state and approved key digests that no other uid reads."""
+    previous = os.umask(0o022)
+    try:
+        _seed(render_dir, config_dir)
+    finally:
+        os.umask(previous)
+
+    assert (config_dir / CLAUDE_STATE_FILENAME).stat().st_mode & 0o777 == 0o600
+
+
 def test_config_dir_is_created_when_missing(render_dir, tmp_path):
     """A named volume mounts as an existing dir, but a bare HOME may not hold one."""
     config_dir = tmp_path / "not-yet"

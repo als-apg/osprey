@@ -37,7 +37,7 @@ import click
 
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.utils.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
+from osprey_connectors.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
 
 from . import output
 from .repo_resolver import find_repo_root, repo_option
@@ -130,14 +130,15 @@ def _write_preflight_marker(body: str) -> None:
 
     from datetime import UTC, datetime
 
+    from osprey_connectors.safety_file import atomic_replace
+
     # `osprey status` reads this file from the host while a supervised container
-    # rewrites it on every restart attempt; swap it in whole so a concurrent
+    # rewrites it on every restart attempt; it is replaced whole so a concurrent
     # reader never sees a truncated timestamp line.
-    staging = marker.with_name(marker.name + ".tmp")
+    text = f"{datetime.now(UTC).isoformat()}\n{body}\n"
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
-        staging.write_text(f"{datetime.now(UTC).isoformat()}\n{body}\n", encoding="utf-8")
-        os.replace(staging, marker)
+        atomic_replace(marker, text.encode("utf-8"), mode=0o644, sync="best_effort")
     except OSError as e:
         _LOGGER.debug("could not write pre-flight refusal marker %s: %s", marker, e)
 
@@ -346,7 +347,7 @@ def resolve_session_lifetime(config: Mapping[str, Any], env: Mapping[str, str] =
 
 def get_config_value(key: str, default=None):
     """Read a top-level config value from config.yml."""
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config().get(key, default)
 
@@ -411,7 +412,7 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
         RepoNotFoundError: When no ``profile.yml`` encloses the search start.
         click.ClickException: When the repo has no render to serve.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME, rendered_config_path
+    from osprey_connectors.workspace import BUILD_DIR_NAME, rendered_config_path
 
     repo_root = find_repo_root(repo)
     build_dir = repo_root / BUILD_DIR_NAME
@@ -430,6 +431,12 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     from osprey.mcp_env import load_dotenv_from_project
 
     load_dotenv_from_project()
+    # Who the sessions this terminal starts are, to the ledger and to the
+    # telemetry gateway alike: the one name the build recorded, with that
+    # name's login. A terminal in a container already carries both.
+    from osprey.deployment.telemetry_credentials import export_built_host_identity
+
+    export_built_host_identity(os.environ, repo_root)
     return repo_root, build_dir, config_path
 
 
@@ -541,7 +548,7 @@ def _probe_companion_ports() -> list[str]:
         framework_web_port_default,
         resolve_web_server_address,
     )
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     try:
         enabled_panels, _custom_panels, _default_panel = _load_panel_config()
@@ -649,13 +656,9 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     other refusal this probe reports rather than skips, and it aborts: the
     server's own startup resolves the same spec and exits on it.
 
-    The one exception is
-    :class:`~osprey.build.claude_code_telemetry.ObservabilityCredentialError`:
-    nothing else in pre-flight resolves telemetry credentials, so a quiet skip
-    there leaves the operator with an empty report and no reason for it. That
-    case returns a warning naming what stopped the read, which keeps the launch
-    going (telemetry credentials are orthogonal to whether the terminal can
-    authenticate) while saying why the auth check never ran.
+    A telemetry credential the launch lacks
+    (:class:`~osprey.build.claude_code_telemetry.ObservabilityCredentialError`)
+    fails the same way, for the same reason.
     """
     from osprey.agent_runner.provider_env import ProviderEndpointError, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
@@ -670,16 +673,10 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
         spec = load_provider_spec(build_dir, env_dir=repo_root)
     except ObservabilityCredentialError as exc:
         # Must come BEFORE the ValueError arm: this type subclasses
-        # TelemetryConfigError, which subclasses ValueError, so the broad arm
-        # would swallow it and the operator would see an empty pre-flight with
-        # no reason for it. The provider was never read, so there is nothing to
-        # say about auth; report what stopped the read instead of nothing. Only
+        # TelemetryConfigError, which subclasses ValueError. A failure: the
+        # server resolves the same spec at startup and refuses there too. Only
         # names reach the message, never a credential's value.
-        return [], [
-            "provider auth check skipped: the telemetry credentials in this "
-            "deployment could not be resolved, so the provider was never read.\n"
-            f"  {exc}"
-        ]
+        return [f"the telemetry credentials of this launch could not be resolved:\n  {exc}"], []
     except ProviderEndpointError as exc:
         # Also ahead of the broad arm, and a FAILURE rather than a warning: the
         # server resolves the same spec in its own startup and raises there too,
@@ -725,7 +722,7 @@ def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
     """Probe 3: config.yml and .claude/settings.json must at least parse.
 
     ``load_osprey_config()`` swallows every exception and returns ``{}`` on
-    malformed YAML (see ``osprey.utils.workspace.load_osprey_config``), which
+    malformed YAML (see ``osprey_connectors.workspace.load_osprey_config``), which
     would otherwise let the launch silently proceed on defaults instead of the
     project's actual configuration. This probe does its own dedicated parse of
     each file so a syntax error surfaces as a pre-flight failure instead of an

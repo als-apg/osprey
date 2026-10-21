@@ -18,11 +18,21 @@ class SettableSpec:
 
     ``readback_pv`` defaults to ``setpoint_pv`` when omitted, for a PV that is
     both read and written (no separate readback record).
+
+    ``settle_tolerance`` is how far the readback may sit from the demand once
+    the move has settled, when the device declares one in its unit;
+    ``settle_relative`` is the same bound as a fraction of the demand.
+    ``motion_band`` is how far the readback's simulated motion carries it,
+    which only a simulated lane settles within. With none of the three the
+    device settles within the profile's floor.
     """
 
     name: str
     setpoint_pv: str
     readback_pv: str | None = None
+    settle_tolerance: float | None = None
+    settle_relative: float | None = None
+    motion_band: float | None = None
 
 
 @dataclass(frozen=True)

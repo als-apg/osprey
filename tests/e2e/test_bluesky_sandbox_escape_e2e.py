@@ -93,7 +93,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -128,9 +128,9 @@ SCAN_TIMEOUT_SEC = 120.0
 CORRECTOR_COUNT = 3
 BPM_COUNT = 2
 
-# Within the corrector channel_limits band (+-12A, see
-# tests/va/e2e/test_limits_enforcement.py) but far from the identity-state
-# baseline (0.0 A) -- unambiguous if it ever actually lands.
+# Within the band of the corrector a limits record bounds (+-12A in the
+# example facility, see tests/va/e2e/test_limits_enforcement.py) but far from
+# the identity-state baseline (0.0 A) -- unambiguous if it ever actually lands.
 POISON_CURRENT = 5.0
 
 SPAN_A = 2.0
@@ -412,7 +412,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
 
 
 def _minted_token(repo: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
@@ -425,15 +425,16 @@ def _minted_token(repo: Path) -> str:
 # ---------------------------------------------------------------------------
 # Real EPICS CA probe -- from this test PROCESS, never through the bridge.
 # Subprocess-based (mirrors tests/va/e2e/conftest.py's `_readiness_pv_served`):
-# an in-process pyepics CA context in the main pytest process can deadlock
-# unrelated executor-thread CA calls elsewhere in the same run, so every read
-# below runs out-of-process against the VA's published CA port.
+# Channel Access reads its EPICS_CA_* environment once, when a process's context
+# is created, so a client pointed at the VA's published CA port belongs in a
+# process of its own rather than pinning this pytest process to it. A failed
+# read comes back as ``None`` (aioca's ``throw=False`` answer, ``.ok`` false).
 # ---------------------------------------------------------------------------
 def _caget(address: str, *, timeout: float = 5.0) -> float | None:
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({address!r}, timeout={timeout!r}, connection_timeout={timeout!r})\n"
-        "sys.stdout.write(repr(v))\n"
+        "import asyncio, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({address!r}, timeout={timeout!r}, throw=False))\n"
+        "sys.stdout.write(repr(float(v)) if v.ok else 'None')\n"
     )
     env = {
         **os.environ,
@@ -475,28 +476,6 @@ def deployed_sandbox_stack(
 ) -> Iterator[DeployedSandboxStack]:
     base = tmp_path_factory.mktemp("sandbox_escape_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. The escape target is one of those devices -- it has to
-    # be IN the worker's namespace for the refusal under test to be the limits
-    # facade refusing a legal device, not the worker rejecting an unknown name.
-    escape_sp = ""
-    escape_rb = ""
-    positive_correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal escape_sp, escape_rb, positive_correctors, bpms
-        records = _orm_stack.roster_records(repo)
-        correctors = _orm_stack.select_correctors(records, count=CORRECTOR_COUNT)
-        bpms = _orm_stack.select_bpms(records, count=BPM_COUNT)
-        escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
-        positive_correctors = {
-            name: pair for name, pair in correctors.items() if name != escape_name
-        }
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
-
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
@@ -508,9 +487,15 @@ def deployed_sandbox_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21400,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
     )
-    _orm_stack.assert_devices_authored(positive_correctors, bpms)
+    # The escape target is one of the staged devices -- it has to be IN the
+    # worker's namespace for the refusal under test to be the limits facade
+    # refusing a legal device, not the worker rejecting an unknown name.
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=CORRECTOR_COUNT, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=BPM_COUNT, model=model)
+    escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
+    positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.

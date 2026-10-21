@@ -85,7 +85,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -103,10 +103,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-try:
+# without playwright, the chromium_browser fixture skips the suite
+with suppress(ImportError):
     from playwright.sync_api import Browser, Page, expect
-except ImportError:  # pragma: no cover — the chromium_browser fixture skips the suite
-    pass
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -217,7 +216,7 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
     connector blocks, therefore three targets and three rows.
 
     The keys beyond the gateways are what make a switch judgeable at all: a
-    channel to probe, strict limits (required toward the live family) and the
+    channel to probe and the
     operator's acknowledgement of the live gateway. Without them every row
     would carry an eligibility refusal and no Switch would be offered anywhere.
 
@@ -238,7 +237,7 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
                 "control_system": {
                     "type": "live_standin",
                     "writes_enabled": writes_enabled,
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                    "limits_checking": {"enabled": True, "mode": "exclusive"},
                     "target_switch": {"live_gateway_acknowledged": "operator@example"},
                     "connector": {
                         "epics": {
@@ -256,7 +255,6 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
                             },
                         },
                         "virtual_accelerator": {
-                            "simulation_file": "data/sim.json",
                             "probe_channel": "SIM:PROBE",
                             "gateways": {"read_only": dict(gateway)},
                         },

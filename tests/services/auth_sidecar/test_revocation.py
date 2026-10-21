@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import stat
 from pathlib import Path
 
@@ -372,7 +373,7 @@ class TestOnDisk:
         def _refuse(*_args: object, **_kwargs: object) -> None:
             raise OSError("no space left on device")
 
-        monkeypatch.setattr(revocation.os, "replace", _refuse)
+        monkeypatch.setattr(os, "replace", _refuse)
 
         disk_store.revoke("sess-a", expires_at=clock.now + 3600)
 

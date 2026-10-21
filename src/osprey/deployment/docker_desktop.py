@@ -43,7 +43,7 @@ from typing import Any
 
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.docs_links import PERIMETER_LIMITS_URL
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.docker_desktop")
 

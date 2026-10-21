@@ -148,4 +148,5 @@ def test_the_gate_checks_the_declared_trees() -> None:
         "src",
         "packages/osprey-connectors/src",
         "packages/osprey-optimizer/src",
+        "packages/pyaml-cs-osprey/src",
     ]

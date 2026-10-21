@@ -672,6 +672,8 @@ EXPECTED_ERROR_CLASSES = {
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
     "invalid_item": "Validation",
+    "figure_not_current": "Validation",
+    "figure_unavailable": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
@@ -684,6 +686,8 @@ EXPECTED_ERROR_CLASSES = {
     "window_not_found": "Data",
     "plan_source_unavailable": "Data",
     "nothing_running": "Data",
+    # Unanswered
+    "nothing_answered": "Unanswered",
     # Execution
     "execution_error": "Execution",
     "lattice_error": "Execution",
@@ -731,7 +735,7 @@ EXPECTED_ERROR_CLASSES = {
 #: the hook can name has to have a row there, because the guidance it injects
 #: tells Claude to go read that file for the class it just reported.
 DOCUMENTED_ERROR_CLASSES = frozenset(
-    {"Connection", "Validation", "Data", "Execution", "Safety", "Internal"}
+    {"Connection", "Validation", "Data", "Unanswered", "Execution", "Safety", "Internal"}
 )
 
 
@@ -932,7 +936,7 @@ async def _attachment_view_response(workdir, monkeypatch, attachment_id, row):
     )
     from osprey.mcp_server.ariel.tools.attachment import attachment_view
     from osprey.services.ariel_search.database.repository import SchemaFacts
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     workdir.mkdir(exist_ok=True)
     monkeypatch.chdir(workdir)

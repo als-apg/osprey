@@ -27,11 +27,10 @@ APOC): ``(:Resource)-[:HASBINDING]->(:ChannelBinding)``, a device typed by
 ``[:SUBCLASSOF]``, and a binding reaching its meaning through
 ``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. Devices
 carry ``uri``, ``sourceName``, ``sectionCode``, ``system``, ``rawType``,
-``sPositionM``, ``ordinalInSection``, ``systemDescription``,
-``familyDescription`` and ``ringDescription``; bindings carry ``fullPv``,
-``description``, ``fieldDescription``, ``subfieldDescription``, ``protocol``
-and ``confidence``; signals carry ``uri`` and ``label``; classes carry ``uri``
-and a list-valued ``altLabel``. Every node also wears n10s's ``Resource``
+``sPositionM``, ``ordinalInPlace``, ``systemDescription`` and
+``familyDescription``; bindings carry ``fullPv`` and ``description``; signals
+carry ``uri`` and ``label``; classes carry ``uri`` and a list-valued
+``altLabel``. Every node also wears n10s's ``Resource``
 label, which is why nothing below matches on node labels.
 """
 
@@ -51,13 +50,12 @@ GRAPH_CHANNEL_COUNT_CYPHER = "MATCH (b:ChannelBinding) RETURN count(b) AS n"
 #: an empty result rather than from a null field.
 #:
 #: The one row is ``{uri, device, class, classes, rawType, section, system,
-#: sPositionM, ordinalInSection, systemDescription, familyDescription,
-#: ringDescription, signals}``. ``class`` is the device's own class URI (its
+#: sPositionM, ordinalInPlace, systemDescription, familyDescription,
+#: signals}``. ``class`` is the device's own class URI (its
 #: ``TYPE`` target, not an ancestor; ``null`` when untyped) and ``classes``
 #: every such URI, for a corpus that types a device twice. ``signals`` is a
 #: list ordered by signal name of ``{uri, name, bindings}``, each ``bindings``
-#: a list ordered by ``fullPv`` of ``{fullPv, description, fieldDescription,
-#: subfieldDescription, protocol, confidence, edges}``. A binding with no
+#: a list ordered by ``fullPv`` of ``{fullPv, description, edges}``. A binding with no
 #: signal edge lands in a group whose ``uri`` and ``name`` are ``null``. A
 #: device with no bindings answers with ``signals: []``.
 GRAPH_DEVICE_CYPHER = """
@@ -70,10 +68,7 @@ WITH d, classes, b, s, collect(DISTINCT type(e)) AS edges
 ORDER BY b.fullPv
 WITH d, classes, s.uri AS signal_uri,
      coalesce(s.label, last(split(s.uri, '/'))) AS signal_name,
-     [x IN collect({fullPv: b.fullPv, description: b.description,
-                    fieldDescription: b.fieldDescription,
-                    subfieldDescription: b.subfieldDescription,
-                    protocol: b.protocol, confidence: b.confidence, edges: edges})
+     [x IN collect({fullPv: b.fullPv, description: b.description, edges: edges})
       WHERE x.fullPv IS NOT NULL] AS bindings
 ORDER BY signal_name
 WITH d, classes,
@@ -87,9 +82,8 @@ RETURN d.uri AS uri,
        d.sectionCode AS section,
        d.system AS system,
        d.sPositionM AS sPositionM,
-       d.ordinalInSection AS ordinalInSection,
+       d.ordinalInPlace AS ordinalInPlace,
        d.systemDescription AS systemDescription,
        d.familyDescription AS familyDescription,
-       d.ringDescription AS ringDescription,
        signals
 """.strip()

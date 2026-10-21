@@ -7,8 +7,8 @@ Supports flexible hierarchy with arbitrary mixing of:
 - Instance levels (numbered/patterned expansions)
 
 The implementation is split by concern across sibling ``_hierarchical_*`` modules
-(loading/validation, channel-name construction, query/navigation, tree preview,
-and writes). :class:`HierarchicalChannelDatabase` composes them into the public
+(loading/validation, channel-name construction, query/navigation, and tree
+preview). :class:`HierarchicalChannelDatabase` composes them into the public
 class; every method of the ``BaseDatabase`` contract plus the extra public API
 remains available directly on this class.
 """
@@ -17,7 +17,6 @@ from ..core.base_database import BaseDatabase
 from ._hierarchical_loading import _HierarchicalLoadingMixin
 from ._hierarchical_preview import _HierarchicalPreviewMixin
 from ._hierarchical_query import _HierarchicalQueryMixin
-from ._hierarchical_write import _HierarchicalWriteMixin
 
 __all__ = ["HierarchicalChannelDatabase"]
 
@@ -25,7 +24,6 @@ __all__ = ["HierarchicalChannelDatabase"]
 class HierarchicalChannelDatabase(
     _HierarchicalLoadingMixin,
     _HierarchicalPreviewMixin,
-    _HierarchicalWriteMixin,
     _HierarchicalQueryMixin,
     BaseDatabase,
 ):
@@ -44,8 +42,6 @@ class HierarchicalChannelDatabase(
       -- level-option enumeration, navigation, and channel lookup.
     - :class:`~osprey.services.channel_finder.databases._hierarchical_preview._HierarchicalPreviewMixin`
       -- compact text previews of the tree.
-    - :class:`~osprey.services.channel_finder.databases._hierarchical_write._HierarchicalWriteMixin`
-      -- node/expansion mutation and persistence.
     """
 
     def __init__(self, db_path: str):

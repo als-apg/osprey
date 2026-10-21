@@ -16,11 +16,10 @@ host, brought up with a single ``osprey up``.
    - How it sits beside the single-user ``osprey web`` workflow, and when each
      mode is the right tool
    - The three ideas behind the multi-user stack: one container per user,
-     personas as capability tiers, and one nginx front door
+     tiers and apps, and one nginx front door
    - The ``modules.web_terminals`` config block that switches it on
    - Standing the preset's full stack up — its read-only, read-write and admin
-     logins plus two standalone terminals, logbook research and facility
-     knowledge
+     logins plus the logbook, knowledge and channel-finder apps
    - Day-to-day operations: adding, reseeding, and removing users
    - What each terminal records, and who can read it
 
@@ -94,33 +93,29 @@ container but never touches those volumes, so a user's files and settings
 survive every redeploy. On first start, ``osprey up`` seeds each user's
 configuration volume automatically — no per-user setup steps.
 
-**A persona is a capability tier — and a whole project.** Users map to
-*personas*, and each persona is its own rendered OSPREY project with its own
-``config.yml``, permissions, skills, and tool servers. Because permissions are
-a property of a project, the tiers are genuinely different agents — not one
-agent with a UI toggle. The ``control-assistant`` preset ships three of them:
-a *read-only* and a *read-write* tier, separated by whether the session may
-move the simulator, and an *admin* tier, separated by whether it may change the
+**A tier is an access level of the deployment's own agent.** Each user is
+assigned a tier, and each tier is its own rendered OSPREY project with its own
+``config.yml``, permissions, skills and tool servers, built from one small file
+in ``tiers/`` laid over ``profile.yml``. A tier only adds; it never removes
+anything from the profile. The ``control-assistant`` preset ships three: a
+*read-only* and a *read-write* tier, separated by whether the session may move
+the simulator, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
 carries and what makes the boundary hold.
 
-It also ships two personas that are not tiers of that agent at all.
-``logbook`` is the standalone logbook research assistant: no control-system
-tool servers, no Python executor, no plan queue — a different product,
-reached from its own card. It shares this deployment's PostgreSQL and logbook,
-so the operators and the research terminal read one logbook together.
-``knowledge`` is the deployment's knowledge layer: the facility knowledge
-graph, the graph-backed channel finder and the facility knowledge bundle,
-read-only, with nothing that touches the machine. It reads the same graph
-store the operator terminals do. Nothing special makes either possible. A
-persona is already a whole project, so it can differ in what it *is* as
-easily as in what it may write. Both cards are shared — any roster login
-opens them with their own password (:ref:`multi-user-shared-card`).
+**An app is a second agent on the same services.** Each file in ``apps/`` is a
+complete agent definition, opened from a shared card by everyone on the roster
+and read-only on the machine. The preset lists three under ``shared:``:
+``logbook`` searches and synthesises the logbook from the same PostgreSQL the
+operators write to; ``knowledge`` answers how the machine is built from the
+facility knowledge graph, the channel finder and the knowledge bundle;
+``channel-finder`` returns channel addresses from the hierarchy. See
+:ref:`multi-user-shared-card`.
 
-``osprey build`` renders one persona project per delta in ``personas/``. In the
-preset's local mode, ``osprey up`` builds each one's container image locally, so
-no registry or CI is involved. A deployment can pull them from a registry
-instead; see :ref:`multi-user-registry-images`.
+``osprey build`` renders one project per file in ``tiers/`` and ``apps/``. In
+the preset's local mode, ``osprey up`` builds each one's container image
+locally, so no registry or CI is involved. A deployment can pull them from a
+registry instead; see :ref:`multi-user-registry-images`.
 
 **One front door.** An nginx reverse proxy serves the landing page and proxies
 ``/u/<name>/`` to that user's container. The per-user containers are pinned to
@@ -147,76 +142,50 @@ The config block
             modules:
               web_terminals:
                 enabled: true
-                image_source: local       # osprey up builds persona images itself
-                default_persona: readonly
+                image_source: local       # osprey up builds the images itself
+                default_tier: readonly
                 landing:
                   groups:
                   - type: users
                     label: Users
+                  - type: apps
+                    label: Apps
                 users:
                 - name: alice
                   index: 0
-                  persona: readwrite
+                  tier: readwrite
                   display_name: "Control Room (Alice)"
                 - name: bob
                   index: 1
-                  persona: readonly
+                  tier: readonly
                   display_name: "Read-Only View (Bob)"
-                - name: logbook
-                  index: 2
-                  persona: logbook
-                  display_name: "Logbook Research"
-                  access: any
-                - name: knowledge
-                  index: 4
-                  persona: knowledge
-                  display_name: "Facility Knowledge"
-                  access: any
                 - name: carol
-                  index: 3
-                  persona: admin
+                  index: 2
+                  tier: admin
                   display_name: "Deployment Admin (Carol)"
-                personas:
-                  readonly:
-                    build_profile: personas/readonly.yml
-                  readwrite:
-                    build_profile: personas/readwrite.yml
-                  admin:
-                    build_profile: personas/admin.yml
-                  logbook:
-                    build_profile: personas/logbook.yml
-                    landing_group: Standalone deployments
-                  knowledge:
-                    build_profile: personas/knowledge.yml
-                    landing_group: Standalone deployments
+                shared:
+                - logbook
+                - knowledge
+                - channel-finder
 
-         Each ``build_profile`` names that persona's **delta** in the deployment
-         repository — the file ``osprey init`` writes under ``personas/`` and
-         points the catalog at. The delta merges over ``profile.yml``, so every
-         persona shares one data
-         tree, one set of secrets, and one set of your own artifacts. Where the
-         persona renders is not stated here: the build derives
-         ``build/<project_name>-<persona>`` from the profile's ``project_name:``
-         and writes it into ``build/config.yml`` as the persona's ``project`` and
-         ``project_path``. Spelling either key beside a ``build_profile`` is
-         refused. An entry with no ``build_profile`` — a persona rendered
-         somewhere else — still names its ``project_path`` itself, and proves
-         its tier by that render: the build reads the ``config.yml`` there, the
-         same file ``osprey up`` reads, so such a persona may be the
-         ``default_persona`` or sit on a shared card like any other. A bundled
-         preset name, an absolute path, or a path outside ``personas/`` is
-         rejected by both ``osprey scaffold web-terminals lint`` and
+         Each ``tier`` names a file in the repository's ``tiers/`` and each
+         ``shared:`` entry a file in ``apps/``, both written by ``osprey init``.
+         Every render shares one data tree, one set of secrets and one set of
+         your own artifacts. The build renders each into
+         ``build/<project_name>-<tier|app>`` and records it in
+         ``build/config.yml``; nothing here names a path. An unknown tier or
+         app is rejected by both ``osprey scaffold web-terminals lint`` and
          ``osprey up``.
 
          The ``users`` list is the roster — the single source of truth for who
          exists. A name becomes a URL path segment and an environment-variable
          suffix, so it has to match ``[a-z0-9][a-z0-9_-]*``; that is checked in
          every auth mode, not only behind a login wall. A bare name (``- dave``)
-         resolves to ``default_persona`` —
+         resolves to ``default_tier`` —
          read-only, so a hastily added user lands on the safe side; an entry with
-         an explicit ``persona`` picks its tier, and an optional ``display_name``
+         an explicit ``tier`` picks it, and an optional ``display_name``
          becomes that user's browser tab title. An entry may name a **role**
-         instead of a persona — one mapping written once rather than a persona
+         instead of a tier — one mapping written once rather than a tier
          pinned per user, and the half a single sign-on provider's groups can
          decide; see :ref:`multi-user-role-from-sso`. Behind a login wall an
          entry may also set ``access:``, the set of principals allowed to open
@@ -229,9 +198,11 @@ The config block
          channel finder, lattice dashboard, …) plus the terminal itself, and
          each user takes the family's first port plus their index. At the
          default ``deployment.port_base`` that puts alice (index 0) on
-         ``10100``, bob (index 1) on ``10101``, logbook (index 2) on
-         ``10102``, carol (index 3) on ``10103`` and knowledge (index 4) on
-         ``10104``, with their artifact galleries on ``10200``–``10204``. :ref:`reference-ports-panels` lists every family;
+         ``10100``, bob (index 1) on ``10101`` and carol (index 2) on
+         ``10102``, with their artifact galleries on ``10200``–``10202``. Apps
+         take slots counted down from the top of the block, in ``shared:``
+         order: logbook on ``10199``, knowledge on ``10198``, channel-finder
+         on ``10197``. :ref:`reference-ports-panels` lists every family;
          move the whole deployment with ``deployment.port_base`` rather than a
          family at a time. A facility that must pin one family on its own can
          still set that family's ``modules.web_terminals.<family>_base_port``
@@ -250,12 +221,11 @@ The config block
          browsers should open in ``deploy.fqdn`` or ``external_origin``. See
          :ref:`multi-user-https`.
 
-         A persona may also name a landing-page section with ``landing_group``.
-         Its users are lifted out of the roster's default section into one of
-         that name, drawn as a panel — which is how the page shows a standalone
-         service as something other than another login. The ``users`` group takes
-         a ``label`` for the same reason: so both halves can be named. Neither
-         changes anything about a container.
+         ``landing.groups`` lists the page's sections in order: ``users`` (the
+         people), ``apps`` (one card per ``shared:`` app, drawn as a panel and
+         titled by the app's ``name:``) and ``links``. Left out, the page shows
+         people, then apps. Each group takes a ``label``; the apps panel is
+         headed "Apps" by default. Neither changes anything about a container.
 
          .. tip::
 
@@ -340,17 +310,17 @@ That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
-working machine, the logbook terminal onto a live logbook and the knowledge
-terminal onto a seeded facility graph, not an empty shell.
+PostgreSQL and telemetry containers — so the control-room terminals open onto a
+working machine, the logbook app onto a live logbook and the knowledge
+app onto a seeded facility graph, not an empty shell.
 
 .. note::
 
-   The personas' agent needs your provider credentials at run time. Add them
+   Every terminal's agent needs your provider credentials at run time. Add them
    to the repository's ``.env`` before ``osprey up`` (the preset defaults
    to Anthropic — set ``ANTHROPIC_API_KEY``). If you chose a different provider
    (``osprey set provider=...``), that choice is recorded in ``profile.yml`` and
-   carried into every persona project the build renders.
+   carried into every tier and app the build renders.
 
 .. note::
 
@@ -363,33 +333,32 @@ terminal onto a seeded facility graph, not an empty shell.
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------
 
-#. **The build renders the persona projects.** ``osprey build`` renders one
-   project per **delta** in ``personas/``, into the build zone beside the main
-   render (``build/control-assistant-readonly``,
+#. **The build renders every tier and app.** ``osprey build`` renders one
+   project per file in ``tiers/`` and ``apps/``, into the build zone beside the
+   main render (``build/control-assistant-readonly``,
    ``build/control-assistant-readwrite``, ``build/control-assistant-admin``,
-   ``build/control-assistant-logbook`` and ``build/control-assistant-knowledge``).
-   Because each delta merges over
-   ``profile.yml``, every persona shares its data tree, secrets and artifacts,
-   and inherits the choices recorded there (provider, model): edit the profile
-   once and every terminal picks the change up from the file rather than from a
-   replayed command line. A start renders none of this — ``build/`` is the
-   whole account of what will run — so a persona project missing at start time
-   is reported as a stale or partial build, with a rebuild as the remedy.
+   ``build/control-assistant-logbook``, ``build/control-assistant-knowledge``
+   and ``build/control-assistant-channel-finder``). Every render shares the
+   profile's data tree, secrets and artifacts, and inherits the choices
+   recorded there (provider, model): edit the profile once and every terminal
+   picks the change up. A start renders none of this — ``build/`` is the
+   whole account of what will run — so a render missing at start time is
+   reported as a stale or partial build, with a rebuild as the remedy.
 
-#. **The start builds each persona's image.** In the preset's local mode
-   (``image_source: local``), ``osprey up`` builds each persona's image
-   (tagged ``<project>:local`` after the persona's rendered project, e.g.
-   ``control-assistant-readwrite:local``) from that rendered project —
-   no registry, no CI. Registry mode pulls them instead; see
-   :ref:`multi-user-registry-images`.
+#. **The start builds each image.** In the preset's local mode
+   (``image_source: local``), ``osprey up`` builds one image per render
+   (tagged ``<project>:local``, e.g. ``control-assistant-readwrite:local``)
+   from that rendered project — no registry, no CI. Registry mode pulls them
+   instead; see :ref:`multi-user-registry-images`.
 
 #. **Brings up the web tier.** An nginx reverse proxy (container
    ``control-assistant-nginx``) serves the landing page on
    ``http://127.0.0.1:10000``, and one Web Terminal container comes up per
    user — ``control-assistant-web-alice`` on host port ``10100``,
-   ``control-assistant-web-bob`` on ``10101``, ``control-assistant-web-logbook``
-   on ``10102``, ``control-assistant-web-carol`` on ``10103`` and
-   ``control-assistant-web-knowledge`` on ``10104`` — each reached through the
+   ``control-assistant-web-bob`` on ``10101`` and ``control-assistant-web-carol``
+   on ``10102``, and one per app — ``control-assistant-web-logbook`` on
+   ``10199``, ``control-assistant-web-knowledge`` on ``10198`` and
+   ``control-assistant-web-channel-finder`` on ``10197`` — each reached through the
    landing page. With login on, the auth sidecar runs as
    ``control-assistant-auth``, from a locally built
    ``control-assistant-auth:local`` image. Every one of these names is
@@ -429,24 +398,27 @@ Pull the terminal images from a registry
 ----------------------------------------
 
 With ``image_source: registry`` (the value whenever the key is unset),
-``osprey up`` builds no terminal image. It pulls one image per persona, under
-names it derives itself.
+``osprey up`` builds no terminal image. It pulls one image per render (each
+tier the roster uses and each shared app), under names it derives itself.
 
 .. list-table::
    :header-rows: 1
 
    * - Who pulls it
      - Image
-   * - The ``default_persona``, and every user when there is no ``personas`` catalog
+   * - The ``default_tier``
      - ``<registry.url>/web-terminal:<tag>``
-   * - Every other persona
-     - ``<registry.url>/web-terminal-<persona>:<tag>``
+   * - Every other tier, and every shared app
+     - ``<registry.url>/web-terminal-<render>:<tag>``
+   * - The auth sidecar, when login is on
+     - ``<registry.url>/<project_name>-auth:<tag>``
 
-``<persona>`` is the persona's key in the ``personas`` catalog, not its
-``project``. The ``project`` is ``<project_name>-<persona>``, which the build
-derives from the profile's ``project_name:``.
-The default persona keeps the unsuffixed name, so adding a catalog never
-renames the image its users already pull.
+``<render>`` is the tier's or app's file name (``tiers/<name>.yml``,
+``apps/<name>.yml``), not its ``project``. The build derives the ``project`` as
+``<project_name>-<render>`` from the profile's ``project_name:``.
+A tier or app whose image is built elsewhere states its ``project``, the
+project the image was built from, in its own file (and may state its
+``image``); its terminal runs in ``/app/<project>``.
 
 ``<tag>`` is ``modules.web_terminals.image_tag``, ``latest`` when unset.
 A ``${VAR}`` in it is expanded from the environment of ``osprey up``, and a
@@ -458,7 +430,6 @@ variable that is unset there expands to nothing.
 scheme.
 It is the only namespace: two deployments that share a registry keep their
 images apart by giving ``registry.url`` different paths.
-There is no per-persona ``image:`` key.
 
 When the profile has a ``deploy:`` block in registry mode, the build writes
 ``deploy.registry.url`` into this ``registry.url``, so the registry is named once.
@@ -470,20 +441,26 @@ A profile with no ``deploy:`` block sets it there.
 The scaffolded pipeline builds only the facility's own service images, not
 these, so the facility's pipeline must push them.
 Put that job in ``ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
-Build each image from that persona's rendered project,
-``build/<project_name>-<persona>``: the same render ``image_source: local``
-builds as ``<project_name>-<persona>:local``.
+Build each image from its rendered project, ``build/<project_name>-<render>``:
+the same render ``image_source: local`` builds as
+``<project_name>-<render>:local``.
 
-Registry mode also pulls the auth sidecar from
-``modules.web_terminals.auth.image`` when login is on; see :doc:`login`.
+The pipeline pushes the auth sidecar under its name too, unless
+``modules.web_terminals.auth.image`` pins a published one; see :doc:`login`.
 
 ``osprey scaffold web-terminals lint``, ``osprey profile validate`` and
 ``osprey build`` refuse a registry-mode config with no ``registry.url`` (code
-``web_terminals.registry_mode_missing_url``), with or without a ``personas``
-catalog.
+``web_terminals.registry_mode_missing_url``).
 ``osprey up`` refuses to render it.
+They also refuse a config with web terminals enabled and no tier files (so no
+render catalog) or no ``default_tier``, in either image source (code
+``web_terminals.requires_catalog``), and a tier or app whose image is built
+elsewhere and states no ``project`` (code
+``web_terminals.render_missing_project``); ``osprey up`` refuses both before it
+mints anything.
 
-For example, with this config:
+For example, with ``tiers/readonly.yml`` and ``tiers/readwrite.yml`` in the repo
+and this config:
 
 .. code-block:: yaml
 
@@ -493,18 +470,13 @@ For example, with this config:
    modules:
      web_terminals:
        image_tag: "2026.09.1"
-       default_persona: readonly
+       default_tier: readonly
        users:
        - name: alice
          index: 0
-         persona: readwrite
+         tier: readwrite
        - name: bob
          index: 1
-       personas:
-         readonly:
-           build_profile: personas/readonly.yml
-         readwrite:
-           build_profile: personas/readwrite.yml
 
 ``osprey up`` pulls:
 
@@ -513,34 +485,47 @@ For example, with this config:
    alice  registry.example.org/accelerator/demo/web-terminal-readwrite:2026.09.1
    bob    registry.example.org/accelerator/demo/web-terminal:2026.09.1
 
-``bob`` names no persona, so he gets the ``default_persona`` and the unsuffixed
+``bob`` names no tier, so ``bob`` gets the ``default_tier`` and the unsuffixed
 image.
 
 The landing page
 ----------------
 
 Open ``http://127.0.0.1:10000``. The landing page groups the users into cards,
-each labelled with the persona it resolves to:
+each labelled with the tier it resolves to:
 
-.. figure:: /_static/resources/multi_user_landing.png
+.. figure:: /_static/resources/multi_user_landing_light.png
+   :class: only-light
+   :figclass: only-light
    :alt: The multi-user landing page — alice's, bob's and carol's cards under
-         a Users heading, and the logbook and knowledge terminals in a
-         Standalone deployments panel beneath them
-   :align: center
+         a Users heading, and the Logbook Research, Facility Knowledge and
+         Channel Finder cards in a panel headed Apps beneath them
    :width: 100%
 
-   The grouped landing page: alice resolves to the readwrite persona, bob to
-   readonly, carol to admin, and the logbook and knowledge cards open the two
-   standalone terminals. Click a card to open that session.
+   The grouped landing page: alice resolves to the readwrite tier, bob to
+   readonly, carol to admin, and the app cards open the logbook, knowledge and
+   channel-finder apps. Click a card to open that session.
 
-Each operator card names its persona explicitly — alice the readwrite tier,
-bob the readonly one; the preset's roster adds carol on the admin tier, last
-so the operator cards keep their ports. (A bare roster entry would fall back to the
-preset's ``default_persona``, readonly, so an implicit user always lands on
-the safe side.) The logbook and knowledge cards sit apart, in the
-accent-edged panel their personas' ``landing_group`` names — and carry no
-persona badge, because the badge answers *which tier is this user on?* and
-here the card and its persona are the same word. Both are shared cards: the
+.. figure:: /_static/resources/multi_user_landing_dark.png
+   :class: only-dark
+   :figclass: only-dark
+   :alt: The multi-user landing page — alice's, bob's and carol's cards under
+         a Users heading, and the Logbook Research, Facility Knowledge and
+         Channel Finder cards in a panel headed Apps beneath them
+   :width: 100%
+
+   The grouped landing page: alice resolves to the readwrite tier, bob to
+   readonly, carol to admin, and the app cards open the logbook, knowledge and
+   channel-finder apps. Click a card to open that session.
+
+Each operator card names its tier explicitly — alice the readwrite tier,
+bob the readonly one; carol is on the admin tier. (A bare roster entry would fall back to the
+preset's ``default_tier``, readonly, so an implicit user always lands on
+the safe side.) The app cards sit apart, in the
+accent-edged Apps panel, each titled by its app's ``name:`` — and carry no
+tier badge, because an app is not a person on a tier. An app card can never
+write to the machine or change the deployment, whatever the host sets. Every app
+card is shared: the
 login page asks for a roster name and that person's password, so nobody needs
 a credential for the card itself. Clicking any card opens that session at
 ``/u/<name>/``, proxied by nginx to its own container.
@@ -622,6 +607,82 @@ answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
 admin login inside a container sees only its own. :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
+
+.. _multi-user-history-page:
+
+The history page
+================
+
+Where the web terminals sign people on (``auth.method`` of ``password`` or
+``oidc``) and the deployment runs the telemetry store, ``osprey up`` also runs
+a history page: every session the store holds, each with its conversation,
+tool calls, approvals and preflight checks, read in a browser. It is served at
+``/history/`` on the **readers' origin**, the web tier's second server on its
+own port (``modules.web_terminals.reader_port``, or
+``modules.web_terminals.reader_origin`` behind a load balancer), so a page an
+agent wrote on the terminals' origin cannot read it. A visit without a valid
+sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
+no history page; each terminal still shows its own past sessions.
+
+Who sees what is decided per person, from the roster, every time a page loads:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       authorization:
+         roles:
+           operator: {tier: readwrite, history: all}
+       users:
+         - name: alice
+           index: 0
+           tier: readwrite             # history: own, the default
+         - name: carol
+           index: 2
+           tier: admin
+           history: all
+
+   services:
+     telemetry_store:
+       readers:
+         - name: carol                 # a reader is a reader everywhere
+
+- **Own** (the default): the sessions recorded under the person's own roster
+  name.
+- **All**: ``history: all`` on the person's roster entry, or on a role in
+  ``authorization.roles`` the person holds, shows every user's sessions.
+- **A reader** — a roster user named under
+  ``services.telemetry_store.readers``, or a reader recognised by its
+  ``oidc_subject`` — sees every user's sessions, bounded by that reader's
+  ``tables`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+  The reader entry takes precedence over ``history:``.
+
+The rules at the edges:
+
+- A shared card's sessions are recorded under the card's name, so they are
+  listed only for ``all`` viewers and readers. Opening a shared card never
+  widens the opener's own scope. Signing in *as* a shared card lists nothing
+  unless the card's own roster entry (or its role) says ``history: all``.
+- A person admitted to a card by an access rule, with no roster entry of their
+  own, is refused: the page has no person to scope by.
+- A dispatched job is recorded under its worker, ``dispatch-worker-<i>``, so it
+  is visible to ``all`` viewers and readers; the dispatch dashboard links each
+  run to it.
+- A preflight check filed by the queueserver appears on a person's own page
+  only when it matches that person's own queue-submit call within 60 seconds;
+  agent-authored session plans run inside the queueserver container, so an
+  unmatched row is never attributed to anyone in an own view. ``all`` viewers
+  and readers see every row as stored.
+- A payload the record stored outside itself is shown as a marked reference.
+- Where several people are signed in in one browser, the page shows the last
+  sign-in and offers a switch among the others, each in their own scope.
+- A change to the roster, the roles or the readers applies on the next page
+  load after ``osprey up``; a person taken out of ``readers`` is back in their
+  own scope then, even with the page still open.
+
+Every page query runs in the store as a view account for that one person, so
+the scope above is a permission of the database, not a filter of the page. The
+store's ``query_log`` names both the view account and the person.
 
 Related pages
 =============

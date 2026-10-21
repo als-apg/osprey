@@ -486,7 +486,7 @@ class TestLifespanConcealsItsStores:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.workspace.resolve_shared_data_root",
+                "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=workspace_dir,
             ),
             patch(
@@ -968,7 +968,7 @@ class TestFirstEverStartup:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.workspace.resolve_shared_data_root",
+                "osprey_connectors.workspace.resolve_shared_data_root",
                 return_value=store_root,
             ),
         ):

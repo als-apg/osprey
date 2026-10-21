@@ -54,7 +54,7 @@ def env_path(tmp_path, monkeypatch):
 
 def _dotenv(env_path):
     """Parse the project ``.env``, or an empty mapping when it does not exist."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(env_path) if env_path.is_file() else {}
 
@@ -337,7 +337,13 @@ class TestControlPlaneKeys:
     def test_minted_on_a_mock_deploy_too(self, env_path):
         """Not gated on the connector: a later flip must not find the pair missing."""
         _ensure_bluesky_control_plane_keys(
-            {"deployed_services": ["bluesky"], "control_system": {"type": "mock"}},
+            {
+                "deployed_services": ["bluesky"],
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+            },
             env_path=env_path,
         )
 
@@ -452,7 +458,13 @@ class TestDocumentPlaneCerts:
     def test_generated_for_a_mock_deploy_too(self, env_path):
         """Unconditional by design: a later connector flip must not find them missing."""
         _ensure_bluesky_document_plane_certs(
-            {"deployed_services": ["bluesky"], "control_system": {"type": "mock"}},
+            {
+                "deployed_services": ["bluesky"],
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+            },
             env_path=env_path,
         )
 
@@ -1019,10 +1031,9 @@ class TestControlPlaneKeysSurviveComposeInterpolation:
         """The audit, as a test rather than a note.
 
         Every other secret this deploy path mints draws from an alphabet that
-        cannot emit ``$``: ``token_urlsafe`` (``[A-Za-z0-9_-]``), ``token_hex``
-        (``[0-9a-f]``), and OpenObserve's recipe, whose own docstring already
-        excludes ``$`` deliberately. The manager's Z85 keys were the single
-        exception. This keeps that negative result from going stale the next
+        cannot emit ``$``: ``token_urlsafe`` (``[A-Za-z0-9_-]``) or ``token_hex``
+        (``[0-9a-f]``). The manager's Z85 keys are the single exception. This
+        keeps that negative result from going stale the next
         time a secret is added with a hand-rolled alphabet.
         """
         from osprey.deployment.service_tokens import _VAR_GENERATORS, _default_token

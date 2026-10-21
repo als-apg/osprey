@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.interfaces.artifacts.app import create_app
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
+from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 ADDRESS = "CAM:1:IMAGE"
@@ -44,7 +44,7 @@ def _channel_value(value, color_mode=None):
     )
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic frames through the real tool body."""
 
     def __init__(self, values: dict, color_modes: dict | None = None):
@@ -60,7 +60,7 @@ def _config_patch(overrides: dict):
     if not overrides:
         return nullcontext()
 
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     real = config_module.get_config_value
 
@@ -69,26 +69,28 @@ def _config_patch(overrides: dict):
             return overrides[path]
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey.utils.config.get_config_value", side_effect=fake)
+    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
 
 
 async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector(values, color_modes)
+    connector = _FakeConnector(values, color_modes)
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
         _config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)
@@ -451,20 +453,22 @@ async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
 async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch):
     """Repeated frames of one channel do not grow the gallery without bound."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector({ADDRESS: _gaussian_spot()})
+    connector = _FakeConnector({ADDRESS: _gaussian_spot()})
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
         _config_patch({"control_system.channel_read_artifact_retention": 2}),
     ):
         for _ in range(4):

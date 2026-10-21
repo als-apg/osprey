@@ -19,7 +19,7 @@ successor of the app template's ``{% if deploy_services %} … {% else %}``
 branch, which this feature deletes. The suppression has to happen in the build
 rather than in a template because a profile flips ``deploy_services``
 independently of the preset it extends: every preset spells the deploying
-shape, and the five control-assistant personas are attached renders of exactly
+shape, and the five control-assistant renders are attached renders of exactly
 those presets.
 
 Leaving that out is not a cosmetic difference. A non-empty ``deployed_services``
@@ -45,11 +45,11 @@ import pytest
 import yaml
 
 from osprey.cli.build_cmd import _attached_service_overrides
-from osprey.cli.build_profile_merge import merge_persona_delta
+from osprey.cli.build_profile_merge import merge_layer_delta
 from osprey.cli.build_profile_ports import layout_port_fill
+from osprey.deployment.graphdb_service import DEFAULT_TTL_PATH
 from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
-from tests.cli.test_explicit_config_equivalence import CELL_DELTAS
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
     PROJECT_NAME,
@@ -95,26 +95,12 @@ def _baseline_root() -> dict[str, Any]:
 
 
 def _expected_deployed_services() -> list[str]:
-    """The baseline ``deployed_services``, moved by the equivalence module's declared delta.
-
-    The frozen list, replaced by the ``live`` value of the one delta
-    :data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS` declares for
-    this cell's root ``deployed_services``, so the two modules cannot disagree
-    about the order. The delta must be exact: a list-gains spelling says nothing
-    about order and would be misread here.
+    """The frozen baseline ``deployed_services`` of this cell, in order.
 
     Returns:
         The ordered list the deploying render must carry.
     """
-    deltas = [
-        delta
-        for delta in CELL_DELTAS.get(f"{PRESET}/{MODE}", ())
-        if delta.key == ("root", "deployed_services")
-    ]
-    assert len(deltas) == 1, f"expected one root deployed_services delta, found {deltas}"
-    (delta,) = deltas
-    assert delta.added is None, "the deployed_services delta must be exact to pin an order"
-    return list(delta.live)
+    return list(_baseline_root().get("deployed_services") or [])
 
 
 def _preset_config() -> dict[str, Any]:
@@ -158,7 +144,9 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
 
 
 @pytest.fixture(scope="session")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def built_project(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> Path:
     """One real ``osprey init`` + ``osprey build`` of the cell, shared by the session.
 
     Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
@@ -191,7 +179,7 @@ def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     assert result.returncode == 0, f"osprey init refused the cell:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
     # Every reader of this project reads its rendered files, never the venv.
     shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
@@ -203,28 +191,29 @@ def rendered(built_project: Path) -> dict[str, dict[str, Any]]:
     """The cell's rendered documents, keyed by render name.
 
     Returns:
-        ``root`` for the deployment, one per persona for the attached renders.
+        ``root`` for the deployment, one per render for the attached renders.
     """
     return {
         name: document or {} for name, document in collect_rendered_configs(built_project).items()
     }
 
 
-def _persona_render_dir(built_project: Path, persona: str) -> Path:
-    """The render directory of one persona, as :func:`collect_rendered_configs` keys it."""
-    return built_project / "build" / f"{built_project.name}-{persona}"
+def _render_dir(built_project: Path, render: str) -> Path:
+    """The render directory of one render, as :func:`collect_rendered_configs` keys it."""
+    return built_project / "build" / f"{built_project.name}-{render}"
 
 
 @pytest.fixture(scope="session")
-def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+def external_store_render(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> dict[str, Any]:
     """An attached project naming an external graph store nothing here deploys.
 
-    ``channel-finder-standalone`` deploys no store of its own
-    (``deployed_services: []``), so ``channel_finder_mode: graph`` is refused
-    outright unless the profile names one the facility already runs — the
-    refusal's own instruction. Flipped to ``deploy_services: false``, that
-    profile is the case the claimed-stack drop must not swallow: the only
-    ``services.graphdb`` statement in it is an address, not a claim.
+    ``hello-world`` ships no graph store of its own, so a ``services.graphdb``
+    block in its profile can only name one the facility already runs. Flipped
+    to ``deploy_services: false``, that profile is the case the claimed-stack
+    drop must not swallow: the only ``services.graphdb`` statement in it is an
+    address, not a claim.
 
     Returns:
         The attached project's rendered ``config.yml``.
@@ -237,10 +226,8 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
             "init",
             PROJECT_NAME,
             "--preset",
-            "channel-finder-standalone",
+            "hello-world",
             "--no-git",
-            "--set",
-            "channel_finder_mode=graph",
             "--set",
             "deploy_services=false",
             "--set",
@@ -252,7 +239,7 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
     assert result.returncode == 0, f"osprey init refused the profile:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
     # Only the rendered config is read, never the venv.
     shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, (
@@ -274,8 +261,8 @@ def test_deploying_render_lists_the_baseline_services_in_order(
 ) -> None:
     """The deployment's ``deployed_services`` equals the baseline's, in order.
 
-    The baseline is the frozen list as the equivalence module's declared deltas
-    move it (:func:`_expected_deployed_services`). Order and all: it is the order the injectors ran in, and two of them read it
+    The baseline is the frozen list (:func:`_expected_deployed_services`). Order
+    and all: it is the order the injectors ran in, and two of them read it
     back — the chat bridges gate their dispatcher URLs on the dispatch pair
     already being listed, the recorder gates its image and addressing on the
     virtual accelerator being listed — so a reordering is a behaviour change,
@@ -343,16 +330,16 @@ def test_the_deploying_render_declares_the_host_pairs_bind_variables(
 
 @pytest.mark.slow
 def test_attached_renders_deploy_nothing(rendered: dict[str, dict[str, Any]]) -> None:
-    """Every persona render carries an empty ``deployed_services``.
+    """Every render carries an empty ``deployed_services``.
 
-    The personas are attached renders of a preset that spells four deployed
+    The renders are attached renders of a preset that spells four deployed
     services, so an empty list here is the suppression's doing, not the
     profile's.
     """
-    personas = {name: document for name, document in rendered.items() if name != "root"}
-    assert personas, "the control-assistant build renders personas; none were captured"
-    assert {name: document.get("deployed_services") for name, document in personas.items()} == {
-        name: [] for name in personas
+    renders = {name: document for name, document in rendered.items() if name != "root"}
+    assert renders, "the control-assistant build renders no tier or app; none were captured"
+    assert {name: document.get("deployed_services") for name, document in renders.items()} == {
+        name: [] for name in renders
     }
 
 
@@ -360,11 +347,11 @@ def test_attached_renders_deploy_nothing(rendered: dict[str, dict[str, Any]]) ->
 def test_attached_renders_carry_only_what_their_host_told_them(
     rendered: dict[str, dict[str, Any]],
 ) -> None:
-    """No persona states a service key of its own.
+    """No render states a service key of its own.
 
-    Every ``services.*`` leaf a persona ends up with is one the Reach Contract
+    Every ``services.*`` leaf a render ends up with is one the Reach Contract
     projects from the hosting deployment's render, or one it declares
-    render-local — a file in the persona's own data tree. The preset's other
+    render-local — a file in the render's own data tree. The preset's other
     service keys — the image tags and heap sizes of a stack this render does
     not run — are not among them.
     """
@@ -381,34 +368,34 @@ def test_attached_renders_carry_only_what_their_host_told_them(
 def test_attached_renders_ship_the_corpus_they_stage_and_the_index_built_from_it(
     built_project: Path, rendered: dict[str, dict[str, Any]]
 ) -> None:
-    """Every persona names the same corpus as its host and carries an index derived from it.
+    """Every render names the same corpus as its host and carries an index derived from it.
 
-    A persona is built from the same ``data/`` tree as the deployment, so the
+    A render is built from the same ``data/`` tree as the deployment, so the
     corpus key is as true for it as for the root render, and the build's index
-    step — which resolves the corpus from the persona's OWN rendered config —
-    derives the search index into the persona render. That render is what the
+    step — which resolves the corpus from the render's OWN rendered config —
+    derives the search index into the render. That render is what the
     per-user image copies, so this is the file the CHANNELS tab, the roster
     and the agent's keyword tool open inside the container.
     """
     from osprey.deployment.graphdb_service import resolve_graph_index_path
 
     corpus = rendered["root"]["services"]["graphdb"]["ttl_path"]
-    personas = {name: document for name, document in rendered.items() if name != "root"}
-    assert personas, "the control-assistant build renders personas; none were captured"
+    renders = {name: document for name, document in rendered.items() if name != "root"}
+    assert renders, "the control-assistant build renders no tier or app; none were captured"
 
     stated = {
-        name: document["services"]["graphdb"].get("ttl_path") for name, document in personas.items()
+        name: document["services"]["graphdb"].get("ttl_path") for name, document in renders.items()
     }
-    assert stated == dict.fromkeys(personas, corpus)
+    assert stated == dict.fromkeys(renders, corpus)
 
     missing = [
         name
-        for name, document in personas.items()
+        for name, document in renders.items()
         if not resolve_graph_index_path(
-            document, config_dir=_persona_render_dir(built_project, name)
+            document, config_dir=_render_dir(built_project, name)
         ).is_file()
     ]
-    assert missing == [], f"persona renders with no channel search index: {missing}"
+    assert missing == [], f"renders with no channel search index: {missing}"
 
 
 @pytest.mark.slow
@@ -419,7 +406,8 @@ def test_an_attached_render_keeps_the_external_store_it_names(
 
     Requirement 5's external-store clause: ``services.graphdb`` keeps
     ``port_host`` and ``http_port_host`` beside its ``uri``, exactly as a
-    deploying render would. ``uri`` is the profile's own; the two ports are the
+    deploying render would, and the corpus the build fills into every graphdb
+    block. ``uri`` is the profile's own; the two ports are the
     layout fill's, and a drop scoped to the whole ``services.*`` surface took
     all three — leaving the graph consumer with the address the Reach Contract
     happens to project back for a host of its own, and nothing at all beside a
@@ -429,11 +417,11 @@ def test_an_attached_render_keeps_the_external_store_it_names(
     where a store is and claiming to run one are different statements.
     """
     fill = layout_port_fill({"services.graphdb.uri": EXTERNAL_GRAPH_URI}, DEFAULT_PORT_BASE)
-    expected = {"uri": EXTERNAL_GRAPH_URI} | {
+    expected = {"uri": EXTERNAL_GRAPH_URI, "ttl_path": DEFAULT_TTL_PATH} | {
         key.rpartition(".")[2]: value for key, value in fill.items()
     }
 
-    assert set(expected) == {"uri", "port_host", "http_port_host"}, (
+    assert set(expected) == {"uri", "ttl_path", "port_host", "http_port_host"}, (
         f"the layout fill no longer supplies the external store's two ports: {fill}"
     )
     assert external_store_render["deployed_services"] == []
@@ -501,20 +489,20 @@ def test_attached_overrides_state_an_empty_list_when_the_profile_stated_none() -
     assert _attached_service_overrides({}) == {"deployed_services": []}
 
 
-def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
-    """A persona spelling ``deployed_services`` moves that key and no other.
+def test_a_render_override_of_deployed_services_reaches_nothing_else() -> None:
+    """A render spelling ``deployed_services`` moves that key and no other.
 
-    Requirement 6's first clause: a persona delta merges as it always has. It
+    Requirement 6's first clause: a layer merges as it always has. It
     names one ``config:`` key and leaves every sibling — the service blocks,
     the approval posture — exactly as the root resolved them, and does not
     mutate the root it was merged over.
 
     The list itself merges by **union**
     (:func:`~osprey.cli.build_profile_merge._merge_lists` dedups
-    ``base + child`` for a list of strings), so a persona spelling a shorter
+    ``base + child`` for a list of strings), so a render spelling a shorter
     list adds nothing and removes nothing. That is deliberate and stays: a
-    persona subtracts nothing from ``config:`` — the proposal puts a
-    persona-level ``exclude:`` of a ``config:`` key out of scope for the same
+    render subtracts nothing from ``config:`` — the proposal puts a
+    render-level ``exclude:`` of a ``config:`` key out of scope for the same
     reason. Dropping a container is the root profile's move, made by omitting
     that service's ``services.<name>.*`` keys and leaving its name out of
     ``deployed_services``. The union is pinned below so the ruled behaviour is
@@ -523,7 +511,7 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
     """
     root = {
         "config": {
-            "deployed_services": ["postgresql", "openobserve", "qmd", "graphdb"],
+            "deployed_services": ["postgresql", "telemetry_store", "qmd", "graphdb"],
             "services.graphdb.image": "graphdb:11",
             "services.postgresql.username": "osprey",
             "approval.enabled": True,
@@ -531,50 +519,44 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
     }
     before = copy.deepcopy(root)
 
-    merged = merge_persona_delta(
-        root, {"config": {"deployed_services": ["postgresql", "openobserve", "qmd"]}}
+    merged = merge_layer_delta(
+        root, {"config": {"deployed_services": ["postgresql", "telemetry_store", "qmd"]}}
     )
 
     assert merged["config"]["deployed_services"] == [
         "postgresql",
-        "openobserve",
+        "telemetry_store",
         "qmd",
         "graphdb",
     ]
     assert {
         key: value for key, value in merged["config"].items() if key != "deployed_services"
     } == {key: value for key, value in root["config"].items() if key != "deployed_services"}
-    assert root == before, "merge_persona_delta mutated the root profile"
+    assert root == before, "merge_layer_delta mutated the root profile"
 
 
 def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() -> None:
     """A key that names a file in the render's own data tree is not a stack claim.
 
-    ``services.graphdb.ttl_path`` and ``index_path`` say where THIS render's
-    corpus and search index are, and every persona stages that same ``data/``
-    tree. Dropped with the claimed stack, the persona's build could not derive
-    its index and its containers could not say where the corpus is. The Reach
-    Contract declares them render-local, so they survive the drop; the store's
-    address, image and JVM keys go as before.
+    ``services.graphdb.ttl_path`` says where THIS render's corpus is, and every
+    render stages that same ``data/`` tree. Dropped with the claimed stack, the
+    render's build could not derive its index and its containers could not say
+    where the corpus is. The Reach Contract declares it render-local, so it
+    survives the drop; the store's address, image and JVM keys go as before.
     """
-    assert RENDER_LOCAL_SERVICE_KEYS >= {
-        "services.graphdb.ttl_path",
-        "services.graphdb.index_path",
-    }
+    assert RENDER_LOCAL_SERVICE_KEYS >= {"services.graphdb.ttl_path"}
 
     overrides = _attached_service_overrides(
         {
             "services.graphdb.image": "neo4j:5.26-community",
             "services.graphdb.port_host": 10802,
             "services.graphdb.heap_max_size": "1G",
-            "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-            "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
+            "services.graphdb.ttl_path": "./data/graph/facility.ttl",
             "deployed_services": ["graphdb"],
         }
     )
 
     assert overrides == {
         "deployed_services": [],
-        "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-        "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
+        "services.graphdb.ttl_path": "./data/graph/facility.ttl",
     }

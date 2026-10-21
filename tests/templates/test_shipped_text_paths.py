@@ -8,8 +8,10 @@ longer has, a generated README that tells the operator to copy or edit a file
 the renderer never produces, and a prompt that names the reference facility's
 own lattice constants where it should name this deployment's bindings file.
 
-All four scan template SOURCE, not a render: the offending text is literal in
-the template, and a scan over the source names the line to fix.
+The scans read template SOURCE, not a render: the offending text is literal in
+the template, and a scan over the source names the line to fix. The one
+positive check, that the lattice agent names the bindings file, reads the
+rendered agent file, because that path is a render-time value.
 """
 
 from __future__ import annotations
@@ -17,7 +19,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests._builds import BuiltProject
+
 import osprey
+from osprey_connectors.simulation.view import VARIABLES_FILE, VIEW_RELPATH
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_SOURCE = REPO_ROOT / "docs" / "source"
@@ -214,15 +220,18 @@ def test_shipped_readmes_name_only_files_the_renderer_produces() -> None:
 #: them hands every facility's agent the reference facility's numbers.
 _REFERENCE_FACILITY_LATTICE_SYMBOLS = ("facility_spec", "FacilitySpec", "ALS_U_AR")
 
-#: What a channel does to the deck is read from the deployment's own file, at
-#: the path a deployment holds it at.
-_BINDINGS_PATH = "data/simulation/va_bindings.json"
+#: What a channel does to the deck is read from the simulator view's variables
+#: file, named by its path relative to the deployment repo root.
+_BINDINGS_PATH = f"{BUILD_DIR_NAME}/{VIEW_RELPATH}/{VARIABLES_FILE}"
 
 #: The section of the lattice-agent prompt that turns that path into an
 #: instruction: read the bindings before answering anything about a channel.
 _CHANNEL_SECTION_HEADING = "## What a Channel Drives"
 
 PYAT_PROMPT = CLAUDE_CODE_TEMPLATES / "claude" / "agents" / "pyat-specialist.md.j2"
+
+#: The lattice agent's file in a render.
+PYAT_AGENT = Path(".claude") / "agents" / "pyat-specialist.md"
 
 
 def test_no_shipped_prompt_names_a_reference_facility_lattice_symbol() -> None:
@@ -245,20 +254,21 @@ def test_no_shipped_prompt_names_a_reference_facility_lattice_symbol() -> None:
     )
 
 
-def test_the_pyat_prompt_names_the_bindings_file() -> None:
+def test_the_pyat_prompt_names_the_bindings_file(built_control_assistant: BuiltProject) -> None:
     """The lattice agent is told where the channel-to-element coupling lives.
 
     The negative guard above forbids the reference facility's symbols; this is
-    the positive half: the prompt says what a channel drives, and says it by the
-    path the deployment holds.
+    the positive half: the rendered prompt says what a channel drives, and says
+    it by the path of the simulator view's variables file.
     """
-    assert PYAT_PROMPT.is_file(), f"lattice agent template not found at {_rel(PYAT_PROMPT)}"
-    text = PYAT_PROMPT.read_text(encoding="utf-8")
+    agent = built_control_assistant.build_dir / PYAT_AGENT
+    assert agent.is_file(), f"the control-assistant render holds no {PYAT_AGENT}"
+    text = agent.read_text(encoding="utf-8")
     assert _BINDINGS_PATH in text, (
-        f"{_rel(PYAT_PROMPT)} never names {_BINDINGS_PATH}, so the agent is not told "
-        "where the channel-to-element coupling is recorded"
+        f"the rendered {PYAT_AGENT} never names {_BINDINGS_PATH}, so the agent is not "
+        "told where the simulator view records each channel's wiring"
     )
     assert _CHANNEL_SECTION_HEADING in text, (
-        f"{_rel(PYAT_PROMPT)} has no {_CHANNEL_SECTION_HEADING!r} section, so the path "
-        "may survive as a bare mention while the instruction that reads it is gone"
+        f"the rendered {PYAT_AGENT} has no {_CHANNEL_SECTION_HEADING!r} section, so the "
+        "path may survive as a bare mention while the instruction that reads it is gone"
     )

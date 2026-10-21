@@ -1,0 +1,1 @@
+`osprey build` and `osprey facility validate` stop with `profile-invalid` when `control_system.connector.virtual_accelerator.probe_channel` (or the stand-in's) names a channel the facility file does not hold. The stop names the key, the address and one readback of the facility file to put there.

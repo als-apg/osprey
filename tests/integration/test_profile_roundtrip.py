@@ -13,7 +13,7 @@ it:
 1. **Every edit reaches the render** (the :func:`roundtrip` fixture and
    :class:`TestEveryEditReachesTheProject`) — ``osprey init`` a deployment repo,
    build it, then edit one artifact in *every* convention category plus
-   ``triggers.yml``, a persona delta, and the repo ``.env``; rebuild and assert
+   ``triggers.yml``, a layer, and the repo ``.env``; rebuild and assert
    each edit landed, and that the rebuild never wrote back into the source.
 2. **Nothing unregenerable accumulates** (:class:`TestNoUnregenerableFacilityState`)
    — the render carries no secrets surface at all, the mirror refuses a
@@ -21,10 +21,10 @@ it:
    zone owns. The render carries no ``.env`` at all, so there is no merge of the
    profile's ``.env`` into a copy inside the render and no rules governing one;
    that contract is asserted directly, as the *absence* of a secrets surface.
-3. **The persona stack** — a ``personas/<name>.yml`` delta anchored at its root,
-   its exclusions (list artifact, convention artifact, and a convention artifact
-   shadowing a framework render, which the exclusion restores), its inherited
-   secrets, root-edit staleness, and the ways a persona reference fails.
+3. **The render stack** — a ``tiers/<name>.yml`` delta anchored at its root,
+   what it inherits (convention artifacts, a shadow of a framework render, the
+   built-in selection, ownership), its inherited secrets, root-edit staleness,
+   and the ways a tier file or a render reference fails.
 4. **Standalone builds** — a directory holding one ``profile.yml`` IS a
    deployment repo: it renders into its own ``build/`` and materializes nothing
    beside itself.
@@ -58,7 +58,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.models.provider_registry import PROVIDER_API_KEYS
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The provider key value the whole suite tracks. `hello-world` selects the
 # anthropic provider, so this is the one key `osprey init` seeds.
@@ -80,7 +81,7 @@ REPO_DIRNAME = "facility-repo"
 # The roster user whose per-user web-terminal context the roundtrip exercises.
 # `hello-world` ships no web_terminals block, so the profile edit turns one on:
 # the per-user convention category is roster-derived, and with an empty roster
-# the build skips it entirely (which is the persona case, asserted separately).
+# the build skips it entirely (which is the render case, asserted separately).
 ROSTER_USER = "opsuser"
 
 
@@ -166,7 +167,7 @@ def _user_owned(project_dir: Path) -> set[str]:
 
 # ``rules/safety.md`` deliberately collides with a framework-selected rule
 # (``hello-world`` lists ``safety``): a profile file must WIN over the framework
-# render, and a persona excluding it must get the framework version back.
+# render, and a render excluding it must get the framework version back.
 SHADOWED_RULE = "rules/safety"
 SHADOWED_RULE_BODY = "# Facility safety rule\n\nThis text is the profile's, not the framework's.\n"
 
@@ -210,23 +211,12 @@ EXPECTED_OWNED = {
     "services/facility_gw",
 }
 
-PERSONA_NAME = "reader"
+RENDER_NAME = "reader"
 
-PERSONA_DELTA = """\
+#: A tier adds by name and subtracts nothing, and it is attached by its kind:
+#: the resolver turns its web-terminal module off, so the file spells neither.
+LAYER_DELTA = """\
 name: Facility Reader
-exclude:
-  rules:
-    # Qualified: a convention artifact of the profile's own, omitted from this
-    # persona.
-    - rules/facility-ops
-    # Qualified, and the artifact SHADOWS a framework-selected rule. Omitting
-    # the profile's copy restores the framework render — the point of excluding
-    # a shadow is to get the built-in version back.
-    - rules/safety
-    # Bare: unselects the built-in library artifact of that name outright.
-    - timezone
-config:
-  modules.web_terminals.enabled: false
 """
 
 TRIGGERS_BODY = """\
@@ -248,7 +238,7 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     """Make every edit the roundtrip's contract is stated over.
 
     Convention artifacts, ``triggers.yml`` + the ``dispatch:`` key that names
-    it, a persona delta, a roster so the per-user context category has
+    it, a layer, a roster so the per-user context category has
     something to derive from, and two ``.env`` values: the seeded provider key
     (whose value must beat a later hand edit in the project) and a new facility
     secret.
@@ -257,19 +247,20 @@ def _apply_profile_edits(profile_dir: Path) -> None:
         _write(profile_dir / source_rel, body)
 
     _write(profile_dir / "triggers.yml", TRIGGERS_BODY)
-    _write(profile_dir / "personas" / f"{PERSONA_NAME}.yml", PERSONA_DELTA)
+    _write(profile_dir / TIERS_DIRNAME / f"{RENDER_NAME}.yml", LAYER_DELTA)
 
     raw = _profile_yaml(profile_dir / "profile.yml")
     raw["dispatch"] = {"triggers": "triggers.yml"}
     config = raw.setdefault("config", {})
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
+    # Every terminal runs a tier's render; the roster's one person lands on the
+    # tier the edits write at tiers/reader.yml.
+    config["modules.web_terminals.default_tier"] = RENDER_NAME
     # The values a roster cannot be deployed without, and which `osprey build`
-    # therefore refuses a profile for: the container-name prefix
-    # (`<prefix>-web-<user>`), the per-user web port family's base, which has
-    # no registry default because it is facility-chosen, and the registry every
-    # terminal image is named under in registry mode.
-    config["facility.prefix"] = "fac"
+    # therefore refuses a profile for: the per-user web port family's base,
+    # which has no registry default because it is facility-chosen, and the
+    # registry every terminal image is named under in registry mode.
     config["modules.web_terminals.web_base_port"] = 20100
     config["registry.url"] = "registry.example.org/demo"
     (profile_dir / "profile.yml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
@@ -294,7 +285,7 @@ class Roundtrip:
     profile_dir: Path
     project_dir: Path
     #: ``.claude/rules/safety.md`` as the framework rendered it, captured from
-    #: the FIRST build — the text a persona excluding the profile's shadow of
+    #: the FIRST build — the text a render excluding the profile's shadow of
     #: that rule must get back.
     framework_safety_rule: str = ""
     #: Rendered-project entries present before any profile edit.
@@ -513,96 +504,95 @@ class TestNoUnregenerableFacilityState:
 
 
 # ---------------------------------------------------------------------------
-# 3. The persona stack
+# 3. The render stack
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def persona_project(roundtrip: Roundtrip) -> Path:
-    """Render the delta the scripted edits wrote at ``personas/reader.yml``.
+def render_project(roundtrip: Roundtrip) -> Path:
+    """Render the delta the scripted edits wrote at ``tiers/reader.yml``.
 
     Nothing is added to the profile here: the delta is one of the roundtrip's
     own edits, so what this renders is the same profile every other test reads.
     """
-    project = roundtrip.profile_dir / "build" / f"{REPO_DIRNAME}-{PERSONA_NAME}"
+    project = roundtrip.profile_dir / "build" / f"{REPO_DIRNAME}-{RENDER_NAME}"
     assert project.is_dir(), (
         f"the roundtrip's build should have rendered {project.name} from the "
-        f"delta at personas/{PERSONA_NAME}.yml; build/ holds "
+        f"delta at {TIERS_DIRNAME}/{RENDER_NAME}.yml; build/ holds "
         f"{sorted(p.name for p in (roundtrip.profile_dir / 'build').iterdir())}"
     )
     return project
 
 
-class TestPersonaStack:
-    """Contract point 3 — deltas anchor at the root and subtract from it."""
+class TestRenderStack:
+    """Contract point 3 — a tier anchors at the root and inherits it whole."""
 
-    def test_delta_inherits_the_roots_convention_artifacts(self, persona_project: Path) -> None:
-        assert (persona_project / ".claude" / "agents" / "orbit-writer.md").is_file()
-        assert (persona_project / ".claude" / "skills" / "orbit-check" / "SKILL.md").is_file()
+    def test_delta_inherits_the_roots_convention_artifacts(self, render_project: Path) -> None:
+        assert (render_project / ".claude" / "agents" / "orbit-writer.md").is_file()
+        assert (render_project / ".claude" / "skills" / "orbit-check" / "SKILL.md").is_file()
 
-    def test_delta_anchors_data_at_the_profile_root(self, persona_project: Path) -> None:
-        """``data:`` resolves against the root, never against ``personas/``."""
-        assert (persona_project / "data" / "channel_limits.json").is_file()
+    def test_delta_anchors_data_at_the_profile_root(self, render_project: Path) -> None:
+        """``data:`` resolves against the root, never against the retired layer directory."""
+        assert (render_project / "data" / "channel_limits.json").is_file()
 
-    def test_a_persona_render_carries_no_secrets_of_its_own(
-        self, persona_project: Path, roundtrip: Roundtrip
+    def test_a_render_carries_no_secrets_of_its_own(
+        self, render_project: Path, roundtrip: Roundtrip
     ) -> None:
-        """A persona project is a container build context sitting inside
+        """A render project is a container build context sitting inside
         ``build/``, and ``build/`` is documented as safe to ``rm -rf``. Copying
         the repo's secrets into it would put the facility's keys somewhere that
-        promise makes disposable — so the persona gets none, and reads the
+        promise makes disposable — so the render gets none, and reads the
         repo's own ``.env`` at deploy time like every other service.
         """
-        assert not (persona_project / ".env").exists()
+        assert not (render_project / ".env").exists()
         # The keys are still exactly where they belong, one level up.
         assert roundtrip.repo_env()[PROVIDER_VAR] == PROFILE_KEY_VALUE
 
-    def test_excluding_a_convention_artifact_omits_it(
-        self, persona_project: Path, roundtrip: Roundtrip
+    def test_a_tier_inherits_the_roots_own_convention_artifact(
+        self, render_project: Path, roundtrip: Roundtrip
     ) -> None:
-        assert (roundtrip.project_dir / ".claude" / "rules" / "facility-ops.md").is_file()
-        assert not (persona_project / ".claude" / "rules" / "facility-ops.md").exists()
+        for project in (roundtrip.project_dir, render_project):
+            landed = project / ".claude" / "rules" / "facility-ops.md"
+            assert landed.read_text(encoding="utf-8") == "# Ops rule\n"
 
-    def test_excluding_a_list_artifact_unselects_the_builtin(
-        self, persona_project: Path, roundtrip: Roundtrip
+    def test_a_tier_inherits_the_roots_builtin_selection(
+        self, render_project: Path, roundtrip: Roundtrip
     ) -> None:
-        """The bare spelling reaches the built-in library, not the profile."""
-        assert "timezone.md" in roundtrip.baseline_rules, "fixture drift: nothing was excluded"
-        assert not (persona_project / ".claude" / "rules" / "timezone.md").exists()
+        """The root's built-in library artifacts reach every tier render."""
+        assert "timezone.md" in roundtrip.baseline_rules, "fixture drift: no built-in rule"
+        assert (render_project / ".claude" / "rules" / "timezone.md").is_file()
 
-    def test_excluding_a_shadow_restores_the_framework_render(
-        self, persona_project: Path, roundtrip: Roundtrip
+    def test_a_tier_inherits_the_roots_shadow_of_a_framework_render(
+        self, render_project: Path, roundtrip: Roundtrip
     ) -> None:
-        """The two ``exclude:`` namespaces are disjoint, and this is why it
-        matters: omitting the profile's ``rules/safety.md`` must bring back the
-        framework's own ``safety`` rule, not delete the rule entirely."""
-        restored = persona_project / ".claude" / "rules" / "safety.md"
-        assert restored.is_file(), "excluding the shadow deleted the framework rule too"
-        assert restored.read_text(encoding="utf-8") == roundtrip.framework_safety_rule
+        """The profile's ``rules/safety.md`` wins in a tier render exactly as it
+        does at the root: a tier cannot get the framework's rule back."""
+        shadowed = render_project / ".claude" / "rules" / "safety.md"
+        assert shadowed.read_text(encoding="utf-8") == SHADOWED_RULE_BODY
+        assert shadowed.read_text(encoding="utf-8") != roundtrip.framework_safety_rule
 
-    def test_persona_ownership_derives_from_the_post_exclude_set(
-        self, persona_project: Path
-    ) -> None:
-        owned = _user_owned(persona_project)
-        assert "rules/facility-ops" not in owned
-        assert "rules/safety" not in owned
+    def test_render_ownership_covers_every_inherited_artifact(self, render_project: Path) -> None:
+        owned = _user_owned(render_project)
+        assert "rules/facility-ops" in owned
+        assert "rules/safety" in owned
         assert "agents/orbit-writer" in owned
 
-    def test_persona_build_skips_per_user_context(
-        self, persona_project: Path, roundtrip: Roundtrip
+    def test_render_build_skips_per_user_context(
+        self, render_project: Path, roundtrip: Roundtrip
     ) -> None:
-        """A persona disables ``modules.web_terminals``, so it resolves an empty
-        roster and the roster-derived category is skipped entirely."""
+        """A tier render has ``modules.web_terminals`` off by its kind, so it
+        resolves an empty roster and the roster-derived category is skipped
+        entirely."""
         rel = Path("docker") / "web-terminal-context" / ROSTER_USER / "context.md"
         assert (roundtrip.project_dir / rel).is_file()
-        assert not (persona_project / rel).exists()
+        assert not (render_project / rel).exists()
 
     @pytest.mark.usefixtures("workspace")
     def test_a_root_edit_moves_the_repos_one_drift_verdict(self, tmp_path: Path) -> None:
-        """One repo, one drift verdict, personas folded into it.
+        """One repo, one drift verdict, renders folded into it.
 
         Editing the root has to register as drift, and it registers in exactly
-        one place: ``build/.osprey-manifest.json``. A persona render carries its
+        one place: ``build/.osprey-manifest.json``. A render carries its
         own manifest for what runs inside its container, but deliberately no
         per-key digests — the repo's fingerprint already folds every delta in,
         and a second set nothing consults would be a second hash mechanism.
@@ -628,129 +618,91 @@ class TestPersonaStack:
         assert any("has changed" in reason for reason in reasons), reasons
 
 
-class TestPersonaReferenceErrors:
+class TestRenderReferenceErrors:
     """Contract point 3, error half — every unusable reference is actionable."""
 
-    def test_extends_inside_personas_is_rejected(
+    def test_extends_inside_renders_is_rejected(
         self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
     ) -> None:
         _write(
-            workspace.profile_dir / "personas" / "bad.yml",
+            workspace.profile_dir / TIERS_DIRNAME / "bad.yml",
             f"name: Bad\nextends: {PRESET}\n",
         )
         with caplog.at_level(logging.ERROR):
             result = _build(workspace.profile_dir)
         assert result.exit_code != 0
         assert "extends" in caplog.text
-        assert "personas/" in caplog.text
+        assert f"{TIERS_DIRNAME}/" in caplog.text
 
-    def test_a_personas_file_without_a_root_is_rejected(
+    def test_exclude_inside_a_tier_is_rejected(
+        self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A tier adds by name; subtracting is the root profile's own lists."""
+        _write(
+            workspace.profile_dir / TIERS_DIRNAME / "bad.yml",
+            "name: Bad\nexclude:\n  rules:\n    - rules/facility-ops\n",
+        )
+        with caplog.at_level(logging.ERROR):
+            result = _build(workspace.profile_dir)
+        assert result.exit_code != 0
+        assert "a tier adds by name" in caplog.text
+
+    def test_a_renders_file_without_a_root_is_rejected(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A ``personas/`` directory with no ``profile.yml`` above it is not a
+        """A ``tiers/`` directory with no ``profile.yml`` above it is not a
         deployment repo: the deltas in it have nothing to merge over, so there
         is nothing to render and the refusal has to say which piece is missing.
         """
-        _write(tmp_path / "personas" / "lonely.yml", "name: Lonely\n")
+        _write(tmp_path / TIERS_DIRNAME / "lonely.yml", "name: Lonely\n")
         with caplog.at_level(logging.ERROR):
             result = _build(tmp_path)
         assert result.exit_code != 0
 
     def test_a_catalog_entry_naming_a_missing_delta_is_rejected(self, workspace: Roundtrip) -> None:
-        from osprey.deployment.web_terminals.persona_images import verify_persona_renders
+        """A render the config names whose tier file is gone cannot be built:
+        the refusal names the missing file rather than sending the operator
+        through a build."""
+        from osprey.deployment.web_terminals.render_images import verify_renders
 
-        with pytest.raises(ValueError, match="no file exists at"):
-            verify_persona_renders(
-                _catalog_config("personas/ghost.yml", workspace.base),
-                _resolved_users(),
+        with pytest.raises(ValueError, match=r"tiers/ghost\.yml does not exist"):
+            verify_renders(
+                _catalog_config("ghost", workspace.base),
+                _resolved_users("ghost"),
                 workspace.profile_dir,
             )
 
-    def test_a_catalog_entry_pointing_outside_personas_is_rejected(
-        self, workspace: Roundtrip
-    ) -> None:
-        """A persona is a delta over THIS deployment's profile or it is nothing:
-        anywhere else would build it without that profile's data, secrets and
-        conventions, or over somebody else's."""
-        _write(workspace.base / "elsewhere" / "ops.yml", "name: Elsewhere\n")
-        from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 
-        with pytest.raises(ValueError, match="not a direct child"):
-            verify_persona_renders(
-                _catalog_config("../elsewhere/ops.yml", workspace.base),
-                _resolved_users(),
-                workspace.profile_dir,
-            )
-
-    def test_an_off_chain_persona_preset_is_refused_at_init(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A persona preset that is not a delta over the host preset would emit
-        a persona file carrying its own base, which the host cannot supply.
-
-        No bundled preset renders ``control-assistant``'s app template from
-        outside its extends chain, so the off-chain case is simulated for the
-        readonly persona: its raw ``extends`` is repointed away from the host
-        and the chain predicate pinned false.
-        """
-        from osprey.cli import build_profile_presets
-
-        real_load = build_profile_presets._load_preset_raw
-        real_reaches = build_profile_presets._preset_extends_chain_reaches
-
-        def out_of_chain_raw(name: str):
-            raw, path = real_load(name)
-            if name == "control-assistant-readonly":
-                raw = {**raw, "extends": "hello-world"}
-            return raw, path
-
-        def out_of_chain_for_readonly(child: str, ancestor: str) -> bool:
-            if child == "control-assistant-readonly":
-                return False
-            return real_reaches(child, ancestor)
-
-        monkeypatch.setattr(build_profile_presets, "_load_preset_raw", out_of_chain_raw)
-        monkeypatch.setattr(
-            build_profile_presets, "_preset_extends_chain_reaches", out_of_chain_for_readonly
-        )
-
-        result = _invoke(
-            init,
-            [
-                str(tmp_path / "off-chain-repo"),
-                "--preset",
-                "control-assistant",
-                "--no-git",
-            ],
-        )
-        assert result.exit_code != 0
-        assert "does not extend" in result.output
-        assert not (tmp_path / "off-chain-repo" / "profile.yml").exists(), (
-            "materialization must fail before writing the source zone"
-        )
-
-
-def _catalog_config(build_profile: str, base: Path) -> dict:
-    """A deploy config whose persona catalog names ``build_profile``."""
+def _catalog_config(render_name: str, base: Path) -> dict:
+    """A deploy config whose roster serves, and whose render projection names, the tier ``render_name``."""
     return {
         "modules": {
             "web_terminals": {
-                "personas": {
-                    PERSONA_NAME: {
-                        "project": f"{REPO_DIRNAME}-{PERSONA_NAME}",
-                        # Must not exist: the delta is only resolved for a
-                        # persona whose project directory is absent.
-                        "project_path": str(base / "unrendered-persona"),
-                        "build_profile": build_profile,
+                "users": [{"name": "a", "index": 0, "tier": render_name}],
+                "renders": {
+                    render_name: {
+                        "kind": "tier",
+                        "project": f"{REPO_DIRNAME}-{render_name}",
+                        # Must not exist: the tier file is only resolved for a
+                        # render whose project directory is absent.
+                        "project_path": str(base / "unrendered-render"),
                     }
-                }
+                },
             }
         }
     }
 
 
-def _resolved_users() -> list[dict]:
-    return [{"name": ROSTER_USER, "persona": PERSONA_NAME, "project": f"{REPO_DIRNAME}-reader"}]
+def _resolved_users(render_name: str) -> list[dict]:
+    project = f"{REPO_DIRNAME}-{render_name}"
+    return [
+        {
+            "name": ROSTER_USER,
+            "render": render_name,
+            "project": project,
+            "image": f"{project}:local",
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -765,8 +717,10 @@ model: claude-haiku-4-5
 data: data
 channel_finder_mode: hierarchical
 config:
-  control_system.type: mock
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
+  approval.enabled: false
   claude_code.telemetry.enabled: false
   hooks.debug: false
 """
@@ -775,7 +729,7 @@ config:
 def test_a_minimal_profile_directory_builds_standalone(tmp_path: Path) -> None:
     """A directory holding one ``profile.yml`` IS a deployment repo.
 
-    Root discovery's narrow trigger: only a file inside ``personas/`` beside a
+    Root discovery's narrow trigger: only a file inside the retired layer directory beside a
     ``profile.yml`` is a delta. Everything else — including a hand-written
     scratch profile like this one — is simply the source zone of the repo it
     sits in, and needs no ``.env`` to render.

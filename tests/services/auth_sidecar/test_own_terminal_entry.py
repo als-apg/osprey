@@ -36,7 +36,7 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_SECRET = "session-secret-value"
 SESSION_LIFETIME = 3600

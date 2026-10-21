@@ -1,175 +1,37 @@
-"""Type-aware simulation-file lookup for `osprey sim apply`/`list`/`status`.
+"""``apply_scenarios`` reads the render's simulator view under every control-system type.
 
-Before this fix, both ``apply_scenarios`` (simulation/apply.py) and the ``sim``
-CLI's ``_load_project_engine`` (cli/sim.py) resolved the simulation-model file
-exclusively from ``control_system.connector.mock.simulation_file`` and hard-
-raised otherwise. In VA mode (``control_system.type: virtual_accelerator``)
-that breaks the write->apply->read flow: the VA connector's simulation_file
-lives under ``connector.virtual_accelerator.simulation_file`` instead.
+This file pins:
 
-``osprey_connectors.simulation.engine.resolve_simulation_file`` is the single shared
-resolver both call sites now use. This file pins:
-
-- mock resolution and its missing-key error text are bit-identical to the
-  pre-VA behavior (both in the helper and in each of its two callers, which
-  keep their own historical wording for the mock case).
-- VA resolution reads ``connector.virtual_accelerator.simulation_file``, and
-  falls back to the mock key when its own key is unset (mirroring the
-  contract that "the mock fallback" is a real, not just informational, key).
-- an unknown/unsupported ``control_system.type`` fails cleanly, naming both
-  the type-specific key and the mock fallback key that were tried.
+- ``apply_scenarios`` activates a set the simulator view lists under every
+  type, and refuses a render without a view.
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
-import yaml
-from click.testing import CliRunner
+import pytest
 
-from osprey.cli.sim import sim_group
 from osprey.simulation.apply import apply_scenarios
-from osprey_connectors.simulation.engine import resolve_simulation_file
-from tests.simulation.conftest import TEMPLATE_SIM, stage_sim_project
+from tests._simulator_view import write_scenarios_view
+from tests.simulation.conftest import stage_sim_project
 
-MOCK_TYPE_KEY = "control_system.connector.mock.simulation_file"
-
-MOCK_CS = {
-    "type": "mock",
-    "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-}
-MOCK_MISSING_CS = {"type": "mock", "connector": {"mock": {}}}
-VA_CS = {
+IN_PROCESS_CS = {
     "type": "virtual_accelerator",
-    "connector": {"virtual_accelerator": {"simulation_file": "data/simulation/machine.json"}},
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
 }
-VA_FALLS_BACK_CS = {
-    "type": "virtual_accelerator",
-    "connector": {
-        "virtual_accelerator": {},
-        "mock": {"simulation_file": "data/simulation/machine.json"},
-    },
-}
-VA_MISSING_CS = {
-    "type": "virtual_accelerator",
-    "connector": {"virtual_accelerator": {}, "mock": {}},
-}
+VA_CS = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {}}}
 UNKNOWN_CS = {"type": "bogus", "connector": {}}
 
 
 def _stage_project(tmp_path: Path, control_system: dict) -> Path:
-    """Copy the shipped simulation tree and write a config.yml with the given
-    ``control_system`` block.
+    """Write a config.yml with the given ``control_system`` block.
 
     The flat shape: ``config.yml`` beside ``data/``. This is what a *container*
     project directory looks like — its root is the render — and it is the shape
-    the direct-API callers below are handed. :func:`_stage_repo` is its
-    deployment-repo counterpart, for the callers that discover a repo instead of
-    being told one.
+    the direct-API callers below are handed.
     """
     return stage_sim_project(tmp_path, control_system=control_system)
-
-
-def _stage_repo(tmp_path: Path, control_system: dict, *, with_model: bool = True) -> Path:
-    """Stage a deployment repo the ``sim`` CLI can discover.
-
-    The CLI takes no project directory: it walks up to the nearest
-    ``profile.yml`` and reads the render under ``build/``. So the same
-    ``control_system`` block has to be placed the way a real deployment holds it
-    — the rendered config in ``build/``, the simulation model in the source zone
-    at the repo root, which is what ``project_root`` means in a rendered config
-    and therefore what the model path resolves against.
-
-    ``profile.yml`` is present but empty: it is the repo *marker* here, and
-    nothing in this file's subject parses it.
-
-    Args:
-        with_model: Copy the shipped simulation tree in. False stages a repo
-            with a render but no model, which is how the missing-key branches
-            are reached without the resolver finding a file anyway.
-    """
-    (tmp_path / "profile.yml").write_text("")
-    if with_model:
-        sim_dst = tmp_path / "data" / "simulation"
-        sim_dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(TEMPLATE_SIM, sim_dst)
-
-    build = tmp_path / "build"
-    build.mkdir(parents=True, exist_ok=True)
-    (build / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
-    return tmp_path
-
-
-# ---------------------------------------------------------------------------
-# resolve_simulation_file (the shared helper)
-# ---------------------------------------------------------------------------
-
-
-class TestResolveSimulationFile:
-    def test_mock_resolves_from_mock_key(self, tmp_path):
-        project = _stage_project(tmp_path, MOCK_CS)
-        path, active_type, type_key, mock_key = resolve_simulation_file(
-            {"control_system": MOCK_CS}, project
-        )
-        assert path == project / "data/simulation/machine.json"
-        assert active_type == "mock"
-        assert type_key == MOCK_TYPE_KEY
-        assert mock_key == MOCK_TYPE_KEY
-
-    def test_mock_missing_key_returns_none(self, tmp_path):
-        path, active_type, _, _ = resolve_simulation_file(
-            {"control_system": MOCK_MISSING_CS}, tmp_path
-        )
-        assert path is None
-        assert active_type == "mock"
-
-    def test_type_defaults_to_mock_when_unset(self, tmp_path):
-        """No `control_system.type` key at all -> resolves as mock (today's implicit default)."""
-        config = {
-            "control_system": {
-                "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-            }
-        }
-        path, active_type, _, _ = resolve_simulation_file(config, tmp_path)
-        assert active_type == "mock"
-        assert path == tmp_path / "data/simulation/machine.json"
-
-    def test_va_resolves_from_va_key(self, tmp_path):
-        project = _stage_project(tmp_path, VA_CS)
-        path, active_type, type_key, mock_key = resolve_simulation_file(
-            {"control_system": VA_CS}, project
-        )
-        assert path == project / "data/simulation/machine.json"
-        assert active_type == "virtual_accelerator"
-        assert type_key == "control_system.connector.virtual_accelerator.simulation_file"
-        assert mock_key == MOCK_TYPE_KEY
-
-    def test_va_falls_back_to_mock_key_when_own_key_unset(self, tmp_path):
-        project = _stage_project(tmp_path, VA_FALLS_BACK_CS)
-        path, active_type, _, _ = resolve_simulation_file(
-            {"control_system": VA_FALLS_BACK_CS}, project
-        )
-        assert path == project / "data/simulation/machine.json"
-        assert active_type == "virtual_accelerator"
-
-    def test_va_missing_both_keys_returns_none(self, tmp_path):
-        path, active_type, type_key, mock_key = resolve_simulation_file(
-            {"control_system": VA_MISSING_CS}, tmp_path
-        )
-        assert path is None
-        assert active_type == "virtual_accelerator"
-        assert type_key == "control_system.connector.virtual_accelerator.simulation_file"
-        assert mock_key == MOCK_TYPE_KEY
-
-    def test_unknown_type_returns_none_naming_both_keys(self, tmp_path):
-        path, active_type, type_key, mock_key = resolve_simulation_file(
-            {"control_system": UNKNOWN_CS}, tmp_path
-        )
-        assert path is None
-        assert active_type == "bogus"
-        assert type_key == "control_system.connector.bogus.simulation_file"
-        assert mock_key == MOCK_TYPE_KEY
 
 
 # ---------------------------------------------------------------------------
@@ -177,75 +39,25 @@ class TestResolveSimulationFile:
 # ---------------------------------------------------------------------------
 
 
-class TestApplyScenariosTypeAwareness:
-    def test_mock_missing_key_error_unchanged(self, tmp_path):
-        project = _stage_project(tmp_path, MOCK_MISSING_CS)
-        try:
-            apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-            raised = None
-        except ValueError as exc:
-            raised = exc
-        assert raised is not None
-        assert str(raised) == (
-            f"Project {project} has no mock 'simulation_file' configured; "
-            f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
-        )
+class TestApplyScenariosReadsTheSimulatorView:
+    @pytest.mark.parametrize("control_system", [IN_PROCESS_CS, VA_CS, UNKNOWN_CS])
+    def test_a_set_the_view_lists_is_applied_under_every_type(self, tmp_path, control_system):
+        project = _stage_project(tmp_path, control_system)
+        write_scenarios_view(project, {"nominal": {}, "rf-thermal": {}})
 
-    def test_va_mode_applies_scenario(self, tmp_path):
-        project = _stage_project(tmp_path, VA_CS)
         result = apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-        assert "rf-thermal" in result.active
-        assert "nominal" in result.active
 
-    def test_unknown_type_error_names_both_keys(self, tmp_path):
-        project = _stage_project(tmp_path, UNKNOWN_CS)
-        try:
+        assert result.active == ("nominal", "rf-thermal")
+
+    @pytest.mark.parametrize("control_system", [IN_PROCESS_CS, UNKNOWN_CS])
+    def test_a_render_without_a_simulator_view_is_refused(self, tmp_path, control_system):
+        project = _stage_project(tmp_path, control_system)
+
+        with pytest.raises(ValueError) as raised:
             apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-            raised = None
-        except ValueError as exc:
-            raised = exc
-        assert raised is not None
-        message = str(raised)
-        assert "control_system.connector.bogus.simulation_file" in message
-        assert MOCK_TYPE_KEY in message
-        assert str(project) in message
 
-
-# ---------------------------------------------------------------------------
-# `sim` CLI (cli/sim.py, via `_load_project_engine`)
-# ---------------------------------------------------------------------------
-
-
-class TestSimCliTypeAwareness:
-    """The same three branches, reached through the CLI's own discovery.
-
-    Each of these is driven from a *subdirectory* of the staged repo rather
-    than its root. The type-aware lookup being pinned here happens after the
-    repo is found, and running from the root would let a regression to
-    "cwd is the project" pass unnoticed.
-    """
-
-    def test_mock_missing_key_cli_message_unchanged(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, MOCK_MISSING_CS, with_model=False)
-        monkeypatch.chdir(repo / "build")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 1
-        assert "✗ No mock 'simulation_file' is configured in config.yml" in result.output
-        assert "This project does not use the simulation engine." in result.output
-
-    def test_va_mode_lists_scenarios(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, VA_CS)
-        monkeypatch.chdir(repo / "data" / "simulation")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 0
-        assert "nominal" in result.output
-        assert "rf-thermal" in result.output
-
-    def test_unknown_type_cli_names_both_keys(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, UNKNOWN_CS, with_model=False)
-        monkeypatch.chdir(repo / "build")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 1
-        assert "control_system.connector.bogus.simulation_file" in result.output
-        assert MOCK_TYPE_KEY in result.output
-        assert "This project does not use the simulation engine." in result.output
+        assert str(raised.value) == (
+            f"Project {project} has no simulator view in {project / 'data' / 'simulator'}; "
+            "`sim apply` only applies to simulation-backed projects (guards a real DB). "
+            "Run 'osprey build'."
+        )

@@ -1,15 +1,11 @@
-"""Closed-orbit finding sanity checks for the 4D canonical ALS-U AR ring.
+"""Closed-orbit checks on the example facility's SR deck, in 4D.
 
-This is throwaway physics insurance: it locks down that ``at.find_orbit4``
-actually converges on the shared ring topology (not a given for a hand-ported
-lattice) and that a single corrector kick produces a bounded, sign-odd orbit
-response, before later phases build orbit-response-matrix plans on top
-of it.
+``at.find_orbit4`` converges on the committed deck and closes at every monitor,
+and a single corrector kick produces a bounded, sign-odd orbit response.
 
 Elements are selected by pyAT element TYPE (``at.Corrector``, ``at.Monitor``),
-never by ``FamName`` string, so this file stays valid across the concurrent
-FamName-rename work happening elsewhere in this phase -- orbit-finding is a
-topology property, not a naming one.
+never by ``FamName`` string: orbit-finding is a topology property, not a naming
+one.
 """
 
 from __future__ import annotations
@@ -17,14 +13,12 @@ from __future__ import annotations
 import at
 import numpy as np
 
-from osprey.simulation.lattice import build_ring
+from tests.simulation._sr_deck import load_sr_deck_4d
 
 
 def _fresh_4d_ring():
-    """A fresh, independent 4D copy of the shared ring (radiation+cavity off)."""
-    ring = build_ring().deepcopy()
-    ring.disable_6d()  # mutates in place; returns None -- do not chain/assign
-    return ring
+    """A fresh, independent 4D copy of the deck (radiation+cavity off)."""
+    return load_sr_deck_4d()
 
 
 def _monitor_refpts(ring):
@@ -32,10 +26,10 @@ def _monitor_refpts(ring):
 
 
 def test_orbit4_closes_at_monitors():
-    """find_orbit4 converges on the ideal 4D ring and closes at every monitor."""
+    """find_orbit4 converges on the ideal 4D deck and closes at every monitor."""
     ring = _fresh_4d_ring()
     refpts = _monitor_refpts(ring)
-    assert len(refpts) == 72  # SC5 AR ring: 72 BPMs, one per unit cell
+    assert len(refpts) == 72  # 72 BPMs, one per unit cell
 
     orbit0, orbit_at_refpts = at.find_orbit4(ring, refpts=refpts)
 
@@ -46,10 +40,9 @@ def test_orbit4_closes_at_monitors():
     x, y = orbit_at_refpts[:, 0], orbit_at_refpts[:, 2]
     max_abs_x, max_abs_y = np.max(np.abs(x)), np.max(np.abs(y))
     print(f"closed orbit at monitors: max|x| = {max_abs_x:.3e} m, max|y| = {max_abs_y:.3e} m")
-    # Evidence (ideal ring, no errors -> orbit is machine-precision zero):
-    # max|x| = 0.000e+00 m, max|y| = 0.000e+00 m.
-    assert max_abs_x < 1e-6
-    assert max_abs_y < 1e-6
+    # The ideal deck carries no errors, so its closed orbit is zero.
+    assert max_abs_x < 1e-9
+    assert max_abs_y < 1e-9
 
 
 def test_corrector_kick_bounded_and_odd():

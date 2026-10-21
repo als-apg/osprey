@@ -17,7 +17,8 @@ from osprey.registry.mcp import (
     resolve_servers,
     writes_check_matchers,
 )
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._renders import tier_render
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -275,7 +276,7 @@ class TestResolveServers:
     def test_all_python_servers_set_config_file(self):
         """Every framework python MCP server must set CONFIG_FILE, not just OSPREY_CONFIG.
 
-        osprey.utils.config reads CONFIG_FILE (OSPREY_CONFIG is only used to locate
+        osprey_connectors.config reads CONFIG_FILE (OSPREY_CONFIG is only used to locate
         .env). When a server subprocess is launched with a CWD other than the
         project dir (e.g. the dispatch worker's /app WORKDIR), a missing CONFIG_FILE
         makes config resolution fall back to CWD/config.yml and fail. Regression
@@ -338,9 +339,11 @@ class TestResolveServers:
         in neither list — so nothing pinned which side of the split they land
         on, and the disjointness assertion above stays green either way. They
         are named here because each is either a read of state the agent just
-        produced or a write to the simulation's own scratch state, which
-        ``lattice_init`` restores; none of it reaches hardware, so a prompt per
-        call would buy nothing.
+        produced or a write to the simulation's own scratch state:
+        ``lattice_set_baseline`` sets a fresh baseline, so
+        ``lattice_clear_baseline`` is undone by it; the dashboard's model switch
+        also re-initialises the state. None of it reaches hardware, so a prompt
+        per call would buy nothing.
 
         ``lattice_clear_baseline`` is allow-listed here and still blocked under
         the headless read-only floor, which classifies it side-effecting from
@@ -1444,13 +1447,15 @@ class TestTemplateRendering:
         # (here, simply omitted) renders clean, and the topology gate does not
         # implicate this claude_code.servers stanza in any way.
         facility_config = {
-            "facility": {"name": "Demo Light Source", "prefix": "dls"},
+            "facility": {"prefix": "dls"},
             "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
             "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
             "modules": {
                 "web_terminals": {
                     "enabled": True,
                     "users": ["alice"],
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "dls-assistant")},
                 }
             },
             # Same shape as the project-level config exercised above — present
@@ -1668,7 +1673,7 @@ class TestMixedReadWriteTools:
         assert (
             writes_check_matchers("python")
             == expected
-            == ["mcp__python__execute", "mcp__python__execute_file"]
+            == ["mcp__python__execute", "mcp__python__execute_file", "mcp__python__pyaml_measure"]
         )
 
     def test_writes_check_matchers_rewrite_the_clone_prefix(self):
@@ -1677,6 +1682,7 @@ class TestMixedReadWriteTools:
         assert writes_check_matchers("python", "python2") == [
             "mcp__python2__execute",
             "mcp__python2__execute_file",
+            "mcp__python2__pyaml_measure",
         ]
 
     def test_writes_check_matchers_unknown_template_is_empty(self):
@@ -1748,7 +1754,7 @@ class TestMixedReadWriteTools:
 
 
 def _events_panel_config() -> dict:
-    """A config that declares the EVENTS panel, as a terminal persona does."""
+    """A config that declares the EVENTS panel, as a terminal render does."""
     return {"web": {"panels": {"events": {}}}}
 
 
@@ -1809,15 +1815,15 @@ class TestEventDispatcherServer:
     def test_wiring_key_follows_the_panel_declaration(self, tmp_path):
         """``event_dispatcher_wired`` IS the dispatcher-token predicate.
 
-        The per-persona bearer in the web-terminals render and the single-user
+        The per-render bearer in the web-terminals render and the single-user
         host both grant the dispatcher token from
         ``config_needs_dispatcher_token``. Deriving the render key from any
-        second reading of the config would let a persona be handed the entry
+        second reading of the config would let a render be handed the entry
         without the credential behind it, or the credential with no entry to
         spend it on.
         """
         from osprey.cli.templates.claude_code import config_derived_context
-        from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+        from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
 
         with_panel = _events_panel_config()
         assert config_derived_context(with_panel, tmp_path)["event_dispatcher_wired"] is True
@@ -1829,7 +1835,7 @@ class TestEventDispatcherServer:
             ] == config_needs_dispatcher_token(config)
 
     def test_render_carries_the_entry_with_no_env_block(self, tmp_path):
-        """End to end: a persona that declares the panel renders the entry exactly.
+        """End to end: a render that declares the panel renders the entry exactly.
 
         A URL entry has nowhere to put ``env`` — a remote server never sees it —
         so the rendered block is ``{type, url, headers}`` and nothing else.
@@ -1859,12 +1865,12 @@ class TestEventDispatcherServer:
         The registry spells the url and the bearer header as literals — the
         modules that own those pieces are either far heavier than this registry
         (the interfaces package, loaded on every render) or import the registry
-        themselves (personas), so importing them there is not on offer. What is
+        themselves (renders), so importing them there is not on offer. What is
         on offer is failing HERE the moment one of them moves: a renamed env
         var or a relocated MCP path would otherwise leave the agent dialing a
         404 with an empty bearer, and nothing else would notice.
         """
-        from osprey.deployment.web_terminals.personas import EVENTS_PANEL_ID
+        from osprey.deployment.web_terminals.roster import EVENTS_PANEL_ID
         from osprey.dispatch import DISPATCHER_MCP_PATH
         from osprey.interfaces.common_middleware import WEB_PORT_ENV
         from osprey.interfaces.web_auth import PANEL_TOKEN_ENV

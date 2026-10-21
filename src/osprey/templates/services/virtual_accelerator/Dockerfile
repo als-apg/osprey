@@ -84,10 +84,10 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
 # Refuse to build anywhere but amd64. The pin above should make this
 # unreachable, but a `--platform` override, or someone lifting this recipe into
 # their own file, would otherwise produce an image that BUILDS CLEANLY AND
-# CANNOT SERVE: osprey's `virtual-accelerator` extra marks pcaspy
-# `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
-# environment marker that does not match is not an error — pip simply installs
-# nothing for it. The first sign would be a runtime ImportError on
+# CANNOT SERVE: osprey's `virtual-accelerator` extra marks lume-pva-apg, whose
+# `ca` extra brings pcaspy, `sys_platform == 'linux' and
+# platform_machine == 'x86_64'`, and an environment marker that does not match
+# is not an error — pip simply installs nothing for it. The first sign would be a runtime ImportError on
 # `import pcaspy` inside serving/runner.py, long after the build reported
 # success. Fail here instead, where the message can say why.
 RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
@@ -220,29 +220,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The first wheel install carries the `[virtual-accelerator]` extra so a
 # dev wheel whose extra adds/bumps a dep resolves it (the primer only covers the
-# released extra set and `pip check` cannot detect missing extras); the staged
-# osprey-connectors wheel rides in the same call so the framework's requirement
-# on it resolves locally rather than from PyPI. The wheels are then
-# force-reinstalled --no-deps (no extra) to guarantee their own modules win, and
-# `pip check` guards against residual mismatches. No wheel staged → no-op, image
-# already complete after the deps layer.
+# released extra set and `pip check` cannot detect missing extras); every other
+# staged wheel -- one per workspace member -- rides in the same call so the
+# framework's requirement on each resolves locally rather than from PyPI. The
+# wheels are then force-reinstalled --no-deps (no extra) to guarantee their own
+# modules win, and `pip check` guards against residual mismatches. No wheel
+# staged → no-op, image already complete after the deps layer.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
-        && pip install "${whl}[virtual-accelerator]" /tmp/ctx/osprey_connectors-*.whl --only-binary pcaspy \
+        && pip install "${whl}[virtual-accelerator]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) --only-binary pcaspy \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \
     fi \
     && rm -rf /tmp/ctx
 
-# The entrypoint module is configuration, not a bake-time constant: a
-# facility may supply its own entrypoint module (e.g. one serving a
-# file-backed manifest with no lattice) without rebuilding the image.
-# `exec` replaces the shell so SIGTERM reaches python directly and
-# entrypoint.py's shutdown handlers still run on `docker stop`.
-# `:-` treats the compose passthrough's empty string the same as unset.
+# The image runs the shipped entrypoint module by name. `exec` replaces the
+# shell so SIGTERM reaches python directly and entrypoint.py's shutdown
+# handlers still run on `docker stop`.
 #
 # EPICS_CAS_SERVER_PORT is derived here rather than set in the compose
 # environment, because it has to track EPICS_CA_SERVER_PORT and cannot be
@@ -252,7 +249,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # the server kept binding 5064 — and a CA search reply carries the server's own
 # port, so clients would be handed an address nothing listens on, with no
 # useful error.
-CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m osprey.services.virtual_accelerator.entrypoint"]
 
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here

@@ -166,7 +166,7 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> s
     """
     from urllib.parse import quote
 
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     if source_system == ARIEL_NATIVE_SOURCE_SYSTEM:
         return None
@@ -238,7 +238,7 @@ def serialize_entry(
     """
     from osprey.services.ariel_search.attachments.summaries import build_attachment_summaries
     from osprey.services.ariel_search.models import entry_text_fields
-    from osprey.utils.config import to_facility_iso
+    from osprey_connectors.config import to_facility_iso
 
     ts = to_facility_iso(entry["timestamp"])
 
@@ -292,7 +292,7 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
     )
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.workspace import resolve_agent_data_root
 
     prime_config_builder()
     initialize_ariel_context()
@@ -300,7 +300,7 @@ def create_server() -> FastMCP:
     # Session working root used by other tools at call time; the artifact
     # store itself is rooted at the shared data root inside
     # initialize_workspace_singletons().
-    logger.info("ARIEL workspace root: %s", resolve_workspace_root())
+    logger.info("ARIEL workspace root: %s", resolve_agent_data_root())
     initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())

@@ -17,6 +17,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
     row_anomaly,
     singular_values,
 )
+from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column
 
 CORRECTORS = ["corr1", "corr2", "corr3"]
 BPMS = ["bpm1", "bpm2", "bpm3", "bpm4"]
@@ -106,6 +107,47 @@ def test_matrix_prefers_the_exact_column_over_a_prefixed_one() -> None:
 
     assert result.shape == (1, 1)
     assert result[0, 0] == pytest.approx(2.0)
+
+
+def test_setpoint_regressor_takes_the_demand_column_and_falls_back_to_the_one_column() -> None:
+    """The setpoint regressor reads ``<name>_setpoint`` when the device reports one.
+
+    A device with no separate demand reports one column, and that column is
+    its demand, so the setpoint regressor falls back to it. The readback
+    regressor always reads the device's own column.
+    """
+    both = ["hcm1", "hcm1_setpoint", "bpm1"]
+    assert resolve_regressor_column("hcm1", both, "setpoint") == "hcm1_setpoint"
+    assert resolve_regressor_column("hcm1", ["hcm1", "bpm1"], "setpoint") == "hcm1"
+    assert resolve_regressor_column("hcm1", ["hcm1-readback", "bpm1"], "setpoint") == (
+        "hcm1-readback"
+    )
+    assert resolve_regressor_column("hcm1", both, "readback") == "hcm1"
+    assert resolve_regressor_column("hcm1", ["bpm1"], "setpoint") is None
+
+
+def test_setpoint_regression_recovers_the_commanded_slope_through_a_readback_gain_and_offset_error() -> (
+    None
+):
+    """A readback that tracks its demand with a gain and offset error biases only the readback fit.
+
+    Each row carries the commanded current under ``corr1_setpoint`` and a
+    readback of ``0.98 * setpoint + 0.3`` under ``corr1``; the BPM responds to
+    the commanded current. The setpoint fit recovers the response exactly; the
+    readback fit is off by the tracking gain.
+    """
+    response = 1.7
+    rows = [
+        {"corr1_setpoint": float(c), "corr1": 0.98 * float(c) + 0.3, "bpm1": response * float(c)}
+        for c in np.linspace(-1.0, 1.0, 5)
+    ]
+
+    by_setpoint = build_response_matrix(rows, ["corr1"], ["bpm1"], regressor="setpoint")
+    by_readback = build_response_matrix(rows, ["corr1"], ["bpm1"], regressor="readback")
+
+    assert by_setpoint[0, 0] == pytest.approx(response, rel=1e-12, abs=1e-12)
+    assert by_readback[0, 0] == pytest.approx(response / 0.98, rel=1e-12, abs=1e-12)
+    assert build_response_matrix(rows, ["corr1"], ["bpm1"])[0, 0] == by_setpoint[0, 0]
 
 
 def test_matrix_skips_a_row_whose_corrector_column_holds_no_value() -> None:

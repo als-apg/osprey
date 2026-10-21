@@ -1,0 +1,1 @@
+The approval prompt of `pyaml_measure` now only describes a call; a call for a kind the model's measurement file does not list goes straight to the tool, which refuses it with one sentence. The build stops when a measurement file names a tune reading of one plane that no reading of the other plane pairs with.

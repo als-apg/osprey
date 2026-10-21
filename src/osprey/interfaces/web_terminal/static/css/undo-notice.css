@@ -1,0 +1,65 @@
+/* OSPREY Web Terminal — the Undo notice (js/undo-notice.js)
+
+   One line at the foot of the page, centred above the status bar (whose
+   height bars.css zeroes while the bar is hidden), that says
+   what a one-click removal did and offers it back. Above every dropdown and
+   modal (--z-toast): the removal that produced it usually closed a menu on the
+   way, and the notice must not land under whatever opened next. */
+
+.undo-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--wt-status-bar-height, 0px) + 12px);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 6px 6px 6px 14px;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dropdown);
+  transform: translateX(-50%);
+  animation: undo-notice-in var(--duration-instant) ease-out;
+}
+
+.undo-notice-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.undo-notice-btn {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
+  background: none;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.undo-notice-btn:hover,
+.undo-notice-btn:focus-visible {
+  background: var(--bg-elevated);
+}
+
+@keyframes undo-notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .undo-notice {
+    animation: none;
+  }
+}

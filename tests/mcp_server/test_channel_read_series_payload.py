@@ -39,7 +39,7 @@ def _make_channel_value(value, timestamp="2024-01-15T10:30:00"):
     return cv
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic values through the real tool body."""
 
     def __init__(self, values: dict):
@@ -54,7 +54,7 @@ def _config_patch(overrides: dict):
     if not overrides:
         return nullcontext()
 
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     real = config_module.get_config_value
 
@@ -63,26 +63,28 @@ def _config_patch(overrides: dict):
             return overrides[path]
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey.utils.config.get_config_value", side_effect=fake)
+    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
 
 
 async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector(values)
+    connector = _FakeConnector(values)
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
         _config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)

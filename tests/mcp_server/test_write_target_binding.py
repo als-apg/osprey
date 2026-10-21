@@ -46,12 +46,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
-from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from tests._control_context_fixtures import (
     state_dir_under,
     write_control_context,
@@ -123,7 +123,9 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     report and is therefore held up only by a swap in flight.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
@@ -297,11 +299,11 @@ def _patched(connector, *, when_resolved=None):
 
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new=_create,
         ),
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):

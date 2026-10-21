@@ -92,14 +92,14 @@ def build_cf_server(
     return mcp
 
 
-def _config_path() -> Path:
+def config_path() -> Path:
     """Return the channel-finder servers' view of the framework's config path.
 
-    It is :func:`~osprey.utils.workspace.resolve_config_path`, asked directly.
+    It is :func:`~osprey_connectors.workspace.resolve_config_path`, asked directly.
     Loading, data anchoring and state anchoring all answer from it, so they
     cannot disagree with each other or with the graph pipeline.
     """
-    from osprey.utils.workspace import resolve_config_path
+    from osprey_connectors.workspace import resolve_config_path
 
     return resolve_config_path()
 
@@ -113,26 +113,26 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
     Returns ``{}``, with a warning naming the path, when the file is missing or
     cannot be loaded.
     """
-    config_path = _config_path()
-    if not config_path.exists():
-        logger.warning("Config file not found: %s", config_path)
+    path = config_path()
+    if not path.exists():
+        logger.warning("Config file not found: %s", path)
         return {}
 
     try:
-        from osprey.utils.config import get_config_builder
+        from osprey_connectors.config import get_config_builder
 
         raw: dict[str, Any] = get_config_builder(
-            config_path=str(config_path), set_as_default=True
+            config_path=str(path), set_as_default=True
         ).raw_config
     except Exception as exc:
         logger.warning(
             "Config file %s could not be loaded, channel finder starts unconfigured: %s",
-            config_path,
+            path,
             exc,
         )
         return {}
 
-    logger.info("config loaded from %s", config_path)
+    logger.info("config loaded from %s", path)
     return raw
 
 
@@ -159,7 +159,7 @@ def resolve_cf_path(path_str: str) -> str:
     """
     p = Path(path_str)
     if not p.is_absolute():
-        p = _config_path().parent / p
+        p = config_path().parent / p
     return str(p.resolve())
 
 
@@ -173,12 +173,12 @@ def resolve_cf_state_path(path_str: str) -> str:
 
     Falls back to the config's own directory when the config is not in a
     ``build/`` zone, which is what a standalone or already-flat deployment
-    looks like; :func:`~osprey.utils.workspace.repo_root_for_config` makes that
+    looks like; :func:`~osprey_connectors.workspace.repo_root_for_config` makes that
     same judgement everywhere else.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     p = Path(path_str)
     if not p.is_absolute():
-        p = repo_root_for_config(_config_path()) / p
+        p = repo_root_for_config(config_path()) / p
     return str(p.resolve())

@@ -1,0 +1,1 @@
+The control-assistant preset no longer ships `data/channel_databases/examples/`: the hierarchical pipeline reads the channel-finder view the build writes, and the channel-finder contract page states its format.

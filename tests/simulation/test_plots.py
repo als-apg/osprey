@@ -11,8 +11,8 @@ import matplotlib.dates as mdates
 import pytest
 from PIL import Image
 
-from osprey.simulation.machine import parse_plot_spec
 from osprey.simulation.plots import DPI, FIGSIZE, draw_plot_spec, render_plot_spec
+from osprey_connectors.simulation.logbook import parse_plot_spec
 
 ZONE = ZoneInfo("America/Los_Angeles")
 #: 10:00 local on a day whose UTC date is the same, so a UTC-read axis would

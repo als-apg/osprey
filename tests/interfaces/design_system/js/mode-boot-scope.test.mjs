@@ -1,5 +1,5 @@
 /**
- * Unit tests for mode-boot.js's per-persona scoping of the storage rung.
+ * Unit tests for mode-boot.js's per-user scoping of the storage rung.
  *
  * The ladder itself (?mode= > storage > server data-ui-mode > 'expert') is
  * pinned in tests/interfaces/design_system/mode-boot.test.mjs. This file pins
@@ -7,9 +7,9 @@
  *
  *   - scoped pages read `osprey-ui-mode--<scope>`
  *   - a scoped page NEVER falls back to the bare `osprey-ui-mode`, even when it
- *     holds a valid mode — that shared slot is the cross-persona bug the
+ *     holds a valid mode — that shared slot is the cross-user bug the
  *     scoping exists to escape, and consulting it would re-inflict the bug once
- *     per persona
+ *     per user
  *   - with no attribute, the bare key is honoured exactly as before
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally):
@@ -39,7 +39,7 @@ describe('mode-boot.js storage scoping', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  describe('a polluted legacy key does not leak across personas', () => {
+  describe('a polluted legacy key does not leak across users', () => {
     test("bob boots his server mode, not the shared slot's 'simple'", () => {
       // The shared origin-wide slot someone else wrote last.
       window.localStorage.setItem(LEGACY_KEY, 'simple');
@@ -85,7 +85,7 @@ describe('mode-boot.js storage scoping', () => {
       expect(currentMode()).toBe('simple');
     });
 
-    test("carol's key is not bob's — one persona's pick leaves the other alone", () => {
+    test("carol's key is not bob's — one user's pick leaves the other alone", () => {
       window.localStorage.setItem(`${LEGACY_KEY}--bob`, 'simple');
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
       document.documentElement.setAttribute('data-ui-mode', 'expert');

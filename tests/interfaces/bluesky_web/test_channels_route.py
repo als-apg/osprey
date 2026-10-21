@@ -47,7 +47,7 @@ def project_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """
     project = tmp_path / "project"
     project.mkdir()
-    (project / "config.yml").write_text("connector:\n  type: mock\n")
+    (project / "config.yml").write_text("connector:\n  type: virtual_accelerator\n")
     monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
     return project
 

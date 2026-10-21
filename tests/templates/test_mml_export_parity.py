@@ -38,6 +38,14 @@ design:
 The rest of the ``_export`` block --- ``exporter``, ``machine`` and
 ``submachine`` --- is compared and must match.
 
+A third key is excluded in the model file only: the ``timestamp`` of every
+block of ``orbit_response.physics`` and ``orbit_response.hardware``. That
+matrix is computed from the model by the run itself, so its clock is the run's
+and differs between any two runs. The key must still be there, spelled as the
+export spells a time. The ``timestamp`` of a ``response.json`` block is
+compared: it is the stored measurement file's own stamp, a fact of the
+facility.
+
 Running it
 ----------
 Two variables name the checkouts, and the lane skips when either is unset:
@@ -69,15 +77,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey.services.mml.loaders import LoadedInput
-from osprey.services.mml.loaders.json_any import load_json
-from osprey.services.mml.loaders.mat import load_lattice
-from osprey.services.mml.normalize import normalize_family
-from osprey.services.mml.systems import resolve_system
+from osprey.facility.layers.mml.loaders import LoadedInput
+from osprey.facility.layers.mml.loaders.json_any import load_json
+from osprey.facility.layers.mml.loaders.mat import load_lattice
+from osprey.facility.layers.mml.normalize import normalize_family
+from osprey.facility.layers.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
-EXPORTER = MML_DIR / "mml_export.m"
+EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
 MML_PROD_ROOT_ENV = "OSPREY_MML_PROD_ROOT"
@@ -91,12 +98,34 @@ MATLAB_TIMEOUT_SECONDS = 1800
 #: The ``_export`` keys that carry the run rather than the machine.
 VOLATILE_EXPORT_KEYS = frozenset({"matlab", "timestamp"})
 
+#: The model file's ``orbit_response`` sections whose blocks each carry the
+#: clock of the model matrix the run computed itself, under
+#: :data:`MODEL_RESPONSE_CLOCK_KEY`.
+MODEL_RESPONSE_SECTIONS = ("physics", "hardware")
+
+#: The key of a model-file response block that holds the run's own clock.
+MODEL_RESPONSE_CLOCK_KEY = "timestamp"
+
+#: How the export spells a time, or the empty string where it states none.
+EXPORT_TIME = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)?$")
+
+#: What every model-file response clock is set to before the comparison.
+RUN_CLOCK = "<run clock>"
+
 FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 
 #: Every file the exporter writes for one sub-machine, by suffix. The first two
-#: are a 1.0 export; the rest are what 2.0 added.
-EXPORT_SUFFIXES = (".ao.json", ".ad.json", ".va.json", ".response.json", ".lattice.mat")
+#: are a 1.0 export; the next three are what 2.0 added, and the model file is
+#: what 2.1 added.
+EXPORT_SUFFIXES = (
+    ".ao.json",
+    ".ad.json",
+    ".va.json",
+    ".response.json",
+    ".lattice.mat",
+    ".model.json",
+)
 
 #: The element attributes two decks must agree on. ``FamName``, ``Class`` and
 #: ``PassMethod`` are identities and compared as written; the rest describe the
@@ -429,6 +458,29 @@ def _without_export(document: dict) -> dict:
     return rest
 
 
+def _without_run_clock(model: dict) -> dict:
+    """A model file whose computed response blocks carry one placeholder clock.
+
+    Each block must carry the clock as a string in the export's spelling, so
+    the key cannot vanish unnoticed.
+    """
+    response = model.get("orbit_response")
+    if not isinstance(response, dict):
+        return model
+    levelled = dict(response)
+    for name in MODEL_RESPONSE_SECTIONS:
+        blocks = response.get(name)
+        if not isinstance(blocks, list):
+            continue
+        for index, block in enumerate(blocks):
+            clock = block.get(MODEL_RESPONSE_CLOCK_KEY)
+            assert isinstance(clock, str) and EXPORT_TIME.match(clock), (
+                f"orbit_response.{name}[{index}].{MODEL_RESPONSE_CLOCK_KEY} = {clock!r}"
+            )
+        levelled[name] = [{**block, MODEL_RESPONSE_CLOCK_KEY: RUN_CLOCK} for block in blocks]
+    return {**model, "orbit_response": levelled}
+
+
 def _sampled_energies(va: dict) -> dict[str, object]:
     """Every energy the export states, by path: the ring's and each ramp's."""
     found: dict[str, object] = {"lattice.energy_gev": va.get("lattice", {}).get("energy_gev")}
@@ -481,6 +533,27 @@ def test_the_exported_response_matches_the_committed_export(
     actual = _sibling(export(case), ".response.json")
 
     assert _differences(_without_export(actual), _without_export(expected)) == []
+
+
+def test_the_exported_model_matches_the_committed_export(
+    case: Case, export: Callable[[Case], Path]
+) -> None:
+    """The Middle Layer's model answers, to the tolerance this module's docstring names.
+
+    A refused section is compared like any other: the same section refused
+    with the same message, or answered on both sides.
+    """
+    expected = json.loads(_committed_file(case, ".model.json").read_text(encoding="utf-8"))
+
+    actual = _sibling(export(case), ".model.json")
+
+    assert (
+        _differences(
+            _without_export(_without_run_clock(actual)),
+            _without_export(_without_run_clock(expected)),
+        )
+        == []
+    )
 
 
 def test_the_sampled_energies_are_exact(case: Case, export: Callable[[Case], Path]) -> None:

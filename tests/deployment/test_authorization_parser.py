@@ -6,8 +6,8 @@ set it runs with. It has two halves::
 
     authorization:
       roles:
-        operator: {persona: operator}
-        expert:   {persona: expert}
+        operator: {tier: operator}
+        expert:   {tier: expert}
       claims:
         claim: groups
         map:
@@ -32,7 +32,7 @@ Three properties are under test here, and each has a section:
   themselves all surface as findings rather than as an exception out of a
   scaffold command.
 
-Downstream consumers (the shared persona helper, the sidecar's claim -> role
+Downstream consumers (the shared render helper, the sidecar's claim -> role
 step, the sidecar's role payload) read the parsed keys, never the raw stanza,
 so the contract those tasks build on is pinned here.
 """
@@ -45,25 +45,25 @@ from typing import Any
 import pytest
 
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
-from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.render import (
     _authorization_context,
     render_web_terminals,
 )
+from osprey.deployment.web_terminals.roster import normalize_users
 
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 #: A coherent stanza, used wherever a test needs the working shape rather than a
 #: broken one. Two roles and a claim map over both, which is the smallest config
 #: that can express the ambiguity the downstream resolver must fail closed on.
-#: The personas it names are deliberately not declared in the lint config below:
-#: whether a role's persona exists in the catalog is the unknown-persona rule's
-#: question, asked once the shared helper resolves a role INTO a persona
+#: The renders it names are deliberately not declared in the lint config below:
+#: whether a role's render exists in the catalog is the unknown-render rule's
+#: question, asked once the shared helper resolves a role INTO a render
 #: (Task 4.2), and duplicating it here would report the same fact twice.
 _AUTHORIZATION: dict[str, Any] = {
     "roles": {
-        "operator": {"persona": "operator"},
-        "expert": {"persona": "physicist"},
+        "operator": {"tier": "operator"},
+        "expert": {"tier": "physicist"},
     },
     "claims": {
         "claim": "groups",
@@ -101,8 +101,8 @@ def test_no_authorization_stanza_parses_to_inert_defaults() -> None:
     }
 
 
-def test_roles_parse_into_a_role_to_persona_table() -> None:
-    """The static half: each role names exactly one catalog persona."""
+def test_roles_parse_into_a_role_to_render_table() -> None:
+    """The static half: each role names exactly one catalog render."""
     # Arrange
     web_terminals = _web(copy.deepcopy(_AUTHORIZATION))
 
@@ -133,7 +133,7 @@ def test_roles_without_claims_is_a_supported_posture() -> None:
     """Roles are assigned from the roster in `none`/`password` deployments, where
     there is no IdP claim to map at all."""
     # Arrange
-    web_terminals = _web({"roles": {"operator": {"persona": "operator"}}})
+    web_terminals = _web({"roles": {"operator": {"tier": "operator"}}})
 
     # Act
     context = _authorization_context(web_terminals)
@@ -168,8 +168,8 @@ def test_role_declaration_order_is_preserved() -> None:
     web_terminals = _web(
         {
             "roles": {
-                "zebra": {"persona": "operator"},
-                "alpha": {"persona": "physicist"},
+                "zebra": {"tier": "operator"},
+                "alpha": {"tier": "physicist"},
             }
         }
     )
@@ -222,7 +222,7 @@ def test_a_non_string_role_name_is_dropped_rather_than_parsed() -> None:
     """A YAML key that is not a string can never be named by a roster entry's
     `role:` or by a claim value, so it is inert; lint reports it."""
     # Arrange
-    web_terminals = _web({"roles": {7: {"persona": "operator"}}})
+    web_terminals = _web({"roles": {7: {"tier": "operator"}}})
 
     # Act
     context = _authorization_context(web_terminals)
@@ -233,12 +233,12 @@ def test_a_non_string_role_name_is_dropped_rather_than_parsed() -> None:
 
 @pytest.mark.parametrize(
     "entry",
-    [{}, {"persona": ""}, {"persona": None}, {"persona": 7}, "operator", None],
+    [{}, {"tier": ""}, {"tier": None}, {"tier": 7}, "operator", None],
     ids=["empty", "empty-string", "null", "int", "shorthand-string", "null-entry"],
 )
-def test_a_role_that_names_no_persona_is_refused(entry: Any) -> None:
+def test_a_role_that_names_no_render_is_refused(entry: Any) -> None:
     """Not inert: every entry carrying such a role would fall back to the
-    deployment's default persona — a different privilege set, silently."""
+    deployment's default tier — a different privilege set, silently."""
     # Arrange
     web_terminals = _web({"roles": {"operator": entry}})
 
@@ -252,7 +252,7 @@ def test_a_claim_map_naming_an_undeclared_role_is_refused() -> None:
     # Arrange
     web_terminals = _web(
         {
-            "roles": {"operator": {"persona": "operator"}},
+            "roles": {"operator": {"tier": "operator"}},
             "claims": {"claim": "groups", "map": {"dls-experts": "expert"}},
         }
     )
@@ -272,7 +272,7 @@ def test_a_claim_map_entry_that_cannot_name_a_role_is_refused(value: Any, role: 
     # Arrange
     web_terminals = _web(
         {
-            "roles": {"operator": {"persona": "operator"}},
+            "roles": {"operator": {"tier": "operator"}},
             "claims": {"claim": "groups", "map": {value: role}},
         }
     )
@@ -302,7 +302,7 @@ def test_half_a_claims_stanza_is_refused(claims: dict[str, Any], expected: str) 
     the line that is already correct.
     """
     # Arrange
-    web_terminals = _web({"roles": {"operator": {"persona": "operator"}}, "claims": claims})
+    web_terminals = _web({"roles": {"operator": {"tier": "operator"}}, "claims": claims})
 
     # Act / Assert
     with pytest.raises(ValueError, match=f"this stanza has {expected}"):
@@ -313,7 +313,7 @@ def test_half_a_claims_stanza_is_refused(claims: dict[str, Any], expected: str) 
 def test_an_empty_claims_stanza_is_inert_rather_than_refused(claims: Any) -> None:
     """`claims:` written with nothing under it is absence, not a broken half."""
     # Arrange
-    web_terminals = _web({"roles": {"operator": {"persona": "operator"}}, "claims": claims})
+    web_terminals = _web({"roles": {"operator": {"tier": "operator"}}, "claims": claims})
 
     # Act
     context = _authorization_context(web_terminals)
@@ -329,7 +329,7 @@ def test_an_empty_claims_stanza_is_inert_rather_than_refused(claims: Any) -> Non
 
 
 def test_the_reference_config_parses_to_inert_defaults() -> None:
-    """The no-personas reference facility config the goldens are rendered from
+    """The reference facility config the goldens are rendered from
     declares no authorization, and must keep meaning exactly that."""
     # Arrange
     web_terminals = copy.deepcopy(EXAMPLE_CONFIG)["modules"]["web_terminals"]
@@ -385,14 +385,14 @@ def test_the_reference_config_still_renders_all_three_artifacts() -> None:
     }
 
 
-def test_a_role_only_roster_renders_byte_identically_to_a_persona_less_one() -> None:
+def test_declaring_roles_alone_renders_byte_identically() -> None:
     """Declaring roles binds privileges; on its own it publishes nothing. The
     parser is the whole change at this stage, so the artifacts must not move."""
     # Arrange
     baseline = copy.deepcopy(EXAMPLE_CONFIG)
     with_roles = copy.deepcopy(EXAMPLE_CONFIG)
     with_roles["modules"]["web_terminals"]["authorization"] = {
-        "roles": {"operator": {"persona": "operator"}}
+        "roles": {"operator": {"tier": "operator"}}
     }
 
     # Act
@@ -421,7 +421,7 @@ def test_the_render_refuses_an_incoherent_authorization_block() -> None:
 
 def test_normalize_users_carries_an_entry_s_role() -> None:
     """`role:` is how a roster entry names its privilege binding, so it has to
-    survive normalization the way `persona` and `oidc_subject` do."""
+    survive normalization the way `render` and `oidc_subject` do."""
     # Arrange
     users_raw = [{"name": "alice", "index": 0, "role": "operator"}]
 
@@ -485,6 +485,8 @@ _LINT_CONFIG: dict[str, Any] = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_tier": "assistant",
+            "renders": {"assistant": {"kind": "tier", "project": "dls-assistant"}},
         }
     },
 }
@@ -514,9 +516,19 @@ def _codes(findings: list[Finding]) -> set[str]:
 
 
 def test_lint_accepts_a_coherent_authorization_block() -> None:
-    """The working shape must produce no findings of its own."""
+    """The working shape must produce no findings of its own.
+
+    Every role's tier is served — single sign-on may hand any of them out — so
+    a coherent block names tiers the catalog lists."""
     # Arrange / Act
-    findings = _lint(copy.deepcopy(_AUTHORIZATION))
+    findings = _lint(
+        copy.deepcopy(_AUTHORIZATION),
+        renders={
+            "assistant": {"kind": "tier", "project": "dls-assistant"},
+            "operator": {"kind": "tier", "project": "dls-operator"},
+            "physicist": {"kind": "tier", "project": "dls-physicist"},
+        },
+    )
 
     # Assert
     assert _codes(findings) == set()
@@ -531,7 +543,7 @@ def test_lint_rejects_a_role_name_outside_the_username_charset(role_name: str) -
     """A role name is carried on a roster entry, mapped from a claim value and
     forwarded in an HTTP header — the same charset a username is held to."""
     # Arrange / Act
-    findings = _lint({"roles": {role_name: {"persona": "operator"}}})
+    findings = _lint({"roles": {role_name: {"tier": "operator"}}})
 
     # Assert
     assert "web_terminals.invalid_role_charset" in _codes(findings)
@@ -541,7 +553,7 @@ def test_lint_rejects_a_non_string_role_name() -> None:
     """The parser drops it as unreferenceable; lint is where the operator is
     told why their role never applies."""
     # Arrange / Act
-    findings = _lint({"roles": {7: {"persona": "operator"}}})
+    findings = _lint({"roles": {7: {"tier": "operator"}}})
 
     # Assert
     assert "web_terminals.invalid_role_charset" in _codes(findings)
@@ -550,18 +562,18 @@ def test_lint_rejects_a_non_string_role_name() -> None:
 @pytest.mark.parametrize(
     "authorization",
     [
-        {"roles": {"oper$ator": {"persona": "operator"}}},
-        {"roles": {"operator": {"persona": "oper$ator"}}},
+        {"roles": {"oper$ator": {"tier": "operator"}}},
+        {"roles": {"operator": {"tier": "oper$ator"}}},
         {
-            "roles": {"operator": {"persona": "operator"}},
+            "roles": {"operator": {"tier": "operator"}},
             "claims": {"claim": "grou$ps", "map": {"dls-operators": "operator"}},
         },
         {
-            "roles": {"operator": {"persona": "operator"}},
+            "roles": {"operator": {"tier": "operator"}},
             "claims": {"claim": "groups", "map": {"dls-oper$ators": "operator"}},
         },
     ],
-    ids=["role-name", "persona", "claim-name", "claim-value"],
+    ids=["role-name", "tier", "claim-name", "claim-value"],
 )
 def test_lint_refuses_a_dollar_sign_anywhere_in_the_authorization_stanza(
     authorization: dict[str, Any],
@@ -607,7 +619,7 @@ def test_lint_rejects_a_wrong_typed_inner_container(key: str) -> None:
 
 
 def test_lint_rejects_a_roster_entry_naming_an_undeclared_role() -> None:
-    """The entry would render with the deployment's default persona instead of
+    """The entry would render with the deployment's default tier instead of
     the one the operator meant to bind."""
     # Arrange / Act
     findings = _lint(
@@ -636,22 +648,30 @@ def test_lint_accepts_a_roster_entry_naming_a_declared_role() -> None:
     """The whole point of the feature must not itself be a finding.
 
     The catalog is declared here because Task 4.2 wired roles through
-    ``effective_persona``: a role now resolves INTO a persona before
-    ``_check_unknown_persona_reference`` runs, so ``operator`` must be a real
+    ``effective_tier``: a role now resolves INTO a render before
+    ``_check_unknown_tier_reference`` runs, so ``operator`` must be a real
     catalog entry for this roster to be clean. That is the rule this file's
     ``_AUTHORIZATION`` docstring deferred to the shared helper rather than
     duplicating as a parser rule — pinned as its own case in
-    ``tests/deployment/web_terminals/test_personas.py``.
+    ``tests/deployment/web_terminals/test_roster.py``.
     """
     # Arrange / Act
     findings = _lint(
         copy.deepcopy(_AUTHORIZATION),
         users=[{"name": "alice", "index": 0, "role": "operator"}],
-        personas={
+        renders={
+            "assistant": {"kind": "tier", "project": "dls-assistant"},
             "operator": {
+                "kind": "tier",
                 "project": "dls-operator",
-                "build_profile": "personas/operator.yml",
-            }
+                "build_profile": "tiers/operator.yml",
+            },
+            # The other declared role's tier: served too, so catalogued too.
+            "physicist": {
+                "kind": "tier",
+                "project": "dls-physicist",
+                "build_profile": "tiers/physicist.yml",
+            },
         },
         registry={"url": "registry.example.org"},
     )

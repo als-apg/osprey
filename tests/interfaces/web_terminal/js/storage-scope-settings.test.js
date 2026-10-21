@@ -1,13 +1,13 @@
 // @ts-check
 /**
- * Per-persona scoping of the settings drawer's warning acknowledgement:
+ * Per-user scoping of the settings drawer's warning acknowledgement:
  *   npx vitest run tests/interfaces/web_terminal/js/storage-scope-settings.test.js
  *
  * The drawer is gated behind a "these settings control agent behavior, safety
  * hooks, and security policies" dialog, acknowledged once per SERVER session and
  * remembered in localStorage. On a shared origin that memory was one slot for
  * everybody: whoever acknowledged first silently waved the warning away for
- * every other persona on the box. The ack is now keyed per persona.
+ * every other user on the box. The ack is now keyed per user.
  *
  * The gate is driven through `openDrawerTab()` (the exported seam that routes
  * through it) and observed through the dialog's own presence in the DOM, which
@@ -86,7 +86,7 @@ afterEach(() => {
 });
 
 describe('settings warning acknowledgement', () => {
-  test("another persona's acknowledgement does not wave the warning away", async () => {
+  test("another user's acknowledgement does not wave the warning away", async () => {
     // The shared slot: someone else already clicked Proceed on this server.
     localStorage.setItem(BASE, 'server-session-1');
     serveAs('bob');
@@ -99,7 +99,7 @@ describe('settings warning acknowledgement', () => {
     await gate;
   });
 
-  test('this persona\'s own acknowledgement is honoured', async () => {
+  test('this user\'s own acknowledgement is honoured', async () => {
     localStorage.setItem(`${BASE}--bob`, 'server-session-1');
     serveAs('bob');
 
@@ -110,7 +110,7 @@ describe('settings warning acknowledgement', () => {
     await gate;
   });
 
-  test('Proceed records the acknowledgement under this persona\'s key', async () => {
+  test('Proceed records the acknowledgement under this user\'s key', async () => {
     serveAs('bob');
 
     const gate = openDrawerTab('config');

@@ -73,8 +73,8 @@ namespace (``services/python_executor/execution/net_guard.py`` says so itself:
 defense in depth, not a security boundary), so code that knows it is there takes
 it down, and a shell or a browser tool never goes through it at all. That hole
 is closed at deploy time instead, by the gate that refuses an open deployment
-whose personas do not deny ``Bash``/``WebFetch``/``WebSearch``/Playwright — which
-is why this lane's persona ships the rendered deny list and why an open
+whose renders do not deny ``Bash``/``WebFetch``/``WebSearch``/Playwright — which
+is why this lane's render ships the rendered deny list and why an open
 ``osprey up`` here would otherwise be REFUSED rather than merely unsafe. Nor does
 it drive the MCP server: that the executor calls the reader on every execution is
 pinned by unit tests, not here.
@@ -89,20 +89,21 @@ lives in the terminal app, so the container behind nginx must run the real
 cookie exchange handler, the actual ``PATCH /api/config`` operator route, and
 (for O3) the actual installed framework. A stub would prove nothing.
 
-The persona image is therefore a REAL framework install (``pip install
+The render image is therefore a REAL framework install (``pip install
 osprey-framework`` with a C toolchain plus the Claude Code CLI — minutes, cold),
 which is why this file carries the ``dockerbuild`` marker and runs in its own CI
-lane rather than the shared fast e2e glob. Its recipe is not hand-rolled: the
-fixture renders a throwaway ``hello-world`` deployment with the shipped ``osprey
-init``/``osprey build`` and reuses that render's own artifacts — the production
-project ``Dockerfile`` that runs ``osprey web``, a real rendered ``config.yml``
-the app can serve, and the rendered ``.claude/settings.json`` whose deny list the
-open-mode deploy gate reads.
+lane rather than the shared fast e2e glob. Nothing about it is hand-rolled: each
+lane is a ``hello-world`` deployment whose roster runs the bundled ``readonly``
+tier, which ``osprey init`` writes into ``tiers/`` and ``osprey build`` renders
+into ``build/`` — the production project ``Dockerfile`` that runs ``osprey
+web``, a real rendered ``config.yml`` the app can serve, and the rendered
+``.claude/settings.json`` whose deny list the open-mode deploy gate reads. The
+tier's name carries no meaning here; any tier the deployment renders would do.
 
-ONE PERSONA, TWO DEPLOYMENTS. The two lanes share a single persona project and
-therefore a single image tag, so the expensive build happens once and the second
-``osprey up`` re-runs it against a byte-identical context (a runtime cache hit).
-They differ only in facility prefix, compose project and port band, so both
+TWO DEPLOYMENTS, ONE RECIPE. A tier's image is tagged for the deployment that
+renders it, so each lane builds its own; the second build runs the same recipe
+and reuses the runtime's layer cache for everything but the project copy. The
+lanes differ only in facility token, compose project and port band, so both
 stacks can be up at once without colliding.
 
 ``--dev`` is REQUIRED for the same reason it is in the perimeter lane: the
@@ -136,12 +137,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.mcp_server.sandbox_env import PERIMETER_DENY_PORTS_ENV, PERIMETER_MARKER_ENV
 from osprey.services.python_executor.execution.net_guard import NET_GUARD_REFUSAL_PREFIX
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -161,16 +163,11 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
         f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
     )
 
-#: The persona both lanes run, and the render its image is tagged for. Named
-#: independently of either lane's facility prefix precisely because it is
-#: SHARED: one render, one ``<project>:local`` image, built once and reused by
-#: the second deployment. It must also differ from either deployment's own name
-#: — lint refuses a persona project that shadows the deployment's worker tag.
-PERSONA = "operator"
-PERSONA_PROJECT = "authmulti-operator"
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
-#: The preset the throwaway persona render (and both host repos) are built from
-#: — the smallest one that stands up a serving ``osprey web``.
+#: The tier both lanes' rosters run: a bundled one, so ``osprey init`` writes
+#: its file and ``osprey build`` renders it.
+RENDER = "readonly"
+#: The preset both lanes are built from — the smallest one that stands up a
+#: serving ``osprey web``.
 PRESET = "hello-world"
 
 
@@ -180,21 +177,17 @@ class Lane:
 
     Everything that must differ between two stacks standing up at the same time
     is here rather than in module constants, so a helper cannot silently act on
-    the wrong deployment: the project name decides the compose project, every
-    container name and its volumes, the facility prefix the in-container
-    directory, and the port band
+    the wrong deployment: the project name decides every container name, the
+    compose project and its volumes, and the port band
     decides what nginx and each terminal bind.
 
-    ``users`` holds roster entries as they are authored in the profile. The
-    ``open`` lane must use OBJECT entries: a bare-string entry runs no persona,
-    so the open-mode deploy gate reads the DEPLOY project's settings.json for it
-    (the zero-migration sentinel) instead of the persona's, and refuses a
-    deployment whose persona is in fact clean.
+    ``users`` holds roster entries as they are authored in the profile. Every
+    entry runs a tier, its own or the default, so the open-mode
+    deploy gate reads that render's settings.json.
     """
 
     posture: str
     project_name: str
-    prefix: str
     nginx_port: int
     base_ports: dict[str, int]
     users: tuple[dict[str, Any] | str, ...]
@@ -227,12 +220,23 @@ class Lane:
             for position, user in enumerate(self.users)
         )
 
+    @property
+    def project(self) -> str:
+        """The compose project name every container of this lane is named by."""
+        return resolve_project_name({"project_name": self.project_name})
+
     def container(self, user: str) -> str:
-        return f"{self.project_name}-web-{user}"
+        return f"{self.project}-web-{user}"
 
     @property
     def nginx_container(self) -> str:
-        return f"{self.project_name}-nginx"
+        return f"{self.project}-nginx"
+
+    @property
+    def render_image(self) -> str:
+        """The ``:local`` tag ``osprey up`` builds for this lane's tier."""
+        project, _ = render_project(self.project_name, RENDER)
+        return f"{project}:local"
 
 
 # Ports well clear of every other stack a developer may have up (the tutorial
@@ -244,7 +248,6 @@ class Lane:
 TOKEN_LANE = Lane(
     posture="token",
     project_name="osprey-e2e-token-multiuser",
-    prefix="authtok",
     nginx_port=19680,
     base_ports={
         "web": 19671,
@@ -252,6 +255,8 @@ TOKEN_LANE = Lane(
         "ariel": 19871,
         "lattice": 19971,
         "channel_finder": 19981,
+        "okf": 19631,
+        "system_health": 19641,
     },
     #: One user is enough for the token proof: the gate under test is the app's
     #: own, and a second roster user would only add a second heavy container to
@@ -262,7 +267,6 @@ TOKEN_LANE = Lane(
 OPEN_LANE = Lane(
     posture="none",
     project_name="osprey-e2e-open-multiuser",
-    prefix="authopen",
     nginx_port=19690,
     base_ports={
         "web": 19691,
@@ -270,16 +274,18 @@ OPEN_LANE = Lane(
         "ariel": 19891,
         "lattice": 19941,
         "channel_finder": 19951,
+        "okf": 19651,
+        "system_health": 19661,
     },
     users=(
         # `index` is spelled out because an OBJECT entry must carry one — profile
         # validation refuses an object roster entry with no index, since the
         # index (not the position) is what allocates every port family.
-        {"name": "alice", "index": 0, "persona": PERSONA},
+        {"name": "alice", "index": 0, "tier": RENDER},
     ),
 )
 
-# The persona build is a real framework install; give it room.
+# The render build is a real framework install; give it room.
 DEPLOY_UP_TIMEOUT_SEC = 1800
 VERB_TIMEOUT_SEC = 120
 # `init` + `build` render the whole repo (no dependency install, no lifecycle
@@ -298,14 +304,7 @@ GUARD_PROBE_TIMEOUT_SEC = 300
 #: value written — a display label mutates nothing the deployment relies on.
 _CONFIG_PATCH_BODY = json.dumps({"updates": {"web.app_name": "multiuser-e2e"}}).encode()
 
-# ZO_INGEST_SA_TOKEN is present but inert: hello-world renders an OpenObserve
-# telemetry block whose password is `${ZO_INGEST_SA_TOKEN}`, and the deploy
-# preflight statically refuses to generate `.env.users` while that reference is
-# unresolvable — even though the block is disabled and the store is not deployed
-# here. Supplying a value satisfies the resolver and is the documented remedy for
-# a deployment behind an external store; with telemetry off the app never emits,
-# so the value is never used.
-_ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\nZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
+_ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n"
 
 #: The O3 probe, run by the container's own interpreter inside a per-user
 #: terminal container. Two children, one difference:
@@ -394,7 +393,7 @@ def _run_osprey(
 
     Deliberately does NOT set ``OSPREY_PIP_SPEC``: the lifecycle fixtures poison
     it so a stub Dockerfile that ever started consuming it would fail loudly, but
-    the persona image here is a REAL framework install and must resolve normally.
+    the render image here is a REAL framework install and must resolve normally.
     """
     return subprocess.run(
         [str(osprey_bin), *args],
@@ -437,121 +436,6 @@ def _container_env(name: str) -> dict[str, str]:
     return env
 
 
-def _render_reference_project(tmp_path: Path, osprey_bin: Path) -> Path:
-    """Render a throwaway ``hello-world`` deployment and return its ``build/`` dir.
-
-    The persona both lanes deploy must run the REAL ``osprey web``, which needs a
-    real container repo: the production project ``Dockerfile`` (the one that
-    installs the framework and launches ``osprey web``) and a rendered
-    ``config.yml`` the app can actually serve. Rather than hand-roll either — a
-    hand-written recipe drifts from the shipped one, and a hand-written config
-    misses keys the app reads — this renders a genuine deployment with the same
-    ``osprey init``/``osprey build`` surface an operator uses, and
-    :func:`_write_persona_project` reuses that render's own artifacts.
-
-    ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
-    quick: nothing here installs a venv or builds an image, it only writes files.
-
-    Rendered under the persona's OWN project name (:data:`PERSONA_PROJECT`) on
-    purpose: the production project Dockerfile bakes ``COPY . /app/<project>/``
-    and ``WORKDIR /app/<project>`` from that name, and ``resolve_personas``
-    derives the per-user ``container_project_dir`` as ``/app/<catalog project>``.
-    Naming the reference render for the catalog project keeps the two equal, so
-    the compose service's mount targets land on the directory the app runs in.
-    """
-    ref_repo = tmp_path / PERSONA_PROJECT
-    # Telemetry OFF in the persona render too, for the same reason the host
-    # override disables it: hello-world ships it enabled against an OpenObserve
-    # store these lanes do not deploy, so its rendered config.yml would carry
-    # `openobserve.password: ${ZO_INGEST_SA_TOKEN}` — a credential only the store
-    # can issue — and `osprey up` refuses to serve a terminal whose telemetry
-    # names an unresolvable secret. The perimeter lane avoids this with a
-    # config-less busybox stub; a real `osprey web` persona must render a config
-    # that actually stands up.
-    init = _run_osprey(
-        osprey_bin,
-        [
-            "init",
-            str(ref_repo),
-            "--preset",
-            PRESET,
-            "--no-git",
-            *set_pairs({"config": {"claude_code.telemetry.enabled": False}}),
-        ],
-        tmp_path,
-        timeout=RENDER_TIMEOUT_SEC,
-    )
-    assert init.returncode == 0, _fmt("osprey init (persona reference)", init)
-    build = _run_osprey(
-        osprey_bin,
-        ["build", "--repo", str(ref_repo), "--skip-deps", "--skip-lifecycle"],
-        tmp_path,
-        timeout=RENDER_TIMEOUT_SEC,
-    )
-    assert build.returncode == 0, _fmt("osprey build (persona reference)", build)
-    ref_build = ref_repo / "build"
-    assert (ref_build / "config.yml").is_file() and (ref_build / "Dockerfile").is_file(), (
-        f"reference render is incomplete at {ref_build}"
-    )
-    return ref_build
-
-
-def _write_persona_project(root: Path, ref_build: Path) -> Path:
-    """A local-mode persona project whose container runs the REAL ``osprey web``.
-
-    The persona is spelled the way a start requires — ``config.yml`` + a
-    ``Dockerfile`` in the flat render (``_check_existing_render`` reads these,
-    and ``verify_persona_renders`` also parses the flat ``config.yml`` for its
-    provider/model), and the same two under the container image context at the
-    ``.image/<name>`` sibling whose ``build/Dockerfile`` the image is actually
-    built from (``_persona_image_context``).
-
-    Both copies come from the throwaway render (:func:`_render_reference_project`)
-    rather than being written by hand:
-
-    * the flat render's ``config.yml``/``Dockerfile`` are the reference render's
-      own, so ``verify_persona_renders`` reads a real provider spec;
-    * the image context is the reference render's WHOLE container repo
-      (``build/.image/<persona project>/`` — ``profile.yml`` at its root, the
-      render in ``build/`` below it), copied verbatim. Its ``Dockerfile`` is the
-      production project image: ``COPY . /app/<name>/``, then ``osprey web`` from
-      that directory, which walks up to the ``profile.yml`` this copy provides
-      and serves its ``build/config.yml``. That is what makes the terminal behind
-      nginx a real app rather than a stub.
-
-    The flat render's ``.claude/`` tree comes along for a reason the open lane
-    depends on: ``check_open_mode_requirements`` reads this directory's
-    ``.claude/settings.json`` and REFUSES ``osprey up`` unless it denies
-    ``Bash``, ``WebFetch``, ``WebSearch`` and the Playwright wildcard. Copying
-    the rendered artifact rather than writing a deny list here is what keeps the
-    lane honest: it proves the SHIPPED render satisfies the gate, so a future
-    change to ``DENY_DEFAULTS`` that broke every open deployment would fail this
-    lane instead of being papered over by a fixture's hand-made JSON.
-
-    Under ``osprey up --dev`` the persona build stages the locally-built wheel
-    into this same image context and passes ``OSPREY_PIP_SPEC``/``OSPREY_DEV``,
-    which the copied production Dockerfile's deps and wheel layers consume — so
-    the running terminal is this branch's code.
-    """
-    root.mkdir(parents=True)
-    reference_context = ref_build / ".image" / PERSONA_PROJECT
-    assert (reference_context / "profile.yml").is_file(), (
-        f"reference container repo missing profile.yml at {reference_context}"
-    )
-
-    # The container image context, copied whole from the reference render. Named
-    # for this persona's flat render so `_persona_image_context` (parent/.image/
-    # <render name>) resolves to exactly this directory.
-    image_context = root.parent / ".image" / root.name
-    shutil.copytree(reference_context, image_context)
-
-    # The flat render's required files, from the same reference build.
-    shutil.copy2(ref_build / "config.yml", root / "config.yml")
-    shutil.copy2(ref_build / "Dockerfile", root / "Dockerfile")
-    shutil.copytree(ref_build / ".claude", root / ".claude")
-    return root
-
-
 def _profile_edits(lane: Lane) -> dict[str, Any]:
     """The edits carrying one lane's whole web-terminal stanza.
 
@@ -579,8 +463,6 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
-            "facility.prefix": lane.prefix,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
@@ -588,13 +470,15 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": PERSONA,
+                "default_tier": RENDER,
                 "nginx_port": lane.nginx_port,
                 "web_base_port": lane.base_ports["web"],
                 "artifact_base_port": lane.base_ports["artifact"],
                 "ariel_base_port": lane.base_ports["ariel"],
                 "lattice_base_port": lane.base_ports["lattice"],
                 "channel_finder_base_port": lane.base_ports["channel_finder"],
+                "okf_base_port": lane.base_ports["okf"],
+                "system_health_base_port": lane.base_ports["system_health"],
                 "users": [dict(user) if isinstance(user, dict) else user for user in lane.users],
                 "auth": {"method": lane.posture},
             },
@@ -602,32 +486,8 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
     }
 
 
-def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
-    """Point the profile's persona catalog at the reused persona project.
-
-    After materialization, deliberately. ``osprey init`` renders one delta per
-    catalog entry and requires each entry to name a preset that EXTENDS the host
-    preset — the shape a rendered persona has. This lane's persona is a project
-    reused from a separate render instead (see :func:`_write_persona_project`),
-    so the entry is added to ``profile.yml`` once the repo exists and before
-    ``osprey build`` reads it, which is the remedy materialization itself names
-    for a hand-written persona.
-
-    Written as the dotted key ``modules.web_terminals.personas``, the same
-    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
-    of dotted paths into the rendered config, and one more path is how a
-    catalog joins the stanza the edits already wrote.
-    """
-    profile_path = repo / "profile.yml"
-    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals.personas"] = {
-        PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
-    }
-    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-
-
-def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path, persona_path: Path) -> Path:
-    """``init`` + persona catalog + ``build`` — the repo one lane deploys.
+def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path) -> Path:
+    """``init`` + ``build`` — the repo one lane deploys.
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
     quick: nothing here runs the deployment's own venv, only its containers.
@@ -641,8 +501,6 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path, persona_path: Path)
         timeout=RENDER_TIMEOUT_SEC,
     )
     assert init.returncode == 0, _fmt(f"osprey init ({lane.posture} multiuser)", init)
-
-    _add_persona_catalog(repo, persona_path)
 
     build = _run_osprey(
         osprey_bin,
@@ -679,23 +537,24 @@ def _read_user_secret(repo: Path, user: str) -> str:
     return secret
 
 
-def _teardown(lane: Lane) -> None:
+def _teardown(lane: Lane, *, remove_image: bool = True) -> None:
     """Exact-named sweep for one lane; failures swallowed (never an assertion).
 
     The volume sweep is what keeps reruns honest: ``compose down`` (like
     ``osprey down``) keeps named volumes, and a rerun inheriting a previous
     attempt's per-user volumes would start from that attempt's state.
 
-    The persona image is NOT removed here: both lanes share one tag, so removing
-    it with the other stack still running would untag an image in use. That
-    removal belongs to the fixture that owns the build (:func:`persona_project`),
-    which is set up first and therefore torn down last.
+    The tier image is the lane's own, so it goes with the lane unless
+    ``remove_image`` is false — the sweep a lane runs before its own start keeps
+    an earlier run's image for the layer cache.
     """
     for user in lane.usernames:
         _runtime_cli("rm", "-f", lane.container(user))
     _runtime_cli("rm", "-f", lane.nginx_container)
     _runtime_cli("compose", "-p", lane.project_name, "down", timeout=60)
     remove_project_volumes(lane.project_name, runtime=RUNTIME)
+    if remove_image:
+        _runtime_cli("rmi", "-f", lane.render_image, timeout=60)
 
 
 def _browser() -> tuple[urllib.request.OpenerDirector, http.cookiejar.CookieJar]:
@@ -780,7 +639,7 @@ def _wait_for_gate(lane: Lane, user: str, expected: int, timeout: float) -> None
     the precondition for every assertion below. A ``502`` means nginx is up but
     the container is still booting (`osprey web` is a real framework import), so
     it keeps polling; a refused connection means nginx itself is not listening
-    yet. On timeout the message carries both containers' logs, since a persona
+    yet. On timeout the message carries both containers' logs, since a render
     that never came up is the most likely cause and says so only there.
     """
     deadline = time.monotonic() + timeout
@@ -800,7 +659,7 @@ def _wait_for_gate(lane: Lane, user: str, expected: int, timeout: float) -> None
     )
 
 
-def _deploy(lane: Lane, tmp_path: Path, persona_path: Path) -> Iterator[dict[str, Any]]:
+def _deploy(lane: Lane, tmp_path: Path) -> Iterator[dict[str, Any]]:
     """Stand one lane up, hand it to its tests, and take it down again.
 
     The body both lane fixtures share, so the two deployments cannot come to
@@ -808,9 +667,14 @@ def _deploy(lane: Lane, tmp_path: Path, persona_path: Path) -> Iterator[dict[str
     :class:`Lane` they are handed and in the readiness each posture owes.
     """
     osprey_bin = _find_osprey_console_script()
-    repo = _make_repo(lane, tmp_path, osprey_bin, persona_path)
+    if shutil.which(RUNTIME) is None:
+        pytest.skip(f"{RUNTIME} not available")
+    if _runtime_cli("ps", timeout=10).returncode != 0:
+        pytest.skip(f"{RUNTIME} daemon not responding")
+    repo = _make_repo(lane, tmp_path, osprey_bin)
 
-    _teardown(lane)  # clear anything a previous crashed run stranded under these names
+    # Clear anything a previous crashed run stranded under these names.
+    _teardown(lane, remove_image=False)
     try:
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
@@ -834,47 +698,21 @@ def _deploy(lane: Lane, tmp_path: Path, persona_path: Path) -> Iterator[dict[str
 
 
 @pytest.fixture(scope="module")
-def persona_project(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """The one persona project — and therefore the one image — both lanes deploy.
-
-    Set up before either deployment and torn down after both, which is what lets
-    it own the shared ``:local`` tag: a lane removing that image at its own
-    teardown would be untagging an image the other lane's containers still run.
-    """
-    if shutil.which(RUNTIME) is None:
-        pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
-        pytest.skip(f"{RUNTIME} daemon not responding")
-
-    tmp_path = tmp_path_factory.mktemp("multiuser-persona")
-    osprey_bin = _find_osprey_console_script()
-    ref_build = _render_reference_project(tmp_path, osprey_bin)
-    try:
-        yield _write_persona_project(tmp_path / "persona", ref_build)
-    finally:
-        _runtime_cli("rmi", "-f", PERSONA_IMAGE_TAG, timeout=60)
-
-
-@pytest.fixture(scope="module")
-def token_deployment(
-    tmp_path_factory: pytest.TempPathFactory, persona_project: Path
-) -> Iterator[dict[str, Any]]:
+def token_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     """One ``osprey up --dev`` under ``auth.method: token`` for the whole module."""
-    yield from _deploy(TOKEN_LANE, tmp_path_factory.mktemp("token-multiuser"), persona_project)
+    yield from _deploy(TOKEN_LANE, tmp_path_factory.mktemp("token-multiuser"))
 
 
 @pytest.fixture(scope="module")
-def open_deployment(
-    tmp_path_factory: pytest.TempPathFactory, persona_project: Path
-) -> Iterator[dict[str, Any]]:
+def open_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     """One ``osprey up --dev`` under ``auth.method: none`` (open) for the whole module.
 
     That this fixture reaches ``yield`` at all is itself an assertion: the open
-    deploy gate refuses ``osprey up`` unless every referenced persona's rendered
-    ``.claude/settings.json`` denies the whole egress set, so a persona render
+    deploy gate refuses ``osprey up`` unless every referenced render's rendered
+    ``.claude/settings.json`` denies the whole egress set, so a render
     that stopped denying them would fail here rather than deploy.
     """
-    yield from _deploy(OPEN_LANE, tmp_path_factory.mktemp("open-multiuser"), persona_project)
+    yield from _deploy(OPEN_LANE, tmp_path_factory.mktemp("open-multiuser"))
 
 
 # --------------------------------------------------------------------------
@@ -883,14 +721,15 @@ def open_deployment(
 
 
 @pytest.mark.usefixtures("token_deployment")
-def test_up_builds_the_real_persona_image() -> None:
-    """The DEPLOYED persona image built, and the per-user container is running.
+def test_up_builds_the_real_render_image() -> None:
+    """The DEPLOYED render image built, and the per-user container is running.
 
     Everything below runs against a real terminal app; this pins that the app is
-    the real one — the persona ``:local`` tag was built and ``alice``'s container
+    the real one — the render ``:local`` tag was built and ``alice``'s container
     exists — rather than a stub, so a green auth assertion cannot be a green stub.
     """
-    assert _image_exists(PERSONA_IMAGE_TAG), f"{PERSONA_IMAGE_TAG} was not built by 'osprey up'"
+    image = TOKEN_LANE.render_image
+    assert _image_exists(image), f"{image} was not built by 'osprey up'"
     assert _container_id(TOKEN_LANE.container("alice")) is not None, (
         f"{TOKEN_LANE.container('alice')} was not created"
     )

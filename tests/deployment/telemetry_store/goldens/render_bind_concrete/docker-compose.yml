@@ -1,0 +1,43 @@
+
+# The telemetry store: ClickHouse, holding every OTLP signal and the audit
+# record the gateway feeds it. `osprey up` starts it alone, applies the schema
+# and the accounts, and only then starts the rest of the stack.
+services:
+  telemetry_store:
+    image: clickhouse/clickhouse-server:26.8.18.2
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run a store on one host.
+    container_name: golden-project-telemetry-store
+    labels:
+      # Recreates the store when its admin credential file changes.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE:-}"
+    restart: unless-stopped
+    # The admin account, created by the image from this file and confined to
+    # loopback inside the container by users.d/zz-osprey-admin.xml. It is the
+    # store's only env_file: no other secret reaches this container.
+    env_file:
+      - .env.telemetry-admin
+    mem_limit: 2147483648
+    # No ulimits: the store raises its open-file limit to the runtime's own ceiling.
+    # Loopback only, whatever deployment.bind_address says: remote readers
+    # reach the store through the readers' origin, never this port.
+    ports:
+      - "127.0.0.1:10804:8123"
+    volumes:
+      - telemetry_store_data:/var/lib/clickhouse
+      - ./build/services/telemetry_store/osprey.xml:/etc/clickhouse-server/config.d/osprey.xml:ro
+      - ./build/services/telemetry_store/osprey-defaults.xml:/etc/clickhouse-server/users.d/osprey-defaults.xml:ro
+      - ./build/services/telemetry_store/zz-osprey-admin.xml:/etc/clickhouse-server/users.d/zz-osprey-admin.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - osprey-network
+
+volumes:
+  telemetry_store_data:
+
+networks:
+  osprey-network:

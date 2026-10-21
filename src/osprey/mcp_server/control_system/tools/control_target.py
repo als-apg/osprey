@@ -281,12 +281,19 @@ def _endpoint_rows(derivation: Any, probe_rows: dict[str, Any]) -> dict[str, dic
     return rows
 
 
+def _config_file(context: Any) -> str | None:
+    """The project config file the deployment's connector-host child reads, or ``None``."""
+    path = getattr(context.config, "config_path", None)
+    return str(path) if path else None
+
+
 def target_rows(
     config: Any,
     *,
     control_target: str,
     baseline: str,
     probe_snapshot: dict[str, Any] | None = None,
+    config_path: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """The per-target roster rows, from config and measurements alone.
 
@@ -302,6 +309,9 @@ def target_rows(
         probe_snapshot: :meth:`EndpointProber.snapshot`'s output, or ``None``
             when no prober is running — in which case rows carry the derived
             endpoints and no reachability at all.
+        config_path: The project config the connector-host child reads, which
+            an unset virtual-accelerator gateway port is filled from; ``None``
+            reads ``CONFIG_FILE``, else ``./config.yml``.
 
     Returns:
         ``{target: row}`` for every target this deployment configures
@@ -310,7 +320,7 @@ def target_rows(
         ``standin`` on a deployment that stands up no soft IOC — has no row at
         all, rather than a row saying a machine nobody deployed is unavailable.
     """
-    metadata = target_display_metadata(config)
+    metadata = target_display_metadata(config, config_path=config_path)
     snapshot = probe_snapshot or {}
 
     rows: dict[str, dict[str, Any]] = {}
@@ -330,7 +340,12 @@ def target_rows(
         # had not.
         writes_permitted = _writes_permitted(config, target)
         availability = target_availability(
-            config, target, control_target, baseline, writes_enabled=writes_permitted
+            config,
+            target,
+            control_target,
+            baseline,
+            writes_enabled=writes_permitted,
+            config_path=config_path,
         )
         display = metadata.get(target, {})
         row: dict[str, Any] = {
@@ -351,10 +366,10 @@ def target_rows(
             # gateway those writes would leave by is `selected_role`.
             "writes_permitted": writes_permitted,
             # This target's own limits posture, per connector type for the same
-            # reason the write posture is: a deployment may relax unlisted
-            # channels on its simulator while its live machine refuses them.
-            # Strict means limits checking on and unlisted channels explicitly
-            # refused; a target whose config states neither is not strict,
+            # reason the write posture is: a deployment may run its simulator
+            # in the optional mode while its live machine runs exclusive.
+            # Strict means limits checking on and the mode explicitly
+            # exclusive; a target whose config states neither is not strict,
             # because a deployment that stated nothing has refused nothing.
             # Unlike `writes_permitted`, this is a deployment fact, not a
             # session one: the store narrows what a session may write, never
@@ -366,7 +381,9 @@ def target_rows(
             row["probe_channel"] = probe_channel
 
         try:
-            derivation = derive_endpoints(config, target, writes_enabled=writes_permitted)
+            derivation = derive_endpoints(
+                config, target, writes_enabled=writes_permitted, config_path=config_path
+            )
         except ValueError:
             # An underivable target has no connector type and no endpoints —
             # the availability verdict above already says so, with the reason.
@@ -414,7 +431,7 @@ async def control_target() -> str:
     reachability observation where it has one (``endpoint_tcp``, ``probed_at``,
     and ``stale`` once an observation is too old to stand); whether writes are
     permitted on that target, which is a per-target answer and not one flag for
-    the deployment; whether that target's limits posture is strict
+    the deployment; whether that target's limits are exclusive
     (``limits_strict`` — limits checking on and channels the limits database
     does not list refused), which is per-target for the same reason; whether
     the target is the real machine; and the channel a switch would read to
@@ -459,6 +476,7 @@ async def control_target() -> str:
         control_target=status["target"],
         baseline=status["baseline_target"],
         probe_snapshot=snapshot,
+        config_path=_config_file(context),
     )
 
     return json.dumps(
@@ -554,6 +572,7 @@ def _gate(
         in_flight=in_flight_executions(),
         reports=reports,
         writes_enabled=_writes_permitted(context.config.raw, wanted),
+        config_path=_config_file(context),
     )
 
 

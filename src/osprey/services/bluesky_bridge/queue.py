@@ -88,6 +88,7 @@ does more, less, or anything different because a request named somebody.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -933,10 +934,9 @@ def _broadcast(frame: dict[str, Any]) -> None:
                     subscriber.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            try:
+            # defensive only: the drain above left room for the sentinel
+            with contextlib.suppress(asyncio.QueueFull):
                 subscriber.put_nowait(_DISCONNECT)
-            except asyncio.QueueFull:  # pragma: no cover - defensive only
-                pass
 
 
 def _notify_change() -> None:
@@ -956,10 +956,8 @@ async def _poll_once() -> None:
 
 async def _poll_loop() -> None:
     while True:
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(_change_event.wait(), timeout=_POLL_INTERVAL_S)
-        except TimeoutError:
-            pass
         _change_event.clear()
         try:
             await _poll_once()

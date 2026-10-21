@@ -37,18 +37,7 @@ import yaml
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -69,7 +58,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -206,14 +195,14 @@ class TestBlueskyPlansPresetWiring:
         )
         assert "bluesky-plans" in profile["skills"]
 
-    def test_ariel_preset_excludes_the_skill(self):
-        """The ARIEL preset ships without the Bluesky server, so it drops the
-        routing skill explicitly rather than inheriting it."""
-        profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant-logbook.yml").read_text(encoding="utf-8")
-        )
-        assert "bluesky-plans" in profile["exclude"]["skills"]
-        assert "bluesky-plans" not in profile.get("skills", [])
+    def test_logbook_app_leaves_the_skill_out(self):
+        """The logbook app ships without the Bluesky server, so its own skill
+        list leaves the routing skill out: an app's lists are its whole
+        selection, never a union with the host's, and an app has no
+        ``exclude:`` to subtract with."""
+        profile = yaml.safe_load((PRESETS_DIR / "apps" / "logbook.yml").read_text(encoding="utf-8"))
+        assert "bluesky-plans" not in (profile.get("skills") or [])
+        assert "exclude" not in profile
 
 
 class TestBlueskyPlansManifestWiring:

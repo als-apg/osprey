@@ -193,7 +193,7 @@ export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
 unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
 # Unit tests
-uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -q
+uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup -q
 
 rm -rf .venv-release-test
 ```
@@ -471,6 +471,11 @@ git checkout main && git pull --ff-only origin main
 Verify the latest commit on `main` is the release-notes merge.
 
 ## Step 6: Tag and push
+
+Before the first tag whose tree contains a new workspace member: register a
+PyPI pending trusted publisher for it (this repository, workflow `release.yml`,
+environment `pypi`) — without it PyPI refuses that wheel and the tag lands
+half-published.
 
 Tags can be pushed directly; branch protection covers branches, not tags:
 

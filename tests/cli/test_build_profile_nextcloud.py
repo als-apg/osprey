@@ -21,7 +21,7 @@ from osprey.cli.build_profile import (
     NextcloudBridgeProfileConfig,
     _parse_profile,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 _TRIGGERS_YAML = """\
 dispatcher:

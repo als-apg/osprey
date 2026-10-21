@@ -113,9 +113,9 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
         root.setLevel(previous_level)
 
     assert result.exit_code == 0, result.output
-    # Status resolves telemetry with the provider, and the exemplar's ingest
-    # token has no default: without it status reads no spec at all.
-    (repo / ".env").write_text("ZO_INGEST_SA_TOKEN=probe-token\n")
+    # Status resolves telemetry with the provider, and the gateway refuses a
+    # sender without a login: without it status reads no spec at all.
+    (repo / ".env").write_text("OSPREY_TELEMETRY_LOGIN=probe:probe-token\n")
     return SimpleNamespace(repo=repo, printed=buffer.getvalue(), records=sink.records)
 
 
@@ -180,7 +180,7 @@ def no_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_says_it_once_and_the_log_handler_paints_nothing(
     openai_build, terminal_probe: TerminalProbe, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     result = CliRunner().invoke(cli, ["status", "--agents", "--repo", str(openai_build.repo)])
     assert result.exit_code == 0, result.output
 

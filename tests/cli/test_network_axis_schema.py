@@ -29,7 +29,7 @@ from osprey.cli.build_profile_schema import (
     VALID_NETWORK_MODES,
     network_mode_errors,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)
@@ -84,10 +84,10 @@ def test_dispatch_network_defaults_to_bridge() -> None:
 
 def test_service_network_mode_applies_the_default() -> None:
     """``network_mode()`` is the single place the per-service default is spelled."""
-    assert ServiceDef(template="osprey.openobserve").network_mode() == "bridge"
-    assert ServiceDef(template="osprey.openobserve", config={}).network_mode() == "bridge"
+    assert ServiceDef(template="osprey.postgresql").network_mode() == "bridge"
+    assert ServiceDef(template="osprey.postgresql", config={}).network_mode() == "bridge"
     assert (
-        ServiceDef(template="osprey.openobserve", config={"network": "host"}).network_mode()
+        ServiceDef(template="osprey.postgresql", config={"network": "host"}).network_mode()
         == "host"
     )
 
@@ -335,7 +335,7 @@ def test_both_halves_are_reported_separately(tmp_path: Path) -> None:
 
 def test_boolean_service_name_is_reported_not_crashed(tmp_path: Path) -> None:
     """A bare `on:` service name arrives as a bool key and must not crash the scan."""
-    raw = yaml.safe_load("name: netaxis\nservices:\n  on:\n    template: osprey.openobserve\n")
+    raw = yaml.safe_load("name: netaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
     messages = _errors(_parse_profile(raw), tmp_path)
     assert any(
@@ -362,7 +362,7 @@ def test_network_failures_accumulate_with_unrelated_ones(tmp_path: Path) -> None
     """The axis appends like every other check — no fail-fast, no short-circuit."""
     profile = BuildProfile(
         name="",
-        tier=2,
+        channel_finder_mode="in-context",
         services={
             "gchat_bridge": ServiceDef(
                 template="osprey.gchat_bridge", config={"network": "hostnet"}
@@ -371,7 +371,7 @@ def test_network_failures_accumulate_with_unrelated_ones(tmp_path: Path) -> None
     )
     messages = _errors(profile, tmp_path)
     assert "Profile 'name' is required" in messages
-    assert "tier must be 1 or 3 (got 2)" in messages
+    assert any("(got 'in-context')" in message for message in messages)
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages
 
 

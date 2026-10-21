@@ -9,8 +9,8 @@ verb a CI pipeline runs first and an operator runs after every profile edit.
 Zero-argument is the normal spelling: the repo enclosing the working directory
 is the thing being validated, found by the same walk every repo-scoped command
 uses. The optional path argument stays for the one profile that is not a repo
-root — a persona delta under ``personas/``, which is a profile in its own right
-and has its own way to be wrong.
+root — a tier under ``tiers/`` or an app under ``apps/``, each a profile in its
+own right with its own way to be wrong.
 
 ``osprey profile validate`` is the same verb spelled as part of the ``profile``
 noun group, and both spellings are documented surface. Only the INTERFACE
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import click
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 from .output import note, report, section
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
@@ -39,8 +39,8 @@ def profile_file_at(target: Path) -> Path:
 
     Both spellings are accepted because both are things an operator has on
     hand: a directory (the repo root, or any directory holding a
-    ``profile.yml``) and an explicit path to a profile file (how persona deltas
-    are named, since a delta is a file beside its siblings, not a directory).
+    ``profile.yml``) and an explicit path to a profile file (how tiers and apps
+    are named, since each is a file beside its siblings, not a directory).
 
     Raises:
         click.UsageError: When *target* is a directory with no profile.yml.
@@ -54,6 +54,26 @@ def profile_file_at(target: Path) -> Path:
             )
         return candidate.resolve()
     return target.resolve()
+
+
+def _reject_unknown_layer_keys(profile_file: Path) -> None:
+    """Refuse a tier or app file spelling a key not legal in its kind.
+
+    Checked on the file's own document, before it is merged over the root
+    profile, so a deployment key in a tier is named against the tier's key set
+    rather than accepted by the root set the merged document is parsed with.
+    A root profile is left to the parser.
+    """
+    from .build_profile_document import _read_profile_document
+    from .build_profile_load import layer_file_label, reject_unknown_kind_keys
+    from .profile_root import resolve_profile_root
+
+    kind = resolve_profile_root(profile_file)[1]
+    if not kind.is_layer or not profile_file.is_file():
+        return
+    raw = _read_profile_document(profile_file)
+    if isinstance(raw, dict):
+        reject_unknown_kind_keys(raw, kind, layer_file_label(profile_file))
 
 
 def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
@@ -73,7 +93,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
-            persona delta.
+            tier or app file.
         drift: ``error`` refuses a profile that differs STRUCTURALLY from its
             preset in a place no marker comment claims — a key, block or list
             member one document has and the other has not; ``warn`` prints
@@ -88,19 +108,27 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
         limits_block_errors,
+        profile_dispatch_tier,
     )
     from .build_profile_drift import MARKER_REACH, preset_drift_report
     from .build_profile_panels import bar_items_selection_warnings
+    from .build_profile_presets import bundled_layer_file_refusal
+    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
+    layer_refusal = bundled_layer_file_refusal(profile_file)
+    if layer_refusal is not None:
+        raise click.UsageError(layer_refusal)
+
     variant = VariantSelection(name=None, path=None)
     try:
-        # Only a repo root has a host variant. A persona delta named directly is
+        # Only a repo root has a host variant. A tier or app named directly is
         # a file among its siblings, not a deployment, and the directory holding
         # it carries no setting to read.
         if profile_file.name == PROFILE_FILENAME:
             variant = resolve_variant_selection(profile_file.parent)
+        _reject_unknown_layer_keys(profile_file)
         overlays = (variant.path,) if variant.path is not None else ()
         build_profile, profile_dir = resolve_build_profile(profile_file, None, overlays)
         # Named explicitly rather than left to resolution's internals: this
@@ -115,18 +143,20 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     # contributions applied. Checked from the command rather than inside
     # `validate()`, which also runs during profile resolution — see
     # `lint_profile_config`.
-    # The profile's own directory, not the working directory: a catalog entry's
-    # `build_profile: personas/<name>.yml` is named relative to the profile it
-    # sits beside. Passing it is what makes `osprey validate --repo <path>`, and
-    # a run from any subdirectory, read the same deltas a run from the repo root
-    # reads — without it the persona half of the lint silently sees nothing and
-    # reports the profile valid.
+    # The profile's own directory, not the working directory: the `tiers/` and
+    # `apps/` files the web lint reads sit beside the profile. Passing it is what
+    # makes `osprey validate --repo <path>`, and a run from any subdirectory,
+    # read the same files a run from the repo root reads — without it the
+    # render half of the lint silently sees nothing and reports the profile
+    # valid.
     profile_root = profile_file.parent
+    dispatch_tier = profile_dispatch_tier(build_profile)
     web_errors = deploy_aware_config_errors(
         build_profile.deploy,
         build_profile.config,
         profile_root=profile_root,
         project_name=build_profile.project_name,
+        dispatch_tier=dispatch_tier,
     )
     # A sibling call, not a line inside `deploy_aware_config_errors`: that
     # function judges the multi-user web stack against the deploy block, and
@@ -156,6 +186,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
             build_profile.config,
             profile_root=profile_root,
             project_name=build_profile.project_name,
+            dispatch_tier=dispatch_tier,
         ),
         # The same line `osprey build` prints for a `web.bar_items` entry the
         # served default drops because its panel is not selected.
@@ -165,9 +196,11 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     ):
         note(f"⚠ {warning}")
 
-    # A materialized profile against the preset it was written from. Only a
-    # profile `osprey init` stamped has a preset to be compared with; a
-    # hand-written one has nothing to drift from.
+    # A materialized profile against the preset it was written from, and each
+    # tier and app file against the bundled tier or app its own provenance
+    # names. Only a document `osprey init` stamped has a source to be compared
+    # with; a hand-written one has nothing to drift from — the lint reports
+    # nothing for it, so it runs whether or not the root carries a stamp.
     #
     # Only the STRUCTURAL findings refuse, because only they name the silent
     # kind of failure — a key, a block or a member the preset gained and this
@@ -177,31 +210,34 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     # that ruling is that a preset changing a default in a newer OSPREY arrives
     # as a note. Either way a facility fact is claimed once, with a marker
     # comment, and never asked about again.
-    if build_profile.provenance is not None:
-        try:
-            report_card = preset_drift_report(profile_file, build_profile.provenance)
-        except BuildProfileError as e:
-            raise click.UsageError(str(e)) from e
-        if report_card.note:
-            note(report_card.note)
-        for stale in report_card.stale_markers:
-            note(f"⚠ {stale}")
-        for finding in report_card.notes:
-            note(f"⚠ preset drift: {finding.render()}")
-        refusals = report_card.refusals
-        if refusals and drift == "error":
-            tag = build_profile.provenance.deviation_marker
-            raise click.UsageError(
-                f"Profile differs from preset {report_card.preset} in {len(refusals)} "
-                f"place(s) no marker claims:\n  - "
-                + "\n  - ".join(finding.render() for finding in refusals)
-                + f"\nA deliberate difference is marked with a `# {tag}: <why>` comment "
-                f"within {MARKER_REACH} lines above its line, or one naming the key or "
-                f"member when the profile has no line for it. `--drift=warn` reports "
-                f"without refusing."
-            )
-        for finding in refusals:
-            note(f"⚠ preset drift: {finding.render()}")
+    try:
+        report_card = preset_drift_report(profile_file, build_profile.provenance)
+    except BuildProfileError as e:
+        raise click.UsageError(str(e)) from e
+    if report_card.note:
+        note(report_card.note)
+    for stale in report_card.stale_markers:
+        note(f"⚠ {stale}")
+    for finding in report_card.notes:
+        note(f"⚠ preset drift: {finding.render()}")
+    refusals = report_card.refusals
+    if refusals and drift == "error":
+        tag = (
+            build_profile.provenance.deviation_marker
+            if build_profile.provenance is not None
+            else DEFAULT_DEVIATION_MARKER
+        )
+        raise click.UsageError(
+            f"Profile differs from what it was materialized from in {len(refusals)} "
+            f"place(s) no marker claims:\n  - "
+            + "\n  - ".join(finding.render() for finding in refusals)
+            + f"\nA deliberate difference is marked with a `# {tag}: <why>` comment "
+            f"within {MARKER_REACH} lines above its line, or one naming the key or "
+            f"member when the file has no line for it. `--drift=warn` reports "
+            f"without refusing."
+        )
+    for finding in refusals:
+        note(f"⚠ preset drift: {finding.render()}")
 
     # Before the verdict, and worded as `osprey build` words it: the reader has
     # to know WHICH document was judged before being told it is fine.
@@ -245,8 +281,8 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     """Check the deployment profile without building.
 
     With no argument, validates the deployment repo enclosing the working
-    directory. TARGET names a different profile to check instead — a persona
-    delta file under personas/, or a directory holding a profile.yml.
+    directory. TARGET names a different profile to check instead — a tier
+    under tiers/, an app under apps/, or a directory holding a profile.yml.
 
     Resolves extends: chains and runs the full consistency check — convention
     directories, the data: tree, service templates, lifecycle steps, env vars —
@@ -254,7 +290,8 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     Every problem found is reported, not just the first.
 
     A profile `osprey init` wrote is also compared with the preset it came from,
-    persona deltas included. A key, block or list member one of them has and the
+    and each tier and app file with the bundled tier or app its provenance
+    names. A key, block or list member one of them has and the
     other has not is refused unless a marker comment (`# DEVIATION: <why>`, tag
     set by provenance.deviation_marker) claims it; --drift=warn reports those
     and passes. A key both carry with different values is always just reported.
@@ -269,7 +306,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
 
     \b
       $ osprey validate
-      $ osprey validate personas/reader.yml
+      $ osprey validate apps/logbook.yml
       $ osprey validate --repo ~/als-assistant
     """
     if target is not None and repo is not None:

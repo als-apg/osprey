@@ -27,7 +27,9 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc import pool as pool_module
+from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.pool import (
     ConnectorHostError,
     ConnectorHostLostError,
@@ -38,6 +40,7 @@ from osprey_connectors.ipc.pool import (
     PooledConnector,
 )
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -49,15 +52,49 @@ PYTHONPATH = os.pathsep.join(
 )
 
 _HELPERS = "tests.connectors.ipc._pool_connectors"
-SLOW = f"{_HELPERS}.SlowMockConnector"
+SLOW = f"{_HELPERS}.SlowInProcessConnector"
 FAILING = f"{_HELPERS}.FailingConnector"
 HANGING = f"{_HELPERS}.HangingConnector"
 SLOW_START = f"{_HELPERS}.SlowStartConnector"
 TIMING_OUT = f"{_HELPERS}.TimingOutConnector"
 EXITING = f"{_HELPERS}.ExitingConnector"
+EXITING_ON_READ = f"{_HELPERS}.ExitingOnReadConnector"
 
 #: Bound for calls that must simply succeed, generous enough for a loaded CI box.
 OK_TIMEOUT_S = 10.0
+#: Hang guard on a real child starting and answering its init frame. The wait ends at the
+#: child's reply; this bound only fails a child that never replies, and a loaded xdist run can
+#: hold a cold child past the product default.
+CHILD_START_TIMEOUT_S = 120.0
+
+
+#: Every address a child here reads or writes, each a writable setpoint. The
+#: ``SLOW:``, ``GONE:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+SERVED = (
+    "GONE:X",
+    "SLOW:RB",
+    "SLOW:SP",
+    "SLOW:SP2",
+    "SLOW:X",
+    "SR:A",
+    "SR:B",
+    "SR:DCCT",
+    "SR:SP",
+    "SR:SP1",
+    "SR:SP2",
+    "WEDGE:X",
+)
+
+#: The simulator view every child serves, built once per module.
+_VIEW: dict[str, Path] = {}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def served_view(tmp_path_factory):
+    """Build the view :func:`_section` names, before any test asks for a section."""
+    _VIEW["view"] = served_tree(tmp_path_factory.mktemp("pool_served"), SERVED)
+    yield _VIEW["view"]
+    _VIEW.clear()
 
 
 def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -> dict:
@@ -65,7 +102,7 @@ def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -
         "type": connector_type,
         "writes_enabled": writes_enabled,
         "connector": {
-            connector_type: {"response_delay_ms": 1, "noise_level": 0.0, **(block or {})}
+            connector_type: in_process_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
         },
     }
 
@@ -97,6 +134,7 @@ async def pools():
     made: list[ConnectorHostPool] = []
 
     def make(*args, **kwargs):
+        kwargs.setdefault("start_timeout_s", CHILD_START_TIMEOUT_S)
         pool = ConnectorHostPool(*args, **kwargs)
         made.append(pool)
         return pool
@@ -462,7 +500,7 @@ async def test_failed_starts_leave_no_unhandled_asyncio_errors(asyncio_errors):
     # Many concurrent failed starts are what exposed abandoned acknowledgement
     # futures being failed after nobody waited for them.
     async def one():
-        pool = ConnectorHostPool(_section(FAILING))
+        pool = ConnectorHostPool(_section(FAILING), start_timeout_s=CHILD_START_TIMEOUT_S)
         try:
             with pytest.raises(ConnectionError):
                 await pool.connector("live")
@@ -480,6 +518,37 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
 
     assert caught.value.stage == "init"
     await _wait_for(lambda: not _alive(caught.value.pid))
+    names = [name for name, _ in caught.value.phases]
+    assert names == list(START_PHASES[: len(names)])
+    assert "connected" not in names
+    assert pool_module._describe_start(caught.value.phases) in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("phases", "words"),
+    [
+        ((), "had not finished starting its interpreter"),
+        ((("main", 0.4),), "had not read its init frame"),
+        ((("main", 0.4), ("init", 0.5)), "was importing the connector modules"),
+        (
+            (("main", 0.4), ("init", 0.5), ("imports", 1.2)),
+            "was building its connector (connect())",
+        ),
+        (
+            (("main", 0.4), ("init", 0.5), ("imports", 1.2), ("connected", 1.3)),
+            "had not answered",
+        ),
+    ],
+)
+def test_a_start_failure_sentence_names_the_phase_the_child_was_in(phases, words):
+    sentence = pool_module._describe_start(phases)
+
+    assert words in sentence
+    if phases:
+        assert f"after {phases[-1][1]:.1f}s" in sentence
+    assert ("Start marks:" in sentence) == bool(phases)
+    for name, seconds in phases:
+        assert f"{name} +{seconds:.1f}s" in sentence
 
 
 async def test_an_unresolved_placeholder_refuses_before_anything_is_spawned(
@@ -720,7 +789,7 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
         from osprey_connectors.ipc.pool import ConnectorHostPool
 
         async def main():
-            pool = ConnectorHostPool({_section(SLOW)!r})
+            pool = ConnectorHostPool({_section(SLOW)!r}, start_timeout_s={CHILD_START_TIMEOUT_S!r})
             await pool.connector("live")
             await pool.connector("live", execution_mode="readonly")
             print(" ".join(str(pid) for pid in pool.pids().values()), flush=True)
@@ -868,8 +937,19 @@ async def test_a_child_that_exits_before_answering_init_is_refused_at_the_init_s
 
     assert caught.value.stage == "init"
     assert "exited before answering its init frame (exit code 3)" in str(caught.value)
+    assert [name for name, _ in caught.value.phases] == ["main", "init", "imports"]
     assert spawns[0][1].returncode == 3
     assert pool.pids() == {}
+
+
+async def test_a_child_that_exits_mid_call_reports_its_own_exit_code(pools):
+    pool = pools(_section(EXITING_ON_READ))
+    live = await pool.connector("live")
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await asyncio.wait_for(live.read_channel("SR:A"), OK_TIMEOUT_S)
+
+    assert caught.value.returncode == 4
 
 
 def _doctor_init_reports(monkeypatch, doctor):
@@ -942,11 +1022,61 @@ async def test_a_child_whose_report_disagrees_with_the_derivation_is_refused_and
     assert pool.pids() == {}
 
 
+async def test_transport_mismatch_refused(pools, monkeypatch):
+    """A child that built the other venue is refused by the transport it echoes."""
+    _doctor_init_reports(monkeypatch, _with(transport="ca"))
+    pool = pools(_section(SLOW))
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live")
+
+    assert caught.value.stage == "verify"
+    assert "reports transport 'ca' where None was derived." in str(caught.value)
+    assert pool.pids() == {}
+
+
+# ------------------------------------------------------- the simulator in process
+
+
+def _in_process_section() -> dict:
+    return {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": in_process_config(_VIEW["view"], response_delay_ms=1)},
+    }
+
+
+async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
+    """``va`` on the simulator in process: a real child, no gateway, no network."""
+    pool = pools(_in_process_section())
+    va = await pool.connector("va")
+
+    reading = await asyncio.wait_for(va.read_channel("SR:A"), OK_TIMEOUT_S)
+    assert reading.value is not None
+    with pytest.raises(ChannelNotFoundError) as unknown:
+        await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
+    assert unknown.value.channel_address == "NOT:SERVED"
+    assert len(spawns) == 1
+
+
+async def test_served_va_without_gateway_still_refused(pools, spawns):
+    """The served simulator is gated exactly as before: no gateway, no spawn."""
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"timeout_s": 1.0}},
+    }
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("va")
+
+    assert caught.value.stage == "config"
+    assert "broadcast" in str(caught.value)
+    assert spawns == []
+
+
 # ------------------------------------------------------------ lifetime, continued
 
 
 async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():
-    async with ConnectorHostPool(_section(SLOW)) as pool:
+    async with ConnectorHostPool(_section(SLOW), start_timeout_s=CHILD_START_TIMEOUT_S) as pool:
         live = await pool.connector("live")
         pid = live.pid
         assert _alive(pid)

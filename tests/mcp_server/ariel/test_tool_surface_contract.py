@@ -6,7 +6,7 @@ uses — the FastMCP singleton after every tool module is imported, with its
 must then appear in the three places a reader or the permission layer looks:
 
 - ``docs/source/reference/contracts/ariel.rst`` — the tool contract table;
-- ``CLAUDE.ariel.md.j2`` — the agent's tool surface, read as raw template text
+- ``CLAUDE.logbook.md.j2`` — the agent's tool surface, read as raw template text
   so a row inside a ``{% if %}`` still counts;
 - ``FRAMEWORK_SERVERS["ariel"].permissions_allow`` — for every read tool, that
   is every tool not routed through ``permissions_ask``.
@@ -25,7 +25,7 @@ from tests.registry.test_tool_classification_drift import _registered_tool_names
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTRACT_RST = _REPO_ROOT / "docs" / "source" / "reference" / "contracts" / "ariel.rst"
 _MCP_SERVERS_RST = _REPO_ROOT / "docs" / "source" / "architecture" / "mcp-servers.rst"
-_TEMPLATE = _REPO_ROOT / "src" / "osprey" / "templates" / "claude_code" / "CLAUDE.ariel.md.j2"
+_TEMPLATE = _REPO_ROOT / "src" / "osprey" / "templates" / "claude_code" / "CLAUDE.logbook.md.j2"
 
 _ARIEL = FRAMEWORK_SERVERS["ariel"]
 
@@ -61,7 +61,7 @@ def test_every_live_tool_is_in_the_mcp_servers_page(live_tools):
 
 def test_every_live_tool_is_in_the_agent_template(live_tools):
     missing = live_tools - _md_literals(_TEMPLATE)
-    assert not missing, f"CLAUDE.ariel.md.j2 does not name: {sorted(missing)}"
+    assert not missing, f"CLAUDE.logbook.md.j2 does not name: {sorted(missing)}"
 
 
 def test_every_read_tool_is_allowed_without_asking(live_tools):

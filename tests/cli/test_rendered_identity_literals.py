@@ -9,10 +9,11 @@ The source guard (:mod:`tests.docs.test_shipped_identity_literals`) cannot
 cover this on its own. Its exemptions are keyed on the source path where an
 institution is the subject, and nothing follows that text into the files the
 render copies it to. Text composed at render time — the emitter's commented
-templates, preset comments copied into ``profile.yml``, persona renders, data
+templates, preset comments copied into ``profile.yml``, renders, data
 bundles, the ``build/.image`` copies — never exists as a source file at all.
-So this module materialises every root preset the way a deployer does and
-walks every text file of the repository that results, matching each line
+So this module materialises every root preset the way a deployer does — the
+tiers and apps ``osprey init`` scaffolds beside it render too — and walks
+every text file of the repository that results, matching each line
 against the source guard's own table (imported, never copied) plus the entries
 that are denied in renders only. A literal that joins the source table is
 refused in renders from then on, with no edit here.
@@ -34,6 +35,13 @@ Two things in a render are allowed rather than fixed:
   the login. The scan replaces exactly those strings with a neutral token
   before matching; a self-test proves the redaction neither hides an identity
   elsewhere on the line nor reports one inside the path.
+
+The build also records the account that ran it, as the deployment's host
+identity, in the render and in the names of the telemetry login files. That
+name is a fact about the host too, so every render here runs under the
+placeholder account :data:`BUILD_ACCOUNT` rather than the login of whoever
+runs the suite. Nothing is redacted for it: a maintainer's login that reaches
+a render as shipped text is still reported.
 """
 
 from __future__ import annotations
@@ -45,10 +53,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile_presets import _read_preset_document, list_presets
+from osprey.cli.build_profile_presets import (
+    _read_preset_document,
+    list_apps,
+    list_presets,
+    list_tiers,
+)
 from osprey.cli.init_cmd import init
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from tests.docs.test_shipped_identity_literals import DENIED, Denied
@@ -73,18 +87,23 @@ RENDERED_DENIED: tuple[Denied, ...] = DENIED + RENDER_ONLY_DENIED
 
 
 def _root_presets() -> tuple[str, ...]:
-    """Every shipped preset that extends no other; personas render inside these."""
+    """Every shipped preset that extends no other; tiers and apps render inside these."""
     return tuple(name for name in list_presets() if "extends" not in _read_preset_document(name)[0])
 
 
-def _persona_presets() -> dict[str, str]:
-    """Each preset that extends a root, mapped to the root it extends."""
-    personas: dict[str, str] = {}
-    for name in list_presets():
-        parent = _read_preset_document(name)[0].get("extends")
-        if parent:
-            personas[name] = str(parent)
-    return personas
+#: The root preset whose ``osprey init`` scaffolds every bundled tier and app.
+LAYER_HOST = "control-assistant"
+
+#: Where the rendered config states the renders the build made.
+_RENDERS_PATH = ("modules", "web_terminals", "renders")
+
+
+def _stated_renders(repo: Path) -> dict[str, dict]:
+    """The renders ``repo``'s rendered config says the build made, by name."""
+    node = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8")) or {}
+    for key in _RENDERS_PATH:
+        node = node.get(key) if isinstance(node, dict) else None
+    return dict(node) if isinstance(node, dict) else {}
 
 
 ROOT_PRESETS = _root_presets()
@@ -101,6 +120,11 @@ CATALOG_ENDPOINTS: dict[str, frozenset[str]] = {
 }
 
 HOST_TOKEN = "<host path>"
+
+#: The account every render here is built as. ``getpass.getuser`` reads the
+#: first of these variables that is set.
+BUILD_ACCOUNT = "builder"
+_ACCOUNT_VARIABLES = ("LOGNAME", "USER", "LNAME", "USERNAME")
 
 
 def _catalog_allowances() -> dict[str, frozenset[str]]:
@@ -188,9 +212,12 @@ def rendered(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, Render]:
     """Every root preset rendered once, with its scan."""
     renders: dict[str, Render] = {}
     for preset in ROOT_PRESETS:
-        # Named after the preset so persona renders land at build/<persona>.
+        # Named after the preset so renders land at build/<render>.
         repo = tmp_path_factory.mktemp("rendered") / preset
-        _render(repo, preset)
+        with pytest.MonkeyPatch.context() as patch:
+            for variable in _ACCOUNT_VARIABLES:
+                patch.setenv(variable, BUILD_ACCOUNT)
+            _render(repo, preset)
         hits, used = _scan(repo, (str(repo), str(repo.resolve()), sys.executable))
         renders[preset] = Render(repo=repo, hits=hits, used=used)
     return renders
@@ -230,15 +257,23 @@ def test_every_catalog_allowance_is_still_rendered(rendered: Mapping[str, Render
 
 
 @pytest.mark.slow
-def test_every_persona_renders_inside_its_root_preset(rendered: Mapping[str, Render]) -> None:
-    personas = _persona_presets()
-    assert personas, "no shipped preset extends a root preset"
+def test_every_bundled_tier_and_app_renders_inside_its_root(
+    rendered: Mapping[str, Render],
+) -> None:
+    """The walk covers every tier and app render, because each lands in the root's ``build/``."""
+    stated = _stated_renders(rendered[LAYER_HOST].repo)
+    kinds = {name: entry.get("kind") for name, entry in stated.items()}
+    assert kinds == {
+        **dict.fromkeys(list_tiers(), "tier"),
+        **dict.fromkeys(list_apps(), "app"),
+    }
     missing = sorted(
-        persona
-        for persona, root in personas.items()
-        if not (rendered[root].repo / "build" / persona).is_dir()
+        f"{root}:{entry.get('project_path')}"
+        for root, render in rendered.items()
+        for entry in _stated_renders(render.repo).values()
+        if not (render.repo / str(entry.get("project_path"))).is_dir()
     )
-    assert missing == [], f"persona renders not under their root's build/: {missing}"
+    assert missing == [], f"renders not under their root's build/: {missing}"
 
 
 @pytest.mark.slow
@@ -251,7 +286,7 @@ def test_the_walk_reaches_every_surface_a_deployer_reads(
         "profile.yml",
         "providers.yml",
         ".env.example",
-        "data/demo_machine.ttl",
+        "build/data/graph/facility.ttl",
         "build/config.yml",
         "build/.claude/settings.json",
         "build/.mcp.json",
@@ -259,6 +294,7 @@ def test_the_walk_reaches_every_surface_a_deployer_reads(
         "build/.image/control-assistant/providers.yml",
         "build/.image/control-assistant/profile.yml",
         "build/control-assistant-readonly/config.yml",
+        "build/control-assistant-logbook/config.yml",
     ):
         assert surface in walked, f"the walk misses {surface}"
     binary = "build/data/channel_databases/graph.duckdb"

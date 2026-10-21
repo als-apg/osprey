@@ -4,8 +4,8 @@
     Postgres entrypoint runs it ONCE while initializing a FRESH data volume, as
     the superuser the image is creating. That is the same window
     POSTGRES_PASSWORD is read in: a volume that already exists never runs this
-    file, which is why the standalone-deployment how-to carries a one-shot
-    command for an existing stack.
+    file, which is why the "Read-only role for the SQL tool" section of the
+    ARIEL search-modes how-to carries a one-shot command for an existing stack.
 
     A .sh rather than a .sql because the role's password comes from the
     environment: the entrypoint feeds a .sql straight to psql, which does not

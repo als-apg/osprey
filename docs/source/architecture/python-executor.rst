@@ -35,8 +35,16 @@ artifact gallery. The ``artifact_type`` parameter overrides automatic type
 detection (e.g., ``"figure"``, ``"dataframe"``); ``category`` is a free-form
 grouping label used by the gallery UI.
 
-The ``execute`` and ``execute_file`` tool parameters and the JSON they return
-are documented in :doc:`/reference/contracts/python-executor`.
+A render that carries a pyAML view adds two tools to the same server, and a
+render without one registers neither: ``pyaml_measure`` measures a response
+matrix or the chromaticity on the control target through a generated script,
+every write of one measurement under the control target's run lock, and
+``model_response_matrix`` solves a served model's orbit response on its deck
+in a sandbox child (see :doc:`/how-to/measure-with-pyaml`).
+
+The ``execute``, ``execute_file``, ``pyaml_measure`` and
+``model_response_matrix`` tool parameters and the JSON they return are
+documented in :doc:`/reference/contracts/python-executor`.
 
 Where Code Runs
 ===============
@@ -58,7 +66,7 @@ warning naming the config file it came from. Any other value is a
 configuration error.
 
 The ``ExecutionWrapper`` wraps user code with runtime guards (e.g. the
-raw-put block, which refuses a direct ``epics.caput()`` so that every write
+raw-put block, which refuses a direct ``aioca.caput()`` so that every write
 goes through the connector), writes the wrapped script to an execution folder,
 and runs it. The subprocess working directory is
 set to the project root so that relative workspace paths (e.g.
@@ -97,7 +105,7 @@ project's own environment, so executed code sees the same imports either way.
 Security Model
 ==============
 
-Nine safety layers are applied in sequence:
+Ten safety layers are applied in sequence:
 
 1. **Static safety check** (``quick_safety_check``)---blocks dangerous
    patterns such as dynamic code evaluation, dynamic imports, and
@@ -121,7 +129,23 @@ Nine safety layers are applied in sequence:
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-5. **Readonly runtime guard**---the declared mode is exported into the
+5. **Approved-call check** (``_check_approved_call``)---before it spawns a
+   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
+   ``pyaml_measure``) whose approval policy asks, the executor reads the
+   record the approval prompt left for this tool call. The call's
+   ``approved_target`` must equal what the prompt recorded and name the
+   run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
+   must equal the recorded view digest as well. Without a record,
+   or with a field that differs, nothing is spawned and the result carries
+   ``failure_kind: approval_missing``. A stated ``approval.enabled`` that is
+   not ``true`` or ``false`` (or an ``approval`` section that is not a
+   mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
+   Nothing of the record reaches the subprocess, which evaluates no approval
+   policy itself. A call that reaches the server without passing the
+   approval hook gets no read-write run on a deployment whose policy asks; such a
+   deployment states ``approval.enabled: false``.
+
+6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
    entry point listed under :ref:`python-executor-write-surface` is
    replaced with a refusing function, the connectors refuse
@@ -129,11 +153,11 @@ Nine safety layers are applied in sequence:
    gateway --- so a write is refused at runtime and at the network layer
    however it is spelled.
 
-6. **Filesystem guard**---the runtime half of layer 2, patched into the
+7. **Filesystem guard**---the runtime half of layer 2, patched into the
    subprocess so it also sees paths the source did not spell out. Emitted
    in **every** execution mode.
 
-7. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
+8. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
    mode)---in a ``readwrite`` run a write goes through ``write_channel()`` /
    ``write_channels()`` from ``osprey.runtime``, and nowhere else. The
    connector underneath them is what applies the write posture, the limits
@@ -150,18 +174,18 @@ Nine safety layers are applied in sequence:
    :ref:`python-executor-write-channel`.
 
    The block occupies the readonly guard's slot: a run gets exactly one of
-   layer 5 and layer 7. It is installed before the user code runs and is not
+   layer 6 and layer 8. It is installed before the user code runs and is not
    wrapped in ``try``, so a block that cannot install aborts the run rather
    than letting it write unguarded. Where the limits database is on, the
    connector checks every ``write_channel`` value against it before the value
    leaves.
 
-8. **Process isolation**---code always runs in a separate subprocess, never
+9. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
 
-9. **Execution timeout**---configurable via
-   ``python_executor.execution_timeout_seconds`` (default 600 s). The
-   process is killed if it exceeds the limit.
+10. **Execution timeout**---configurable via
+    ``python_executor.execution_timeout_seconds`` (default 600 s). The
+    process is killed if it exceeds the limit.
 
 .. code-block:: yaml
 
@@ -188,9 +212,11 @@ see :ref:`python-executor-armed-block`.
 **Control-system clients**, refused whether they are imported, aliased, or
 resolved dynamically:
 
-- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``
 - **aioca** --- ``caput``. Every OSPREY environment carries it: it is the
-  Channel Access backend of ``ophyd-async[ca]``
+  Channel Access client of OSPREY's own EPICS connector, and the backend of
+  ``ophyd-async[ca]``
+- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, ``ca.put``. Not an
+  OSPREY dependency; refused in case a user installs it
 - **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
   ``ca_array_put_callback``, the ctypes binding aioca loads ``libca``
   through
@@ -226,8 +252,15 @@ client at all, so they are refused in ``readonly`` runs too:
   ``check_output``, ``os.system``, ``os.popen``, and the ``os.exec*``,
   ``os.spawn*`` and ``posix_spawn`` families. This is what stops a
   shelled-out ``caput``.
-- Loading a shared library --- ``ctypes.CDLL`` and friends, which could
-  otherwise open ``libca`` directly.
+- Loading a shared library --- every ``ctypes`` spelling, down to the loader
+  underneath them, and cffi's ``FFI.dlopen``, which could otherwise open
+  ``libca`` directly. Every load after the guard is installed refuses.
+- Resolving a Channel Access put symbol (``ca_array_put``,
+  ``ca_array_put_callback``, ``ca_sg_array_put``) on any library handle,
+  including the ``libca`` handle ``epicscorelibs`` loaded before the run, which
+  aioca keeps reading through. Building a function pointer by hand from
+  ``ctypes`` internals stays open: it constructs an immutable C type the guard
+  cannot patch.
 
 ``os.fork`` is deliberately left working: forking alone cannot start a new
 program, and the ``exec`` half of every fork-and-exec is already refused.
@@ -247,17 +280,16 @@ What a readwrite run refuses
 ----------------------------
 
 A ``readwrite`` run may write, but only through the connector. The raw-put
-block (layer 7) reads the same table as the list above and splits its client
-rows into four buckets, so the page, the executor and the notebook kernel
-agree on every row:
+block (layer 8) reads the same table as the list above and splits its client
+rows into four buckets, so the page and the executor agree on every row:
 
 ``_ARMED_BLOCKED`` --- **refused** unless a connector is making the put. The
 refusal does not depend on the value: an in-range ``caput`` is refused like an
 out-of-range one, because the connector is where a write is checked and
 recorded.
 
-- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, and ``ca.put`` and
-  ``ca.sg_put`` beneath them
+- **pyepics**, if a user installs it --- ``caput``, ``caput_many``,
+  ``PV.put``, and ``ca.put`` and ``ca.sg_put`` beneath them
 - **aioca** --- ``caput``, under the package name and under
   ``aioca._catools``, the module that defines it
 - **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
@@ -289,8 +321,8 @@ PVAccess writes away from every deployment. These keep the posture they had
 before the raw-put block: the approval hook asks for the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a ``parsePut`` or a builder callable carries no value to
-check and is refused). A run with limits off, and a notebook kernel, let them
-through. They move to ``_ARMED_BLOCKED`` once the connector writes PVAccess.
+check and is refused). A run with limits off lets them through. They move to
+``_ARMED_BLOCKED`` once the connector writes PVAccess.
 
 - **p4p** --- ``Context.put`` for the raw, thread, asyncio and cothread
   clients
@@ -303,7 +335,7 @@ Tango's ``command_inout`` (on ``DeviceProxy``, ``Connection`` and ``Group``).
 An rpc payload or a Tango command has no channel value a connector write could
 carry, so no ``write_channel`` call can stand in for one. An executor run with
 the limits database on **refuses** them, because nothing could bound them; a
-run with limits off, and a notebook kernel, **lets them through**.
+run with limits off **lets them through**.
 
 ``_ARMED_PASSED`` --- **let through**, because they write no device: p4p's
 ``SharedPV.post``/``open`` and pvaPy's ``PvaServer``/``PvaMirrorServer``
@@ -333,8 +365,8 @@ altogether is not stopped by it. These are the **cooperative bypasses**:
 - a put through a ``libca`` handle the code loaded itself with ``ctypes``
   (the ``ca_array_put``, ``ca_array_put_callback`` and ``ca_sg_array_put``
   symbols), or through a raw socket;
-- a put from a pyepics callback under ``PREEMPTIVE_CALLBACK=False``: pyepics
-  then runs callbacks while a thread polls, and the poll inside a connector's
+- a put from a callback of a user-installed pyepics under
+  ``PREEMPTIVE_CALLBACK=False``: pyepics then runs callbacks while a thread polls, and the poll inside a connector's
   own waiting put is inside the open door;
 - a connector subclass written in the run itself, whose ``write_channel`` the
   base class wraps like any other.
@@ -367,6 +399,19 @@ comment or a message does not count. The hook answers with a ``deny`` and the
 ``.put(`` --- which also matches ``queue.put`` --- are still asked about as
 before. ``execute_file`` carries a path rather than source, so it is asked
 about as before and relies on the runtime block.
+
+**A notebook kernel's mode.** A notebook kernel installs the same block in its
+``no_client`` mode, and never the armed one; ``no_client`` is never embedded in
+an executor run. It refuses the import of every package in ``CLIENT_PACKAGES``
+--- the top-level names of the armed block's client rows --- and a client shared
+library (``libca``, the PVAccess libraries) loaded through Python's two
+loaders, ``ctypes`` and ``cffi``, for reads as for writes, with
+``ClientLibraryRefusedError`` and reason ``RAW_CLIENT_IMPORT``. A client
+already loaded when the block is installed cannot be unloaded, so the install
+refuses it and the kernel does not start. Like the armed block it is
+cooperative: it keeps honest cell code on the connector path and is not a
+sandbox (see :ref:`architecture-safety-chain`). See
+:ref:`what a cell may load <notebooks-write-channel>`.
 
 .. _python-executor-write-channel:
 
@@ -408,7 +453,7 @@ Three locations are protected:
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
   ``profile.yml`` (with ``triggers.yml``, ``ci-extra.yml`` and
-  ``osprey.service`` beside it), the ``personas/``,
+  ``osprey.service`` beside it), the ``tiers/``, ``apps/``,
   ``profiles/``, ``data/`` and ``scripts/`` directories, the convention
   directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
   ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
@@ -417,7 +462,7 @@ Three locations are protected:
   run that could rewrite it could erase the evidence of its own refusal.
 
 A protected entry that does not exist yet is protected all the same: in a repo
-with no ``personas/`` directory, creating one is exactly the write to refuse.
+with no ``apps/`` directory, creating one is exactly the write to refuse.
 
 This boundary is about *zones* — whole trees, wherever inside them a path lands.
 A companion boundary, :ref:`the protected set <config-protected-set>`, closes
@@ -589,7 +634,7 @@ and the operator alert are what is missing.
    ``osprey.runtime`` utilities (``read_channel()``, ``write_channel()``),
    not direct connector imports. The execution wrapper configures these
    automatically from the deployment context, so code works with any
-   connector (EPICS, Mock, etc.) and notebooks remain reproducible.
+   connector (EPICS, the simulator, etc.) and notebooks remain reproducible.
 
 .. note::
 

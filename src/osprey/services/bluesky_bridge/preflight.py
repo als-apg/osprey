@@ -436,7 +436,8 @@ def _file_verdict(
 
     ``detail`` names the lane and target the verdict was taken on, the count of
     declared addresses, the person whose queued plan this is when
-    :func:`~osprey_connectors.posture_store.bound_owner` names one, a digest of
+    :func:`~osprey_connectors.posture_store.bound_owner` names one (the same
+    name the record carries as ``on_behalf_of``), a digest of
     the channel set, and then the channels themselves, sorted, for as long as
     they fit :data:`~osprey.audit.envelope.MAX_DETAIL_CHARS` (see
     :func:`_verdict_detail`).
@@ -448,11 +449,13 @@ def _file_verdict(
         from osprey_connectors.posture_store import bound_owner
 
         lane, target = resolve_lane_identity()
+        owner = bound_owner()
         writer.record(
             surface=SURFACE_PREFLIGHT,
             posture=posture.posture(),
             posture_source=posture.posture_source(),
             session=None,
+            on_behalf_of=owner if isinstance(owner, str) else None,
             subject=plan_name or "unknown",
             decision=decision,
             reason=reason,
@@ -460,7 +463,7 @@ def _file_verdict(
                 lane,
                 target,
                 addresses,
-                owner=bound_owner(),
+                owner=owner,
                 unresponsive=unresponsive,
                 unchecked=unchecked,
                 limit=MAX_DETAIL_CHARS,

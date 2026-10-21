@@ -7,8 +7,8 @@ places, and most of them delete on a clock of their own. The ``archive`` service
 copies all of them, once a day, into an append-only tree on the deployment
 host. This page lists every store, what deletes it, and what the archive keeps.
 
-For the telemetry itself — what the agent emits and how to view it — see
-:doc:`monitor-agent`.
+For the telemetry itself — what the agent emits and how to query it — see
+:doc:`monitor-agent` and :doc:`read-the-record`.
 
 Where the record lives
 ======================
@@ -54,10 +54,11 @@ Where the record lives
      - ``osprey reset --purge-audit``
      - yes; dot-named ``.json`` and ``.tmp`` files there are a service's working state and are
        not copied
-   * - OpenObserve logs and traces
-     - the ``openobserve_data`` volume
-     - ``services.openobserve.retention_days`` (14 in the preset)
-     - yes, one file per stream per day
+   * - Telemetry store: the agent's logs, traces and metrics, and the audit
+       ledger as rows
+     - the ``telemetry_store`` volume, tables ``telemetry.*``
+     - ``services.telemetry_store.retention_days`` (default 14)
+     - yes, one Parquet file per table per day
    * - The archive
      - ``var/archive/<YYYY-MM-DD>/``, with ``MANIFEST.jsonl``
      - nothing in OSPREY, ``osprey reset`` included
@@ -84,8 +85,9 @@ change into the deployment.
 
 ``services.archive.interval_seconds`` sets the time between passes (default
 ``86400``, one day). ``osprey health`` warns when the last pass is older than
-twice that, when it recorded errors, and, with OpenObserve deployed, when the
-newest archived telemetry day is older than the day before yesterday.
+twice that, when it recorded errors, and, with the telemetry store deployed,
+when the newest archived telemetry day is older than the day before yesterday
+(UTC).
 
 Permissions
 ===========
@@ -108,15 +110,62 @@ Each day directory holds the files copied that day, under
 rewritten, with three kinds of line:
 
 - ``file`` — one copied file: its ``source``, its ``path`` in the archive, its
-  ``size`` and ``sha256``;
-- ``telemetry_day`` — one exported day of OpenObserve, with the rows written per
-  stream;
+  ``size`` and ``sha256``; a file exported from the telemetry store also carries
+  its ``table``, ``day`` and ``rows``;
+- ``telemetry_day`` — one exported day of the telemetry store, with the rows
+  written per table;
 - ``pass`` — the last line of every pass: when it ran, how many files and bytes
   it copied, and any errors.
 
 A file is copied again only when its content changed. A transcript that grew is
 copied whole; a second copy on the same day gets the pass time before its
 suffix, for example ``abc.T142233Z.jsonl``.
+
+.. _agent-record-telemetry-export:
+
+The telemetry store's days
+--------------------------
+
+A UTC day is exported once, by the first pass at or after ten past midnight of
+the next day, as ``<pass-day>/telemetry/<day>/<table>.parquet``: one file for
+each table of the store and one for the store's own ``query_log``. A table is
+read by **arrival day**, the day a row reached the store (its ``InsertedAt``),
+so rows that arrive late after a store outage are in the export of the day they
+arrived. ``query_log`` is read by its own ``event_date``. A day whose export
+fails part-way is not recorded and is exported again by the next pass; a pass
+walks back at most ``services.telemetry_store.retention_days`` days, the
+oldest day the store still holds.
+The archive reads the store with its own read-only account.
+
+.. _agent-record-dedup:
+
+Duplicate rows
+--------------
+
+Each stored row is exported once, but the store can hold a row twice. The
+gateway's ledger feed is at least once: a gateway stopped between a stored batch
+and its acknowledgement stores that batch again, and a gateway whose state
+volume is lost reads every ledger file from the start, storing the retention
+window once more. A duplicate in the store is a duplicate in the archive. Drop
+them when you read, with ``LIMIT 1 BY`` on the natural key:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Table
+     - Key
+   * - ``audit_ledger``
+     - ``User``, ``Surface``, ``ToolUseId``, ``Timestamp``, ``cityHash64(Body)``
+   * - ``otel_logs``
+     - ``User``, ``SessionId``, ``Timestamp``, ``cityHash64(Body, toJSONString(LogAttributes))``
+
+An ``otel_logs`` key hashes the attributes as well as ``Body``, because
+``Body`` names the event kind, not the record: two events of one kind in the
+same millisecond differ only in their attributes.
+
+The queries the history page and :doc:`reconstruct-session` run use the same
+keys.
 
 To restore a lane's plan-queue history, point ``redis-server --appendonly yes``
 at a copied ``appendonlydir``. A copy taken mid-write can end on a torn command;
@@ -133,8 +182,8 @@ the archive container before removing the volumes. Run ``osprey build``, then
 What is not archived
 ====================
 
-- OpenObserve metrics.
-- The Tiled catalog of a plan lane.
+- The Tiled catalog of a plan lane: it is beamline data, with its own
+  retention and backup, not a record of what the agent was asked and did.
 - Sessions of ``osprey chat`` or ``osprey web`` run on the host, which live
   under your own ``~/.claude``.
 - Anything deleted between two passes: a dispatch run cleared or expired, or a

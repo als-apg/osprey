@@ -7,10 +7,9 @@ group holds the read-only verbs that act on that source, kept separate from
 
 The write half lives elsewhere by design: ``osprey init`` creates the deployment
 repo (through :func:`_materialize_profile_directory` here, which is the one
-function in this module that writes anything) and ``osprey set`` edits the
-profile. ``profile expand`` is the one verb in this GROUP that writes, and it
-lives in :mod:`osprey.cli.profile_expand` for that reason — it is a one-time
-migration of a profile written before the app template retired, not a reader.
+function in this module that writes anything), ``osprey init --revalidate``
+brings an existing one up to date, and ``osprey set`` edits the profile. Every
+verb in this group only reads.
 
 ``osprey validate`` is the top-level spelling of ``profile validate``, and the
 check both run is :func:`osprey.cli.validate_cmd.check_profile_file` — one
@@ -22,7 +21,6 @@ prints.
 Usage:
     osprey profile presets
     osprey profile validate ~/deployments/als-assistant
-    osprey profile expand
 """
 
 from __future__ import annotations
@@ -34,12 +32,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
-from . import profile_expand
-from .output import report, section, warn
+from .output import report, section
 from .profile_conventions import (
     CONTEXT_BASELINE_FILENAME,
     PER_USER_CONTEXT_DIRNAME,
@@ -54,6 +52,7 @@ if TYPE_CHECKING:
     # lazy-import budget test in tests/cli/test_main.py pins this).
     from .build_profile_model import BuildProfile
     from .templates.manager import TemplateManager
+    from .templates.preset_data import PresetData
 
 logger = get_logger("profile")
 
@@ -61,13 +60,6 @@ logger = get_logger("profile")
 @click.group()
 def profile() -> None:
     """Author, validate, and inspect build profiles."""
-
-
-# Registered rather than declared: `expand` is defined in its own module (it is
-# the group's only writer and carries its own machinery), and a command object
-# added here is indistinguishable from a decorated one — so `osprey profile
-# --help` stays the whole surface of the group whatever file a verb lives in.
-profile.add_command(profile_expand.expand)
 
 
 def echo_preset_names() -> None:
@@ -125,7 +117,7 @@ def validate(target: Path) -> None:
 
     \b
       $ osprey profile validate ~/deployments/als-assistant
-      $ osprey profile validate ~/deployments/als-assistant/personas/readonly.yml
+      $ osprey profile validate ~/deployments/als-assistant/tiers/readonly.yml
     """
     # The check itself belongs to the verb, not to either spelling of it: this
     # command differs from `osprey validate` only in requiring its TARGET, so
@@ -149,7 +141,7 @@ def card(as_json: bool, repo: Path | None) -> None:
     The composition card `osprey init` prints, for a repo that already exists:
     who can sign in and with what rights, what the agent runs on, what machine
     it talks to, and what runs beside it. Everything is read off the repo's
-    profile.yml and the persona files beside it — nothing is built, started, or
+    profile.yml and the tier files beside it — nothing is built, started, or
     probed.
 
     With --json, the same rows as one JSON array of {group, label, value}
@@ -181,7 +173,7 @@ def card(as_json: bool, repo: Path | None) -> None:
     ):
         repo_root = find_repo_root(repo)
         resolved, _profile_dir = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
-        deltas = read_persona_deltas(repo_root, resolved.config)
+        deltas = read_layer_deltas(repo_root)
 
         # One derivation, one refusal. The card `init` prints is advisory and
         # swallows what it cannot derive, because the repo is already made by
@@ -214,13 +206,6 @@ def card(as_json: bool, repo: Path | None) -> None:
 # profile's ``data:`` key. One constant so the copy target and the emitted key
 # cannot drift apart.
 _PROFILE_DATA_DIRNAME = "data"
-
-# Sibling persona deltas live here, one file per web-terminal persona. A file
-# in this directory is merged over the `profile.yml` beside it (FR-10), so the
-# whole stack shares ONE facility data tree and ONE set of convention dirs: edit
-# `<profile>/` once and every persona render sees it.
-_PERSONA_PROFILE_DIRNAME = "personas"
-
 
 # Convention directory holding one subdirectory of per-user web-terminal context
 # per roster user. Named from the convention table rather than spelled again, so
@@ -264,7 +249,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     "profile.yml",
     PROVIDERS_FILENAME,
     _PROFILE_DATA_DIRNAME,
-    _PERSONA_PROFILE_DIRNAME,
+    *LAYER_DIR_KINDS,
     PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
@@ -368,7 +353,8 @@ def _plan_provider_catalog(target: Path) -> _ProviderCatalogPlan:
     (:func:`~osprey.profiles.providers.load_provider_catalog` replaces rather
     than merges): once the file exists it is the whole catalog, so deleting an
     entry there deletes it. This function is the one place the two documents
-    meet, and it runs only when the operator asks for a re-materialization.
+    meet, and it runs only when the operator asks for one: ``osprey init`` over
+    an existing repo, and ``osprey init --revalidate``.
 
     Args:
         target: The repo root being materialized. Read only — the plan is
@@ -559,18 +545,18 @@ def _roster_user_names(config: Mapping[str, Any]) -> list[str]:
     """Web-terminal user names a profile's roster declares, in roster order.
 
     Empty for a profile with no web-terminal module and for one whose module is
-    switched off — a persona delta, say, which attaches to a hosting project's
+    switched off — a layer, say, which attaches to a hosting project's
     web tier and stands up no roster of its own.
 
     Only the *route* to the subtree is this function's own: a profile spells its
     settings as a flat ``config:`` block, so the dotted keys have to be folded
     (:func:`~.build_profile_emit.effective_web_terminals`) before there is a
     subtree to read. Deriving names from it is
-    :func:`~osprey.deployment.web_terminals.personas.roster_user_names`, the
+    :func:`~osprey.deployment.web_terminals.roster.roster_user_names`, the
     same call the build makes against the built project's ``config.yml`` — which
     is what makes the slots seeded here exactly the ones the build looks for.
     """
-    from osprey.deployment.web_terminals.personas import roster_user_names
+    from osprey.deployment.web_terminals.roster import roster_user_names
 
     from .build_profile_emit import effective_web_terminals
 
@@ -587,7 +573,7 @@ def _stands_up_a_web_tier(config: Mapping[str, Any]) -> bool:
     or not anyone is on the roster. The subtree is read through the same fold
     :func:`_roster_user_names` uses, on the same "not switched on means no web
     tier" rule as
-    :func:`~osprey.deployment.web_terminals.personas.roster_user_names`.
+    :func:`~osprey.deployment.web_terminals.roster.roster_user_names`.
     """
     from .build_profile_emit import effective_web_terminals
 
@@ -625,7 +611,7 @@ def _providers_named_by(provider: Any) -> set[str]:
     to union in.
 
     Args:
-        provider: The layer's top-level ``provider:`` key. A persona delta that
+        provider: The layer's top-level ``provider:`` key. A layer that
             overrides it names its own; one that does not inherits the host's,
             which is already counted.
 
@@ -637,14 +623,14 @@ def _providers_named_by(provider: Any) -> set[str]:
     return set()
 
 
-def _parsed_persona_deltas(
-    persona_texts: Mapping[str, str], *, require_mapping: bool = False
+def _parsed_layer_deltas(
+    render_texts: Mapping[str, str], *, require_mapping: bool = False
 ) -> dict[str, Mapping[str, Any]]:
-    """Parse every emitted persona delta, naming the file a bad one came from.
+    """Parse every emitted layer, naming the file a bad one came from.
 
     A delta gets no resolution round-trip of its own — it is meaningless without
     the host beside it — so this parse is the ONLY check that the line-level
-    ``extends:`` surgery (:func:`~.build_profile_emit.emit_persona_delta_yaml`)
+    ``extends:`` surgery (:func:`~.build_profile_emit.emit_layer_delta_yaml`)
     left valid YAML behind. It therefore happens once, here, and its result
     serves every later reader: a second parse elsewhere would either raise a
     bare ``YAMLError`` first or silently disagree with this one.
@@ -654,11 +640,13 @@ def _parsed_persona_deltas(
     the emitted text is written out either way.
 
     Args:
-        persona_texts: ``{persona name: delta text}``.
+        render_texts: ``{repo-relative layer file: text}``, as
+            :func:`_layer_profile_texts` emits them. The result is keyed by
+            each file's stem — the render name every reader asks for.
         require_mapping: Refuse a document that is not a mapping instead of
             carrying it as an empty one. Off for the emission path above, whose
             texts this module wrote and which is written out whatever it parses
-            to; on for :func:`read_persona_deltas`, where the text came off disk
+            to; on for :func:`read_layer_deltas`, where the text came off disk
             and an empty delta would misreport a file the operator has to fix.
 
     Raises:
@@ -666,27 +654,40 @@ def _parsed_persona_deltas(
             ``require_mapping`` — parses to something that is not a mapping.
     """
     return {
-        persona_name: _parse_persona_delta(
-            persona_text,
-            f"Emitted persona delta {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml",
+        _layer_key_name(key): _parse_layer_delta(
+            text,
+            f"Emitted layer {_layer_key_path(key)}",
             require_mapping=require_mapping,
         )
-        for persona_name, persona_text in persona_texts.items()
+        for key, text in render_texts.items()
     }
 
 
-def _parse_persona_delta(text: str, shown: str, *, require_mapping: bool) -> Mapping[str, Any]:
-    """Parse one persona delta, naming ``shown`` in any refusal.
+def _layer_key_name(key: str) -> str:
+    """The render name an emitted text's key stands for: ``tiers/admin.yml`` -> ``admin``.
 
-    The single parse behind :func:`_parsed_persona_deltas` and
-    :func:`read_persona_deltas`. The two differ only in what a refusal calls the
+    A bare key (no folder, no suffix) is already the name.
+    """
+    return Path(key).stem if key.endswith(".yml") else key
+
+
+def _layer_key_path(key: str) -> str:
+    """The repo-relative file an emitted text's key names, as a refusal shows it."""
+    return key if key.endswith(".yml") else f"{TIERS_DIRNAME}/{key}.yml"
+
+
+def _parse_layer_delta(text: str, shown: str, *, require_mapping: bool) -> Mapping[str, Any]:
+    """Parse one layer, naming ``shown`` in any refusal.
+
+    The single parse behind :func:`_parsed_layer_deltas` and
+    :func:`read_layer_deltas`. The two differ only in what a refusal calls the
     document — the file the emission would have written, or the file the
     operator opens — so the caller supplies that and nothing else varies.
 
     Args:
         text: The delta's YAML text.
-        shown: How a refusal names this document (``"Persona delta
-            personas/admin.yml"``).
+        shown: How a refusal names this document (``"Layer
+            tiers/admin.yml"``).
         require_mapping: Refuse a document that is not a mapping instead of
             carrying it as an empty one.
 
@@ -707,65 +708,46 @@ def _parse_persona_delta(text: str, shown: str, *, require_mapping: bool) -> Map
     return {}
 
 
-def read_persona_deltas(repo_root: Path, config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    """Read the on-disk delta of every persona a profile's catalog names.
+def read_layer_deltas(repo_root: Path) -> dict[str, Mapping[str, Any]]:
+    """Read the on-disk delta of every tier and app layer a repo carries.
 
-    The read half of what :func:`_persona_profile_texts` emits. The catalog
-    (:func:`~.build_profile_emit.persona_catalog`) is the only list of persona
-    files consulted, never the ``personas/`` directory itself, so a stale file
-    the profile no longer names contributes nothing and cannot make a reader
-    report a persona this deployment does not deploy. The result therefore holds
-    exactly one entry per catalog entry, whether or not a file backed it.
-
-    A catalog entry that names a bundled preset (``control-assistant-readonly``)
-    instead of a repo file has no delta to read, and neither has one whose file
-    is missing. Both warn on stderr and carry an empty delta rather than
-    stopping: the persona is still deployed, and dropping it from a reader's
-    output would hide that more thoroughly than an empty one does.
+    The read half of what :func:`_layer_profile_texts` emits, over the same
+    listing the build renders one project per layer from
+    (:func:`~osprey.cli.profile_root.layer_files`): the files directly under
+    ``tiers/``, then ``apps/``, beside ``profile.yml``. A file there IS a layer
+    the build deploys, so every one is read and nothing else is.
 
     Args:
-        repo_root: The deployment repo the catalog's relative ``build_profile``
-            paths are resolved against.
-        config: The loaded profile's ``config:`` block.
+        repo_root: The deployment repo whose layer directories are read. The
+            layer set is the files on disk, not anything the profile names.
 
     Returns:
-        ``{persona name: parsed delta}``, one entry per catalog entry, in
-        catalog order.
+        ``{layer name: parsed delta}`` keyed by file stem (the render name every
+        reader asks for), tiers before apps, sorted by name within each — the
+        order the emission keys them in.
 
     Raises:
-        click.ClickException: If a delta file exists but is not a YAML mapping.
-            A file that is there and unreadable is a different fact from one
-            that is absent: the operator has something to fix, and a caller that
-            carried on would state something wrong about that persona rather
-            than admit it knows nothing.
+        click.ClickException: If a layer file cannot be read or is not a YAML
+            mapping. A layer that is there and unreadable is something the
+            operator has to fix, and a caller that carried on would state
+            something wrong about that layer rather than admit it knows nothing.
     """
-    from .build_profile_emit import persona_catalog
+    from .profile_root import layer_files
 
     deltas: dict[str, Mapping[str, Any]] = {}
-    for persona_name, entry in persona_catalog(config).items():
-        reference = entry.get("build_profile")
-        relative = reference.strip() if isinstance(reference, str) else ""
-        parts = Path(relative).parts if relative else ()
-        if not relative.endswith(".yml") or Path(relative).is_absolute() or ".." in parts:
-            warn(
-                f"Persona {persona_name!r}: build_profile {reference!r} is not a file in "
-                "this repo, so no delta is read for it."
-            )
-            deltas[persona_name] = {}
+    for _kind, path in layer_files(repo_root):
+        name = path.stem
+        if name in deltas:
+            # Two layers sharing a name render into one directory; the build
+            # refuses that. The first one listed is the one a reader keeps.
             continue
+        relative = path.relative_to(repo_root).as_posix()
         try:
-            text = (repo_root / relative).read_text(encoding="utf-8")
-        except OSError:
-            warn(
-                f"Persona {persona_name!r}: no persona file at {relative}, so no delta "
-                "is read for it."
-            )
-            deltas[persona_name] = {}
-            continue
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise click.ClickException(f"Layer {relative} cannot be read: {e}") from e
         try:
-            deltas[persona_name] = _parse_persona_delta(
-                text, f"Persona delta {relative}", require_mapping=True
-            )
+            deltas[name] = _parse_layer_delta(text, f"Layer {relative}", require_mapping=True)
         except BuildProfileError as e:
             raise click.ClickException(str(e)) from e
     return deltas
@@ -773,14 +755,14 @@ def read_persona_deltas(repo_root: Path, config: Mapping[str, Any]) -> dict[str,
 
 def _referenced_providers(
     resolved: BuildProfile,
-    persona_deltas: Mapping[str, Mapping[str, Any]],
+    layer_deltas: Mapping[str, Mapping[str, Any]],
     catalog_additions: Collection[str] = (),
 ) -> set[str]:
-    """Every provider the materialized profile — host and personas — references.
+    """Every provider the materialized profile — host and renders — references.
 
-    The persona deltas are read too because they share this profile's ``.env``:
-    a delta sits in ``personas/`` and anchors its secrets at the profile root
-    (:func:`~.profile_root.resolve_profile_root`), so a persona that switches
+    The layers are read too because they share this profile's ``.env``:
+    a delta sits in ``tiers/`` and anchors its secrets at the profile root
+    (:func:`~.profile_root.resolve_profile_root`), so a render that switches
     provider needs its key in the same file. A delta with no ``provider:`` of
     its own inherits the host's selection, which is already counted.
 
@@ -792,14 +774,14 @@ def _referenced_providers(
 
     Args:
         resolved: The resolved host profile.
-        persona_deltas: The parsed deltas (:func:`_parsed_persona_deltas`).
+        layer_deltas: The parsed deltas (:func:`_parsed_layer_deltas`).
             Parsed rather than raw text so the one parse that validates them
             is the one read here.
         catalog_additions: Entry names the repo's catalog carries and the
             packaged one does not (:attr:`_ProviderCatalogPlan.carried`).
     """
     names = _providers_named_by(resolved.provider)
-    for delta in persona_deltas.values():
+    for delta in layer_deltas.values():
         names |= _providers_named_by(delta.get("provider"))
     return names | {str(name) for name in catalog_additions}
 
@@ -864,7 +846,7 @@ def _exported_provider_keys(
     ``.env`` — the file an operator can read, edit, and account for, and the one
     store compose and every ``${VAR}`` expansion read. There is no second copy
     to derive: a build only ever appends to that file
-    (:func:`~osprey.utils.dotenv.append_profile_env`), so a key seeded here
+    (:func:`~osprey_connectors.dotenv.append_profile_env`), so a key seeded here
     survives every rebuild and a key that reaches a running deployment was
     written to this file first.
 
@@ -1009,7 +991,7 @@ def _write_secret_channel(
     Returns:
         Profile-relative names of the files written, for the caller's summary.
     """
-    from osprey.utils.dotenv import append_profile_env
+    from osprey_connectors.dotenv import append_profile_env
 
     from .templates.scaffolding import (
         provider_api_key_entries,
@@ -1073,52 +1055,13 @@ def _write_secret_channel(
     return written
 
 
-def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str) -> str | None:
-    """Why ``persona_preset`` cannot be emitted as a delta over ``host_preset``.
-
-    ``None`` when it can: its ``extends`` names the host preset directly, so the
-    preset's own layer IS the delta and nothing is lost by dropping the key.
-    Two distinct failures get two distinct messages, because the fix differs —
-    a preset that never reaches the host is pointed somewhere else entirely,
-    while one that reaches it through an intermediate would emit a delta with
-    that intermediate's layer silently missing.
-    """
-    from .build_profile_presets import (
-        _load_preset_raw,
-        _normalize_preset_name,
-        _preset_extends_chain_reaches,
-    )
-
-    raw, _path = _load_preset_raw(persona_preset)
-    parent = raw.get("extends")
-    if isinstance(parent, str) and parent and _normalize_preset_name(parent) == host_preset:
-        return None
-    if _preset_extends_chain_reaches(persona_preset, host_preset):
-        return (
-            f"{persona_name!r}: build_profile {persona_preset!r} reaches {host_preset!r} only "
-            f"through {_normalize_preset_name(str(parent))!r}. A persona file holds its own "
-            f"layer and nothing else, so emitting one here would drop that preset's settings "
-            f"— point the catalog entry at a preset that extends {host_preset!r} directly, or "
-            f"drop this entry from the catalog (`--set config.modules.web_terminals.personas."
-            f"{persona_name}=null`), materialize, "
-            f"then hand-write {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml as a delta over "
-            f"profile.yml and add the entry back to the emitted profile"
-        )
-    return (
-        f"{persona_name!r}: build_profile {persona_preset!r} does not extend {host_preset!r}, "
-        f"so it is not a delta over this profile — a persona file is merged over the profile "
-        f"beside it, and this preset carries its own base. Point the catalog entry at a preset "
-        f"that extends {host_preset!r}, or materialize that preset as a profile of its own"
-    )
-
-
 def _unreadable_access_problems(config: Mapping[str, Any]) -> list[str]:
     """Every roster entry whose ``access`` value the vocabulary cannot resolve.
 
     ``users[].access`` is authored as a principal set — the ``own``/``any``
     shorthands, or a list of ``self``, ``roster``, ``user:<id>`` and
     ``domain:<domain>`` members — and
-    :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+    :func:`~osprey.deployment.web_terminals.roster.resolve_access_principals`
     is its single parser. That parser REFUSES an unreadable value rather than
     answering, because a value one surface reads as owner-only while another
     reads it as admitting somebody is the failure the whole key exists to
@@ -1142,13 +1085,15 @@ def _unreadable_access_problems(config: Mapping[str, Any]) -> list[str]:
         One message per unreadable entry, in roster order; empty when every
         authored ``access`` resolves.
     """
-    from osprey.deployment.web_terminals.personas import resolve_access_principals
+    from osprey.deployment.web_terminals.roster import (
+        authored_people,
+        resolve_access_principals,
+    )
 
     from .build_profile_emit import effective_web_terminals
 
-    users = effective_web_terminals(config).get("users")
     problems: list[str] = []
-    for entry in users if isinstance(users, list) else []:
+    for entry in authored_people(effective_web_terminals(config)):
         # Bare-string entries carry no `access` at all, and a non-dict entry is
         # a different (separately reported) mistake.
         if not isinstance(entry, dict) or "access" not in entry:
@@ -1160,52 +1105,51 @@ def _unreadable_access_problems(config: Mapping[str, Any]) -> list[str]:
     return problems
 
 
-def _privileged_persona_problems(
+def _privileged_tier_problems(
     config: Mapping[str, Any],
     privileges: Mapping[str, tuple[str, ...]],
     absolute_privileges: Mapping[str, tuple[str, ...]],
 ) -> list[str]:
-    """Why this profile's roster must not deploy as written, from the tiers it names.
+    """Why this profile's roster must not deploy as written, from the layers it names.
 
-    The build-time half of the deployment-editing guard, run where the persona
-    presets have just been resolved and their privileges are therefore known
-    exactly (see
-    :func:`~osprey.deployment.web_terminals.personas.persona_privileges`). Two
+    The build-time half of the deployment-editing guard, run where every tier
+    and app the roster names has just been emitted and its privileges are
+    therefore known exactly (see
+    :func:`~osprey.deployment.web_terminals.roster.tier_privileges`). Two
     rules, both owned by that module so the lint belt behind this reports the
     same thing in the same words:
 
-    * ``default_persona`` must not be a privileged tier — it is what every entry
-      that names no tier inherits;
+    * ``default_tier`` must not be a privileged tier — it is what every person
+      who names no tier inherits;
     * no shared card may resolve to one. Shared is the whole of
-      :func:`~osprey.deployment.web_terminals.personas.entry_is_shared` —
-      ``access: any``, but equally a ``[user:…]`` or ``[domain:…]`` list, or
-      any principal set naming somebody beyond the entry's own user.
+      :func:`~osprey.deployment.web_terminals.roster.entry_is_shared` —
+      ``access: any``, a ``[user:…]`` or ``[domain:…]`` list, any principal set
+      naming somebody beyond the entry's own user, and every app card, which
+      everyone on the roster opens.
 
     **The two rules read two different maps**, and handing one map to both
-    would leave this surface exempt on a floorless host preset: every persona
+    would leave this surface exempt on a floorless host preset: every tier
     there sits at the baseline, so the relative map is empty for all of them
     and the shared-card rule would have nothing to report about a terminal
     holding everything. See
-    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
-    for why the ``default_persona`` rule keeps the relative reading.
+    :func:`~osprey.deployment.web_terminals.roster.privileges_beyond_baseline`
+    for why the ``default_tier`` rule keeps the relative reading.
 
     Args:
         config: The host profile's ``config:`` block, from which the roster is
             folded out — and the baseline the relative map is measured
             against.
-        privileges: Persona name → what it holds BEYOND that baseline, for the
-            personas whose presets resolved. A persona absent from this mapping
-            contributes nothing — its entry already failed to resolve and is
-            reported as such.
-        absolute_privileges: Persona name → what it holds outright, same
-            personas. What the shared-card rule is judged on.
+        privileges: Tier or app name → what it holds BEYOND that baseline. A
+            name absent from this mapping contributes nothing.
+        absolute_privileges: Tier or app name → what it holds outright. What
+            the shared-card rule is judged on.
 
     Returns:
-        One message per problem, ``default_persona`` first, then roster order.
+        One message per problem, ``default_tier`` first, then roster order.
     """
-    from osprey.deployment.web_terminals.personas import (
-        privileged_default_persona_problem,
-        resolve_personas,
+    from osprey.deployment.web_terminals.roster import (
+        privileged_default_tier_problem,
+        resolve_cards,
         shared_card_privileged_problems,
     )
 
@@ -1213,154 +1157,188 @@ def _privileged_persona_problems(
 
     web_terminals = effective_web_terminals(config)
     problems: list[str] = []
-    default_persona = web_terminals.get("default_persona")
-    default_problem = privileged_default_persona_problem(
-        default_persona,
-        privileges.get(default_persona, ()) if isinstance(default_persona, str) else (),
+    default_tier = web_terminals.get("default_tier")
+    default_problem = privileged_default_tier_problem(
+        default_tier,
+        privileges.get(default_tier, ()) if isinstance(default_tier, str) else (),
     )
     if default_problem is not None:
         problems.append(default_problem)
 
-    # Lenient resolution, exactly as the lint belt resolves it: an entry naming
-    # a persona that is not in the catalog — or carrying an `access` value the
-    # vocabulary does not recognise — is a different mistake, reported by the
-    # rule that owns it (`_unreadable_access_problems` here, and the deploy
-    # lint's `web_terminals.invalid_user_access` there), and raising from this
-    # rule would replace that report with a worse one. The unreadable entry is
-    # dropped, so this rule says nothing about it — again as lint does.
-    resolved = resolve_personas(web_terminals, {}, "", project_name="", strict=False)
+    # Every card the roster runs — people, then the derived app cards
+    # (`roster_entries`) — each resolved to the tier or app it renders from.
+    # Lenient, exactly as the lint belt resolves it: an entry carrying an
+    # `access` value the vocabulary does not recognise, or a role nothing
+    # binds, is a different mistake, reported by the rule that owns it
+    # (`_unreadable_access_problems` here, the deploy lint there), and raising
+    # from this rule would replace that report with a worse one.
+    resolved = resolve_cards(web_terminals, {}, strict=False)
     problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
 
 
-def _persona_profile_texts(
+def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[str], list[str]]:
+    """The tiers and apps this profile's roster names, as ``(tiers, apps)``, sorted.
+
+    A tier is named by any card a person runs on (their ``tier:`` or role, or
+    ``default_tier`` when they name neither), by ``default_tier`` itself — the
+    tier the next person added inherits — by every role ``authorization``
+    binds, since single sign-on may hand any of them out, and by
+    ``dispatch.tier``. An app is named by ``shared:``. A profile that stands up
+    no web terminals deploys no roster, so it names only ``dispatch.tier``: the
+    dispatch workers run that tier with or without a terminal beside them.
+
+    Unreadable roster values name nothing here; the rules that own them report
+    them.
+
+    The served set itself is
+    :func:`~osprey.deployment.web_terminals.roster.served_render_names`; this
+    splits it by kind. A ``shared:`` name the served set already counts as a
+    tier is listed under both, so the caller's refusal that a card renders
+    from one file reports it.
+    """
+    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP
+    from osprey.deployment.web_terminals.roster import served_render_names
+
+    from .build_profile_emit import effective_web_terminals
+
+    web_terminals = effective_web_terminals(config)
+    if not web_terminals.get("enabled"):
+        web_terminals = {}
+    served = served_render_names(web_terminals, dispatch_tier)
+    tiers = {name for name, kind in served.items() if kind != RENDER_KIND_APP}
+    apps = {name for name, kind in served.items() if kind == RENDER_KIND_APP}
+    shared = web_terminals.get("shared")
+    for name in shared if isinstance(shared, list) else []:
+        if isinstance(name, str) and name in tiers:
+            apps.add(name)
+    return sorted(tiers), sorted(apps)
+
+
+def _layer_profile_texts(
     resolved: BuildProfile,
     profile_name: str,
-    persona_path_prefix: str,
-    host_preset: str,
+    render_path_prefix: str,
 ) -> dict[str, str]:
-    """Emit one delta text per persona the profile deploys.
+    """Emit the tier and app files this profile's roster names.
 
-    Empty unless the profile stands up a persona stack of its own (see
-    :func:`~osprey.cli.build_profile_emit.emits_persona_profiles`) — a persona
-    preset inherits the catalog but disables the module, and emitting from one
-    of those would produce personas-of-a-persona.
+    Each is the bundled tier or app materialized as an explicit file
+    (:func:`~.build_profile_emit.emit_layer_delta_yaml`): its whole content,
+    comments and a provenance block, and no pointer into the package. Which
+    ones is :func:`_roster_layers`' answer, so a fresh repo holds a file for
+    every tier and app it deploys and nothing else.
 
-    ``persona_path_prefix`` is what the emitted headers prefix ``personas/``
-    with when they name a persona file: the profile's directory name and a
+    ``render_path_prefix`` is what the emitted headers prefix ``tiers/`` and
+    ``apps/`` with when they name a file: the profile's directory name and a
     slash for a nested profile directory, and empty for a repo root, where the
     reader already stands where those paths are relative to.
 
-    Each entry is emitted as a pure DELTA — the persona preset's own layer, no
-    ``extends:`` (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — over
-    the host profile it sits beside. The host therefore stays the single source
-    of truth: edits there, and the caller's baked ``--set`` edits with them,
-    reach every persona through the implicit merge instead of being copied
-    around. A catalog entry whose preset is not a delta over ``host_preset``
-    (the bundled shape: ``control-assistant-readonly`` over
-    ``control-assistant``) is rejected rather than approximated — see
-    :func:`_off_chain_problem`.
-
     One thing beyond emission is decided here, because this is the only moment
-    the resolved persona tiers are all in hand: whether the roster hands
-    deployment editing to a terminal that must not have it (see
-    :func:`_privileged_persona_problems`). Refusing at materialization is what
+    every layer's content is in hand: whether the roster hands deployment
+    editing to a terminal that must not have it (see
+    :func:`_privileged_tier_problems`). Refusing at materialization is what
     keeps the bad roster from reaching a repo at all.
 
+    Args:
+        resolved: The host profile, resolved.
+        profile_name: The deployment's display name, which each tier is titled
+            after.
+        render_path_prefix: See above.
+
+    Returns:
+        ``{repo-relative file (tiers/<n>.yml, apps/<n>.yml): text}``, tiers
+        first, each kind sorted.
+
     Raises:
-        click.UsageError: With every unusable catalog entry named at once — or,
-            once they all resolve, with every privileged-terminal problem named
-            at once.
+        click.UsageError: With every unusable roster reference named at once —
+            or, once they all emit, with every privileged-terminal problem
+            named at once.
     """
-    from osprey.deployment.web_terminals.personas import (
-        persona_privileges,
+    from osprey.deployment.web_terminals.roster import (
         privileges_beyond_baseline,
+        tier_privileges,
     )
 
-    from .build_profile import resolve_build_profile
-    from .build_profile_emit import emit_persona_delta_yaml, persona_catalog
-    from .build_profile_presets import _normalize_preset_name, preset_data_bundle
+    from .build_profile_emit import emit_layer_delta_yaml
+    from .build_profile_merge import render_document
+    from .build_profile_presets import list_apps, list_tiers
+    from .profile_root import ProfileKind
 
-    catalog = persona_catalog(resolved.config)
+    dispatch_tier = resolved.dispatch.tier if resolved.dispatch is not None else None
+    tiers, apps = _roster_layers(resolved.config, dispatch_tier)
     texts: dict[str, str] = {}
     problems: list[str] = []
-    # What each persona can edit, recorded as its preset resolves — this is the
-    # one moment the whole composed tier is in hand, and the emitted delta
-    # deliberately drops the `extends:` that produced it. Recorded BOTH ways,
-    # because the two rules in `_privileged_persona_problems` read two different
-    # answers: relative to the host for the inherited `default_persona`,
-    # absolute for the `access: any` key an author typed on purpose. See
-    # `privileges_beyond_baseline`.
-    host_privileges = persona_privileges(resolved.config)
+    # What each layer can edit, recorded BOTH ways, because the two rules in
+    # `_privileged_tier_problems` read two different answers: relative to
+    # the host for the inherited `default_tier`, absolute for a shared card.
+    # See `privileges_beyond_baseline`.
+    host_privileges = tier_privileges(resolved.config)
     privileges: dict[str, tuple[str, ...]] = {}
     absolute: dict[str, tuple[str, ...]] = {}
-    for persona_name in sorted(catalog):
-        preset_ref = catalog[persona_name].get("build_profile")
-        # `..` needs naming explicitly: `Path("..").name` is `".."`, not the
-        # empty string, so the plain-name check below passes it through and the
-        # emission would write a `personas/..yml` nobody meant.
-        if (
-            not persona_name
-            or persona_name in (".", "..")
-            or Path(persona_name).name != persona_name
-        ):
-            problems.append(
-                f"{persona_name!r}: the persona name becomes a file name under "
-                f"{_PERSONA_PROFILE_DIRNAME}/, so it must be a plain name — no "
-                "path separators, and not empty"
-            )
-            continue
-        if not isinstance(preset_ref, str) or not preset_ref:
-            problems.append(
-                f"{persona_name!r}: no build_profile, so there is no preset to "
-                "materialize its profile from"
-            )
-            continue
-        try:
-            persona_resolved, _preset_dir = resolve_build_profile(None, preset_ref)
-        except BuildProfileError as e:
-            problems.append(f"{persona_name!r}: build_profile {preset_ref!r} does not resolve: {e}")
-            continue
-        persona_bundle = preset_data_bundle(preset_ref)
-        if persona_bundle != preset_data_bundle(host_preset):
-            # The sibling profiles share ONE data tree, materialized from the
-            # host preset's packaged bundle. A persona whose preset names a
-            # different bundle would read a tree that was never built for it —
-            # caught here rather than surfacing as missing files at deploy time.
-            problems.append(
-                f"{persona_name!r}: build_profile {preset_ref!r} names data bundle "
-                f"{persona_bundle!r}, but this profile materializes "
-                f"{preset_data_bundle(host_preset)!r} — one shared data tree "
-                f"cannot serve both"
-            )
-            continue
-        persona_preset = _normalize_preset_name(preset_ref)
-        off_chain = _off_chain_problem(persona_name, persona_preset, host_preset)
-        if off_chain is not None:
-            problems.append(off_chain)
-            continue
-        held = persona_privileges(persona_resolved.config)
-        if held:
-            absolute[persona_name] = held
-        lifted = privileges_beyond_baseline(held, host_privileges)
-        if lifted:
-            privileges[persona_name] = lifted
-        texts[persona_name] = emit_persona_delta_yaml(
-            preset_name=persona_preset,
-            profile_name=f"{profile_name} ({persona_name})",
-            profile_filename=(
-                f"{persona_path_prefix}{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml"
-            ),
+    for name in sorted(set(tiers) & set(apps)):
+        problems.append(
+            f"{name!r} is both a tier the roster names and an app in shared:, but a "
+            f"card renders from one file — rename one of them"
         )
+    for dirname, word, names, bundled in (
+        (TIERS_DIRNAME, LAYER_DIR_KINDS[TIERS_DIRNAME], tiers, list_tiers()),
+        (APPS_DIRNAME, LAYER_DIR_KINDS[APPS_DIRNAME], apps, list_apps()),
+    ):
+        for name in names:
+            # `..` needs naming explicitly: `Path("..").name` is `".."`, so the
+            # plain-name check alone would pass it and write a `tiers/..yml`.
+            if name in (".", "..") or Path(name).name != name:
+                problems.append(
+                    f"{name!r}: a {word} name becomes a file name under {dirname}/, so "
+                    "it must be a plain name — no path separators"
+                )
+                continue
+            if name not in bundled:
+                problems.append(
+                    f"{name!r}: the roster names {word} {name!r}, but OSPREY ships no "
+                    f"such {word} (bundled: {', '.join(bundled) or 'none'})"
+                )
+                continue
+            relative = f"{dirname}/{name}.yml"
+            try:
+                text = emit_layer_delta_yaml(
+                    preset_name=f"{dirname}/{name}",
+                    profile_name=profile_name,
+                    profile_filename=f"{render_path_prefix}{relative}",
+                )
+            except BuildProfileError as e:
+                problems.append(f"{name!r}: {e}")
+                continue
+            texts[relative] = text
     if problems:
         raise click.UsageError(
-            "Cannot materialize the persona profiles this profile's web-terminal "
-            "catalog calls for:\n  - " + "\n  - ".join(problems)
+            "Cannot materialize the tiers and apps this profile's web-terminal "
+            "roster names:\n  - " + "\n  - ".join(problems)
         )
-    # Reported only once every entry resolved: a capability verdict drawn from a
-    # catalog half of which did not resolve would name the wrong tiers, and the
-    # failure above is the one the operator has to fix first anyway.
-    privilege_problems = _privileged_persona_problems(resolved.config, privileges, absolute)
+    # Each layer is judged on the document the build renders it from — an app
+    # is composed, never merged like a tier — and the composer reads only the
+    # host's `config`, `hooks` and `mcp_servers`, so `config` stands in for it.
+    host_doc = {"config": resolved.config}
+    for relative, text in texts.items():
+        [(name, delta)] = _parsed_layer_deltas({relative: text}).items()
+        kind = ProfileKind(LAYER_DIR_KINDS[relative.split("/", 1)[0]])
+        try:
+            rendered = render_document(kind, host_doc, dict(delta), relative)
+        except BuildProfileError as e:
+            problems.append(f"{name!r}: {e}")
+            continue
+        held = tier_privileges(rendered.get("config"))
+        if held:
+            absolute[name] = held
+        lifted = privileges_beyond_baseline(held, host_privileges)
+        if lifted:
+            privileges[name] = lifted
+    if problems:
+        raise click.UsageError(
+            "Cannot materialize the tiers and apps this profile's web-terminal "
+            "roster names:\n  - " + "\n  - ".join(problems)
+        )
+    privilege_problems = _privileged_tier_problems(resolved.config, privileges, absolute)
     if privilege_problems:
         raise click.UsageError(
             "This profile's web-terminal roster would hand deployment editing to a "
@@ -1414,7 +1392,7 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
 
     Bundle first: an app template that ships its own
     ``web-terminal-context/base.md`` (the control assistant does — its text
-    describes that family's personas) seeds the profile with it. Any other
+    describes that family's renders) seeds the profile with it. Any other
     bundle falls back to the framework's generic baseline, the same file
     ``osprey build`` installs into every render — so the materialized slot
     starts byte-identical to what the build would have used anyway, and every
@@ -1432,7 +1410,7 @@ def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
     """The packaged app-template directory a bundle name points at.
 
     The one place that turns a ``data_bundle`` into a path on disk, so every
-    reader of an app template — the ``data/`` tree below, and the whole-template
+    reader of an app template — the ``data/`` tree, and the whole-template
     copiers beside it — fails the same way on the same missing directory.
     Checked up front, before anything is written, so a packaging regression
     surfaces as an actionable error here rather than as a missing-file error
@@ -1449,31 +1427,39 @@ def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
     Raises:
         BuildProfileError: If the template is absent from the installation.
     """
-    template_root = Path(manager.template_root) / "apps" / data_bundle
-    if not template_root.is_dir():
-        raise BuildProfileError(
-            f"App template {data_bundle!r} is absent from this installation at "
-            f"{template_root}. This is a packaging bug — reinstall osprey-framework."
-        )
+    from .templates.preset_data import app_template_root
 
-    return template_root
+    return app_template_root(Path(manager.template_root), data_bundle)
 
 
-def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
-    """The packaged ``data/`` tree this command copies verbatim.
+def _preset_data(manager: TemplateManager, preset_name: str) -> PresetData:
+    """The packaged data *preset_name* materializes: app template + facility.
+
+    Both names are preset-side facts read off the preset chain
+    (:func:`~.build_profile_presets.preset_data_bundle`,
+    :func:`~.build_profile_presets.preset_facility`), so a preset inheriting
+    either through ``extends:`` composes the same tree its parent does.
 
     Args:
         manager: The :class:`~.templates.manager.TemplateManager` locating the
             installed template root.
-        data_bundle: App template whose ``data/`` tree gets materialized.
+        preset_name: Bundled preset, in either spelling.
 
     Returns:
-        The ``data/`` directory inside the app template.
+        The composition :mod:`~.templates.preset_data` defines.
 
     Raises:
-        BuildProfileError: If the template is absent from the installation.
+        BuildProfileError: If a named directory is absent, or the app template
+            ships a facility of its own beside the one the preset names.
     """
-    return _app_template_root(manager, data_bundle) / "data"
+    from .build_profile_presets import preset_data_bundle, preset_facility
+    from .templates.preset_data import compose_preset_data
+
+    return compose_preset_data(
+        Path(manager.template_root),
+        preset_data_bundle(preset_name),
+        preset_facility(preset_name),
+    )
 
 
 def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
@@ -1541,10 +1527,11 @@ class _MaterializedProfile(NamedTuple):
     summarizes (the composition card) is a fact about what is on disk rather
     than about what the inputs asked for."""
 
-    persona_deltas: dict[str, Mapping[str, Any]]
-    """The emitted persona deltas, parsed, keyed by persona name — empty for a
-    profile that emits none. The per-persona facts a summary needs (each tier's
-    panels and its write posture) live in these, not in the host profile."""
+    layer_deltas: dict[str, Mapping[str, Any]]
+    """The emitted tier and app files, parsed, keyed by tier or app name — empty
+    for a profile that emits none. The per-tier facts a summary needs (each
+    tier's panels and its write posture) live in these, not in the host
+    profile."""
 
     seeded: tuple[str, ...]
     """The write-once directories this materialization seeded — empty on every
@@ -1567,7 +1554,7 @@ def _materialize_profile_directory(
     Writes ``profile.yml`` — the preset's fully resolved content as an
     explicit, self-contained profile (comments preserved, no ``extends:``) —
     the ``providers.yml`` catalog beside it (:func:`_plan_provider_catalog`),
-    the bundle's ``data/`` tree copied verbatim, the profile's ``.env`` channel
+    the preset's packaged data (:func:`_preset_data`) copied verbatim, the profile's ``.env`` channel
     (:func:`_write_secret_channel`), and a tutorial ``README.md`` explaining the
     convention directories. ``--set`` pairs are edits of the resolved preset,
     made the way ``osprey set`` makes them to the file afterwards, so a
@@ -1609,7 +1596,7 @@ def _materialize_profile_directory(
     """
     import shutil
 
-    from osprey.utils.dotenv import env_lock_path
+    from osprey_connectors.dotenv import env_lock_path
 
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,
@@ -1619,12 +1606,10 @@ def _materialize_profile_directory(
     )
     from .build_profile_emit import (
         emit_standalone_profile_yaml,
-        persona_catalog_layer,
         triggers_layer,
     )
     from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
-    from .templates.shared_data import shared_data_files
 
     # Resolving through the public path validates the preset AND its --set
     # edits up front, and names the bundle whose data tree gets copied. It also
@@ -1676,27 +1661,23 @@ def _materialize_profile_directory(
         )
 
     manager = TemplateManager()
-    # The packaged tree this repo's `data/` is copied from. Read off the preset
-    # chain, not off `resolved`: the bundle name is preset-side only, so it
-    # never reaches the profile the emission below writes.
+    # The packaged data this repo's `data/` is copied from: the app template's
+    # `data/` plus the facility at `data/facility/`. Read off the preset chain,
+    # not off `resolved`: both names are preset-side only, so they never reach
+    # the profile the emission below writes.
     data_bundle = preset_data_bundle(normalized_preset)
-    data_source = _packaged_data_source(manager, data_bundle)
+    preset_data = _preset_data(manager, normalized_preset)
     # Read before the first mkdir, like every other input here: a malformed
     # declaration refuses before anything is written.
     try:
-        shared_files = shared_data_files(_app_template_root(manager, data_bundle))
+        preset_data.placed_files()
     except ValueError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
-    # How the emitted persona comments spell their own paths: repo-relative,
+    # How the emitted tier and app headers spell their own paths: repo-relative,
     # because the repo root is where a reader stands.
-    persona_dirname = ""
+    retired_layer_dirname = ""
 
-    # A profile that deploys per-persona web terminals owns those personas too:
-    # their profiles are materialized beside this one and the catalog is
-    # repointed at them, so the whole stack reads this profile's data tree
-    # rather than the bundled preset's (D7a). Emitted before the first mkdir,
-    # like everything else here, so a bad catalog entry fails before mutating.
     # The trigger config a dispatch profile runs on is facility state, so the
     # profile owns a copy of it (FR-3) and the emitted key names that copy.
     # Located before the first mkdir like everything else here.
@@ -1714,16 +1695,17 @@ def _materialize_profile_directory(
             "resolve:\n  - " + "\n  - ".join(access_problems)
         )
 
-    persona_texts = _persona_profile_texts(
-        resolved, profile_name_default, persona_dirname, normalized_preset
-    )
+    # A profile that deploys web terminals owns the tiers and apps its roster
+    # names: each is materialized beside this one as an explicit file, laid over
+    # this profile by its location. Emitted before the first mkdir, like
+    # everything else here, so a bad roster reference fails before mutating.
+    render_texts = _layer_profile_texts(resolved, profile_name_default, retired_layer_dirname)
     # Parsed here, before the first mkdir and before `--force` replaces
     # anything: the parse is what validates the emitted deltas, so a bad one
     # must cost nothing. Its result is what every later reader sees.
-    persona_deltas = _parsed_persona_deltas(persona_texts)
+    layer_deltas = _parsed_layer_deltas(render_texts)
 
     extra_layers: tuple[dict[str, Any], ...] = (
-        *((persona_catalog_layer(persona_texts),) if persona_texts else ()),
         *((triggers_layer(),) if triggers_src is not None else ()),
     )
 
@@ -1736,7 +1718,7 @@ def _materialize_profile_directory(
     # Read once, before anything is written: the README rendered below tells the
     # reader whether a `.env` was seeded for them, and the seeding itself happens
     # further down. Two reads of the environment could disagree.
-    referenced_providers = _referenced_providers(resolved, persona_deltas, catalog.carried)
+    referenced_providers = _referenced_providers(resolved, layer_deltas, catalog.carried)
     shell_keys = _exported_provider_keys(referenced_providers, catalog.entries)
     exported_keys = shell_keys.seeded
 
@@ -1781,20 +1763,12 @@ def _materialize_profile_directory(
         # come across byte-identical — a profile data tree is content, never
         # templates, so nothing here is rendered. The one exclusion is build
         # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
-        if data_source.is_dir():
-            shutil.copytree(
-                data_source,
-                target / _PROFILE_DATA_DIRNAME,
-                ignore=_data_copy_ignore(data_source),
-            )
-        else:
-            (target / _PROFILE_DATA_DIRNAME).mkdir(parents=True)
-        # The files this template shares with another one land beside its own,
-        # byte-identical, so the profile cannot tell them apart.
-        for relative, source in shared_files.items():
-            destination = target / _PROFILE_DATA_DIRNAME / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+        # The facility, and any files this template shares with another one,
+        # land beside the template's own, byte-identical, so the profile
+        # cannot tell them apart.
+        preset_data.copy_into(
+            target / _PROFILE_DATA_DIRNAME, ignore=_data_copy_ignore(preset_data.app_data)
+        )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         if catalog.carried:
@@ -1887,18 +1861,15 @@ def _materialize_profile_directory(
                     # operator's, whatever else is in it.
                     run_written.append(FACILITY_RULE_DIR)
 
-        if persona_texts:
-            # Validity was settled by `_parsed_persona_deltas` above, before the
-            # first mkdir — nothing reaching here is unparsed, so these writes
-            # need no guard of their own.
-            persona_dir = target / _PERSONA_PROFILE_DIRNAME
-            persona_dir.mkdir()
-            for persona_name, persona_text in persona_texts.items():
-                (persona_dir / f"{persona_name}.yml").write_text(persona_text, encoding="utf-8")
-            logger.debug(
-                "  Persona deltas: %s",
-                ", ".join(f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml" for name in persona_texts),
-            )
+        # The tier and app files. Validity was settled by `_parsed_layer_deltas`
+        # above, before the first mkdir — nothing reaching here is unparsed, so
+        # these writes need no guard of their own.
+        for relative, layer_text in render_texts.items():
+            layer_path = target / relative
+            layer_path.parent.mkdir(exist_ok=True)
+            layer_path.write_text(layer_text, encoding="utf-8")
+        if render_texts:
+            logger.debug("  Tiers and apps: %s", ", ".join(render_texts))
         # Write-once seeds, outside the web-tier branch because they
         # are not a web-tier fact: a directory the deployment OWNS from its first
         # init — an operator's MCP servers, say — copied out of the bundle once
@@ -1923,7 +1894,7 @@ def _materialize_profile_directory(
 
         # The round-trip runs last because it validates `data:` against the tree
         # that must already be on disk. Only the host profile is resolved: a
-        # persona file is a delta, meaningless on its own, and resolving one is
+        # tier file is a delta, meaningless on its own, and resolving one is
         # resolving the host with that delta merged in — which the host's own
         # round-trip already covers.
         #
@@ -1956,6 +1927,6 @@ def _materialize_profile_directory(
         profile_name_default,
         written.deploy is not None,
         written,
-        persona_deltas,
+        layer_deltas,
         tuple(seeded),
     )

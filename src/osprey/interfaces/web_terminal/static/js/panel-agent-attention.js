@@ -5,13 +5,13 @@
    activity the operator has not seen". Everything here anchors on the rail
    element bound once via initAgentAttention().
 
-   A badge must outlive the page: the server's history ring is re-read on every
+   A badge must outlive the page: the server's history buffer is re-read on every
    SSE open (restoreAgentBadges) and any panel activity the operator has not
    seen re-badges its entry. "Seen" is an ACKNOWLEDGMENT — the server ts of the
    newest badge the operator cleared by surfacing that panel, kept per panel in
    localStorage under `agent-ack:<panelId>`.
 
-   Only SERVER timestamps are ever stored or compared here. The ring's `ts` is
+   Only SERVER timestamps are ever stored or compared here. The buffer's `ts` is
    the web-terminal process's clock; a browser clock skewed ahead of it would
    permanently suppress real badges, and one skewed behind would resurrect
    cleared ones on every reconnect. So a badge whose frame carried no ts leaves
@@ -58,7 +58,7 @@ const badgeTs = new Map();
 /** Key prefix for a panel's acknowledged ts. Panel ids are deployment-wide, so
  *  on a multi-user mount (one origin, one localStorage) the prefix alone would
  *  make one operator's acknowledgement suppress another's badge for the same
- *  panel. The resolved key is scoped per persona — see storage-scope.js. */
+ *  panel. The resolved key is scoped per render — see storage-scope.js. */
 const ACK_KEY_PREFIX = 'agent-ack:';
 
 /** This document's ack key for `panelId`, resolved at the point of use.
@@ -68,7 +68,7 @@ function ackStorageKey(panelId) {
 }
 
 /**
- * Record a badge's server ts, keeping the newest. The history ring replays a
+ * Record a badge's server ts, keeping the newest. The history buffer replays a
  * panel's older events alongside its newest, so this must not walk backwards.
  * @param {string} panelId
  * @param {number} [ts]

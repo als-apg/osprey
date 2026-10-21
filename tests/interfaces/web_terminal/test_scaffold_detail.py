@@ -139,6 +139,15 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
     assert result.exit_code == 0, result.output
     project_dir = repo / "build"
 
+    # What `osprey web` does before it serves: the host identity the build
+    # recorded, with that identity's telemetry login. Exported through
+    # monkeypatch so nothing outlives the test.
+    from osprey.deployment.telemetry_credentials import export_built_host_identity
+
+    launch_env: dict[str, str] = {}
+    export_built_host_identity(launch_env, repo)
+    for name, value in launch_env.items():
+        monkeypatch.setenv(name, value)
     monkeypatch.chdir(project_dir)
     with (
         patch(

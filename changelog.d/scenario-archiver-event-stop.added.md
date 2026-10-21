@@ -1,0 +1,1 @@
+The facility build now stops on a malformed scenario archiver event: an unknown shape, a missing key, other than exactly one position key, a non-numeric value where a number is read, or a `ramp` or `spike` on a channel that is not `float`. The line names the scenario file and the channel, so the event is fixed before a deploy or `osprey sim apply` reads it.

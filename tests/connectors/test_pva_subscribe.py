@@ -13,10 +13,10 @@ mapping — a p4p monitor, which differs from a read in three ways that matter:
   value the mapping cannot decode (a compressed NTNDArray, say) must be dropped
   rather than propagated.
 
-Teardown is asserted on both transports together: a p4p ``Subscription`` has no
-``clear_callbacks`` and a pyepics ``PV`` has no ``close``, so the connector
-stores every subscription behind one ``_ChannelSubscription`` wrapper and
-dispatches there. The fakes below are deliberately strict — no ``MagicMock``
+Teardown is asserted on both transports together: both handles close with
+``close()``, but an aioca monitor belongs to the CA loop and is closed there,
+so the connector stores every subscription behind one ``_ChannelSubscription``
+wrapper and dispatches there. The fakes below are deliberately strict — no ``MagicMock``
 for the handles — so calling the wrong teardown method raises instead of
 silently recording a call that would never work against a real library.
 """
@@ -27,10 +27,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import (
+from osprey_connectors.control_system.epics_connector import (
     _ChannelSubscription,
 )
-from tests.connectors._epics_fakes import FakeDisconnected, FakeRemoteError, FakeValue
+from tests.connectors._epics_fakes import (
+    FakeAioca,
+    FakeChannel,
+    FakeDisconnected,
+    FakeRemoteError,
+    FakeValue,
+    ca_reading,
+)
 from tests.connectors._epics_fakes import pva_connector as _pva_connector
 
 PVA_GLOB = "SR:CAM*:IMAGE"
@@ -46,8 +53,8 @@ CA_ADDRESS = "SR:BEAM:CURRENT"
 class FakeSubscription:
     """A p4p ``Subscription`` stand-in: it can be closed, and nothing else.
 
-    Deliberately has NO ``clear_callbacks`` — that is the pyepics spelling, and
-    calling it here must fail loudly rather than pass a mock assertion.
+    Deliberately has nothing but ``close`` — any other teardown spelling must
+    fail loudly rather than pass a mock assertion.
     """
 
     def __init__(self) -> None:
@@ -116,32 +123,30 @@ class TestSubscribeRouting:
     @pytest.mark.asyncio
     async def test_pva_address_opens_a_monitor_and_no_ca_pv(self):
         context = FakeMonitorContext()
-        epics = MagicMock()
-        connector = _pva_connector(context=context, epics=epics)
+        ca = FakeAioca()
+        connector = _pva_connector(context=context, aioca=ca)
 
         sub_id = await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
         assert [call["name"] for call in context.calls] == [PVA_ADDRESS]
-        epics.PV.assert_not_called()  # no Channel Access connection was made
+        assert ca.calls == []  # no Channel Access connection was made
         assert sub_id.startswith(f"{PVA_ADDRESS}_")
         assert connector._subscriptions[sub_id].kind == "pva"
         assert connector._subscriptions[sub_id].handle is context.subscriptions[0]
 
     @pytest.mark.asyncio
-    async def test_ca_address_on_a_pva_capable_connector_still_uses_pyepics(self):
+    async def test_ca_address_on_a_pva_capable_connector_still_uses_channel_access(self):
         context = FakeMonitorContext()
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(context=context, epics=epics)
+        ca = FakeAioca({CA_ADDRESS: FakeChannel()})
+        connector = _pva_connector(context=context, aioca=ca)
 
         sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
 
         assert context.calls == []  # PVA client untouched
-        assert epics.PV.call_args.args == (CA_ADDRESS,)
+        assert ca.monitors[0].name == CA_ADDRESS
         assert sub_id.startswith(f"{CA_ADDRESS}_")
         assert connector._subscriptions[sub_id].kind == "ca"
-        assert connector._subscriptions[sub_id].handle is pv
+        assert connector._subscriptions[sub_id].handle is ca.monitors[0]
 
     @pytest.mark.asyncio
     async def test_subscribe_without_a_context_is_a_connection_error(self):
@@ -198,16 +203,14 @@ class TestUpdateMarshaling:
     @pytest.mark.asyncio
     async def test_ca_subscription_still_marshals_through_the_loop(self, monkeypatch):
         """The CA callback path is unchanged by the shared wrapper."""
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(epics=epics)
+        ca = FakeAioca({CA_ADDRESS: FakeChannel()})
+        connector = _pva_connector(aioca=ca)
         received = []
         subscriber = received.append
         loop_calls = _recording_loop(monkeypatch)
 
         await connector.subscribe(CA_ADDRESS, subscriber)
-        epics.PV.call_args.kwargs["callback"](pvname=CA_ADDRESS, value=7.0, units="A")
+        ca.monitors[0].callback(ca_reading(7.0))
 
         assert received == []
         assert len(loop_calls) == 1
@@ -289,16 +292,14 @@ class TestUnsubscribe:
         assert sub_id not in connector._subscriptions
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_clears_callbacks_on_a_ca_pv(self):
-        pv = MagicMock(spec=["clear_callbacks"])  # a PV has no close()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(epics=epics)
+    async def test_unsubscribe_closes_a_ca_monitor(self):
+        ca = FakeAioca({CA_ADDRESS: FakeChannel()})
+        connector = _pva_connector(aioca=ca)
         sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
 
         await connector.unsubscribe(sub_id)
 
-        pv.clear_callbacks.assert_called_once()
+        assert ca.monitors[0].closed is True
         assert sub_id not in connector._subscriptions
 
     @pytest.mark.asyncio

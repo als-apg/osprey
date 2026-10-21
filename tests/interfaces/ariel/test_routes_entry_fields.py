@@ -28,6 +28,7 @@ from osprey.services.ariel_search.exceptions import AdapterNotFoundError
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.service import ARIELSearchService
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
+    EXAMPLE_SOURCE_SYSTEM,
     DictRepository,
     ExampleEntryFieldsAdapter,
     dict_repository_fixture,
@@ -1009,3 +1010,67 @@ def test_create_upload_broken_declaration_is_the_500_envelope(
     assert example_entry_fields.state.created == []
     assert dict_repository.entries == {}
     attachment_store.assert_not_awaited()
+
+
+# --- Create routes: an adapter that takes files publishes them with the entry ---
+
+
+def test_create_upload_opting_adapter_receives_the_files_with_the_entry(
+    writable_client: TestClient,
+    dict_repository: DictRepository,
+    example_entry_fields: ExampleEntryFieldsAdapter,
+    attachment_store: AsyncMock,
+) -> None:
+    """The uploaded file reaches the adapter as a path, and the response says it was published."""
+    example_entry_fields.state.supports_attachments = True
+    response = _upload_with_file(writable_client, {"book": "ops"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["attachment_count"] == 1
+    assert f"published to {EXAMPLE_SOURCE_SYSTEM}" in body["message"]
+    assert "ARIEL only" not in body["message"]
+    (request,) = example_entry_fields.state.created
+    assert len(request.attachment_paths) == 1
+    assert example_entry_fields.state.received_files == [{"note.txt": b"abc"}]
+    # ARIEL shows its copy until the facility record replaces it.
+    (item,) = dict_repository.entries["example-1"]["attachments"]
+    assert item["filename"] == "note.txt"
+    assert item["published"] is True
+    attachment_store.assert_awaited_once()
+
+
+def test_create_upload_failed_file_publish_is_502_saying_the_entry_may_exist(
+    writable_client: TestClient,
+    dict_repository: DictRepository,
+    example_entry_fields: ExampleEntryFieldsAdapter,
+    attachment_store: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file the logbook refused fails the submit, and the operator is told to check the logbook."""
+    from osprey.services.ariel_search.exceptions import IngestionError
+
+    example_entry_fields.state.supports_attachments = True
+
+    async def refuse_files(_request: Any) -> str:
+        raise IngestionError("note.txt was refused", EXAMPLE_SOURCE_SYSTEM)
+
+    monkeypatch.setattr(example_entry_fields, "create_entry", refuse_files)
+    response = _upload_with_file(writable_client, {"book": "ops"})
+    assert response.status_code == 502, response.text
+    detail = response.json()["detail"]
+    assert "note.txt was refused" in detail
+    assert "may already exist" in detail
+    assert "without all of its files" in detail
+    assert dict_repository.entries == {}
+    attachment_store.assert_not_awaited()
+
+
+def test_create_json_opting_adapter_receives_no_paths(
+    writable_client: TestClient, example_entry_fields: ExampleEntryFieldsAdapter
+) -> None:
+    """An entry submitted without files carries no paths, whatever the adapter takes."""
+    example_entry_fields.state.supports_attachments = True
+    response = _post_json(writable_client, {"book": "ops"})
+    assert response.status_code == 200, response.text
+    (request,) = example_entry_fields.state.created
+    assert request.attachment_paths == []

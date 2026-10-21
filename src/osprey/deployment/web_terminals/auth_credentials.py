@@ -64,7 +64,7 @@ from osprey.deployment.service_tokens import (
 # shared with the lint rule that reports the same violation at scaffold time and
 # with render's fail-closed gate. Restating the pattern here would let the
 # deploy-time gate and the other two drift apart.
-from osprey.deployment.web_terminals.personas import (
+from osprey.deployment.web_terminals.roster import (
     USERNAME_CHARSET_RE,
 )
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
@@ -78,7 +78,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
     ENV_LOCAL_FILENAME,
@@ -89,7 +89,8 @@ from osprey.utils.dotenv import (
     env_file_lock,
     parse_dotenv_file,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("deployment.lifecycle")
 
@@ -248,7 +249,7 @@ def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -
     """Append ``entries`` to ``.env.auth`` under ``header``, creating it 0600.
 
     A file created here is stamped with
-    :data:`~osprey.utils.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
+    :data:`~osprey_connectors.dotenv.ENV_AUTH_BANNER` at the top, ahead of the first
     per-block ``header`` — creation is the only moment the file-top readme can
     be added, since every later write appends below it and the rewrite paths
     preserve existing lines.
@@ -858,7 +859,7 @@ def _drop_env_assignments(env_path: Path, is_target: Callable[[str], bool]) -> t
     """Remove every assignment line in ``env_path`` whose variable is a target.
 
     The deploy ``.env`` is append-only to
-    :func:`~osprey.utils.dotenv.append_profile_env` — a key already in the file
+    :func:`~osprey_connectors.dotenv.append_profile_env` — a key already in the file
     is never rewritten, which is what protects an operator's secrets from a
     re-deploy. This is the one narrow exception to that, and it works by
     *removal* rather than by rewriting a value: the callers either have nothing
@@ -872,13 +873,13 @@ def _drop_env_assignments(env_path: Path, is_target: Callable[[str], bool]) -> t
 
     Comments, blank lines, and every other variable's lines are preserved
     verbatim. The rewrite goes through
-    :func:`~osprey.utils.dotenv.atomic_write`, so a reader sees either the whole
+    :func:`~osprey_connectors.dotenv.atomic_write`, so a reader sees either the whole
     old file or the whole new one, and the result carries the 0600 mode that
     function enforces on a file holding facility secrets.
 
     The read, the filter and the replace happen under
-    :func:`~osprey.utils.dotenv.env_file_lock` — the SAME lock
-    :func:`~osprey.utils.dotenv.append_profile_env` takes, which is the whole
+    :func:`~osprey_connectors.dotenv.env_file_lock` — the SAME lock
+    :func:`~osprey_connectors.dotenv.append_profile_env` takes, which is the whole
     point. The deploy ``.env`` is appended to by several unrelated writers
     (``osprey up`` persisting a minted service token, ``osprey build`` writing
     its derived keys, profile seeding), and a locked append landing between an
@@ -985,7 +986,7 @@ def ensure_terminal_secrets(
     Args:
         project_root: Directory holding the deploy ``.env``.
         usernames: Roster usernames — ``entry["name"]`` for each
-            :func:`~osprey.deployment.web_terminals.personas.normalize_users`
+            :func:`~osprey.deployment.web_terminals.roster.normalize_users`
             entry. The WHOLE roster, shared cards included: a card opened with
             somebody else's credential is still a terminal needing a front
             door. Order is preserved; a name repeated verbatim is processed once.
@@ -1222,26 +1223,22 @@ def purge_auth_credentials(username: str, project_root: str | Path) -> bool:
 
 
 def _atomic_rewrite(env_auth_path: Path, lines: list[str]) -> None:
-    """Replace ``.env.auth``'s whole content with ``lines``, atomically and 0600.
+    """Replace ``.env.auth``'s whole content with ``lines``, at mode 0600.
 
-    Write-to-temporary-then-rename, so an interrupted write cannot leave a
-    truncated credential file: a reader sees either the previous content or the
-    new content, never a half-written line. The temporary is created 0600 rather
-    than chmod'ed afterwards, so a hash is never briefly world-readable, and
-    ``os.replace`` carries that mode onto the destination — which is why callers
-    need no separate mode fix-up.
+    The file is replaced whole through ``atomic_replace``, so an interrupted
+    write cannot leave a truncated credential file: a reader sees either the
+    previous content or the new content, never a half-written line. The mode is
+    set on the new file before it holds a hash, so a hash is never briefly
+    readable by anyone but the owner.
 
     Shared by :func:`purge_auth_credentials` and :func:`set_auth_password` so
     there is one definition of how this file is rewritten.
 
     Raises:
-        OSError: If the temporary or the destination cannot be written.
+        OSError: If the file cannot be written.
     """
-    tmp_path = env_auth_path.with_name(f"{env_auth_path.name}.tmp")
-    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("".join(f"{line}\n" for line in lines))
-    os.replace(tmp_path, env_auth_path)
+    text = "".join(f"{line}\n" for line in lines)
+    atomic_replace(env_auth_path, text.encode("utf-8"), mode=0o600, sync="best_effort")
 
 
 def set_auth_password(username: str, password: str, project_root: str | Path) -> Path:

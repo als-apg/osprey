@@ -1,0 +1,1 @@
+The shipped `diagnose` skill reads each simulator model's status channel (`<code>:SIM:<model>:STATUS`, through `channel_read`) and its model log, states a model's failure reason only from the status value, and names `osprey sim status` as the operator's terminal equivalent.

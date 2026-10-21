@@ -242,7 +242,12 @@ def _regen_after_write(request: Request) -> tuple[list[str], str | None]:
 
 @router.get("/api/config")
 async def get_config(request: Request):
-    """Return agent-relevant config sections as structured JSON + raw YAML."""
+    """Return agent-relevant config sections as structured JSON + raw YAML.
+
+    ``protected`` lists the dotted protected leaves of ``sections`` -- the
+    segment-path walk the write gates decide on, joined for display -- so the
+    Form view shows them read-only and leaves them out of every Apply body.
+    """
     _require_config_panel(request)
     config_path: Path | None = request.app.state.config_path
     if not config_path or not config_path.exists():
@@ -264,6 +269,9 @@ async def get_config(request: Request):
         "sections": sections,
         "raw": raw,
         "path": str(config_path),
+        "protected": sorted(
+            ".".join(key_path) for key_path in protected_view(_CONFIG_FILE, sections)
+        ),
     }
 
 
@@ -299,7 +307,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     therefore no panel token.
 
     Args:
-        request: The incoming request, for the activity ring on ``app.state``.
+        request: The incoming request, for the activity buffer on ``app.state``.
         keys: Every protected key the request would have written, dotted for
             display. A PATCH lists them in the order the body sent them; a PUT
             lists them sorted, since a document diff has no request order.
@@ -336,7 +344,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
         except Exception:  # audit is best-effort; the refusal is not
             logger.warning("Could not record the protected-key refusal for audit", exc_info=True)
 
-    # Keys only, never values: config values are secrets, and the activity ring
+    # Keys only, never values: config values are secrets, and the activity buffer
     # is persistent and served over HTTP. The wording is `setup_patch`'s, so one
     # phrase in the feed covers a refused config write whichever surface saw it.
     detail = f"BLOCKED a protected config key — {_CONFIG_FILE}: {', '.join(shown)}"

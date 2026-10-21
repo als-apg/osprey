@@ -93,13 +93,14 @@ TILED_PORT = 18192
 # services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
 # one-place edit, and the connector follows it.
 VA_CA_PORT = 15065
-# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
-# the control-assistant preset with no profile knob to drop them, and a
-# locally-running tutorial stack routinely holds both. A bound-port collision
-# aborts `osprey up` before the bridge/Tiled containers it creates alongside
-# them ever start, so both are moved to high, unassigned ports.
+# ariel-postgres, the telemetry gateway and the telemetry store are deployed
+# unconditionally by the control-assistant preset, and a locally-running
+# tutorial stack routinely holds their ports. A bound-port collision aborts
+# `osprey up` before the bridge/Tiled containers it creates alongside them ever
+# start, so all three are moved to high, unassigned ports.
 POSTGRES_PORT = 25433
-OPENOBSERVE_PORT = 25082
+TELEMETRY_GATEWAY_PORT = 24320
+TELEMETRY_STORE_PORT = 28125
 
 # The deployment repo's directory name IS the deployment's name; the compose
 # template renders each container_name AND the bridge's locally-built image as
@@ -197,11 +198,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # same project image, so it goes with the dispatch stack: `services: {}` is
     # the spelling because a single service cannot be nulled.
     #
-    # modules.web_terminals.enabled: false drops the preset's per-persona
-    # web-terminal stack (two persona images + nginx, all built locally):
-    # nothing in this proof touches persona routing, and the deploy-up
-    # credential preflight would otherwise abort for the personas' missing
-    # LLM key. Persona coverage lives in the dedicated web-terminals lanes.
+    # modules.web_terminals.enabled: false drops the preset's per-render
+    # web-terminal stack (two render images + nginx, all built locally):
+    # nothing in this proof touches render routing, and the deploy-up
+    # credential preflight would otherwise abort for the renders' missing
+    # LLM key. Render coverage lives in the dedicated web-terminals lanes.
     # One dotted LEAF key on purpose -- stating just `.enabled` leaves
     # the preset's `modules.web_terminals` siblings intact, whereas stating
     # the `modules.web_terminals` key itself would replace the subtree (same
@@ -215,7 +216,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
     }
@@ -316,10 +318,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             )
 
         # Device names come from the device file the BUILD staged and the worker
-        # mounts -- this lane authors none of its own, so what is read back here
-        # is the turn-key derivation from the deployment's own
-        # channel_limits.json: never a hardcoded facility channel, and never a
-        # second copy of that derivation living in this test.
+        # mounts -- the build's Bluesky view of the facility file: never a
+        # hardcoded facility channel, and never a second copy of that view
+        # living in this test.
         correctors, bpms = _orm_stack.staged_devices(repo)
         assert correctors and bpms, "the build staged no plan devices for the worker"
 
@@ -327,10 +328,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             repo=repo,
             correctors=correctors,
             bpms=bpms,
-            # The repo's own copy, which the build copies into build/data
-            # verbatim: same bytes the deployed containers get, so the bounds
-            # below are the bounds the bridge enforces.
-            limits=json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8")),
+            limits=_orm_stack.channel_limits(repo),
             token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
@@ -345,7 +343,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
 
 def _env_value(repo: Path, key: str) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path}"
@@ -441,12 +439,23 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     )
 
     # --- 2. compose the plan in the shared draft ---------------------------
-    # One corrector axis swept across the middle half of its OWN
-    # channel_limits band, reading one BPM. Device names and bounds both come
-    # from the render, never from a hardcoded channel.
-    axis_name = next(iter(deployed_stack.correctors))
-    sp_address, _rb = deployed_stack.correctors[axis_name]
-    entry = deployed_stack.limits[sp_address]
+    # One corrector axis swept across the middle half of its OWN limits
+    # record, reading one BPM. Device names and bounds both come from the
+    # deployment, never from a hardcoded channel: the axis is the first staged
+    # corrector a record bounds.
+    axis = next(
+        (
+            (name, deployed_stack.limits[setpoint])
+            for name, (setpoint, _rb) in deployed_stack.correctors.items()
+            if "min_value" in deployed_stack.limits.get(setpoint, {})
+        ),
+        None,
+    )
+    assert axis is not None, (
+        f"no staged corrector carries a limits record "
+        f"(staged correctors: {sorted(deployed_stack.correctors)})"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
 
     status, patched = _request(

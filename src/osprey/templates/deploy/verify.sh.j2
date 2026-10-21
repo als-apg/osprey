@@ -109,7 +109,8 @@ compose_project() {
 
 # The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
 # {{ build_dir }}/config.yml, then docker before podman — the first whose compose
-# and daemon both answer.
+# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
+# (podman-docker) is passed over, as `osprey up` passes over it.
 container_runtime() {
   local pinned="${CONTAINER_RUNTIME:-}" runtime
   if [ -z "$pinned" ] && [ -f "$REPO_ROOT/{{ build_dir }}/config.yml" ]; then
@@ -121,6 +122,11 @@ container_runtime() {
     podman) printf podman; return ;;
   esac
   for runtime in docker podman; do
+    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \
+      && docker --version 2>&1 \
+        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
+      continue
+    fi
     if command -v "$runtime" >/dev/null 2>&1 \
       && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
       printf '%s' "$runtime"

@@ -25,6 +25,7 @@ from osprey.services.auth_sidecar.throttle import (
     DEFAULT_MAX_DELAY,
     DEFAULT_MULTIPLIER,
 )
+from tests._renders import tier_render
 
 _THROTTLE_PREFIX = "OSPREY_AUTH_THROTTLE_"
 
@@ -86,13 +87,19 @@ def _web_terminals(throttle: Any = None, *, authored: bool = True) -> dict:
     auth: dict[str, Any] = {"method": "password", "allow_insecure_http": True}
     if authored:
         auth["throttle"] = throttle
-    return {"enabled": True, "users": ["alice", "bob"], "auth": auth}
+    return {
+        "enabled": True,
+        "users": ["alice", "bob"],
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "demo-assistant")},
+        "auth": auth,
+    }
 
 
 def _config(throttle: Any = None, *, authored: bool = True) -> dict:
     """A sidecar-bearing render config, optionally carrying an ``auth.throttle`` block."""
     return {
-        "facility": {"prefix": "dls", "name": "Demo Light Source"},
+        "facility": {"prefix": "dls"},
         "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},

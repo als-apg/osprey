@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import writer
 from osprey.audit.envelope import POSTURE_SOURCE_APP
-from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
     STATE_COOKIE_NAME,
@@ -66,7 +66,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
 )
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_SECRET = "session-secret-value"
 STATE_SECRET = "state-secret-value"
@@ -248,7 +248,7 @@ class TestWhereARecordLands:
         def _explode(*args: Any, **kwargs: Any) -> Path:
             raise AssertionError("the sidecar must not resolve a project root")
 
-        monkeypatch.setattr("osprey.utils.workspace.resolve_project_root", _explode)
+        monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _explode)
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
@@ -310,6 +310,16 @@ class TestASuccessfulLogin:
         record = _records(zone)[0]
         assert record["subject"] == "alice"
         assert record["actor"] == SIDECAR_IDENTITY
+
+    def test_the_record_says_whom_the_service_decided_for(self, zone: Path) -> None:
+        """Filed under the service, so the person is named in the one field a
+        reader of the leading columns finds: directly after ``session``."""
+        with _password_client() as client:
+            _login(client)
+        record = _records(zone)[0]
+        keys = list(record)
+        assert record["on_behalf_of"] == "alice"
+        assert keys.index("on_behalf_of") == keys.index("session") + 1
         assert _ledger(zone).parent.name == SIDECAR_IDENTITY
 
     def test_the_posture_is_the_apps_own_stamp(self, zone: Path) -> None:

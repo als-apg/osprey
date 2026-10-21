@@ -303,7 +303,7 @@ function paintWheel(ctx, size) {
 }
 
 /**
- * Blit the disc and ring the current selection. The marker is drawn as a pale
+ * Blit the disc and circle the current selection. The marker is drawn as a pale
  * circle inside a dark one so it stays visible over every hue.
  *
  * @param {CanvasRenderingContext2D} ctx

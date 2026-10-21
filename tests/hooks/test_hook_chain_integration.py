@@ -78,7 +78,7 @@ def _make_chain_config(
     approval_default_policy="selective",
     approval_tools=None,
     channels_db=None,
-    allow_unlisted=True,
+    mode="optional",
 ):
     """Create config.yml + optional channel_limits.json for chain testing."""
     approval = {"enabled": approval_enabled, "default_policy": approval_default_policy}
@@ -86,11 +86,12 @@ def _make_chain_config(
         approval["tools"] = approval_tools
     config_dict = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "writes_enabled": writes_enabled,
             "limits_checking": {
                 "enabled": limits_enabled,
-                "allow_unlisted_channels": allow_unlisted,
+                "mode": mode,
             },
         },
         "approval": approval,
@@ -156,7 +157,7 @@ def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_default_policy="selective",
-        allow_unlisted=False,
+        mode="exclusive",
     )
 
     result, blocked_by = run_hook_chain(
@@ -180,7 +181,7 @@ def test_valid_write_reaches_approval(tmp_path, hook_runner):
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_default_policy="selective",
-        allow_unlisted=True,
+        mode="optional",
     )
 
     result, blocked_by = run_hook_chain(
@@ -204,7 +205,7 @@ def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
         approval_enabled=False,
-        allow_unlisted=True,
+        mode="optional",
     )
 
     result, blocked_by = run_hook_chain(
@@ -291,7 +292,8 @@ def test_per_tool_chain_write_always(tmp_path, hook_runner):
     """Full hook chain with per-tool config asks approval for channel_write."""
     config_dict = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
@@ -325,7 +327,8 @@ def test_per_tool_chain_read_skip(tmp_path, hook_runner):
     """Full hook chain with per-tool config allows channel_read with skip policy."""
     config_dict = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },

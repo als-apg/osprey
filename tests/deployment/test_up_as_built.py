@@ -8,7 +8,7 @@ absence of ``prepare_compose_files`` on every path: a start verb that re-rendere
 them would make "what is running" unanswerable from the filesystem. The
 web-terminal stack is the deliberate exception, and it covers three files: its
 compose file, nginx config and landing page are re-rendered at every start
-because they follow the user roster rather than the build. Persona projects are
+because they follow the user roster rather than the build. Render projects are
 not among them — ``osprey build`` renders one per delta and a start only checks
 they are there — so a build wiping ``build/`` is what puts a changed delta into
 force.
@@ -44,7 +44,8 @@ from osprey.deployment.compose_generator import (
     repo_identity,
 )
 from osprey.deployment.web_terminals import provision
-from osprey.utils.workspace import container_image_context
+from osprey_connectors.workspace import container_image_context
+from tests._renders import tier_render
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -308,7 +309,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
     what a facility that configures nothing gets anyway: the bug is only visible
     as a WRONG ANSWER when the render names a real zone.
     """
-    from osprey.utils.config import get_facility_timezone
+    from osprey_connectors.config import get_facility_timezone
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(
@@ -625,14 +626,14 @@ def test_an_unparseable_profile_refuses_rather_than_reading_as_clean(lifecycle_r
 def test_version_skew_warns_and_starts(lifecycle_repo, started):
     """A framework upgrade must not stand between an operator and their stack."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    render_build(lifecycle_repo, version="1900.1.1")
+    render_build(lifecycle_repo, version="2099.1.1")
 
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 0, result.output
     assert started
-    assert "rendered by osprey 1900.1.1" in result.stderr
-    assert "rendered by osprey 1900.1.1" not in result.stdout
+    assert "rendered by osprey 2099.1.1" in result.stderr
+    assert "rendered by osprey 2099.1.1" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +755,7 @@ def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(lifecycle_rep
 
     assert run_up(lifecycle_repo, "-d").exit_code == 0
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(lifecycle_repo / ".env")
     assert env["EVENT_DISPATCHER_TOKEN"]
@@ -777,7 +778,7 @@ def test_the_mint_is_idempotent_across_starts(lifecycle_repo, monkeypatch):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     assert run_up(lifecycle_repo, "-d").exit_code == 0
     first = parse_dotenv_file(lifecycle_repo / ".env")
@@ -943,6 +944,8 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
                     "ariel_base_port": 8300,
                     "lattice_base_port": 8400,
                     "users": ["alice"],
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                 }
             },
         }
@@ -1020,7 +1023,14 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
                 "facility": {"prefix": "ex"},
                 "deploy": {"fqdn": "example.invalid"},
                 "registry": {"url": "registry.example.org/demo"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
+                    }
+                },
             }
         ),
     )
@@ -1079,7 +1089,7 @@ def _password_roster(project_root: Path) -> dict:
 def test_a_mint_prints_the_password_on_a_terminal(tmp_path, monkeypatch, capsys):
     """The show-once design is unchanged where a person is watching."""
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: True)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     provision._provision_auth_secrets(_password_roster(tmp_path), str(tmp_path))
 
@@ -1098,7 +1108,7 @@ def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(
     of ``.env.auth``, which holds hashes.
     """
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: False)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     provision._provision_auth_secrets(_password_roster(tmp_path), str(tmp_path))
 
@@ -1131,7 +1141,7 @@ def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(
 def test_a_supplied_password_is_never_echoed_either_way(tmp_path, monkeypatch, capsys):
     """A password the operator already knows is hashed in without a notice."""
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: True)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
     roster = _password_roster(tmp_path)
     (tmp_path / ".env").write_text("OSPREY_AUTH_PW_ALICE=chosen-by-hand\n", encoding="utf-8")
 
@@ -1159,7 +1169,7 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
         return real(usernames, project_root, echo=echo)
 
     monkeypatch.setattr(provision, "ensure_auth_credentials", _record)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     config = json.loads(
@@ -1175,6 +1185,8 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
                         "enabled": True,
                         "auth": {"method": "password"},
                         "users": ["alice"],
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                     }
                 },
             }
@@ -1325,7 +1337,7 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
 
     container_lifecycle.up_as_built(lifecycle_repo, detached=True)
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     assert parse_dotenv_file(lifecycle_repo / ".env")["EVENT_DISPATCHER_TOKEN"]
     assert not (elsewhere / ".env").exists()
@@ -1340,8 +1352,14 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def _real_build():
+    """Holds the one real build the ``built_repo`` tests share."""
+    return {}
+
+
 @pytest.fixture
-def built_repo(lifecycle_repo):
+def built_repo(_real_build, tmp_path_factory):
     """A deployment repo with a REAL ``osprey build`` behind it.
 
     Slower than the stub every other test here uses, and the point: the defect
@@ -1352,18 +1370,28 @@ def built_repo(lifecycle_repo):
 
     ``--skip-deps`` (no project venv) and ``--skip-lifecycle`` (no profile
     hooks) keep it to the render, which is the part under test.
+
+    Built once per module, on first use: every test taking it only reads the
+    tree. The build runs inside that first test, so the function-scoped autouse
+    seams apply to it as before, and under ``tmp_path_factory`` so it outlives
+    that test's ``tmp_path``.
     """
+    if "repo" in _real_build:
+        return _real_build["repo"]
+
     from click.testing import CliRunner as _CliRunner
 
     from osprey.cli.build_cmd import build as build_cmd
 
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("real-build") / EXEMPLAR_DIRNAME)
     result = _CliRunner().invoke(
         build_cmd,
-        ["--repo", str(lifecycle_repo), "--skip-deps", "--skip-lifecycle"],
+        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
-    return lifecycle_repo
+    _real_build["repo"] = repo
+    return repo
 
 
 @pytest.mark.usefixtures("started")
@@ -1389,7 +1417,7 @@ def test_a_real_build_lands_compose_where_up_looks_for_it(built_repo):
 
     # And `up`'s discovery finds them, from the repo root, off the shipped
     # config — the half that would have gone on reading an empty directory.
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config = load_project_config(str(built_repo / "build" / "config.yml"), wrap_errors=True)
     discovered = container_lifecycle.as_built_compose_files(config, built_repo)
@@ -1514,6 +1542,8 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
                     # test is about.
                     "auth": {"method": "password", "allow_insecure_http": True},
                     "users": ["alice", "bob"],
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                 }
             },
         }

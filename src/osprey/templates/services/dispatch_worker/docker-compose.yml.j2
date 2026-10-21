@@ -76,6 +76,7 @@ services:
     # unchanged here — so this rename needs no network alias.
     container_name: {{ osprey_labels.project_name }}-dispatch-worker-{{ i }}
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    security_opt: ["no-new-privileges:true"]
     labels:
       # Content fingerprint of the env chain this deploy read (runtime_helper's
       # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
@@ -86,8 +87,13 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
+      # The same trigger for this worker's telemetry login file: a login
+      # minted anew recreates this worker and no other service.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
+{%- endif %}
     restart: unless-stopped
-{% if osprey_env_chain | default([]) %}
+{% if osprey_env_chain | default([]) or 'telemetry_gateway' in (deployed_services | default([], true)) %}
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
@@ -108,9 +114,17 @@ services:
     # ROOT — so these are the deployment's own chain files, not copies inside
     # the disposable render.
     env_file:
-{%- for env_chain_file in osprey_env_chain %}
+{%- for env_chain_file in osprey_env_chain | default([]) %}
       - {{ env_chain_file }}
 {%- endfor %}
+{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
+      # This worker's telemetry login: its own file at the repo root, one
+      # login and nothing else. The exception to "only files that exist" —
+      # listed whenever the gateway is deployed, because `osprey build`
+      # creates it before this file is rendered, so `status`, `down` and
+      # `logs` resolve it on any built repo.
+      - .env.telemetry-sender.dispatch-worker-{{ i }}
+{%- endif %}
 {% endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
@@ -130,7 +144,7 @@ services:
       # The third budget: how many agentic turns one dispatched run may take
       # when the trigger names no ceiling of its own.
       DISPATCH_MAX_TURNS: "{{ services.dispatch_worker.max_turns | default(25) }}"
-      OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
+      OSPREY_PROJECT_DIR: {{ osprey_worker_project_dir }}
       # WHO this worker's audit records are written as, and WHERE. The audit
       # mount follows the MIDDLEWARE, not the interface app: this container
       # launches the framework MCP servers through a CLI subprocess, so every
@@ -147,11 +161,29 @@ services:
       #
       # OSPREY_AUDIT_DIR is also the contract this file offers the image's
       # entrypoint: its root phase is to join the group of each directory the
-      # render names here before dropping privileges. This worker mounts no
+      # render names here before dropping privileges.
+{%- if dispatch_worker_corpus_mounts and (dispatch_worker_corpus_mounts.bundle or dispatch_worker_corpus_mounts.mirror) %}
+      # This worker's tier is entitled to the facility bundle or the ARIEL
+      # mirror, so it names those directories too (below).
+{%- else %} This worker mounts no
       # facility bundle, so it names no second directory and that step simply
       # finds nothing else to do — no special case needed for it.
+{%- endif %}
       OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
-      OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+      OSPREY_AUDIT_DIR: {{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.bundle %}
+      # WHERE this worker's tier reads the facility bundle, bound below — the
+      # same directory, at the same render-relative path, as a web terminal on
+      # this tier. Named for the entrypoint, whose root phase joins its group.
+      OSPREY_FACILITY_BUNDLE_DIR: {{ dispatch_worker_corpus_mounts.bundle.target }}
+{%- endif %}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.mirror %}
+      # WHERE this worker's tier writes the ARIEL mirror, bound below — the
+      # deployment's one mirror, which the qmd sidecar indexes. Named for the
+      # entrypoint, whose root phase joins its group so the dropped user can
+      # write it.
+      OSPREY_ARIEL_MIRROR_DIR: {{ dispatch_worker_corpus_mounts.mirror.target }}
+{%- endif %}
 
       # WHO this worker is to the control system. Per worker, from the same
       # loop index as the audit identity above, so a write traced to
@@ -179,12 +211,28 @@ services:
       # named here and probes it for READ (the tree is read-only, so a write
       # probe would report a loss nothing in this container was going to write).
       OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
+{%- if osprey_simulator_log_mount %}
+      # WHERE this worker appends the simulator's model logs, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can append to a log another
+      # container created.
+      OSPREY_SIMULATOR_LOG_DIR: {{ osprey_simulator_log_mount.target }}
+{%- endif %}
+      # WHERE this worker keeps guarded runs' locks, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can take a lock another
+      # container created.
+      OSPREY_GUARDED_RUN_DIR: {{ osprey_guarded_run_mount.target }}
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),
-      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # independent of CWD.
+{%- if osprey_worker_stages_config %} It points at the STAGED config.yml bind-mounted below
       # (the deploy-time config), not the copy baked into the image.
+{%- else %} It points at the config.yml baked into the tier's render:
+      # a worker at a tier runs that render as built, and nothing overlays it.
+{%- endif %}
       #
       # Under the project directory, in build/ — the same four-zone shape the
       # repo has, because this worker runs the PROJECT image and its .mcp.json is
@@ -193,36 +241,9 @@ services:
       # a path the agent's own MCP servers never read. The standalone service
       # images are the opposite case and stay flat: nothing inside them renders
       # anything against a project root.
-      CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
+      CONFIG_FILE: {{ osprey_worker_project_dir }}/build/config.yml
       TZ: {{ system.timezone }}
-{%- if on_host %}
-      # OpenObserve telemetry (opt-in): on the host namespace this container's
-      # loopback IS the host's, so the store is reachable at the port it
-      # publishes there — the compose service DNS name resolves to nothing from
-      # here. Declaring the host explicitly is what settles it: the emitter's
-      # own fallback sees a container and would reach for the service name.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The variable carries a HOST only. The port half needs no declaration
-      # here: from the host's loopback the store answers on the port it
-      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
-      # in the config this worker already mounts — so moving the store moves
-      # the exporter with it.
-      OSPREY_OTEL_OPENOBSERVE_HOST: localhost
-{%- else %}
-      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
-      # this bridge network, so the store is reachable by its compose service
-      # DNS name, not localhost. Declaring the host here — rather than sniffing
-      # the container runtime — is what makes emit work under docker AND podman.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The port is declared beside it because on this network it is NOT the
-      # published one: the DNS name answers on the port the store LISTENS on
-      # inside its container, which `services.openobserve.port` says nothing
-      # about. Without this line the emitter would derive the published port,
-      # which is right from the host and wrong from here.
-      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
-      OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
+{%- if not on_host %}
 {%- if 'bluesky' in (deployed_services | default([])) %}
       # The plan queue's bridge, by its in-network compose service key — the
       # same address the Bluesky sidecar is handed. Without it the agent this
@@ -253,14 +274,14 @@ services:
 {%- endfor %}
 {%- endif %}
 {#- Address of the archiver store, for the same reason and by the same
-    convention as OSPREY_OTEL_OPENOBSERVE_HOST above: whichever address is the
+    convention as the bridge URL above: whichever address is the
     right one from where this worker actually runs. The worker answers questions
     about what the machine did, so its agent reaches for `archiver_read` like
     any other -- but the connection block in config.yml is written for the HOST
     side (`localhost` and the published `port_host`), which from inside a
     bridge-networked container names its own loopback.
 
-    Gated on `deployed_services` membership, like the openobserve link above and
+    Gated on `deployed_services` membership, like the bridge URL above and
     for a sharper reason than symmetry: these two are a LITERAL address, not a
     fallback. A project whose archiver is a store someone else runs -- a
     facility MongoDB, an Archiver Appliance -- has a config block that is
@@ -285,6 +306,7 @@ services:
 {% endif %}
 {{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}
 {{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
+{{- dial.telemetry_gateway(deployed_services | default([]), on_host, osprey_host_dial_address, services, osprey_ports) }}
 {#- Last in the block, unlike the other service templates, where `TZ:` is the
     last line and the call sits under it: this one's `environment:` ends with
     the mode-dependent store addresses, and the axis is documented as the
@@ -295,9 +317,11 @@ services:
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
     # the render output below.
     volumes:
+{%- if osprey_worker_stages_config %}
       # The staged runtime config overlays the config.yml baked into the image,
       # so the worker reads the deploy-time config.
-      - ./build/services/dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/build/config.yml:ro
+      - ./build/services/dispatch_worker/config.yml:{{ osprey_worker_project_dir }}/build/config.yml:ro
+{%- endif %}
       # The image creates the agent-data directory (and its subdirs) and chowns
       # `var/` — the state zone that directory lives in — to osprey. The render
       # itself stays root-owned: the container starts as root and its entrypoint
@@ -328,7 +352,7 @@ services:
       # on the build path): left to the container runtime, a rootful daemon
       # creates the source root-owned and the dropped `osprey` process inside
       # can write nothing to it.
-      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
 
       # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
       # the audit bind above, for the opposite reason. Audit isolation is the
@@ -346,11 +370,41 @@ services:
       # compose_generator from the same `agent_data.base_dir` the writer
       # resolves its own record path against.
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
+{%- if osprey_simulator_log_mount %}
 
-      # The control-identity module, staged into this build context by
-      # compose_generator byte for byte from the packaged source. Read-only:
-      # the entrypoint runs it as root, so nothing inside may edit it.
-      - ./build/services/dispatch_worker/control_identity.py:{{ control_identity_container_path }}:ro
+      # The simulator's model logs, read-write: the in-process composite appends
+      # `<model>.log` here, beside the records every other process serving the
+      # simulated machine writes. Provisioned setgid and group-writable on the
+      # host before compose runs (compose_generator.ensure_simulator_log_dirs).
+      - {{ osprey_simulator_log_mount.source }}:{{ osprey_simulator_log_mount.target }}
+{%- endif %}
+
+      # Guarded runs' locks, read-write: one directory per control target,
+      # shared with every other container that runs the agent, so a run
+      # started here contends for the same lock.
+      # Provisioned setgid and group-writable on the host before compose runs
+      # (compose_generator.ensure_guarded_run_dirs).
+      - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.bundle %}
+
+      # The DEPLOYMENT's facility bundle, read-write like a web terminal's: the
+      # tier's render configures it, so the worker reads the live bundle rather
+      # than the copy its image baked at build.
+      - {{ dispatch_worker_corpus_mounts.bundle.source }}:{{ dispatch_worker_corpus_mounts.bundle.target }}
+{%- endif %}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.mirror %}
+
+      # The DEPLOYMENT's ARIEL qmd mirror, read-write: an entry this worker's
+      # qmd_export module enhances lands in the corpus the sidecar indexes
+      # instead of a directory in the container layer the next recreate
+      # discards.
+      - {{ dispatch_worker_corpus_mounts.mirror.source }}:{{ dispatch_worker_corpus_mounts.mirror.target }}
+{%- endif %}
+
+      # The control-identity script the entrypoint runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity:{{ control_identity_container_dir }}:ro
       {#- The CA file the selected archiver block names under `tls.ca_bundle`,
          read-only at the same path, so the key names one file here and on the host. #}
 {%- for ca_bundle in connection_ca_bundles | default([]) %}

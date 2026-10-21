@@ -9,7 +9,7 @@
 // literals for the same reason: this script must not import anything.
 //
 // Storage rungs, scoped: localStorage is origin-scoped, so on a multi-user
-// deployment (every persona served from one origin under `/u/<user>/`) a bare
+// deployment (every render served from one origin under `/u/<user>/`) a bare
 // key is a single shared slot and the last picker decides what everyone else
 // boots into. When the server stamps data-osprey-storage-scope on <html>, the
 // storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
@@ -97,7 +97,7 @@
   // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
   // attribute value counts as unscoped: the server omits the attribute rather
   // than rendering `=""`, so this only guards against a key ending in a bare
-  // "--" that would belong to no persona.
+  // "--" that would belong to no render.
   function storageKey() {
     try {
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);

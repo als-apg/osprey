@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 import pytest
 import yaml
@@ -11,7 +12,6 @@ import yaml
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, OPEN_MODE_EGRESS_TOOLS
 from osprey.deployment.web_terminals.artifacts import (
     UNRENDERED_SETTINGS,
-    ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
     DangerouslyAllowBashValueError,
     OpenModeEgressError,
@@ -19,25 +19,30 @@ from osprey.deployment.web_terminals.artifacts import (
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
-    dangerously_allowed_bash_personas,
-    open_mode_missing_by_persona,
+    dangerously_allowed_bash_renders,
+    open_mode_missing_by_render,
     open_mode_offenders,
     proxy_env_names_with_a_value,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_ENV_NAMES
+from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
+from osprey.facility.validate import FACILITY_HEADER
+from tests._renders import tier_render
 
 
 def _config(users):
     return {
-        "facility": {"prefix": "als", "name": "ERF"},
+        "facility": {"prefix": "als"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
                 "users": users,
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "als-assistant")},
             }
         },
     }
@@ -77,6 +82,22 @@ def test_write_web_terminal_artifacts_defaults_to_the_repos_build_zone(tmp_path,
     assert not (tmp_path / "docker-compose.web.yml").exists()
     assert not (tmp_path / "nginx").exists()
     assert {p.parent for p in written} <= {tmp_path / "build", tmp_path / "build" / "nginx"}
+
+
+def test_the_written_landing_page_is_titled_with_the_builds_facility_name(tmp_path):
+    """The config's own `facility.name` names nothing; the build's identity does."""
+    build = tmp_path / "build"
+    build.mkdir()
+    document = {"schema": FACILITY_HEADER, "identity": {"code": "erf", "name": "ERF"}}
+    (build / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+    config = _config(["alice"])
+    config["facility"]["name"] = "Config Name"
+
+    write_web_terminal_artifacts(config, tmp_path)
+
+    landing = (build / "nginx" / "landing.html").read_text(encoding="utf-8")
+    assert "<title>ERF Web Terminals</title>" in landing
+    assert "Config Name" not in landing
 
 
 def test_write_web_terminal_artifacts_reflects_object_form_users(tmp_path):
@@ -261,15 +282,15 @@ def test_auth_env_digest_reads_the_file_under_the_given_root(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Per-persona credentials: this seam resolves them, the render only formats them
+# Per-render credentials: this seam resolves them, the render only formats them
 #
-# `render_web_terminals` reads no filesystem, so every persona entitlement is
+# `render_web_terminals` reads no filesystem, so every render entitlement is
 # decided HERE, where the deploy root is in scope, and handed down as a set. The
 # proof below is therefore end-to-end in a way no render-level test can be: it
-# starts from persona projects actually on disk and ends at the rendered compose.
+# starts from render projects actually on disk and ends at the rendered compose.
 # `BLUESKY_LAUNCH_TOKEN` is the credential worth pinning this way, because it
 # arms physical hardware motion — the one grant where handing the set to the
-# wrong persona has consequences that a redeploy cannot take back.
+# wrong render has consequences that a redeploy cannot take back.
 # ---------------------------------------------------------------------------
 
 _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
@@ -277,14 +298,14 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 
 #: What `settings.json.j2` actually writes into a rendered project: the template's
 #: `deny_defaults`, verbatim. Every OSPREY project denies these unless its config
-#: removed an entry, so a persona project fixture that shipped no
+#: removed an entry, so a render project fixture that shipped no
 #: `.claude/settings.json` at all would be modelling a deployment that cannot exist —
 #: and would trip both the Bash/launch-token conflict guard and the open-mode egress
 #: gate, each of which reads this artifact and fails closed on its absence.
 _SHIPPED_DENY = list(DENY_DEFAULTS)
 
 
-def _write_persona_project(
+def _write_render_project(
     tmp_path,
     name: str,
     project_config: dict,
@@ -292,7 +313,7 @@ def _write_persona_project(
     denies_bash: bool = True,
     deny: list[str] | None = None,
 ) -> str:
-    """Render a persona project under *tmp_path*; return its relative project_path.
+    """Render a render project under *tmp_path*; return its relative project_path.
 
     Writes both halves of what the guards read: the `config.yml` the entitlement
     predicates walk, and the built `.claude/settings.json` artifact the deny checks
@@ -316,11 +337,11 @@ def _write_persona_project(
 
 
 def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_bash: bool = True):
-    """A two-tier roster whose persona projects are really on disk.
+    """A two-tier roster whose render projects are really on disk.
 
-    `alice` runs a read-write persona that also runs the bluesky server, so its
+    `alice` runs a read-write render that also runs the bluesky server, so its
     project satisfies both halves of the launch-token predicate. `bob` runs a
-    read-only persona — `writes_enabled: false` — which can never satisfy it.
+    read-only render — `writes_enabled: false` — which can never satisfy it.
     Both spell out `claude_code.servers.bluesky.enabled`: the server is opt-in in
     the registry, so a project that omits the key runs no server and would sit
     outside the predicate for the wrong reason. Both ship the shell deny by
@@ -329,14 +350,16 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
     """
     config = _config(
         [
-            {"name": "alice", "index": 0, "persona": "readwrite"},
-            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
         ]
     )
-    config["modules"]["web_terminals"]["personas"] = {
-        "readwrite": {
-            "project": "rw",
-            "project_path": _write_persona_project(
+    config["modules"]["web_terminals"]["default_tier"] = "readwrite"
+    config["modules"]["web_terminals"]["renders"] = {
+        "readwrite": tier_render(
+            "readwrite",
+            "rw",
+            project_path=_write_render_project(
                 tmp_path,
                 "rw",
                 {
@@ -345,10 +368,11 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 },
                 denies_bash=rw_denies_bash,
             ),
-        },
-        "readonly": {
-            "project": "ro",
-            "project_path": _write_persona_project(
+        ),
+        "readonly": tier_render(
+            "readonly",
+            "ro",
+            project_path=_write_render_project(
                 tmp_path,
                 "ro",
                 {
@@ -357,7 +381,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 },
                 denies_bash=ro_denies_bash,
             ),
-        },
+        ),
     }
     return config
 
@@ -366,8 +390,8 @@ def _rendered_services(dest) -> dict:
     return yaml.safe_load((dest / "docker-compose.web.yml").read_text(encoding="utf-8"))["services"]
 
 
-def test_write_grants_the_launch_token_to_the_entitled_persona(tmp_path):
-    """The wiring, proven from disk: a persona project that enables writes and runs
+def test_write_grants_the_launch_token_to_the_entitled_render(tmp_path):
+    """The wiring, proven from disk: a render project that enables writes and runs
     the bluesky server gets the launch token in its OWN `environment:` block,
     interpolated from the deploy .env at compose time so no secret is ever written
     into a rendered artifact."""
@@ -377,9 +401,9 @@ def test_write_grants_the_launch_token_to_the_entitled_persona(tmp_path):
     assert _LAUNCH_TOKEN_LINE in services["web-alice"]["environment"]
 
 
-def test_write_never_grants_the_launch_token_to_a_read_only_persona(tmp_path):
-    """The tier boundary, asserted POSITIVELY on the persona that must not have it.
-    A test that only checks the entitled persona passes just as happily when the
+def test_write_never_grants_the_launch_token_to_a_read_only_render(tmp_path):
+    """The tier boundary, asserted POSITIVELY on the render that must not have it.
+    A test that only checks the entitled render passes just as happily when the
     token leaks to the whole roster — which is the failure mode this seam exists
     to prevent, since this token arms hardware motion."""
     write_web_terminal_artifacts(_tiered_roster_config(tmp_path), tmp_path)
@@ -390,7 +414,7 @@ def test_write_never_grants_the_launch_token_to_a_read_only_persona(tmp_path):
 
 
 def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(tmp_path):
-    """`.env.production` is ROSTERWIDE — every persona's container reads it, read-only
+    """`.env.production` is ROSTERWIDE — every render's container reads it, read-only
     ones included — so the grant must reach exactly one `environment:` block and
     nothing else. Rendering the artifacts must also not create or touch that file:
     it is a durable secret store this seam never writes.
@@ -411,9 +435,9 @@ def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(
 # services.graphdb -> per-user graph-store password, resolved from disk
 #
 # The same seam as above, for the fourth grant. `config_needs_graphdb_password`
-# and `render_web_terminals` are each pinned on their own in test_personas.py
+# and `render_web_terminals` are each pinned on their own in test_roster.py
 # and test_render.py; what only this file can prove is the COMPOSITION --- that
-# the predicate's answer for a persona project really on disk is the answer the
+# the predicate's answer for a render project really on disk is the answer the
 # rendered compose file carries, for every YAML spelling of the block that the
 # predicate distinguishes.
 #
@@ -422,7 +446,7 @@ def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(
 # renders the graph server, so it must grant; a bare `graphdb:` parses as None
 # and configures nothing, so it must not. The tier boundary does NOT apply here,
 # unlike the launch token above --- reading the graph is a read, so a read-only
-# persona that configures a store is entitled to its credential.
+# render that configures a store is entitled to its credential.
 # ---------------------------------------------------------------------------
 
 _GRAPHDB_PASSWORD_LINE = "GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}"
@@ -431,9 +455,9 @@ _GRAPHDB_PASSWORD_LINE = "GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}"
 def _graphdb_roster_config(tmp_path):
     """A four-user roster covering every spelling the grant predicate separates.
 
-    One persona per cell, each project really on disk:
+    One render per cell, each project really on disk:
 
-    * ``alice`` --- a READ-ONLY persona whose config carries a mapping-valued
+    * ``alice`` --- a READ-ONLY render whose config carries a mapping-valued
       ``services.graphdb: {}``. Entitled: the block resolves to a defaulted
       store, and the write switch is not part of this grant.
     * ``bob`` --- configures a store but vetoes the server with
@@ -447,24 +471,27 @@ def _graphdb_roster_config(tmp_path):
     """
     config = _config(
         [
-            {"name": "alice", "index": 0, "persona": "readonly_graph"},
-            {"name": "bob", "index": 1, "persona": "graph_vetoed"},
-            {"name": "carol", "index": 2, "persona": "null_block"},
-            {"name": "dave", "index": 3, "persona": "malformed"},
+            {"name": "alice", "index": 0, "tier": "readonly_graph"},
+            {"name": "bob", "index": 1, "tier": "graph_vetoed"},
+            {"name": "carol", "index": 2, "tier": "null_block"},
+            {"name": "dave", "index": 3, "tier": "malformed"},
         ]
     )
-    config["modules"]["web_terminals"]["personas"] = {
-        "readonly_graph": {
-            "project": "ro-graph",
-            "project_path": _write_persona_project(
+    config["modules"]["web_terminals"]["default_tier"] = "readonly_graph"
+    config["modules"]["web_terminals"]["renders"] = {
+        "readonly_graph": tier_render(
+            "readonly_graph",
+            "ro-graph",
+            project_path=_write_render_project(
                 tmp_path,
                 "ro-graph",
                 {"control_system": {"writes_enabled": False}, "services": {"graphdb": {}}},
             ),
-        },
-        "graph_vetoed": {
-            "project": "vetoed",
-            "project_path": _write_persona_project(
+        ),
+        "graph_vetoed": tier_render(
+            "graph_vetoed",
+            "vetoed",
+            project_path=_write_render_project(
                 tmp_path,
                 "vetoed",
                 {
@@ -472,32 +499,34 @@ def _graphdb_roster_config(tmp_path):
                     "claude_code": {"servers": {"graph": {"enabled": False}}},
                 },
             ),
-        },
-        "null_block": {
-            "project": "null-block",
-            "project_path": _write_persona_project(
+        ),
+        "null_block": tier_render(
+            "null_block",
+            "null-block",
+            project_path=_write_render_project(
                 tmp_path, "null-block", {"services": {"graphdb": None}}
             ),
-        },
-        "malformed": {
-            "project": "malformed",
-            "project_path": _write_persona_project(
+        ),
+        "malformed": tier_render(
+            "malformed",
+            "malformed",
+            project_path=_write_render_project(
                 tmp_path, "malformed", {"services": {"graphdb": {"port_host": "not-a-port"}}}
             ),
-        },
+        ),
     }
     return config
 
 
-def test_write_grants_the_graph_password_to_the_persona_that_configures_a_store(tmp_path):
-    """The wiring, proven from disk: a persona project carrying a resolvable
+def test_write_grants_the_graph_password_to_the_render_that_configures_a_store(tmp_path):
+    """The wiring, proven from disk: a render project carrying a resolvable
     ``services.graphdb`` block gets the store's password in its OWN
     ``environment:`` block, interpolated from the deploy ``.env`` at compose time
     so no secret is written into a rendered artifact.
 
-    Asserted on a READ-ONLY persona deliberately. This grant crosses the tier
+    Asserted on a READ-ONLY render deliberately. This grant crosses the tier
     boundary the launch token above defends, and a fixture that granted it to a
-    write-armed persona would leave that difference untested.
+    write-armed render would leave that difference untested.
     """
     write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
 
@@ -514,8 +543,8 @@ def test_write_grants_the_graph_password_to_the_persona_that_configures_a_store(
     ],
 )
 def test_write_grants_the_graph_password_to_no_one_else(tmp_path, user: str, why: str):
-    """Every non-entitled spelling, asserted positively on the persona that must
-    not hold the credential. A test that only checks the entitled persona passes
+    """Every non-entitled spelling, asserted positively on the render that must
+    not hold the credential. A test that only checks the entitled render passes
     just as happily when the password leaks to the whole roster.
     """
     write_web_terminal_artifacts(_graphdb_roster_config(tmp_path), tmp_path)
@@ -525,10 +554,10 @@ def test_write_grants_the_graph_password_to_no_one_else(tmp_path, user: str, why
 
 
 def test_a_malformed_graphdb_block_renders_instead_of_raising(tmp_path):
-    """A typo in one persona's block must not take the whole deploy down.
+    """A typo in one render's block must not take the whole deploy down.
 
     The predicate reads a malformed block as "no store", so the render completes
-    and every other persona's entitlement is decided normally --- which is what
+    and every other render's entitlement is decided normally --- which is what
     makes the parametrized denial above a statement about entitlement rather
     than about the deploy having failed before it got there.
     """
@@ -564,7 +593,7 @@ def test_graph_password_is_granted_per_user_and_never_through_the_shared_env_fil
 # The Bash/launch-token conflict guard
 #
 # The one accepted cost of granting BLUESKY_LAUNCH_TOKEN is that the chat
-# approval gates the `queue_start` tool and nothing else: a persona holding the
+# approval gates the `queue_start` tool and nothing else: a render holding the
 # token whose agent may also run a shell reads it out of its own environment and
 # arms hardware with no approval at any point. The deploy refuses that pairing
 # rather than shipping it, which is what makes the grant defensible — so these
@@ -572,17 +601,17 @@ def test_graph_password_is_granted_per_user_and_never_through_the_shared_env_fil
 # ---------------------------------------------------------------------------
 
 
-def test_entitled_persona_permitting_bash_refuses_the_deploy_and_is_named(tmp_path):
-    """THE conflict: alice's persona is entitled to the token and its shipped
+def test_entitled_render_permitting_bash_refuses_the_deploy_and_is_named(tmp_path):
+    """THE conflict: alice's render is entitled to the token and its shipped
     settings.json omits the shell deny. The deploy must stop, and the message must
-    name the persona — an operator hitting this at `osprey up` has no other context."""
+    name the render — an operator hitting this at `osprey up` has no other context."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
     assert "readwrite" in str(excinfo.value)
-    assert excinfo.value.personas == ["readwrite"]
+    assert excinfo.value.tiers == ["readwrite"]
 
 
 def test_refusing_the_deploy_writes_no_artifacts(tmp_path):
@@ -599,7 +628,7 @@ def test_refusing_the_deploy_writes_no_artifacts(tmp_path):
 
 
 def test_the_refusal_states_both_conditions_and_the_remedy(tmp_path):
-    """The message IS the deliverable. It has to say what made the persona
+    """The message IS the deliverable. It has to say what made the render
     entitled, what made it unsafe, and — because the settings.json read here is
     the one baked into the image at build time — that restoring the deny requires
     a REBUILD, not just a re-render."""
@@ -616,105 +645,35 @@ def test_the_refusal_states_both_conditions_and_the_remedy(tmp_path):
 
 
 def test_a_correctly_configured_deployment_renders_without_the_guard_firing(tmp_path):
-    """The negative control. Every persona ships the shell deny — the state every
+    """The negative control. Every render ships the shell deny — the state every
     OSPREY build produces unless its config removed the entry — so the entitled
-    persona still gets its token and the artifacts are written normally."""
+    render still gets its token and the artifacts are written normally."""
     written = write_web_terminal_artifacts(_tiered_roster_config(tmp_path), tmp_path)
 
     assert written
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
 
 
-def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash: bool = True):
-    """A persona-less roster: the web image IS the deploy project.
-
-    No persona catalog and no default_persona, so every entry runs the deploy
-    project itself; entitlement is answered by ``config_needs_launch_token_for``
-    on the deploy config, and the shipped settings artifact is
-    ``<project_root>/.claude/settings.json``. The deploy config spells out
-    ``claude_code.servers.bluesky.enabled`` for the same reason every persona
-    fixture here does: the server is opt-in in the registry, so a config that
-    omits the key runs no server and would sit outside the predicate for the
-    wrong reason.
-    """
-    config = _config(["alice"])
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-    if writes_enabled:
-        config["control_system"] = {"writes_enabled": True}
-    if denies_bash:
-        (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(
-            json.dumps({"permissions": {"allow": [], "deny": list(_SHIPPED_DENY), "ask": []}}),
-            encoding="utf-8",
-        )
-    return config
-
-
-def test_an_entitled_personaless_roster_without_the_bash_deny_refuses(tmp_path):
-    """The zero-migration half of the same conflict: no persona is in effect, the
-    deploy config itself entitles every entry to the token, and the deploy
-    project ships no shell deny (here: no settings.json at all, which counts the
-    same — absence is not evidence of a deny). The guard must refuse rather than
-    leaving the persona-less path silently unbound."""
-    config = _zero_migration_config(tmp_path, denies_bash=False)
-
-    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
-        write_web_terminal_artifacts(config, tmp_path)
-
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert "no persona" in str(excinfo.value)
-    assert not (tmp_path / "build").exists()
-
-
-def test_an_entitled_personaless_roster_shipping_the_bash_deny_deploys(tmp_path):
-    """The negative control: the deploy project ships the shell deny every OSPREY
-    build produces, so the entitled persona-less entry keeps its token."""
-    written = write_web_terminal_artifacts(_zero_migration_config(tmp_path), tmp_path)
-
-    assert written
-    assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
-
-
-def test_an_unentitled_personaless_roster_is_not_a_conflict(tmp_path):
-    """No entitlement, nothing for a shell to read — a bare zero-migration deploy
-    with no write grant must keep deploying exactly as before."""
-    config = _zero_migration_config(tmp_path, writes_enabled=False, denies_bash=False)
-
-    written = write_web_terminal_artifacts(config, tmp_path)
-
-    assert written
-    env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
-    assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in env)
-
-
-def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
-    """Entries with no explicit persona but a default_persona resolve to the
-    default, so the persona-keyed intersection already binds them — the
-    persona-less check must not double-report (or misattribute) them."""
+def test_a_default_tier_roster_is_covered_by_the_render_check(tmp_path):
+    """Entries with no explicit render resolve to the default_tier, so the
+    render-keyed intersection binds them."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
-    config["modules"]["web_terminals"]["default_persona"] = "readwrite"
+    config["modules"]["web_terminals"]["default_tier"] = "readwrite"
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
-    # Entitle the deploy root too — writes AND the bluesky server, or the
-    # entitlement would not be real — and the sentinel must still not appear,
-    # because no entry actually runs the deploy project.
-    config["control_system"] = {"writes_enabled": True}
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == ["readwrite"]
+    assert excinfo.value.tiers == ["readwrite"]
 
 
-def test_a_role_only_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
-    """An entry that names a ``role:`` and no ``persona:`` still runs a persona —
-    the one the ``authorization`` block binds the role to — so the persona-keyed
-    intersection binds it and the persona-less sentinel must not fire. A guard
-    that read the raw ``persona`` key would call this roster persona-less and
-    judge the deploy project's own settings instead of the persona's."""
+def test_a_role_only_roster_is_covered_by_the_render_check(tmp_path):
+    """An entry that names a ``role:`` and no ``tier:`` still runs a render —
+    the one the ``authorization`` block binds the role to — so the render-keyed
+    intersection binds it."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
     config["modules"]["web_terminals"]["authorization"] = {
-        "roles": {"operator": {"persona": "readwrite"}}
+        "roles": {"operator": {"tier": "readwrite"}}
     }
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "role": "operator"}
@@ -724,12 +683,12 @@ def test_a_role_only_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == ["readwrite"]
+    assert excinfo.value.tiers == ["readwrite"]
 
 
-def test_a_read_only_persona_permitting_bash_is_not_a_conflict(tmp_path):
-    """Permitting the shell is only a conflict for a persona that HOLDS the token.
-    A read-only persona is never handed one, so there is nothing for a shell to
+def test_a_read_only_render_permitting_bash_is_not_a_conflict(tmp_path):
+    """Permitting the shell is only a conflict for a render that HOLDS the token.
+    A read-only render is never handed one, so there is nothing for a shell to
     read — refusing here would block deployments that are not exposed."""
     config = _tiered_roster_config(tmp_path, ro_denies_bash=False)
 
@@ -739,17 +698,18 @@ def test_a_read_only_persona_permitting_bash_is_not_a_conflict(tmp_path):
     assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in bob_env)
 
 
-def test_every_offending_persona_is_named_not_just_the_first(tmp_path):
-    """An operator fixing one offender at a time would redeploy once per persona to
+def test_every_offending_render_is_named_not_just_the_first(tmp_path):
+    """An operator fixing one offender at a time would redeploy once per render to
     discover the next. The guard intersects SETS precisely so one refusal reports
     the whole conflict."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
     config["modules"]["web_terminals"]["users"].append(
-        {"name": "carol", "index": 2, "persona": "alsobad"}
+        {"name": "carol", "index": 2, "tier": "alsobad"}
     )
-    config["modules"]["web_terminals"]["personas"]["alsobad"] = {
-        "project": "bad2",
-        "project_path": _write_persona_project(
+    config["modules"]["web_terminals"]["renders"]["alsobad"] = tier_render(
+        "alsobad",
+        "bad2",
+        project_path=_write_render_project(
             tmp_path,
             "bad2",
             {
@@ -758,19 +718,19 @@ def test_every_offending_persona_is_named_not_just_the_first(tmp_path):
             },
             denies_bash=False,
         ),
-    }
+    )
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == ["alsobad", "readwrite"]
+    assert excinfo.value.tiers == ["alsobad", "readwrite"]
     message = str(excinfo.value)
     assert "alsobad" in message
     assert "readwrite" in message
 
 
 def test_the_guard_follows_the_shipped_artifact_not_the_config_intent(tmp_path):
-    """`osprey up` does not rebuild. A persona whose config.yml was edited to drop
+    """`osprey up` does not rebuild. A render whose config.yml was edited to drop
     the shell deny AFTER its last build still ships an image that denies it — the
     edit reaches nothing until someone rebuilds. Reading intent here would refuse a
     deployment that is not actually exposed, and (in the mirror case) would clear
@@ -779,7 +739,7 @@ def test_the_guard_follows_the_shipped_artifact_not_the_config_intent(tmp_path):
     rw_config = tmp_path / "profiles" / "rw" / "config.yml"
     parsed = yaml.safe_load(rw_config.read_text(encoding="utf-8"))
     # Merged, not assigned: the same section already carries the bluesky server
-    # this persona is entitled through, and replacing it would disarm the persona
+    # this render is entitled through, and replacing it would disarm the render
     # the test is about rather than only editing its permissions.
     parsed["claude_code"]["permissions"] = {"remove_deny": ["Bash"]}
     rw_config.write_text(yaml.safe_dump(parsed), encoding="utf-8")
@@ -794,13 +754,13 @@ def test_the_guard_follows_the_shipped_artifact_not_the_config_intent(tmp_path):
 # The guard is per LANE
 #
 # Each plan lane carries its own launch token, armed by the write posture of
-# the control target that lane drives. A persona can therefore hold the VA
+# the control target that lane drives. A render can therefore hold the VA
 # lane's token on a deployment whose baseline is a live machine — and a shell
 # in that container reaches the VA hardware just as directly, so the conflict
 # is refused on any lane, not only on lane 1.
 # ---------------------------------------------------------------------------
 
-#: A persona project whose baseline is a live machine with writes disarmed, that
+#: A render project whose baseline is a live machine with writes disarmed, that
 #: arms the VA connector alone and renders the VA second lane. Lane 1 declares no
 #: target and so drives `live`, which this config leaves unarmed.
 _VA_ARMED_PROJECT: dict = {
@@ -815,15 +775,17 @@ _VA_ARMED_PROJECT: dict = {
 
 
 def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True):
-    """A one-user roster whose persona is entitled on the VA lane only."""
-    config = _config([{"name": "alice", "index": 0, "persona": "va_operator"}])
-    config["modules"]["web_terminals"]["personas"] = {
-        "va_operator": {
-            "project": "va",
-            "project_path": _write_persona_project(
+    """A one-user roster whose render is entitled on the VA lane only."""
+    config = _config([{"name": "alice", "index": 0, "tier": "va_operator"}])
+    config["modules"]["web_terminals"]["default_tier"] = "va_operator"
+    config["modules"]["web_terminals"]["renders"] = {
+        "va_operator": tier_render(
+            "va_operator",
+            "va",
+            project_path=_write_render_project(
                 tmp_path, "va", _VA_ARMED_PROJECT, denies_bash=denies_bash
             ),
-        }
+        )
     }
     return config
 
@@ -837,8 +799,8 @@ def test_the_guard_returns_the_entitlement_map_keyed_by_lane(tmp_path):
     assert result == {"bluesky": {"readwrite"}}
 
 
-def test_a_persona_entitled_on_the_va_lane_alone_is_still_a_conflict(tmp_path):
-    """The refusal is not about lane 1. A persona holding only the VA lane's token
+def test_a_render_entitled_on_the_va_lane_alone_is_still_a_conflict(tmp_path):
+    """The refusal is not about lane 1. A render holding only the VA lane's token
     can read it out of its environment and arm the virtual accelerator's queue with
     no approval, which is the same bypass on a different machine."""
     config = _va_lane_roster_config(tmp_path, denies_bash=False)
@@ -846,8 +808,8 @@ def test_a_persona_entitled_on_the_va_lane_alone_is_still_a_conflict(tmp_path):
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == ["va_operator"]
-    assert excinfo.value.personas_by_lane == {"bluesky_va": ["va_operator"]}
+    assert excinfo.value.tiers == ["va_operator"]
+    assert excinfo.value.renders_by_lane == {"bluesky_va": ["va_operator"]}
 
 
 def test_the_refusal_names_the_lane_and_the_key_that_disarms_it(tmp_path):
@@ -870,7 +832,7 @@ def test_the_refusal_names_the_lane_and_the_key_that_disarms_it(tmp_path):
 def test_the_offender_set_is_the_union_over_every_lane(tmp_path):
     """`bash_launch_token_offenders` answers one question — who is in conflict —
     for a caller that must not raise. One token is one shell away from arming its
-    own lane, so entitlement on ANY lane puts a persona in the set."""
+    own lane, so entitlement on ANY lane puts a render in the set."""
     assert bash_launch_token_offenders(_va_lane_roster_config(tmp_path), tmp_path) == set()
     assert bash_launch_token_offenders(
         _va_lane_roster_config(tmp_path / "conflicted", denies_bash=False), tmp_path / "conflicted"
@@ -887,48 +849,12 @@ def test_a_lane_nobody_may_arm_is_absent_from_the_entitlement_map(tmp_path):
 
 
 def test_the_va_lane_grant_reaches_no_lane_one_token(tmp_path):
-    """The tier boundary, per target: a persona armed only for the virtual
+    """The tier boundary, per target: a render armed only for the virtual
     accelerator must never be handed lane 1's token, which arms the live machine."""
     write_web_terminal_artifacts(_va_lane_roster_config(tmp_path), tmp_path)
 
     alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
     assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in alice_env)
-
-
-def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_path):
-    """The two halves together: no persona is in effect, and the deploy config
-    arms the virtual accelerator alone while its baseline live machine stays
-    read-only. The persona-less entry therefore holds the VA lane's token and
-    nothing else — and with no shell deny shipped, the refusal must name that
-    lane and the per-connector key that disarms it, not lane 1 and not the
-    deployment-wide key (which is already false here and would read as no
-    remedy at all)."""
-    config = _config(["alice"])
-    config.update(
-        {
-            "control_system": {
-                "type": "epics",
-                "writes_enabled": False,
-                "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
-            },
-            "services": {"bluesky_va": {"target": "va", "port": 10081}},
-            "claude_code": {"servers": {"bluesky": {"enabled": True}}},
-        }
-    )
-
-    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
-        write_web_terminal_artifacts(config, tmp_path)
-
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert excinfo.value.personas_by_lane == {"bluesky_va": [ZERO_MIGRATION_OFFENDER]}
-    message = str(excinfo.value)
-    assert "BLUESKY_VA_LAUNCH_TOKEN" in message
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
-    assert "no persona" in message
-    assert not (tmp_path / "build").exists()
-    # The ask-only reader binds the same entry: one shared predicate, so the
-    # collect-all preflight cannot clear what the raising guard refuses.
-    assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
 
 
 # ---------------------------------------------------------------------------
@@ -944,8 +870,8 @@ def _dangerous_va_config(tmp_path, value=True):
 
 def test_dangerously_allow_bash_waives_the_refusal_and_still_grants_the_token(tmp_path):
     """The key changes ONE thing: the deploy no longer refuses. The entitlement is
-    untouched -- the same persona is granted the same lane's token by the same
-    rule -- so the render must carry BLUESKY_VA_LAUNCH_TOKEN for a persona whose
+    untouched -- the same render is granted the same lane's token by the same
+    rule -- so the render must carry BLUESKY_VA_LAUNCH_TOKEN for a render whose
     shipped settings permit Bash."""
     config = _dangerous_va_config(tmp_path)
 
@@ -957,23 +883,23 @@ def test_dangerously_allow_bash_waives_the_refusal_and_still_grants_the_token(tm
     assert any("BLUESKY_VA_LAUNCH_TOKEN" in value for value in alice_env)
 
 
-def test_dangerously_allow_bash_names_the_personas_it_waved_through(tmp_path):
-    """What the banner prints: the personas the guard WOULD have refused. Computed
+def test_dangerously_allow_bash_names_the_renders_it_waved_through(tmp_path):
+    """What the banner prints: the renders the guard WOULD have refused. Computed
     by the same predicate, so the banner and the refusal cannot disagree about
     who is in conflict. Empty whenever the key is off -- including on a
     conflict-free roster with the key on."""
-    assert dangerously_allowed_bash_personas(_dangerous_va_config(tmp_path), tmp_path) == {
+    assert dangerously_allowed_bash_renders(_dangerous_va_config(tmp_path), tmp_path) == {
         "va_operator"
     }
     assert (
-        dangerously_allowed_bash_personas(
+        dangerously_allowed_bash_renders(
             _va_lane_roster_config(tmp_path / "off", denies_bash=False), tmp_path / "off"
         )
         == set()
     )
     clean = _va_lane_roster_config(tmp_path / "clean")
     clean["dangerously_allow_bash"] = True
-    assert dangerously_allowed_bash_personas(clean, tmp_path / "clean") == set()
+    assert dangerously_allowed_bash_renders(clean, tmp_path / "clean") == set()
 
 
 @pytest.mark.parametrize("value", [False, None])
@@ -999,28 +925,30 @@ def test_dangerously_allow_bash_accepts_only_the_boolean_true(tmp_path, value):
 #
 # `auth.method: none` means nginx vouches for every terminal it proxies. An
 # agent inside one terminal reaches nginx over loopback and is indistinguishable
-# from the operator's browser, so open mode is refused unless every persona's
+# from the operator's browser, so open mode is refused unless every render's
 # shipped settings deny the host-network egress tools the python executor's own
 # socket guard cannot cover.
 # ---------------------------------------------------------------------------
 
-#: A persona project that is entitled to no launch token at all — writes off and
+#: A render project that is entitled to no launch token at all — writes off and
 #: no bluesky server — so these tests exercise the open-mode gate alone and a
 #: failure here can never be the Bash/launch-token guard firing instead.
 _UNARMED_PROJECT: dict = {"control_system": {"writes_enabled": False}}
 
 
 def _open_roster_config(tmp_path, *, method: str = "none", deny: list[str] | None = None):
-    """A one-user roster on *method*, whose persona ships exactly *deny*."""
-    config = _config([{"name": "alice", "index": 0, "persona": "operator"}])
+    """A one-user roster on *method*, whose render ships exactly *deny*."""
+    config = _config([{"name": "alice", "index": 0, "tier": "operator"}])
     config["modules"]["web_terminals"]["auth"] = {"method": method}
-    config["modules"]["web_terminals"]["personas"] = {
-        "operator": {
-            "project": "op",
-            "project_path": _write_persona_project(
+    config["modules"]["web_terminals"]["default_tier"] = "operator"
+    config["modules"]["web_terminals"]["renders"] = {
+        "operator": tier_render(
+            "operator",
+            "op",
+            project_path=_write_render_project(
                 tmp_path, "op", _UNARMED_PROJECT, deny=deny or list(_SHIPPED_DENY)
             ),
-        }
+        )
     }
     return config
 
@@ -1034,7 +962,7 @@ def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them():
     """The gate compares literal `permissions.deny` entries against the artifact
     `settings.json.j2` writes from `deny_defaults`. A rename there that this tuple
     did not follow would not fail loudly — it would silently stop matching, and the
-    gate would clear a persona that still holds the tool. So the subset relationship
+    gate would clear a render that still holds the tool. So the subset relationship
     is pinned rather than left to be noticed."""
     assert set(OPEN_MODE_EGRESS_TOOLS) <= set(DENY_DEFAULTS)
     # And it is a STRICT subset on purpose: `Edit` and `EnterWorktree` write files,
@@ -1047,7 +975,7 @@ def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them():
     }
 
 
-def test_open_mode_refuses_a_persona_that_may_run_a_shell(tmp_path):
+def test_open_mode_refuses_a_render_that_may_run_a_shell(tmp_path):
     """The headline case. A shell reaches every port on the host, so it walks
     straight past the executor's in-process socket guard into a neighbour's
     terminal — which open mode hands out to anything that asks."""
@@ -1056,31 +984,31 @@ def test_open_mode_refuses_a_persona_that_may_run_a_shell(tmp_path):
     with pytest.raises(OpenModeEgressError) as excinfo:
         check_open_mode_requirements(config, tmp_path)
 
-    assert excinfo.value.personas == ["operator"]
+    assert excinfo.value.tiers == ["operator"]
     message = str(excinfo.value)
     assert "'operator'" in message
-    # The remedy an operator can take without touching any persona at all.
+    # The remedy an operator can take without touching any render at all.
     assert "modules.web_terminals.auth.method to 'token'" in message
 
 
-def test_open_mode_refuses_a_persona_that_may_run_a_background_shell(tmp_path):
+def test_open_mode_refuses_a_render_that_may_run_a_background_shell(tmp_path):
     """A background shell reaches every port on the host exactly as `Bash` does,
-    so a persona that lifts `Monitor` is refused on the same grounds."""
+    so a render that lifts `Monitor` is refused on the same grounds."""
     config = _open_roster_config(tmp_path, deny=_without("Monitor"))
 
     with pytest.raises(OpenModeEgressError) as excinfo:
         check_open_mode_requirements(config, tmp_path)
 
-    assert excinfo.value.personas == ["operator"]
-    assert excinfo.value.missing_by_persona == {"operator": ["Monitor"]}
+    assert excinfo.value.tiers == ["operator"]
+    assert excinfo.value.missing_by_render == {"operator": ["Monitor"]}
     message = str(excinfo.value)
     assert "may still reach the host network via 'Monitor'." in message
     assert "modules.web_terminals.auth.method to 'token'" in message
 
 
-def test_open_mode_refuses_a_persona_that_lifted_only_one_web_tool(tmp_path):
+def test_open_mode_refuses_a_render_that_lifted_only_one_web_tool(tmp_path):
     """`Bash` is not the whole perimeter, and a gate that only asked about it would
-    clear a persona whose agent can still GET a neighbour's terminal. The refusal
+    clear a render whose agent can still GET a neighbour's terminal. The refusal
     names the one tool that is missing rather than sending the operator through the
     whole set — the rest of which is already denied here."""
     config = _open_roster_config(tmp_path, deny=_without("WebFetch"))
@@ -1088,13 +1016,13 @@ def test_open_mode_refuses_a_persona_that_lifted_only_one_web_tool(tmp_path):
     with pytest.raises(OpenModeEgressError) as excinfo:
         check_open_mode_requirements(config, tmp_path)
 
-    assert excinfo.value.missing_by_persona == {"operator": ["WebFetch"]}
+    assert excinfo.value.missing_by_render == {"operator": ["WebFetch"]}
     message = str(excinfo.value)
     assert "may still reach the host network via 'WebFetch'." in message
     assert "'Bash'," not in message.split("may still reach")[1].split("\n")[0]
 
 
-def test_open_mode_passes_when_every_persona_denies_the_whole_egress_set(tmp_path):
+def test_open_mode_passes_when_every_render_denies_the_whole_egress_set(tmp_path):
     """The shipped default: a project rendered from `deny_defaults` denies the whole set,
     so the ordinary open deployment starts. A gate that refused this would be a gate
     nobody could satisfy without hand-editing an artifact."""
@@ -1105,9 +1033,9 @@ def test_open_mode_passes_when_every_persona_denies_the_whole_egress_set(tmp_pat
 
 @pytest.mark.parametrize("method", ["token", "password", "oidc"])
 def test_a_walled_or_token_deployment_is_not_asked_the_open_question(tmp_path, method):
-    """The gate is about what nginx vouches for, not about what a persona may run.
+    """The gate is about what nginx vouches for, not about what a render may run.
     Under `token` the browser still has to present the per-user magic link, and
-    `password`/`oidc` put a login wall in front of the roster — so a persona with a
+    `password`/`oidc` put a login wall in front of the roster — so a render with a
     shell is a deliberate, documented posture there and must not be refused."""
     config = _open_roster_config(tmp_path, method=method, deny=_without("Bash"))
 
@@ -1129,29 +1057,29 @@ def test_open_mode_fails_closed_on_a_settings_artifact_it_cannot_read(tmp_path):
         check_open_mode_requirements(config, tmp_path)
 
     # Nothing was read, so every tool in the set is reported missing.
-    assert excinfo.value.missing_by_persona == {"operator": list(OPEN_MODE_EGRESS_TOOLS)}
+    assert excinfo.value.missing_by_render == {"operator": list(OPEN_MODE_EGRESS_TOOLS)}
 
 
 def test_open_mode_names_the_missing_render_rather_than_every_tool(tmp_path):
-    """A persona with no rendered project on this host fails every deny check for
+    """A render with no rendered project on this host fails every deny check for
     a reason no `permissions.deny` edit can fix. Listing every entry there
     sends the operator to a file that is not on the disk — so that case is
     reported as the render it actually is, with the remedy that clears it.
 
     This is the state a registry-mode open deployment is in by default, which is
-    why `persona_render_problem` now demands the render in that mode too."""
+    why `render_problem` now demands the render in that mode too."""
     config = _open_roster_config(tmp_path)
     (tmp_path / "profiles" / "op" / ".claude" / "settings.json").unlink()
 
     with pytest.raises(OpenModeEgressError) as excinfo:
         check_open_mode_requirements(config, tmp_path)
 
-    assert excinfo.value.missing_by_persona == {"operator": list(UNRENDERED_SETTINGS)}
+    assert excinfo.value.missing_by_render == {"operator": list(UNRENDERED_SETTINGS)}
     message = str(excinfo.value)
     assert "'operator' has no rendered .claude/settings.json on this host" in message
     assert "osprey build" in message
     # The whole set is still what the deployment must eventually deny -- an
-    # unrendered persona denies nothing -- so the headline names every entry.
+    # unrendered render denies nothing -- so the headline names every entry.
     assert "'Bash'" in message
     # And the remedy no longer claims a re-pull alone clears this: what is read
     # here is THIS host's render, in either image-source mode.
@@ -1161,8 +1089,8 @@ def test_open_mode_names_the_missing_render_rather_than_every_tool(tmp_path):
 def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monkeypatch):
     """The gate names every entry per offender off ONE read of the artifact,
     not one roster walk per entry. One read per entry of the same small JSON file
-    per persona is affordable, but it is also one more chance per entry for the
-    walks to disagree about which personas a deployment has."""
+    per render is affordable, but it is also one more chance per entry for the
+    walks to disagree about which renders a deployment has."""
     from osprey.deployment.web_terminals import artifacts as artifacts_module
 
     reads: list[str] = []
@@ -1174,13 +1102,13 @@ def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monke
 
     monkeypatch.setattr(artifacts_module, "settings_json_deny_entries", counted)
 
-    assert open_mode_missing_by_persona(_open_roster_config(tmp_path), tmp_path) == {}
+    assert open_mode_missing_by_render(_open_roster_config(tmp_path), tmp_path) == {}
     assert len(reads) == 1
 
 
-def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_path):
+def test_open_mode_refuses_a_render_that_denies_only_the_playwright_plugin(tmp_path):
     """The near miss that looks safe. The artifact is compared by EXACT entry, so
-    a persona denying the Playwright plugin's tools still ships every other
+    a render denying the Playwright plugin's tools still ships every other
     plugin's server — and any of them reaches a neighbour's terminal just as
     well. The refusal names the namespace entry, which is the one that closes it."""
     wildcard = "mcp__plugin_*"
@@ -1195,28 +1123,23 @@ def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_
     with pytest.raises(OpenModeEgressError) as excinfo:
         check_open_mode_requirements(config, tmp_path)
 
-    assert excinfo.value.missing_by_persona == {"operator": [wildcard]}
+    assert excinfo.value.missing_by_render == {"operator": [wildcard]}
     assert f"via {wildcard!r}." in str(excinfo.value)
 
 
-def test_open_mode_binds_the_roster_entries_that_run_no_persona(tmp_path):
-    """The zero-migration path: a bare-string roster entry runs the deploy project
-    itself, so it appears in no persona set and would otherwise walk through the
-    gate untouched. Its artifact is the deploy project's own settings.json — absent
-    here, which fails closed under the sentinel name."""
+def test_an_open_roster_with_no_render_catalog_is_refused_before_writing(tmp_path):
+    """A roster with no render catalog names no project for its terminals, so
+    the render refuses it before the first artifact lands, open mode or not."""
     config = _config(["alice"])
-    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+    web = config["modules"]["web_terminals"]
+    web["auth"] = {"method": "none"}
+    del web["renders"]
+    del web["default_tier"]
 
-    with pytest.raises(OpenModeEgressError) as excinfo:
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert "no persona" in str(excinfo.value)
-    # Refused BEFORE the render, so a rejected deploy leaves nothing half-written.
     assert not (tmp_path / "build").exists()
-    # The ask-only reader binds the same entry: one shared predicate, so the
-    # collect-all preflight cannot clear what the raising gate refuses.
-    assert open_mode_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
 
 
 def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_path):
@@ -1234,7 +1157,7 @@ def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_
 def test_an_unknown_auth_method_is_not_treated_as_open(tmp_path):
     """A method nothing supports renders no deployment at all — the render raises on
     it and lint reports it. Reporting it here as well would give the operator a
-    second, confusing refusal about personas, and would put a raise inside the
+    second, confusing refusal about renders, and would put a raise inside the
     ask-only reader its callers are promised will not raise."""
     config = _open_roster_config(tmp_path, method="sso", deny=_without("Bash"))
 

@@ -10,7 +10,8 @@ Two modes, each printing exactly one marker-prefixed JSON line on stdout:
 
 ``ca``
     A stdlib TCP listener stands in for a Channel Access name server. The
-    client is pyepics' libca with ``EPICS_CA_NAME_SERVERS`` pointing at the
+    client is aioca (epicscorelibs' libca, as the production connector uses)
+    with ``EPICS_CA_NAME_SERVERS`` pointing at the
     listener, ``EPICS_CA_AUTO_ADDR_LIST=NO`` and an empty
     ``EPICS_CA_ADDR_LIST``: libca opens a TCP circuit to the name server and
     sends VERSION (cmd 0), CLIENT_NAME (cmd 20) and HOST_NAME (cmd 21) before
@@ -27,12 +28,9 @@ Two modes, each printing exactly one marker-prefixed JSON line on stdout:
 
         __PVA_ACCOUNT__{"account": "<name>", "peer": "<addr>"}
 
-Both clients start with ``PYEPICS_LIBCA`` removed from the environment, so
-no operator override is in play. The CA client then resolves its libca the way
-the production connector does (``_configure_pyepics_libca``, which picks
-``epicscorelibs``' per-architecture build — pyepics' own bundled ``clibs`` are
-x86_64-only and fail to load on an arm64 host), so the name on the wire comes
-from the same library and the same ``getpwuid`` lookup a card uses. Each
+The CA client loads libca the way the production connector does, through
+aioca from ``epicscorelibs``' per-architecture build, so the name on the wire
+comes from the same library and the same ``getpwuid`` lookup a card uses. Each
 client force-exits once its work is sent, skipping the libca teardown that
 asserts in ``EPICS_CA_NAME_SERVERS``-only mode (see ``_va_host_ca_op.py``).
 
@@ -64,17 +62,18 @@ _EXTENDED = struct.Struct(">II")
 _PV_NAME = "OSPREY:E2E:ACCOUNT-PROBE"
 
 _CA_CLIENT = """
+import asyncio
 import os
-from osprey.connectors.control_system.epics_connector import _configure_pyepics_libca
 
-_configure_pyepics_libca()
-import epics.ca as ca
+import aioca
 
-ca.initialize_libca()
-ca.create_channel({pv!r}, connect=False, auto_cb=False)
-for _ in range(200):
-    ca.pend_event(0.05)
-    ca.flush_io()
+
+async def main():
+    await aioca.connect({pv!r}, wait=False)
+    await asyncio.sleep(10)
+
+
+asyncio.run(main())
 os._exit(0)
 """
 
@@ -98,7 +97,7 @@ os._exit(0)
 
 
 def _client_env(extra: dict[str, str]) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k != "PYEPICS_LIBCA"}
+    env = dict(os.environ)
     env.update(extra)
     return env
 

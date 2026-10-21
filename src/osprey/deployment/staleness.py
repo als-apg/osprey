@@ -24,7 +24,10 @@ Two readings of the same provenance live here, and they differ in severity:
   longer parses, or which carries no fingerprint at all, is reported as
   ``UNRESOLVABLE`` so a start verb refuses rather than guessing. ``--as-built``
   is the documented escape from both refusals — ``build/`` is self-contained,
-  so starting it as rendered stays a valid, knowing choice.
+  so starting it as rendered stays a valid, knowing choice. A render stamped by
+  a release older than the tiers/apps vocabulary is refused the same way,
+  ahead of the fingerprint, because an old-spelled profile hashes identically
+  to its rewrite and the hash alone would call that render clean.
 
 Both read the *same* fingerprint: ``compute_profile_hash`` over the resolved
 profile document, the file material it names, and the host-variant overlay
@@ -44,10 +47,10 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.staleness")
 
@@ -56,7 +59,7 @@ _MANIFEST_FILENAME = ".osprey-manifest.json"
 #: Where ``osprey build`` renders the deployment repo's output zone. The
 #: manifest sits at its root: ``build/`` *is* the rendered project, so there is
 #: exactly one place a repo's build provenance can be. Aliased to
-#: :data:`osprey.utils.workspace.BUILD_DIR_NAME` rather than spelled again — a
+#: :data:`osprey_connectors.workspace.BUILD_DIR_NAME` rather than spelled again — a
 #: second literal for the same directory is a second thing to get wrong.
 BUILD_DIRNAME = BUILD_DIR_NAME
 
@@ -74,7 +77,7 @@ KEY_DIGESTS_MANIFEST_KEY = "profile_key_digests"
 MATERIAL_PREFIX = "material:"
 
 #: Digest over *all* the material at once — the ``data:`` tree, the convention
-#: directories, the trigger file the dispatch block names and the ``personas/``
+#: directories, the trigger file the dispatch block names and the ``tiers/``
 #: deltas — folded by the build's own
 #: :func:`~osprey.cli.build_profile_merge._fold_profile_material`.
 #: Stamped alongside the per-input digests as the backstop that keeps material
@@ -290,7 +293,7 @@ class DriftReport:
         changed_keys: What moved, named as the operator would spell it: the
             top-level profile keys, and the paths of the file inputs the profile
             points at (``data/``, a convention directory, the trigger file
-            the dispatch block names, a ``personas/`` delta). Empty on a
+            the dispatch block names, a ``tiers/`` delta). Empty on a
             ``DRIFT`` whose build stamped no per-key digests — the verdict
             still stands, only the detail is missing.
         version_skew: Present whenever installed and stamped versions differ,
@@ -346,9 +349,9 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     """One digest per *named* file input, so a refusal can point at a path.
 
     :data:`MATERIAL_KEY` alone can only say "something the profile points at
-    moved". That is what made the refusal misleading: a persona delta edit was
+    moved". That is what made the refusal misleading: a layer edit was
     reported under the label ``data/``, which the operator had not touched.
-    Splitting the fold per input lets the message name ``personas/readonly.yml``
+    Splitting the fold per input lets the message name ``tiers/readonly.yml``
     — the file that actually changed.
 
     Each input is folded with the same label and the same
@@ -367,7 +370,7 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     is reported as :data:`MATERIAL_DISPLAY` rather than going unmentioned.
 
     Args:
-        resolved: The profile after ``extends`` (and persona-delta) resolution.
+        resolved: The profile after ``extends`` (and layer) resolution.
         profile_dir: The profile root every relative path anchors at.
 
     Returns:
@@ -377,10 +380,14 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     """
     import hashlib
 
-    from osprey.cli.build_profile_merge import _fold_source_tree, profile_triggers_material
+    from osprey.cli.build_profile_merge import (
+        _fold_source_tree,
+        layer_fold_label,
+        profile_triggers_material,
+    )
     from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_conventions import CONVENTION_SOURCES
-    from osprey.cli.profile_root import PERSONA_DIRNAME
+    from osprey.cli.profile_root import layer_files
     from osprey.cli.variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
     digests: dict[str, str] = {}
@@ -415,20 +422,11 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     if overlay is not None:
         fold(f"{VARIANT_DIRNAME}/{overlay.name}", "variant", overlay)
 
-    # Per delta rather than per directory: ``personas/`` is flat and each child
-    # IS a build input of its own, so naming the one file that moved costs
-    # nothing and is what the operator edited.
-    persona_dir = profile_dir / PERSONA_DIRNAME
-    if persona_dir.is_dir():
-        for delta in sorted(
-            (
-                entry
-                for entry in persona_dir.iterdir()
-                if entry.is_file() and not entry.name.startswith(".")
-            ),
-            key=lambda entry: entry.name,
-        ):
-            fold(f"{PERSONA_DIRNAME}/{delta.name}", "persona", delta)
+    # Per file rather than per directory: each layer file IS a build input of
+    # its own, so naming the one file that moved costs nothing and is what the
+    # operator edited. The same listing, and the same label, the fold uses.
+    for _kind, layer in layer_files(profile_dir):
+        fold(f"{layer.parent.name}/{layer.name}", layer_fold_label(layer), layer)
 
     return digests
 
@@ -522,7 +520,7 @@ def _changed_keys(current: dict[str, str], stamped: Any) -> tuple[str, ...]:
     names = {key for key in set(current) | set(stamped) if current.get(key) != stamped.get(key)}
     if MATERIAL_KEY in names and any(_is_material(name) for name in names - {MATERIAL_KEY}):
         # A named input already accounts for the material having moved; saying
-        # "files the profile points at, personas/readonly.yml" would report the
+        # "files the profile points at, tiers/readonly.yml" would report the
         # same edit twice, once vaguely. The combined key survives only when it
         # moved and no input explains it — material this module does not
         # enumerate, which is the one case worth admitting to.
@@ -537,6 +535,48 @@ def _version_skew(stamped: Any) -> VersionSkew | None:
     if "unknown" in (stamped, installed) or stamped == installed:
         return None
     return VersionSkew(stamped=stamped, installed=installed)
+
+
+def predates_vocabulary(stamped: Any) -> TypeGuard[str]:
+    """Whether a render stamped *stamped* was made before the tiers/apps vocabulary.
+
+    The vocabulary release is the profile-schema floor
+    (:data:`~osprey.cli.build_profile_load._PROFILE_SCHEMA_MIN_OSPREY`). The
+    stamp is the rendering release's *lineage*, which between releases sits
+    behind the floor it already honours — so a stamp equal to the installed
+    lineage counts as the floor, exactly as ``osprey build`` treats its own
+    lineage as ``max(lineage, floor)``. A stamp that is missing, ``unknown``
+    or not a PEP 440 version is not judged here: "cannot compare" must never
+    read as "too old".
+
+    Known limitation: the exemption compares lineage strings, so between
+    releases a development install also accepts a render by the published
+    release of the same lineage, even when that release predates the
+    vocabulary. It closes once the vocabulary release is tagged.
+
+    Args:
+        stamped: ``creation.osprey_version`` as read from the build manifest.
+
+    Returns:
+        True only for a parseable stamp from a different, older release.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
+
+    if not isinstance(stamped, str) or not stamped or stamped == "unknown":
+        return False
+    if stamped == _installed_version():
+        return False
+    try:
+        return Version(stamped) < Version(_PROFILE_SCHEMA_MIN_OSPREY)
+    except InvalidVersion:
+        return False
+
+
+def pre_vocabulary_message(stamped: str) -> str:
+    """The refusal sentence for a render that predates the tiers/apps vocabulary."""
+    return f"rendered by osprey {stamped} before tiers/apps; run osprey build"
 
 
 def check_drift(repo_root: Path) -> DriftReport:
@@ -600,6 +640,17 @@ def check_drift(repo_root: Path) -> DriftReport:
             build_dir=build_dir,
             stamped_hash=stamped_hash if isinstance(stamped_hash, str) else None,
             current_hash=current_hash,
+        )
+
+    stamped_version = creation.get("osprey_version")
+    if predates_vocabulary(stamped_version):
+        # Judged before the fingerprint on purpose: a profile spelled the
+        # retired way hashes identically to its tiers/apps rewrite, so the hash
+        # would read CLEAN over a render whose config still says the old words.
+        return report(
+            DriftState.UNRESOLVABLE,
+            pre_vocabulary_message(stamped_version),
+            remedy=_AS_BUILT_REMEDY,
         )
 
     if not isinstance(stamped_hash, str) or not stamped_hash:

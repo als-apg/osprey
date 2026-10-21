@@ -6,7 +6,9 @@ launched exactly like the real worker (``-I``, ``env={}``, ``cwd='/'``), so they
 can import nothing from the test environment and carry their reply bytes inline.
 
 Timing constants are scaled (a 1 s task clock against a 3 s sleeper, a 0.5 s
-idle close, a 2 s ready wait), so each case keeps its production meaning.
+idle close, a 2 s ready wait), so each case keeps its production meaning. The
+cancellation cases hold their worker on a file the test controls and run on the
+shipped clocks, so only the cancel ends the render.
 """
 
 from __future__ import annotations
@@ -37,6 +39,10 @@ def _png(size: tuple[int, int] = (8, 8)) -> bytes:
 
 PNG = _png()
 SOURCE = _png((32, 24))
+
+# The clocks as shipped, for the cases where only the test may end a render.
+_TASK_TIMEOUT_S = render.RENDER_TASK_TIMEOUT_S
+_READY_TIMEOUT_S = render.RENDER_READY_TIMEOUT_S
 
 # A stub worker: hand-shakes (unless told otherwise), then answers every frame
 # from ``behaviour(payload)``, which returns (header dict, body bytes) or acts.
@@ -549,44 +555,50 @@ async def test_default_task_id_is_content_derived(monkeypatch, tmp_path):
     assert outcome.reason == "decoder_failed"
 
 
+def _held(tmp_path: Path, payload: bytes) -> tuple[str, Path, Path]:
+    """Stub lines that hold *payload* mid-render: (lines, started, release).
+
+    The worker creates ``started`` once it has read the whole payload, then
+    replies only after ``release`` exists.
+    """
+    started, release = tmp_path / "render-started", tmp_path / "render-release"
+    lines = (
+        f"if payload == {payload!r}:\n"
+        f"    open({str(started)!r}, 'w').close()\n"
+        f"    while not os.path.exists({str(release)!r}):\n"
+        f"        time.sleep(0.01)\n"
+    )
+    return lines, started, release
+
+
+async def _until_held(task: asyncio.Task, started: Path, ceiling: float = 30.0) -> None:
+    """Return once the worker holds the picture; fail if the render ends first."""
+    deadline = time.monotonic() + ceiling
+    while not started.exists():
+        assert not task.done(), f"the render ended before its worker held the picture: {task}"
+        assert time.monotonic() < deadline, f"no worker held the picture within {ceiling:g} s"
+        await asyncio.sleep(0.01)
+
+
 # -- cancellation -----------------------------------------------------------------------
 
 
-async def _pid_of_the_worker_serving(task: asyncio.Task, within: float = 30.0) -> int:
-    """Wait until the worker *task* spawned has said ``ready``, and return its pid.
-
-    The worker is cached only once its ready line has been read, and the frame
-    is sent straight after, so from here on *task* is inside its exchange.
-    """
-    deadline = time.monotonic() + within
-    while (pid := render.worker_pid()) is None:
-        if task.done():
-            pytest.fail(f"the render ended before any worker was ready: {task!r}")
-        if time.monotonic() > deadline:
-            task.cancel()
-            pytest.fail(f"no worker was ready within {within:g} s: its ready line never arrived")
-        await asyncio.sleep(0.01)
-    return pid
-
-
 async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monkeypatch, tmp_path):
-    # Neither clock is what this test is about, and the first reply is never
-    # sent: how long a worker takes to start, or the cancel to land, decides
-    # nothing here.
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
+    held, started, release = _held(tmp_path, b"1")
     # The reply width is the payload length, so each rendition names its picture.
-    monkeypatch.setattr(
-        render,
-        "WORKER_ARGV",
-        _stub(tmp_path, 'if payload == b"1":\n    time.sleep(30)\nok(w=len(payload))'),
-    )
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, held + "ok(w=len(payload))"))
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_TIMEOUT_S)
     slow = asyncio.create_task(render.render_isolated(b"1", task_id="one"))
-    first_pid = await _pid_of_the_worker_serving(slow)
+    await _until_held(slow, started)
+    first_pid = render.worker_pid()
+    assert first_pid is not None
     slow.cancel()
     with pytest.raises(asyncio.CancelledError):
         await slow
     assert render.worker_pid() is None
+    # A worker that outlived the cancel would now write the first picture's reply.
+    release.touch()
     outcome = await render.render_isolated(b"22", task_id="two")
     assert outcome.rendition is not None
     assert outcome.rendition.width == 2
@@ -599,22 +611,16 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
 
 
 async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
-    # Neither clock is what this test is about, and the slow reply is never sent.
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
+    held, started, _ = _held(tmp_path, b"SLOW")
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
-        _stub(
-            tmp_path,
-            'if payload == b"SLOW":\n    time.sleep(30)\n'
-            'if payload == b"CRASH":\n    os._exit(139)\nok()',
-        ),
+        _stub(tmp_path, held + 'if payload == b"CRASH":\n    os._exit(139)\nok()'),
     )
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_TIMEOUT_S)
     slow = asyncio.create_task(render.render_isolated(b"SLOW", task_id="slow"))
-    # A cancel during the ready wait would count nothing either way: only one
-    # that lands inside the exchange says a cancelled task is not a death.
-    await _pid_of_the_worker_serving(slow)
+    await _until_held(slow, started)
     slow.cancel()
     with pytest.raises(asyncio.CancelledError):
         await slow

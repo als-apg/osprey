@@ -21,7 +21,7 @@ from osprey.cli.phase_reporter import (
     install_reporter,
 )
 from osprey.deployment import container_lifecycle
-from osprey.simulation.archiver_seed import SeedReport
+from osprey_connectors.simulation.archive import SeedReport
 
 
 class RecordingReporter(PhaseReporter):

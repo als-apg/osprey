@@ -3,6 +3,8 @@
 Tests runtime utilities with actual Mock connector (and EPICS if available).
 """
 
+import contextlib
+
 import pytest
 
 from osprey.runtime import (
@@ -10,6 +12,22 @@ from osprey.runtime import (
     read_channel,
     write_channel,
     write_channels,
+)
+from tests.facility.served_tree import in_process_config, served_tree
+
+#: Every address this module writes; each test reads back what it wrote.
+WRITTEN = (
+    "ANY:CHANNEL:NAME",
+    "MAGNET:H01",
+    "MAGNET:H02",
+    "MAGNET:H03",
+    "PV1",
+    "PV2",
+    "PV3",
+    "TEST:PV",
+    "TEST:PV1",
+    "TEST:PV2",
+    "TEST:VOLTAGE",
 )
 
 
@@ -23,17 +41,13 @@ def setup_registry(tmp_path, monkeypatch):
     from osprey.registry import reset_registry
 
     # Create test config with writes enabled and no noise
+    view = served_tree(tmp_path / "served", WRITTEN)
     config_file = tmp_path / "config.yml"
     config_data = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
             "writes_enabled": True,
-            "connector": {
-                "mock": {
-                    "noise_level": 0.0,
-                    "response_delay_ms": 1,
-                }
-            },
+            "connector": {"virtual_accelerator": in_process_config(view, response_delay_ms=1)},
         }
     }
     config_file.write_text(yaml.dump(config_data))
@@ -66,10 +80,8 @@ async def clear_runtime_state():
     import osprey.runtime as runtime
 
     if runtime._runtime_connector is not None:
-        try:
+        with contextlib.suppress(Exception):
             await cleanup_runtime()
-        except Exception:
-            pass
     runtime._runtime_connector = None
 
     yield
@@ -83,7 +95,7 @@ async def clear_runtime_state():
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
-def test_write_read_with_mock_connector():
+def test_write_read_with_the_in_process_connector():
     """Test write and read operations with Mock connector."""
     test_channel = "TEST:VOLTAGE"
     test_value = 123.45

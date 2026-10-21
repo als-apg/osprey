@@ -26,20 +26,20 @@ from click.testing import CliRunner
 from osprey.cli.config_cmd import config
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 #: The frozen reference deployment — the shape `osprey init` is being built to
 #: emit. Used here so the zero-argument path is exercised against a real
 #: profile and not only against the two-line minimum.
 EXEMPLAR = Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile"
 
-#: A roster that stands the persona stack up, which is what makes the web-stack
-#: lint apply at all: a config with no catalog is never asked about
-#: ``registry.url``.
+#: A roster that stands the render stack up, which is what makes the web-stack
+#: lint apply at all. A profile carries no render catalog: the tier it names is
+#: the ``tiers/readwrite.yml`` file written beside it.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
-    "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world"}},
+    "users": [{"name": "operator", "index": 0, "tier": "readwrite"}],
+    "default_tier": "readwrite",
 }
 
 #: A source manifest with a comment in it. The comment is the assertion: the
@@ -122,7 +122,7 @@ def test_validate_repo_flag_moves_the_starting_directory(
     """``--repo`` substitutes where the walk begins; it does not skip the walk.
     Pointing it at a subdirectory therefore resolves to the enclosing repo,
     exactly as standing in that subdirectory would."""
-    nested = repo / "personas"
+    nested = repo / TIERS_DIRNAME
     nested.mkdir()
     outside = tmp_path / "elsewhere"
     outside.mkdir()
@@ -166,9 +166,9 @@ def test_validate_checks_a_named_profile_file(
     runner: CliRunner, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The positional survives for the profile that is not a repo root — a
-    persona delta, which is a profile in its own right and can be wrong on its
+    layer, which is a profile in its own right and can be wrong on its
     own terms."""
-    delta = repo / "personas" / "reader.yml"
+    delta = repo / TIERS_DIRNAME / "reader.yml"
     delta.parent.mkdir()
     delta.write_text("name: Reader\n", encoding="utf-8")
     monkeypatch.chdir(repo)
@@ -242,9 +242,12 @@ def test_validate_still_runs_the_deploy_config_lint(
         root,
         {
             "name": "Demo Facility",
-            "config": {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS)},
+            "config": {"modules.web_terminals": dict(WEB_TERMINALS)},
         },
     )
+    tier = root / TIERS_DIRNAME / "readwrite.yml"
+    tier.parent.mkdir()
+    tier.write_text("name: Read-Write\n", encoding="utf-8")
     monkeypatch.chdir(root)
 
     result = runner.invoke(validate, [])
@@ -276,7 +279,7 @@ def test_validate_refuses_a_per_type_limits_block_missing_a_leaf(
     result = runner.invoke(validate, [])
 
     assert result.exit_code == 2, result.output
-    assert "allow_unlisted_channels" in result.output
+    assert "mode" in result.output
     assert "virtual_accelerator" in result.output
 
 
@@ -294,8 +297,7 @@ def test_validate_passes_a_complete_per_type_limits_block(
             "name": "Demo Facility",
             "config": {
                 "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-                "control_system.connector.virtual_accelerator.limits_checking."
-                "allow_unlisted_channels": True,
+                "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
             },
         },
     )

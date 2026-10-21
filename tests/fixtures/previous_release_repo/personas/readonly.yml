@@ -1,0 +1,59 @@
+# Als Exemplar (readonly) — settings for one web login
+#
+# Only the differences from profile.yml belong here. The build merges this
+# file over that one, picking up any edit you make there. To see the combined
+# result:
+#   osprey validate personas/readonly.yml
+#
+# Made from the bundled `control-assistant-readonly` preset.
+#
+#   emitted by OSPREY 2026.9.0
+#   preset content hash: sha256:7d70feb8be4575011409b7cf178c3c122dcba890120d33bdffd753f36d9bf5f7
+
+name: Als Exemplar (readonly)
+
+# Attached render: this persona builds per-user terminal images only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the injector blocks inherited from the base are
+# all gated on this flag and skip cleanly.
+deploy_services: false
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The axis this persona hard-pins, and it takes three keys rather than one.
+  # The flat key is the posture a connector type inherits when its own block
+  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
+  # in the chain — the base, an overlay, a facility's own edit — would arm that
+  # type over it. So the read-only tier pins every block off as well as the key
+  # they inherit from, and a type that arms writes here has to be added by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Pared-down operator layout: chat only, workspace hidden until the agent
+  # puts something in it. Pinned on both sides of the tier boundary (readwrite
+  # pins `expert`), same rationale as writes_enabled.
+  #
+  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
+  # because their declarations live in the readwrite persona delta and never
+  # reach this build (see the note in the base's config: block).
+  web.ui_mode: simple
+  # The hosting deployment owns the web-terminal tier (nginx, landing,
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
+  # in, the telemetry store, the bluesky bridge. This persona is an attached
+  # render (`services: {}` of its own) built beside that deployment, and the
+  # build copies every such fact from the deployment's own render into it
+  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Move a port on the
+  # hosting profile and every persona follows; spell a different one here and
+  # the build refuses the contradiction. The build renders no services for
+  # this persona and writes `deployed_services: []` into its config — every
+  # `services.*` key inherited from the base profile is dropped from this
+  # render, except the ones that name a file in the render's own data tree
+  # (the graph corpus and its search index), which stay as this render's own
+  # — and a host that differs IS named here.

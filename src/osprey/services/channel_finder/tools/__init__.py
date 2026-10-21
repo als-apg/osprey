@@ -1,5 +1,5 @@
 """
 Channel Finder Database Tools
 
-Native tools for building, validating, and previewing channel databases.
+Native tools for validating and previewing channel databases.
 """

@@ -18,14 +18,24 @@ import yaml
 from osprey.cli.build_limits_check import limits_database_errors
 
 VALID_DB = {
-    "defaults": {"min_value": -10.0, "max_value": 10.0, "max_step": 1.0, "confirm": False},
-    "SR:C01:MAG:SP": {"writable": True},
+    "SR:C01:MAG:SP": {
+        "writable": True,
+        "min_value": -10.0,
+        "max_value": 10.0,
+        "max_step": 1.0,
+        "confirm": False,
+    },
 }
 
-#: The shape that motivated the check: a ``defaults`` block written against the
-#: schema that ``confirm:`` replaced.
+#: The shape that motivated the check: an entry written against the schema that
+#: ``confirm:`` replaced.
 STALE_DB = {
-    "defaults": {"verification": {"required": True}, "min_value": -1.0, "max_value": 1.0},
+    "SR:C01:MAG:SP": {
+        "writable": True,
+        "verification": {"required": True},
+        "min_value": -1.0,
+        "max_value": 1.0,
+    },
 }
 
 
@@ -35,7 +45,7 @@ def _control_system(**overrides) -> dict:
         "writes_enabled": True,
         "limits_checking": {
             "enabled": True,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": "data/channel_limits.json",
         },
     }
@@ -150,7 +160,7 @@ def test_a_per_type_block_that_switches_checking_off_wins(tmp_path: Path) -> Non
     section = _control_system(
         connector={
             "epics": {
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             }
         }
     )

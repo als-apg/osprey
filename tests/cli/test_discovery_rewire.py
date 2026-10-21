@@ -43,19 +43,22 @@ from osprey.cli.sim import sim_group
 from osprey.cli.web_cmd import LOG_FILE, PID_FILE, web
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
+from tests.cli._simulator_view import register_stub_engine, write_simulator_view
 
-#: A render that is also simulation-backed. The model path is repo-relative on
-#: purpose: resolving it is exactly the question of which directory the sim
-#: commands anchor at, and the exemplar ships the model at that path.
+#: A render that is also simulation-backed: the mock connector serves the
+#: simulator view the tests write into the render.
 SIM_CONFIG = """\
 claude_code:
   provider: anthropic
 control_system:
-  type: mock
+  type: virtual_accelerator
   connector:
-    mock:
-      simulation_file: data/simulation/machine.json
+    virtual_accelerator:
+      serving: in_process
 """
+
+#: The scenarios the simulator view of a ``SIM_CONFIG`` render lists.
+SIM_SCENARIOS = ({"name": "nominal"}, {"name": "vacuum-burst"})
 
 
 def nested(repo: Path) -> Path:
@@ -514,7 +517,7 @@ def run_sim(runner: CliRunner, args: list[str], cwd: Path):
 
 class TestSimResolvesTheRepo:
     def test_list_works_from_a_nested_subdirectory(self, runner, lifecycle_repo):
-        stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(stub_build(lifecycle_repo, config=SIM_CONFIG), SIM_SCENARIOS)
 
         result = run_sim(runner, ["list"], nested(lifecycle_repo))
 
@@ -522,16 +525,17 @@ class TestSimResolvesTheRepo:
         assert "nominal" in result.output
         assert "vacuum-burst" in result.output
 
-    def test_status_works_from_a_nested_subdirectory(self, runner, lifecycle_repo):
-        stub_build(lifecycle_repo, config=SIM_CONFIG)
+    def test_status_works_from_a_nested_subdirectory(self, runner, lifecycle_repo, monkeypatch):
+        register_stub_engine(monkeypatch)
+        write_simulator_view(stub_build(lifecycle_repo, config=SIM_CONFIG), SIM_SCENARIOS)
 
         result = run_sim(runner, ["status"], nested(lifecycle_repo))
 
         assert result.exit_code == 0, result.output
-        assert "Active scenarios" in result.output
+        assert "SR: ok" in result.output.splitlines()
 
     def test_repo_flag_resolves_another_deployment(self, runner, lifecycle_repo, tmp_path):
-        stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(stub_build(lifecycle_repo, config=SIM_CONFIG), SIM_SCENARIOS)
         outside = tmp_path / "elsewhere"
         outside.mkdir()
 
@@ -555,6 +559,7 @@ class TestSimResolvesTheRepo:
         running control system.
         """
         build = stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(build, SIM_SCENARIOS)
 
         result = run_sim(runner, ["apply", "vacuum-burst", "--no-seed"], nested(lifecycle_repo))
 
@@ -566,6 +571,7 @@ class TestSimResolvesTheRepo:
     def test_apply_renders_physics_into_the_repo_root_dotenv(self, runner, lifecycle_repo):
         """``.env`` is the SECRETS zone at the repo root, not a file in the render."""
         build = stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(build, SIM_SCENARIOS)
 
         result = run_sim(runner, ["apply", "nominal", "--no-seed"], nested(lifecycle_repo))
 

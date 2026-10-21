@@ -14,10 +14,10 @@ import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
     add_resonance_overlay,
-    load_baseline_ring,
-    load_ring,
+    load_baseline_lattice,
+    load_job,
+    load_lattice,
     load_settings,
-    load_state,
     parse_args,
     save_data,
     unpack_tracking,
@@ -41,7 +41,7 @@ def get_tune_fft(turn_data: np.ndarray, pad_factor: int = 16) -> float:
 
 
 def compute_footprint(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     n_amp: int = 10,
     x_max: float = 0.003,
     y_max: float = 0.001,
@@ -66,7 +66,7 @@ def compute_footprint(
             rin[2] = y0
 
             try:
-                result = ring.track(rin, nturns=2 * n_half, refpts=[0])
+                result = lattice.track(rin, nturns=2 * n_half, refpts=[0])
                 rout = unpack_tracking(result)
                 if not np.all(np.isfinite(rout)):
                     continue
@@ -207,27 +207,27 @@ def build_figure(
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Subprocess entry point: the parent captures this worker's stderr and
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    settings = load_settings(state, "footprint")
+    lattice = load_lattice(job)
+    settings = load_settings(job, "footprint")
     n_amp = settings["n_amp"]
     x_max = settings["x_max_mm"] / 1000.0
     y_max = settings["y_max_mm"] / 1000.0
     n_half = settings["n_half"]
 
     nux, nuy, amps, diffusion = compute_footprint(
-        ring, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
+        lattice, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
     )
 
-    tunes = at.get_tune(ring)
+    tunes = at.get_tune(lattice)
     design_tune = [float(tunes[0]), float(tunes[1])]
 
     raw: dict = {
@@ -241,20 +241,20 @@ def main() -> None:
         "baseline_tune": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
-    if baseline_ring is not None:
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
         bnux, bnuy, bamps, _ = compute_footprint(
-            baseline_ring, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
+            baseline_lattice, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
         )
         raw["baseline"] = {
             "nux": bnux.tolist(),
             "nuy": bnuy.tolist(),
             "amps": bamps.tolist(),
         }
-        bt = at.get_tune(baseline_ring)
+        bt = at.get_tune(baseline_lattice)
         raw["baseline_tune"] = [float(bt[0]), float(bt[1])]
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

@@ -170,7 +170,7 @@ def load_categories_from_config() -> int:
     Returns:
         Number of categories successfully loaded.
     """
-    from osprey.utils.config import get_config_builder
+    from osprey_connectors.config import get_config_builder
 
     cb = get_config_builder()
     block = cb.get("artifact_server", {})

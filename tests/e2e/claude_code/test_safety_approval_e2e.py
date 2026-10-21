@@ -3,18 +3,20 @@
 Tests that the approval hook correctly fires (or doesn't fire) based on
 approval mode, and that approval/denial decisions propagate to Claude.
 
-4 scenarios:
+3 scenarios:
   2a: channel_write triggers approval callback (selective + auto-approve)
   2c: Approval denial propagates to Claude
   2d: `default_policy: always` asks for everything (including reads)
-  2e: Limits deny blocks before approval callback fires
+
+The refusal cases live in test_safety_gates_scripted.py, where a scripted call reaches the gate
+on every run.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import assert_agent_ran, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -202,66 +204,4 @@ async def test_default_policy_always_asks_for_reads(safety_project_default_polic
     )
     assert read_events[0].decision == "allow", (
         f"Expected auto_approve to produce 'allow' decision but got: {read_events[0].decision}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2e: Limits deny blocks before approval callback fires
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.requires_api
-@pytest.mark.requires_als_apg
-@pytest.mark.asyncio
-async def test_limits_deny_blocks_before_approval(safety_project_selective):
-    """Scenario 2e: Limits violation should deny before approval hook fires.
-
-    Writing 999.0 exceeds SR:DIAG:TEMP:01:TEMPERATURE:SP limits (max=100).
-    The limits hook returns "deny" directly, so the approval hook never
-    reaches "ask" and hook_events should be EMPTY.
-
-    Cost budget: $0.50
-    """
-    prompt = (
-        "Use the channel_write tool to write the value 999.0 to the channel "
-        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
-    )
-
-    result = await run_sdk_query_with_hooks(
-        safety_project_selective,
-        prompt,
-        approval_policy="auto_approve",
-        max_turns=5,
-        max_budget_usd=0.50,
-    )
-
-    # -- Debug output --
-    print("\n--- 2e: limits deny before approval ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  hook_events: {len(result.hook_events)}")
-    for evt in result.hook_events:
-        print(f"    {evt.tool_name}: {evt.decision}")
-
-    # -- Assertions --
-    assert_agent_ran(result)
-
-    # Safety invariant: no successful write to an over-limits channel.
-    # The MCP server (channel_write tool) raises ToolError on limits
-    # violation, so every write trace must come back is_error=True.
-    #
-    # Note on hook_events: when both the limits hook (deny) and the
-    # approval hook (ask) match the same channel_write call, Claude
-    # Code 2.1.27 still invokes the can_use_tool callback on the
-    # approval hook's "ask" — the chained "deny" from the limits hook
-    # does not pre-empt the "ask". The safety invariant we actually
-    # care about is "no successful writes", verified below; the empty
-    # hook_events assertion was over-asserting on SDK chain semantics.
-    write_calls = result.tools_matching("channel_write")
-    if not write_calls:
-        pytest.skip("the model never called channel_write; the limits hook was not exercised")
-    successful_writes = [t for t in write_calls if not t.is_error]
-    assert len(successful_writes) == 0, (
-        f"Limits-deny breached: {len(successful_writes)} write(s) succeeded.\n"
-        f"  Tools: {result.tool_names}\n"
-        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )

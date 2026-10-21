@@ -26,9 +26,15 @@ def run_sql(sql: str) -> str:
 
     The database contains these tables:
 
-    **channels** — One row per channel.
-    Columns: channel_name (PK), system, family, field, subfield,
-    description, units, data_type, mode, member_of, source, updated_at.
+    **channels** — One row per place a channel is listed.
+    Columns: row_id (PK), channel_name, system, family, field, subfield,
+    description, units, data_type, mode, member_of, source, updated_at
+    (TIMESTAMPTZ: the import's instant).
+    Key: (channel_name, system, family, field, subfield). A channel appears
+    once per place it is listed (System, Family, Field, Subfield), so
+    COUNT(*) counts listings and COUNT(DISTINCT channel_name) counts
+    channels; COUNT(DISTINCT (channel_name, family)) counts family
+    memberships.
 
     **systems** — Top-level systems.
     Columns: name (PK), description.
@@ -37,11 +43,14 @@ def run_sql(sql: str) -> str:
     Columns: system, name, description.  PK: (system, name).
 
     **device_map** — Physical device layout.
-    Columns: system, family, device_index, sector, device, common_name.
+    Columns: system, family, device_index, place, place_index, device,
+    common_name. place_index numbers a device's place among its sibling
+    places (0: none); place is the place id, NULL when the database states
+    none.
 
     **Full-text search** is available on channels. Example:
         SELECT channel_name, description,
-               fts_main_channels.match_bm25(channel_name, 'corrector magnet') AS score
+               fts_main_channels.match_bm25(row_id, 'corrector magnet') AS score
         FROM channels
         WHERE score IS NOT NULL
         ORDER BY score DESC
@@ -65,7 +74,8 @@ def run_sql(sql: str) -> str:
                 "not_configured",
                 "DuckDB database is not configured for the channel finder.",
                 [
-                    "Set channel_finder.pipelines.middle_layer.database.duckdb_path in the build profile (profile.yml on the host), then rebuild and redeploy."
+                    "Run osprey build with channel_finder_mode set to middle_layer, then redeploy: "
+                    "the build writes this DuckDB database for that mode."
                 ],
             )
 

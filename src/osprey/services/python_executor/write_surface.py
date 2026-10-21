@@ -86,10 +86,11 @@ partition to the table.
 """
 
 #: Control-system client libraries, as ``(dotted target, attributes)``. Also
-#: the producer of :data:`READONLY_DENIED_IMPORTS`: a readonly run refuses to
+#: the producer of :data:`CLIENT_PACKAGES`: a readonly run refuses to
 #: import any top-level package named here.
 _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # --- EPICS Channel Access (pyepics) ---
+    # --- EPICS Channel Access (pyepics). Not a dependency; guarded in case a
+    # user installs it.
     ("epics", ("caput", "caput_many")),
     ("epics.PV", ("put",)),
     ("epics.ca", ("put", "sg_put")),
@@ -103,12 +104,14 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("aioca._catools", ("caput",)),
     # --- Channel Access (epicscorelibs). The ctypes binding that aioca loads
     # ``libca`` through, so it is a client route in its own right. Listing it
-    # also puts ``epicscorelibs`` in :data:`READONLY_DENIED_IMPORTS`, which is
-    # what closes the route in a readonly run: the import is refused, so the
-    # binding is never reached. An armed run refuses both names as well — they
-    # sit in :data:`_ARMED_BLOCKED`. pyepics loads a handle of its own through
-    # ``ctypes`` rather than this binding, and the ``ctypes`` rows of
-    # :data:`_ESCAPE_ROUTES` refuse the put symbols on that handle.
+    # also puts ``epicscorelibs`` in :data:`CLIENT_PACKAGES`, so a
+    # plain import of it is refused in a readonly run; ``importlib`` gets past
+    # that check, which is why both names are refused at runtime too, and the
+    # ``libca`` handle under them in :data:`_ESCAPE_ROUTES`. An armed run
+    # refuses both names as well — they sit in :data:`_ARMED_BLOCKED`. A
+    # user-installed pyepics loads a handle of its own through ``ctypes``
+    # rather than this binding; a readonly run refuses that load at the
+    # ``ctypes`` rows of :data:`_ESCAPE_ROUTES`.
     ("epicscorelibs.ca.cadef", ("ca_array_put", "ca_array_put_callback")),
     # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
     # server-side SharedPV, which puts values on the wire when it is opened or
@@ -196,7 +199,7 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 #: Acquisition frameworks that can drive hardware through a client below them.
-#: Deliberately NOT in :data:`READONLY_DENIED_IMPORTS`: both are also ordinary
+#: Deliberately NOT in :data:`CLIENT_PACKAGES`: both are also ordinary
 #: document and analysis libraries, and a readonly script reading a Tiled
 #: catalog or introspecting a device tree has a legitimate reason to import
 #: them. What it may not do is *move* anything, so the write entry points
@@ -216,6 +219,11 @@ _FRAMEWORK_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("bluesky.RunEngine", ("__call__",)),
     ("bluesky.run_engine.RunEngine", ("__call__",)),
 )
+
+#: Shared-library loaders outside ``ctypes`` that the ``no_client`` block and
+#: a readonly run gate, as deferred ``(dotted target, attributes)`` rows:
+#: patched when their module is imported.
+_CLIENT_LOADER_ROWS: tuple[tuple[str, tuple[str, ...]], ...] = (("cffi.api.FFI", ("dlopen",)),)
 
 #: Routes out of Python. A readonly run has no legitimate use for these:
 #: ``import subprocess`` is already refused in every mode by the static import
@@ -276,16 +284,29 @@ _ESCAPE_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "posix_spawnp",
         ),
     ),
+    # --- The libca handle epicscorelibs loads in its module body, before the
+    # loader below is gated. aioca reads through this handle's read symbols,
+    # so the handle stays; the put symbols ``cadef`` already resolved are
+    # cached on the instance, past ``__getitem__``, and are closed here by name.
+    # ``importlib`` reaches the handle past the static import check.
+    (
+        "epicscorelibs.ca.cadef.libca",
+        ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put"),
+    ),
     # --- Loading a shared library sidesteps every Python-level guard above:
     # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
-    # single client package. ``LibraryLoader.__getattr__`` is patched too,
-    # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
-    # These rows are gated rather than refused outright: pyepics, which a
-    # readonly run reads through via ``osprey.runtime``, loads ``libca`` this
-    # way, so its own load is permitted and the handle it gets has its put
-    # symbols refused. Every other load refuses.
-    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
-    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
+    # single client package. Every ``ctypes`` spelling — ``CDLL``, ``PyDLL``,
+    # ``cdll.LoadLibrary``, ``cdll.libca``, ``cdll._dlltype``, a class bound
+    # before the guard — loads through the module-global ``ctypes._dlopen``,
+    # which is ``_ctypes.dlopen``; cffi's ``FFI.dlopen`` loads beside it. Every
+    # load through them refuses: the one handle a readonly run reads through
+    # ``osprey.runtime`` with is the ``cadef`` handle above, loaded at install.
+    # ``CDLL.__getitem__`` refuses the put symbols on every handle, the ones
+    # loaded before the gate included.
+    ("ctypes", ("_dlopen",)),
+    ("_ctypes", ("dlopen", "LoadLibrary")),
+    ("ctypes.CDLL", ("__getitem__",)),
+    *_CLIENT_LOADER_ROWS,
 )
 
 #: Every entry point a readonly run refuses. The canonical machine-readable
@@ -296,11 +317,34 @@ _READONLY_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     _CLIENT_WRITE_TARGETS + _FRAMEWORK_WRITE_TARGETS + _ESCAPE_ROUTES
 )
 
-#: Top-level packages a readonly run may not import, derived from
-#: :data:`_CLIENT_WRITE_TARGETS` so the denylist cannot fall behind the guard.
-READONLY_DENIED_IMPORTS: frozenset[str] = frozenset(
+#: Top-level control-system client packages, derived from
+#: :data:`_CLIENT_WRITE_TARGETS` so the list cannot fall behind the guard. Two
+#: readers: the executor's static import check refuses a readonly script that
+#: imports one, and the ``no_client`` block's finder refuses the import itself
+#: in a process that may hold no client at all.
+CLIENT_PACKAGES: frozenset[str] = frozenset(
     dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS
 )
+
+#: Shared-library basename stems the ``no_client`` block refuses to load. A
+#: stem matches a basename that equals it or continues with ``.`` or ``-``, case
+#: folded, so ``libca.so.3.15`` matches ``libca`` and ``libcairo.so`` does not.
+#: ``libca`` and ``ca.dll`` are Channel Access; the rest are PVAccess. The
+#: PVAccess libraries are C++ with no stable C symbol, so they are refused by
+#: name only. ``libCom`` is EPICS base's OS layer and no client on its own, so
+#: it is deliberately absent.
+_CLIENT_LIBRARY_NAMES: tuple[str, ...] = (
+    "libca",
+    "ca.dll",
+    "libpvAccess",
+    "libpvAccessCA",
+    "libpvaClient",
+    "libpvxs",
+)
+
+#: C symbols only a Channel Access client library exports. A library that
+#: loads under another name is refused when it exports any of them.
+_CLIENT_LIBRARY_SYMBOLS: tuple[str, ...] = ("ca_context_create", "ca_array_put")
 
 #: Client entry points a run with writes armed refuses: a write reaches the
 #: machine through the connector, which checks and records it, so a raw client
@@ -514,7 +558,10 @@ _ARMED_PASSED: dict[tuple[str, str], str] = {
 }
 
 __all__ = [
-    "READONLY_DENIED_IMPORTS",
+    "CLIENT_PACKAGES",
+    "_CLIENT_LIBRARY_NAMES",
+    "_CLIENT_LIBRARY_SYMBOLS",
+    "_CLIENT_LOADER_ROWS",
     "_CLIENT_WRITE_TARGETS",
     "_ARMED_BLOCKED",
     "_ARMED_CA_PROVIDER",

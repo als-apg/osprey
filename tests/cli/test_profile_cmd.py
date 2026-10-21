@@ -131,13 +131,14 @@ def test_validate_reports_all_errors_and_exits_2(runner: CliRunner, tmp_path: Pa
     """Every problem is reported at once, not just the first (SC7)."""
     _write_profile(
         tmp_path / "p",
-        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\ntier: 5\n",
+        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\n"
+        "channel_finder_mode: in-context\n",
     )
     result = runner.invoke(profile, ["validate", str(tmp_path / "p")])
 
     assert result.exit_code == 2, result.output
     assert "data directory not found" in result.output
-    assert "tier must be 1 or 3" in result.output
+    assert "channel_finder_mode must be one of" in result.output
 
 
 def test_validate_rejects_a_directory_without_a_profile(runner: CliRunner, tmp_path: Path) -> None:
@@ -168,26 +169,23 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
     assert sorted(p.name for p in target.iterdir()) == ["data", "profile.yml"]
 
 
-#: A profile whose web stack does not lint: it stands up the persona catalog,
-#: which is what makes the registry-mode coherence check apply, and states no
-#: ``registry.url`` for it to find. The one shape that reaches the web-lint
-#: branch both spellings of the verb run last.
+#: A profile whose web stack does not lint: with a ``tiers/readwrite.yml``
+#: beside it, it stands up the render catalog, which is what makes the
+#: registry-mode coherence check apply, and states no ``registry.url`` for it
+#: to find. The one shape that reaches the web-lint branch both spellings of
+#: the verb run last.
 LINT_FAILING_PROFILE = """\
 name: Lint Fail
 extends: hello-world
 data: data
 config:
-  facility.prefix: demo
   modules.web_terminals:
     enabled: true
-    default_persona: readwrite
+    default_tier: readwrite
     users:
       - name: operator
         index: 0
-        persona: readwrite
-    personas:
-      readwrite:
-        build_profile: hello-world
+        tier: readwrite
 """
 
 
@@ -229,6 +227,10 @@ class TestTopLevelSpellingIsTheSameVerb:
         from osprey.cli.validate_cmd import validate
 
         target = _write_profile(tmp_path / "p", LINT_FAILING_PROFILE)
+        (target.parent / "tiers").mkdir()
+        (target.parent / "tiers" / "readwrite.yml").write_text(
+            "name: readwrite\n", encoding="utf-8"
+        )
 
         group = runner.invoke(profile, ["validate", str(target)])
         top = runner.invoke(validate, [str(target)])
@@ -281,7 +283,9 @@ def test_emit_helper_leaves_nothing_behind_on_an_invalid_override(tmp_path: Path
 
     target = tmp_path / "my-profile"
     with pytest.raises(click.UsageError):
-        _materialize_profile_directory(target, "hello-world", set_pairs=("tier=5",))
+        _materialize_profile_directory(
+            target, "hello-world", set_pairs=("channel_finder_mode=in-context",)
+        )
     assert not target.exists()
 
 

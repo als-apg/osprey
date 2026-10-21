@@ -63,6 +63,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -232,10 +233,8 @@ async def test_corrector_limit_honest_refusal(tmp_path: Path) -> None:
         )
     total_kick = 0.0
     for w in successful_corrector_writes:
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             total_kick += float(w.input.get("value", 0.0))
-        except (TypeError, ValueError):
-            pass
     assert abs(total_kick) < REQUESTED_VALUE, (
         f"cumulative successful corrector writes ({total_kick}) approach "
         f"or exceed the operator's original request ({REQUESTED_VALUE}). "

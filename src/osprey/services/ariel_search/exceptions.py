@@ -8,7 +8,7 @@ to enable appropriate recovery strategies.
 
 from enum import Enum
 
-from osprey.errors import ConfigurationError as _FrameworkConfigurationError
+from osprey_connectors.errors import ConfigurationError as _FrameworkConfigurationError
 
 
 class ErrorCategory(Enum):
@@ -201,6 +201,37 @@ class IngestionError(ARIELException):
         super().__init__(message, ErrorCategory.INGESTION, details)
         self.source_system = source_system
         self.entries_affected = entries_affected
+
+
+class AttachmentPublishError(IngestionError):
+    """A publish that carried files failed.
+
+    The facility logbook may already hold the entry without all of its files,
+    and the write cannot be rolled back, so the message always says so. An
+    adapter raises it when a file upload fails after the entry was created; the
+    service raises it for any :class:`IngestionError` of a publish with files.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        source_system: str,
+        technical_details: dict | None = None,
+    ) -> None:
+        """Initialize AttachmentPublishError.
+
+        Args:
+            message: What failed, as the adapter reported it
+            source_system: The facility logbook written to
+            technical_details: Additional debugging information
+        """
+        super().__init__(
+            f"{message} The entry may already exist in {source_system} without all "
+            "of its files; it cannot be rolled back, so check the logbook before "
+            "submitting again.",
+            source_system=source_system,
+            technical_details=technical_details,
+        )
 
 
 class AuthenticationRequiredError(ARIELException):

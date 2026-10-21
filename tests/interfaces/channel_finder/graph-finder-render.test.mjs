@@ -499,7 +499,7 @@ function makeDevice(over = {}) {
     class: 'Quadrupole',
     rawType: 'QUAD',
     sPositionM: 12.5,
-    ordinalInSection: 4,
+    ordinalInPlace: 4,
     systemDescription: 'Magnet system',
     familyDescription: 'Storage-ring quadrupole family',
     signals: [
@@ -510,13 +510,12 @@ function makeDevice(over = {}) {
           {
             fullPv: 'SR:QF1:current',
             edges: ['READSSIGNAL'],
-            subfieldDescription: 'Measured current',
-            fieldDescription: 'Current',
+            description: 'Measured current',
           },
           {
             fullPv: 'SR:QF1:currentSet',
             edges: ['WRITESSIGNAL'],
-            fieldDescription: 'Current setpoint',
+            description: 'Current setpoint',
           },
         ],
       },
@@ -574,7 +573,7 @@ test('deviceCardHtml draws each signal group as the endpoint sends it', () => {
   expect(rows[2].querySelector('.dir')?.classList.contains('dir-RW')).toBe(true);
   expect(rows[0].querySelector('td.pv')?.textContent).toContain('SR:QF1:current');
 
-  // Subfield description wins over the field description; neither leaves a gap.
+  // Each binding's own description fills its row.
   expect(rows[0].querySelector('td.sub')?.textContent).toContain('Measured current');
   expect(rows[1].querySelector('td.sub')?.textContent).toContain('Current setpoint');
 });
@@ -625,8 +624,7 @@ test('deviceCardHtml escapes every store-sourced device field', () => {
       bindings: [{
         fullPv: PAYLOAD,
         edges: ['READSSIGNAL'],
-        subfieldDescription: PAYLOAD,
-        fieldDescription: PAYLOAD,
+        description: PAYLOAD,
       }],
     }],
   }));

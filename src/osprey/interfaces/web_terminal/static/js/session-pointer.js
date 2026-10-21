@@ -6,10 +6,10 @@
  * with every turn, so the two surfaces address the same session rather than
  * each starting one of their own.
  *
- * Per persona, not per origin. localStorage is origin-scoped, so on a
+ * Per render, not per origin. localStorage is origin-scoped, so on a
  * multi-user mount (`/u/alice/`, `/u/bob/`) a bare key would be one shared
  * pointer — and a session key is not a preference that can be shared:
- * replaying one persona's key would attach another persona's surface to a
+ * replaying one render's key would attach another render's surface to a
  * process that is not theirs. Every read, write and clear resolves the key
  * through pointerKey() below.
  *

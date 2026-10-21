@@ -176,8 +176,9 @@ services:
     same failure: a `standin` lane's devices connect to the `live-standin` soft
     IOC this deployment runs for itself, so the bridge must not open its
     environment before that IOC's CA listener is answering. The stand-in
-    declares a healthcheck of its own (a raw TCP connect to its Channel Access
-    port, `services/virtual_accelerator/docker-compose.yml.j2`), which is what
+    declares a healthcheck of its own (it reads the health record its runner
+    rewrites after every publishing pass,
+    `services/virtual_accelerator/docker-compose.yml.j2`), which is what
     makes `service_healthy` the right condition rather than `service_started`.
 
     Keyed on the LANE's target and not on the co-deployment alone — a project
@@ -454,7 +455,7 @@ services:
     would be silently partial: the author would have no way to say which ones
     they meant and no way to see which ones they got. Applying it everywhere is
     also what keeps a stock upstream image treated the same way here as it is
-    when it IS the service — postgresql, mongodb and openobserve all carry the
+    when it IS the service — postgresql, mongodb and graphdb all carry the
     axis on images OSPREY does not build, and "does my variable arrive"
     would otherwise depend on whether the container happens to be first in its
     file. A container that reads nothing by that name ignores the entry. -#}
@@ -517,11 +518,11 @@ services:
       # `resolve_limits_mount` (compose_generator.py) and consumed here as
       # finished strings. One configured value —
       # control_system.limits_checking.database_path — has to name one file for
-      # the operator, for this bind source and for the connector that reopens it
-      # in the container, and the two halves anchor differently: the source
-      # against the pinned compose project directory, the target against the
-      # container's project root, with an absolute operator-owned path mounted
-      # verbatim on both sides. This Jinja context holds those anchors but
+      # the build that writes it, for this bind source and for the connector that
+      # reopens it in the container, and the two halves anchor differently: the
+      # source against the pinned compose project directory, the target against
+      # the container's project root, with an absolute path (a hand-edited
+      # render's) mounted verbatim on both sides. This Jinja context holds those anchors but
       # cannot derive them, so a template that spelled the path itself would be
       # a second spelling of the same rule, free to drift from the one the
       # connector follows. The writes gate above still decides WHETHER to mount.
@@ -857,21 +858,21 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
-      # The control-identity module the command runs, staged into this build
-      # context by compose_generator byte for byte from the packaged source.
-      # Read-only: it runs as root, so nothing inside may edit it.
-      - ./build/services/bluesky/control_identity.py:{{ control_identity_container_path }}:ro
+      # The control-identity script the command runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity:{{ control_identity_container_dir }}:ro
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
-      # SOURCE is a literal staged path rather than a computed one: the staging
-      # step copies whatever `bluesky.devices_file` names — or derives a set
-      # from the limits database — into this service's build context under a
-      # fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so the operator's
-      # own filename and directory never reach this bind and no configured path
-      # is left here to resolve. Both plan lanes declare the same service
-      # `path` and therefore render this one directory, staging identical bytes
-      # on the second pass; one staged file consequently serves both lanes, and
-      # any per-lane device split lives inside the document, not in this mount.
+      # SOURCE is a literal staged path rather than a computed one: `osprey
+      # build` writes the devices view from the channels under data/facility/,
+      # and the staging step copies it unchanged into this service's build
+      # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
+      # no configured path is left here to resolve. Both plan lanes declare the
+      # same service `path` and therefore render this one directory, staging
+      # identical bytes on the second pass; one staged file consequently serves
+      # both lanes, and any per-lane device split lives inside the document,
+      # not in this mount.
       - ./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro
 {% endif %}
 {% if svc.plan_dir %}

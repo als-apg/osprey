@@ -14,13 +14,13 @@ from osprey.utils.config_writer import get_control_system_type, set_control_syst
 #: A project already reading a real archive, so switching it onto the virtual
 #: accelerator is a legal switch rather than the refused pairing.
 ARCHIVED_PROJECT = (
-    "control_system:\n  type: mock\n\narchiver:\n  type: mongodb_archiver\n"
+    "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n\narchiver:\n  type: mongodb_archiver\n"
     "  mongodb_archiver:\n    host: localhost\n"
 )
 
 #: The same project with the archiver that synthesizes its history — the one
 #: the virtual accelerator may not be paired with.
-STORELESS_PROJECT = "control_system:\n  type: mock\n\narchiver:\n  type: mock_archiver\n"
+STORELESS_PROJECT = "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n\narchiver:\n  type: mock_archiver\n"
 
 
 class TestConfigWriterAcceptsVirtualAccelerator:
@@ -29,7 +29,7 @@ class TestConfigWriterAcceptsVirtualAccelerator:
     def test_set_control_system_type_to_virtual_accelerator(self, tmp_path):
         config_path = tmp_path / "config.yml"
         config_path.write_text(
-            "control_system:\n  type: mock\n\narchiver:\n  type: mock_archiver\n"
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n\narchiver:\n  type: mock_archiver\n"
         )
 
         new_content, preview = set_control_system_type(

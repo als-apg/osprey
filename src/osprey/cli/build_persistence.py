@@ -26,8 +26,8 @@ if TYPE_CHECKING:
     from .build_profile_model import BuildProfile
     from .profile_conventions import ConventionCopy
 
-from osprey.errors import BuildProfileError
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .phase_reporter import report_step
 
@@ -153,16 +153,16 @@ def _resolve_context_roster(project_path: Path) -> list[str]:
     The roster is read back from ``config.yml`` rather than from the profile's
     ``config:`` block so it reflects everything that shaped it — app template,
     preset, profile, and ``--set`` overrides, all already applied by the time
-    the conventions land. A disabled module has no roster: a persona build
+    the conventions land. A disabled module has no roster: a render build
     switches ``modules.web_terminals`` off, which is what makes it skip
     per-user context entirely.
 
     Where the subtree comes from is this function's own; deriving names from it
-    is :func:`~osprey.deployment.web_terminals.personas.roster_user_names`, the
+    is :func:`~osprey.deployment.web_terminals.roster.roster_user_names`, the
     same call ``osprey init`` makes when it seeds the per-user context
     slots this copy fills.
     """
-    from osprey.deployment.web_terminals.personas import as_dict, roster_user_names
+    from osprey.deployment.web_terminals.roster import as_dict, roster_user_names
     from osprey.utils.config_writer import load_config_document
 
     config_path = project_path / "config.yml"
@@ -205,7 +205,7 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
 def _artifact_name(copy: ConventionCopy) -> str:
     """Category-qualified name of a convention artifact (``agents/orbit-writer``).
 
-    The vocabulary persona ``exclude:`` entries use to name convention-dir
+    The vocabulary render ``exclude:`` entries use to name convention-dir
     artifacts. The name keeps the full path below the convention's destination
     — markdown categories legitimately nest (``commands/osprey/scan``), and a
     basename would collapse same-stem artifacts in different namespaces — so
@@ -306,7 +306,7 @@ def _apply_conventions(
         extra_known: Profile-root entry names the caller knows about beyond
             the defaults (a non-default ``data:`` directory or profile
             filename), exempted from the unknown-entry warning.
-        excluded: Category-qualified artifact names a resolved persona delta
+        excluded: Category-qualified artifact names a resolved layer
             excludes (``agents/orbit-writer``). An excluded copy is skipped
             entirely — whatever it would have shadowed keeps the framework
             render — and never enters ``owned_artifacts``.
@@ -363,7 +363,7 @@ def _apply_conventions(
     for copy in plan_convention_copies(profile_dir, context_users=roster or None):
         name = _artifact_name(copy)
         if name in excluded_names:
-            # The resolved persona excludes it: nothing is copied, so whatever
+            # The resolved render excludes it: nothing is copied, so whatever
             # it would have shadowed keeps the framework render.
             logger.debug("Convention: %s excluded by the resolved profile", name)
             continue

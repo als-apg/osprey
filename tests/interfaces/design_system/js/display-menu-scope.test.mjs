@@ -1,6 +1,6 @@
 /**
  * Writer-side counterpart to mode-boot-scope.test.mjs: <osprey-display-menu>'s
- * View row must persist the pick under the SAME per-persona key mode-boot.js
+ * View row must persist the pick under the SAME per-user key mode-boot.js
  * reads. A reader that scopes and a writer that does not would be worse than
  * neither — the pick would land in the shared slot and then never be read back.
  *
@@ -62,7 +62,7 @@ describe('<osprey-display-menu> View row storage scoping', () => {
     expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 
-  test("one persona's pick does not overwrite another's", () => {
+  test("one user's pick does not overwrite another's", () => {
     window.localStorage.setItem(`${LEGACY_KEY}--carol`, 'simple');
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
     const el = mount();
@@ -111,7 +111,7 @@ describe('<osprey-display-menu> View row storage scoping', () => {
   // The writer and mode-boot.js each spell the scoped key inline. The two
   // key-name pins above would both stay green if the spelling drifted in step;
   // a real write-then-boot round trip fails whatever the literal is.
-  test("a pick under one scope is what mode-boot.js reads back on that persona's next load", () => {
+  test("a pick under one scope is what mode-boot.js reads back on that user's next load", () => {
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
     const el = mount();
     pickView(el, 'simple');
@@ -122,7 +122,7 @@ describe('<osprey-display-menu> View row storage scoping', () => {
     expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
   });
 
-  test("a pick under one scope does not reach another persona's boot", () => {
+  test("a pick under one scope does not reach another user's boot", () => {
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
     const el = mount();
     pickView(el, 'simple');

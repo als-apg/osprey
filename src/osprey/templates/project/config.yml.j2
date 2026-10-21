@@ -4,7 +4,7 @@
   It renders ONLY what the build DERIVES — the project layout, the port
   layout, the provider catalog, and the handful of keys a profile FIELD
   (`provider:`, `model:`, `channel_finder_mode:`, `default_panel:`,
-  `panel_presets:`) decides. Everything an operator may state lives in
+  `panel_presets:`, `hooks:`) decides. Everything an operator may state lives in
   `profile.yml`'s `config:` block, documented on the line that sets it, and is
   applied over this render on the ordinary config-override path.
 
@@ -38,8 +38,8 @@
 # ============================================================
 
 # ── Project layout ──────────────────────────────────────────
-# `project_name` comes from profile.yml's top-level `project_name:` (a persona
-# render's is `<project_name>-<persona>`); it names the compose project,
+# `project_name` comes from profile.yml's top-level `project_name:` (a tier or
+# app render's is `<project_name>-<name>`); it names the compose project,
 # volumes and images. The rest is taken from the repository this render was
 # made in. `project_root` is the REPO root, not this file's directory: every
 # relative path below is anchored on it, and build/ is wiped by each build.
@@ -77,7 +77,7 @@ execution:
 # Commented out, and deliberately valueless: these are facts about the HOST
 # network a deployment is built on, so no preset can guess one. Uncomment what
 # your site needs and rebuild — `osprey up` turns each of them into a build arg
-# for the project image, each web-terminal persona image and the login sidecar,
+# for the project image, each tier and app render image and the login sidecar,
 # and leaving them all unset builds exactly what OSPREY built before they
 # existed.
 #
@@ -135,12 +135,8 @@ channel_finder:
     # In-Context (semantic search) — best for a few hundred channels.
     in_context:
       database:
-        type: template                # "template" (device-family expansion) or "flat"
-        path: data/channel_databases/in_context.json
-        presentation_mode: template   # Preview rendering only — `osprey channel-finder
-                                      # preview` honours it; the MCP server and the web UI
-                                      # build their own prompt text and never consult it.
-                                      # "explicit" lists every expanded name instead.
+        # Written by the build from the channels tagged `in_context`.
+        path: data/channel_finder/in_context.json
       # Inner LLM model for the ask_channels subagent tool (set per benchmark
       # cell at run time).
       subagent_model: null
@@ -150,9 +146,9 @@ channel_finder:
     # clean naming convention.
     hierarchical:
       database:
-        type: hierarchical            # Always "hierarchical" for this pipeline mode
-        path: data/channel_databases/hierarchical.json
-                                      # Nested: system -> family -> device -> field -> subfield
+        # Written by the build from the facility file. Levels: the facility's
+        # place level words, then class, device, leaf.
+        path: data/channel_finder/hierarchical.json
       # Feedback loop: records successful navigation paths so an identical
       # future query resolves from the prior path.
       feedback:
@@ -168,16 +164,12 @@ channel_finder:
     # Layer style databases (System -> Family -> Field).
     middle_layer:
       database:
-        type: middle_layer            # Always "middle_layer" for this pipeline mode
-        path: data/channel_databases/middle_layer.json
-                                      # MML structure: System -> Family -> Field -> ChannelNames
-        # duckdb_path gates the `run_sql` SQL/FTS tool: with it unset that one
-        # tool returns `not_configured` and the other middle-layer tools carry
-        # on working. The build renders it when the profile's data tree holds
-        # the file, which `osprey mml emit --duckdb` writes.
-{%- if middle_layer_duckdb | default(false) %}
-        duckdb_path: data/channel_databases/middle_layer.duckdb
-{%- endif %}
+        # Written by the build from the facility's groups:
+        # System -> Family -> Field -> ChannelNames.
+        path: data/channel_finder/middle_layer.json
+        # The same index as a DuckDB database, written beside it by the build;
+        # the `run_sql` SQL/FTS tool queries it.
+        duckdb_path: data/channel_finder/middle_layer.duckdb
 {%- endif %}
 {%- endif %}
 {%- if ariel_server_on | default(false) %}

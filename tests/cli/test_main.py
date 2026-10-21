@@ -3,6 +3,7 @@
 Tests the main CLI group and lazy command loading mechanism.
 """
 
+import contextlib
 import importlib
 import subprocess
 import sys
@@ -94,21 +95,20 @@ class TestLazyGroup:
 
         commands = group.list_commands(mock.Mock())
 
-        for retired in ("deploy", "claude", "skills"):
+        for retired in ("deploy", "claude", "mml", "skills"):
             assert retired not in commands
 
-    def test_the_mml_group_is_listed_and_resolves(self):
-        """``mml`` is registered in both literals, so the lifecycle test below
-        exercises its real import rather than skipping a name it never saw."""
+    def test_the_facility_group_is_listed_and_resolves(self):
+        """``facility`` is registered in both literals and carries ``validate``."""
         import click
 
         from osprey.cli.main import cli
 
         ctx = click.Context(cli)
-        assert "mml" in cli.list_commands(ctx)
-        command = cli.get_command(ctx, "mml")
+        assert "facility" in cli.list_commands(ctx)
+        command = cli.get_command(ctx, "facility")
         assert isinstance(command, click.Group)
-        assert "import" in command.list_commands(ctx)
+        assert "validate" in command.list_commands(ctx)
 
     def test_every_listed_command_actually_resolves(self):
         """The list and the import map have to agree.
@@ -277,12 +277,10 @@ class TestLazyLoading:
                 setattr(mock_module, cmd_name, mock.Mock())
                 mock_import.return_value = mock_module
 
-                try:
+                # Import errors are OK - we're testing mapping exists
+                with contextlib.suppress(ImportError):
                     group.get_command(ctx, cmd_name)
                     # Should not raise KeyError from missing mapping
-                except ImportError:
-                    # Import errors are OK - we're testing mapping exists
-                    pass
 
 
 class TestIntegration:

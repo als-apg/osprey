@@ -16,7 +16,7 @@ Two anchors, two groups of tests:
    :attr:`osprey.deployment.reset.ResetPlan.audit_dir`, and the hook's own
    ``get_repo_root() / AUDIT_DIR_RELPATH`` must all name the same directory.
    ``ResetPlan.audit_dir`` does not import
-   :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` — it is spelled as
+   :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — it is spelled as
    ``STATE_DIR_NAME / "audit"`` — so this is the test that would catch the two
    spellings drifting apart; it is included in the equality on purpose.
 
@@ -39,20 +39,9 @@ from osprey.audit import writer
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
 from osprey.mcp_server import audit_middleware as am
-from osprey.utils import workspace
+from osprey_connectors import workspace
+from tests._preset_data import bundle_data_root
 from tests.hooks.conftest import import_hook
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -73,7 +62,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

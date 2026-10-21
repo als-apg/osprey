@@ -1,5 +1,5 @@
 /**
- * Unit tests for rail-boot.js's per-persona scoping of the storage rung.
+ * Unit tests for rail-boot.js's per-user scoping of the storage rung.
  *
  * The ladder itself (?rail= > storage > server data-rail-position > 'left') is
  * pinned in tests/interfaces/design_system/rail-boot.test.mjs. This file pins
@@ -8,7 +8,7 @@
  *
  *   - scoped pages read `osprey-rail-position--<scope>`
  *   - a scoped page NEVER falls back to the bare `osprey-rail-position`, even
- *     when it holds a valid position — that shared slot is the cross-persona
+ *     when it holds a valid position — that shared slot is the cross-user
  *     bug the scoping exists to escape
  *   - with no attribute, the bare key is honoured exactly as before
  *
@@ -44,9 +44,9 @@ describe('rail-boot.js storage scoping', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  describe('a polluted legacy key does not leak across personas', () => {
+  describe('a polluted legacy key does not leak across users', () => {
     test("bob boots his server rail, not the shared slot's 'top'", () => {
-      // The shared origin-wide slot whichever persona flipped the rail last.
+      // The shared origin-wide slot whichever user flipped the rail last.
       window.localStorage.setItem(LEGACY_KEY, 'top');
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
       document.documentElement.setAttribute('data-rail-position', 'left');
@@ -87,7 +87,7 @@ describe('rail-boot.js storage scoping', () => {
       expect(currentPosition()).toBe('top');
     });
 
-    test("carol's key is not bob's — one persona's pick leaves the other alone", () => {
+    test("carol's key is not bob's — one user's pick leaves the other alone", () => {
       window.localStorage.setItem(`${LEGACY_KEY}--bob`, 'top');
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
       document.documentElement.setAttribute('data-rail-position', 'left');

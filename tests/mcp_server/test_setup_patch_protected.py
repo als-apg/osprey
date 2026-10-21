@@ -35,8 +35,8 @@ import yaml
 from osprey.audit import protected, writer
 from osprey.audit.protected import SURFACE_SETUP_PATCH
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
-from osprey.utils.identity import acting_identity
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.identity import acting_identity
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
@@ -64,7 +64,11 @@ def render(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(
         yaml.dump(
             {
-                "control_system": {"type": "mock", "writes_enabled": False},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                },
                 "agent_data": {"base_dir": "./_agent_data"},
                 "ui": {"theme": "light"},
             }

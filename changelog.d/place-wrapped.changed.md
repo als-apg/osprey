@@ -1,0 +1,1 @@
+A device whose stated `s` lies outside its periodic model's deck still builds, placed modulo the deck's length, and `osprey build` and `osprey facility validate` now print one `place-wrapped` warning per such device naming the stated s, the deck length and the point it was placed at.

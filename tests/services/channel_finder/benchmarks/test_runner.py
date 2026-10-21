@@ -24,12 +24,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
+from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA
 from osprey.services.channel_finder.benchmarks.models import BenchmarkRun
 from osprey.services.channel_finder.benchmarks.runner import (
     PARADIGM_CONFIG_KEYS,
     BenchmarkRunner,
     model_slug,
     read_db_path_from_config,
+    read_index_count,
 )
 from osprey.services.channel_finder.core.exceptions import (
     ConfigurationError,
@@ -88,18 +90,24 @@ def _make_fake_sdk_result(pvs: list[str]) -> FakeSDKResult:
     return FakeSDKResult(text_blocks=[text])
 
 
+#: The index path the fake project's config names, relative to the project.
+_INDEX_PATH = "data/channel_databases/channels.json"
+
+
 def _make_project_dir(
     tmp_path: Path,
     *,
     pipeline_mode: str = "in_context",
     queries: list[dict] | None = None,
     api: dict | None = None,
+    channel_count: int | None = 3,
 ) -> Path:
-    """Create a fake project directory with config.yml and benchmark queries.
+    """Create a fake project directory with config.yml, queries and an index.
 
     The runner does not read ``claude_code.provider`` (the model is passed
     in directly), so the config only needs the channel_finder section, plus
-    an ``api`` block when a test resolves the coverage judge.
+    an ``api`` block when a test resolves the coverage judge. The index the
+    config names states ``channel_count`` rows; ``None`` writes no index.
     """
     project_dir = tmp_path / "project"
     project_dir.mkdir(exist_ok=True)
@@ -117,7 +125,7 @@ def _make_project_dir(
             "pipelines": {
                 pipeline_mode: {
                     "database": {
-                        "path": "data/channel_databases/channels.json",
+                        "path": _INDEX_PATH,
                     },
                 }
             },
@@ -129,7 +137,24 @@ def _make_project_dir(
     if api is not None:
         config["api"] = api
     (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
+    if channel_count is not None:
+        _write_index(
+            project_dir,
+            {"schema": CHANNEL_FINDER_SCHEMA, "count": channel_count, "channels": []},
+        )
     return project_dir
+
+
+def _index_path(project_dir: Path) -> Path:
+    return project_dir / _INDEX_PATH
+
+
+def _write_index(project_dir: Path, body: object) -> Path:
+    """Write ``body`` as the index the project's config names."""
+    path = _index_path(project_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")
+    return path
 
 
 # LiteLLM-form model strings used by tests. The slug is what model_slug()
@@ -733,17 +758,112 @@ class TestPipelineModeValidation:
         for paradigm in PARADIGM_CONFIG_KEYS:
             assert paradigm in message
 
-    def test_count_channels_degrades_to_zero_without_a_database_file(self, tmp_path: Path):
-        """The channel count is observability, so it must not abort a run.
-
-        ``_count_channels`` reports a field on the saved run, not a score. A
-        paradigm with no database file to count leaves it at zero rather than
-        taking the whole benchmark down.
-        """
+    def test_a_mode_with_no_index_file_refuses_the_census_naming_the_mode(self, tmp_path: Path):
+        """A mode with neither an index file nor a store has no count to read."""
         project_dir = _make_project_dir(tmp_path, pipeline_mode="quantum")
         runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
 
-        assert runner._count_channels() == 0
+        with pytest.raises(PipelineModeError) as excinfo:
+            runner._count_channels()
+        assert "quantum" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# File-mode channel census
+# ---------------------------------------------------------------------------
+
+#: Per file mode, an index body whose entries do not number seven.
+_BODIES_THAT_ARE_NOT_SEVEN: dict[str, dict] = {
+    "in_context": {"channels": [{"address": "SR:A"}, {"address": "SR:B"}]},
+    "hierarchical": {"hierarchy": {"levels": [], "naming_pattern": ""}, "tree": {}},
+    "middle_layer": {"SR": {"BPM": {"X": {"ChannelNames": ["SR:A", "SR:B", "SR:C"]}}}},
+}
+
+
+class TestFileChannelCensus:
+    """The file modes read the count their index states, or refuse the run."""
+
+    @pytest.mark.parametrize("mode", sorted(PARADIGM_CONFIG_KEYS))
+    def test_the_census_is_the_count_the_index_states(self, tmp_path: Path, mode: str):
+        project_dir = _make_project_dir(tmp_path, pipeline_mode=mode)
+        _write_index(
+            project_dir,
+            {"schema": CHANNEL_FINDER_SCHEMA, "count": 7, **_BODIES_THAT_ARE_NOT_SEVEN[mode]},
+        )
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+
+        assert runner._count_channels() == 7
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            [{"name": "SR:A"}],
+            {"schema": CHANNEL_FINDER_SCHEMA, "channels": []},
+            {"count": "3"},
+            {"count": True},
+            {"count": -1},
+            {"count": 2.0},
+        ],
+        ids=["bare-list", "no-count", "string", "bool", "negative", "float"],
+    )
+    def test_an_index_that_states_no_count_is_refused_naming_the_file(
+        self, tmp_path: Path, body: object
+    ):
+        project_dir = _make_project_dir(tmp_path)
+        path = _write_index(project_dir, body)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+
+        with pytest.raises(ValueError) as excinfo:
+            runner._count_channels()
+        assert str(path.resolve()) in str(excinfo.value)
+        assert "count" in str(excinfo.value)
+
+    def test_a_missing_index_is_refused_naming_the_file(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, channel_count=None)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+
+        with pytest.raises(FileNotFoundError) as excinfo:
+            runner._count_channels()
+        assert str(_index_path(project_dir).resolve()) in str(excinfo.value)
+
+    def test_an_index_that_is_not_json_is_refused_naming_the_file(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path)
+        path = _write_index(project_dir, "{not json")
+
+        with pytest.raises(ValueError) as excinfo:
+            read_index_count(path)
+        assert str(path) in str(excinfo.value)
+
+    @pytest.mark.asyncio()
+    async def test_a_run_whose_census_fails_sends_no_query(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, channel_count=None)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
+        mock_sdk = AsyncMock(return_value=_make_fake_sdk_result([]))
+
+        with (
+            patch(f"{_SDK_BACKEND_MOD}.run_sdk_query", mock_sdk),
+            pytest.raises(FileNotFoundError),
+        ):
+            await runner.run_queries()
+
+        assert mock_sdk.call_count == 0
+
+    @pytest.mark.asyncio()
+    async def test_a_run_saves_the_count_the_index_states(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, channel_count=41)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
+        mock_sdk = AsyncMock(return_value=_make_fake_sdk_result([]))
+
+        with (
+            patch(f"{_SDK_BACKEND_MOD}.run_sdk_query", mock_sdk),
+            patch(
+                f"{_RUNNER_MOD}.evaluate_response",
+                side_effect=lambda text, expected, **kwargs: (expected, {"stage": 1}),
+            ),
+        ):
+            run = await runner.run_queries()
+
+        assert run.channel_count == 41
 
 
 # ---------------------------------------------------------------------------
@@ -834,9 +954,9 @@ class TestGraphChannelCensus:
     """The graph paradigm counts its channels in the store, or fails loudly.
 
     A graph project has no channel database file, so the census dials the
-    configured store instead. It is deliberately *not* wrapped in the
-    file-paradigm's degrade-to-zero handler: a run whose store is unreachable
-    must not save a plausible-looking ``channel_count`` of zero.
+    configured store instead. No handler turns a failure into a number: a run
+    whose store is unreachable must not save a plausible-looking
+    ``channel_count`` of zero.
     """
 
     def test_census_counts_channel_bindings(
@@ -956,15 +1076,9 @@ class TestGraphChannelCensus:
     def test_file_paradigm_census_never_dials_a_store(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The file paradigms keep counting rows in their database file."""
+        """The file modes read the count their index states and never open a store."""
         stub = _GraphSessionStub().install(monkeypatch)
-        project_dir = _make_project_dir(tmp_path, pipeline_mode="in_context")
-        db_path = project_dir / "data" / "channel_databases" / "channels.json"
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        db_path.write_text(
-            json.dumps([{"name": "SR:A"}, {"name": "SR:B"}, {"name": "SR:C"}]),
-            encoding="utf-8",
-        )
+        project_dir = _make_project_dir(tmp_path, pipeline_mode="in_context", channel_count=3)
         runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
 
         assert runner._count_channels() == 3

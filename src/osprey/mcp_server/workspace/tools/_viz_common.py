@@ -176,6 +176,7 @@ def collect_and_register_artifacts(
     (code, stdout, data_source) is embedded in the artifact's ``metadata``
     dict — no separate JSON blob is created.
     """
+    from osprey.stores.artifact_manifest import read_collected_file
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
@@ -195,7 +196,7 @@ def collect_and_register_artifacts(
             # own category is the fallback for artifacts saved without one.
             art_category = art.get("category") or category
             art_entry = store.save_file(
-                file_content=art["path"].read_bytes(),
+                file_content=read_collected_file(art["path"]),
                 filename=art["path"].name,
                 artifact_type=art["artifact_type"],
                 title=art["title"],

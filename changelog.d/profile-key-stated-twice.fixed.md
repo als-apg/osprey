@@ -1,0 +1,1 @@
+A profile's `config:` block that states one key both dotted and nested is now checked against the value the build renders (the one written last), so a `simulation.tick_s` or `simulation.default_scenarios` the render carries can no longer slip past its check.

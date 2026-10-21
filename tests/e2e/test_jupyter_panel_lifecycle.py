@@ -3,20 +3,18 @@
 The unit tests pin the kernel's per-cell stamps against a synthetic record,
 and the proxy integration test pins the panel's HTTP and websocket legs against
 a sidecar started by hand. Neither can answer the question this file exists
-for: inside a deployed persona container, with a real terminal session, a real
+for: inside a deployed render container, with a real terminal session, a real
 controls MCP server and a real control system behind the cells, does a
 notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
 One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
-roster user (``alice``) on one persona that keeps the preset's write gate armed
+roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
-target, with the live stand-in deployed beside it as the ``standin`` target: a
-switch needs two targets, and the mock connector cannot be one — its baseline
-is ``live``, which a mock deployment cannot resolve, so a kernel on a
-mock deployment would always run fail-closed and never carry a target stamp.
+target, with the live stand-in deployed beside it as the ``standin`` target,
+because a switch needs two targets.
 
 Everything is reached at the per-user web port directly, carrying the operator
 secret as the header nginx injects in the container shape (``token`` posture
@@ -27,7 +25,7 @@ the proxy that re-issues the sidecar's credential.
 
 WHAT IS ASSERTED, IN ORDER
 --------------------------
-The order is load-bearing: the raw-put scenario in 3 needs writes on, so it
+The order is load-bearing: the refusal scenario in 3 needs writes on, so it
 runs before the narrowing in 4; the narrowing in 4 has to be in place before
 the switch in 5 moves off the target it narrowed; and the down/up must come
 last.
@@ -37,12 +35,12 @@ last.
 2. Attaching a terminal yields a session id, and the deployment's
    control-context record — owned by the web terminal — names the target the
    posture route reports.
-3. With writes on, a runtime write lands, while a direct ``epics.caput`` from a
-   cell is refused with ``RAW_CLIENT_WRITE``, the write-through-the-runtime
-   line and one ``raw_client_write`` audit record, and leaves the value where
-   the runtime put it. A client put made from a libca callback thread while a
-   runtime write is in flight is refused too: the connector's write door is
-   open only in the context that opened it, never on a thread libca started.
+3. With writes on, a runtime write lands, while a cell cannot load a
+   control-system client library: ``import aioca`` and a ``ctypes`` load of
+   libca are each refused with ``ClientLibraryRefusedError``, the line that
+   names the runtime calls and one ``raw_client_import`` audit record, the
+   setpoint holds where the runtime put it, no client module is loaded, and a
+   runtime write after the refusals still lands.
 4. A cell run while writes are off for that target reads, and refuses a write
    with the connector's text plus the turn-writes-on line and exactly one audit
    record on the ``notebook_kernel`` surface, filed under the KERNEL's own
@@ -98,11 +96,14 @@ import yaml
 from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as ws_connect
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
-from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
+from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.posture_store import STATE_DIR_NAME
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.e2e._facility_select import repo_view
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -114,14 +115,15 @@ RUNTIME = "docker"
 #: The repo DIRECTORY name — the compose project name and the ``com.osprey.project``
 #: label on every image this deploy builds.
 PROJECT_NAME = "osprey-e2e-jnb"
-PREFIX = "jnb"
+#: The compose project name the web tier's containers are named by.
+PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 PRESET = "control-assistant"
 USER = "alice"
-PERSONA = "operator"
-#: ``osprey build`` renders a persona delta to ``build/<repo>-<persona>``, and
-#: the catalog must name that same project or a start refuses the render.
-PERSONA_PROJECT = f"{PROJECT_NAME}-{PERSONA}"
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
+RENDER = "operator"
+#: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and
+#: its image is tagged by that project.
+RENDER_PROJECT = f"{PROJECT_NAME}-{RENDER}"
+RENDER_IMAGE_TAG = f"{RENDER_PROJECT}:local"
 #: Service images ``osprey up`` builds per project, exact tags for the teardown.
 SERVICE_IMAGE_TAGS = (f"{PROJECT_NAME}-va:local", f"{PROJECT_NAME}-qmd:local")
 
@@ -158,17 +160,15 @@ HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
 )
 
-#: The hint line the kernel prints before a raw client put's traceback. No
-#: posture lets such a put through, so it names the runtime call rather than
-#: the chip. Re-spelled for the same reason as the line above.
-HINT_RAW_CLIENT_WRITE = (
-    "Direct client-library writes are refused. "
-    "Write through osprey.runtime.write_channel(address, value) instead."
+#: The hint line the kernel prints before a refused client import's traceback.
+#: No posture lets a client into a kernel, so it names the runtime calls rather
+#: than the chip. Re-spelled for the same reason as the line above.
+HINT_RAW_CLIENT_IMPORT = (
+    "Client libraries are not available in a notebook. "
+    "Read and write through osprey.runtime.read_channel / write_channel instead."
 )
-#: The refusal text a raw client put carries, re-spelled for the same reason.
-RAW_CLIENT_WRITE_TEXT = (
-    f"raw client write refused: write to '{WRITE_TARGET}' bypassed the reference monitor."
-)
+#: The text every client refusal carries, re-spelled for the same reason.
+CLIENT_REFUSED_TEXT = "control-system client refused"
 
 #: The audit surface a cell's refusals file under, and the ledger it lands in.
 SURFACE = "notebook_kernel"
@@ -185,7 +185,7 @@ CELL_TIMEOUT_SEC = 240.0
 CONTROL_TARGET_TIMEOUT_SEC = 240.0
 SWITCH_TIMEOUT_SEC = 120.0
 
-_ENV_APPEND = "ANTHROPIC_API_KEY=fake-llm-key-value\nZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
+_ENV_APPEND = "ANTHROPIC_API_KEY=fake-llm-key-value\n"
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -229,7 +229,7 @@ def _run_osprey(
 
 
 def _web_container() -> str:
-    return f"{PROJECT_NAME}-web-{USER}"
+    return f"{PROJECT}-web-{USER}"
 
 
 def _logs(name: str) -> str:
@@ -326,16 +326,14 @@ def _profile_edits() -> dict[str, Any]:
     container they add is a minute of build. The preset's ``services:`` block
     holds the record archive, which runs the same project image as the
     dispatcher, so it goes with the dispatch stack: ``services: {}`` is the
-    spelling because a single service cannot be nulled. The roster and the persona
-    catalog are rewritten in :func:`_shape_repo` instead of stated here: they
-    are derived from the preset's own catalog, which only exists once the
-    repo is materialized.
+    spelling because a single service cannot be nulled. The roster and its tier
+    are rewritten in :func:`_shape_repo` instead of stated here: this lane's
+    tier is its own file in ``tiers/``, and ``osprey init`` materializes only
+    the tiers OSPREY ships, so the roster can name it only once the repo exists.
     """
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": "E2E Notebook Panel Fixture",
-            "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,
@@ -346,7 +344,6 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": PERSONA,
                 "auth": {"method": "token"},
             },
         },
@@ -360,35 +357,35 @@ def _profile_edits() -> dict[str, Any]:
 
 
 def _shape_repo(repo: Path) -> None:
-    """One roster user on one persona delta, after ``osprey init`` materialized the preset's.
+    """One roster user on this lane's own tier, after ``osprey init`` wrote the preset's.
 
-    ``osprey init`` renders one delta per preset persona and unions the roster
-    override onto the preset's own; the profile is rewritten here to the shape
-    this lane deploys. The delta keeps the write gate armed the way the preset's
-    read-write persona does, and declares no ``extends`` — a file in
-    ``personas/`` inherits from the profile beside it.
+    ``osprey init`` writes a file per tier the preset's roster names; the
+    profile is rewritten here to the shape this lane deploys, and those files
+    give way to the one tier it runs. That tier keeps the write gate armed the
+    way the preset's read-write tier does, and declares no ``extends`` — a
+    file in tiers/ inherits from the profile beside it.
     """
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     terminals = profile["config"]["modules.web_terminals"]
-    terminals["users"] = [{"name": USER, "index": 0, "persona": PERSONA}]
-    # The delta is the entry's only source: the build derives the persona's
-    # `project` / `project_path` from the profile's `project_name` and refuses
-    # a profile that spells either.
-    terminals["personas"] = {PERSONA: {"build_profile": f"personas/{PERSONA}.yml"}}
-    terminals["default_persona"] = PERSONA
+    terminals["users"] = [{"name": USER, "index": 0, "tier": RENDER}]
+    # The delta in tiers/ is the render's only source: the build derives the
+    # render's `project` / `project_path` from the profile's `project_name` and
+    # its file from the tier's name, so the profile spells no catalog.
+    terminals["default_tier"] = RENDER
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
-    personas = repo / "personas"
-    for delta in personas.glob("*.yml"):
+    renders = repo / TIERS_DIRNAME
+    renders.mkdir(exist_ok=True)
+    for delta in renders.glob("*.yml"):
         delta.unlink()
-    (personas / f"{PERSONA}.yml").write_text(
-        f"name: {PROJECT_NAME} ({PERSONA})\n"
-        "deploy_services: false\n"
+    # No attachment spellings: the build attaches every tier to its deployment
+    # and refuses a tier file that restates it.
+    (renders / f"{RENDER}.yml").write_text(
+        f"name: {PROJECT_NAME} ({RENDER})\n"
         "config:\n"
         "  control_system.writes_enabled: true\n"
-        "  web.ui_mode: expert\n"
-        "  modules.web_terminals.enabled: false\n",
+        "  web.ui_mode: expert\n",
         encoding="utf-8",
     )
 
@@ -455,12 +452,12 @@ def _compose_project() -> str | None:
 def _teardown(project: str | None) -> None:
     """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
     _runtime_cli("rm", "-f", _web_container())
-    _runtime_cli("rm", "-f", f"{PROJECT_NAME}-nginx")
+    _runtime_cli("rm", "-f", f"{PROJECT}-nginx")
     for project_name in {project, PROJECT_NAME} - {None}:
         _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        for tag in (PERSONA_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
+        for tag in (RENDER_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
             _runtime_cli("rmi", "-f", tag, timeout=120)
 
 
@@ -735,59 +732,46 @@ STAMPS_CELL = (
 )
 READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({CHANNEL!r})))\n"
 WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
-#: A client library's own put, straight past the runtime.
-RAW_CAPUT_CELL = f"import epics\nepics.caput({WRITE_TARGET!r}, 2.0)\n"
-#: How long a readback gets to follow its setpoint.
+#: The Channel Access client's import, straight past the runtime.
+CLIENT_IMPORT_CELL = "import aioca\n"
+#: A client shared library loaded through ``ctypes``. The path comes from the
+#: distribution's file list: resolving the package's spec would itself be a
+#: refused import.
+LIBCA_LOAD_CELL = (
+    "from importlib.metadata import distribution\n"
+    "from pathlib import Path\n"
+    "dist = distribution('epicscorelibs')\n"
+    "path = next(\n"
+    "    dist.locate_file(f) for f in dist.files if Path(str(f)).name.startswith('libca')\n"
+    ")\n"
+    "import ctypes\n"
+    "ctypes.CDLL(str(path))\n"
+)
+#: Which control-system client modules this kernel has loaded, as a sorted JSON list.
+NO_CLIENT_LOADED_CELL = (
+    "import json, sys\n"
+    "print(json.dumps(sorted(set(sys.modules) & "
+    "{'epics', 'p4p', 'aioca', 'epicscorelibs', 'caproto', 'pvaccess'})))\n"
+)
+#: How long a readback gets to follow its setpoint. The readback follows to
+#: within the motion its seed declares, never to the setpoint exactly.
 READBACK_SETTLE_SEC = 20.0
-#: A cell that prints the setpoint and, once it has followed or the wait runs
-#: out, its readback, as JSON.
-SETPOINT_CELL = (
-    "import json, time\n"
-    "from osprey.runtime import read_channel\n"
-    f"sp = read_channel({WRITE_TARGET!r})\n"
-    f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
-    f"rb = read_channel({WRITE_READBACK!r})\n"
-    "while abs(rb - sp) > 1e-6 and time.monotonic() < deadline:\n"
-    "    time.sleep(0.5)\n"
-    f"    rb = read_channel({WRITE_READBACK!r})\n"
-    "print(json.dumps({'sp': sp, 'rb': rb}))\n"
-)
-#: The real-libca door proof. A monitor callback runs on a thread libca
-#: started, which never carries the connector's write door; it tries a client
-#: put of its own and records whether the runtime write was in flight at that
-#: moment. The in-flight flag is a plain ``threading.Event`` for the same
-#: reason: a context variable set here would be invisible on that thread. The
-#: callback catches its own refusal, because pyepics swallows what a callback
-#: raises. The initial-value callback is allowed to land before the flag is set,
-#: so the flag marks only callbacks the in-flight write caused.
-DOOR_PROOF_CELL = (
-    "import json, threading, time\n"
-    "import epics\n"
-    "from osprey.runtime import write_channel\n"
-    "in_flight = threading.Event()\n"
-    "seen = []\n"
-    "def on_change(pvname=None, value=None, **kw):\n"
-    "    try:\n"
-    f"        epics.caput({WRITE_TARGET!r}, value)\n"
-    "        refused = None\n"
-    "    except Exception as exc:\n"
-    "        refused = getattr(exc, 'reason', None) or type(exc).__name__\n"
-    "    seen.append({'in_flight': in_flight.is_set(), 'value': value, 'refused': refused})\n"
-    f"pv = epics.PV({WRITE_TARGET!r}, callback=on_change, auto_monitor=True)\n"
-    "assert pv.wait_for_connection(timeout=30), 'the setpoint never connected'\n"
-    "deadline = time.monotonic() + 10\n"
-    "while not seen and time.monotonic() < deadline:\n"
-    "    time.sleep(0.1)\n"
-    "in_flight.set()\n"
-    "try:\n"
-    f"    write_channel({WRITE_TARGET!r}, 3.0, confirm=True)\n"
-    "finally:\n"
-    "    in_flight.clear()\n"
-    "time.sleep(1.0)\n"
-    "pv.clear_callbacks()\n"
-    "pv.disconnect()\n"
-    "print(json.dumps(seen))\n"
-)
+
+
+def _setpoint_cell(band: float) -> str:
+    """A cell that prints the setpoint and, once its readback is within ``band``
+    of it or the wait runs out, the readback, as JSON."""
+    return (
+        "import json, time\n"
+        "from osprey.runtime import read_channel\n"
+        f"sp = read_channel({WRITE_TARGET!r})\n"
+        f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
+        f"rb = read_channel({WRITE_READBACK!r})\n"
+        f"while abs(rb - sp) > {band!r} and time.monotonic() < deadline:\n"
+        "    time.sleep(0.5)\n"
+        f"    rb = read_channel({WRITE_READBACK!r})\n"
+        "print(json.dumps({'sp': sp, 'rb': rb}))\n"
+    )
 
 
 def _stamps(socket: Any, session_id: str) -> dict[str, str]:
@@ -913,37 +897,62 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 
 
 # ---------------------------------------------------------------------------
-# 3. Writes on: the runtime write lands, a raw client put does not
+# 3. Writes on: the runtime write lands, a client library does not load
 # ---------------------------------------------------------------------------
 
 
-def _setpoint(socket: Any, session_id: str) -> dict[str, float]:
-    return json.loads(_run_ok(socket, SETPOINT_CELL, session_id))
+def _setpoint(socket: Any, session_id: str, band: float) -> dict[str, float]:
+    return json.loads(_run_ok(socket, _setpoint_cell(band), session_id))
 
 
-def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Terminal) -> None:
-    """The write door is the connector's, and only the connector opens it.
+def _assert_held(reading: dict[str, float], value: float, band: float) -> None:
+    """The setpoint holds ``value`` exactly; its readback is within ``band`` of it."""
+    assert reading["sp"] == pytest.approx(value), reading
+    assert abs(reading["rb"] - value) <= band, (
+        f"{WRITE_READBACK} read {reading['rb']}, not within {band:g} (its seed's noise "
+        f"and drift) of {value}"
+    )
+
+
+def test_a_cell_cannot_load_a_client_library_while_a_runtime_write_lands(
+    terminal: Terminal,
+) -> None:
+    """A kernel's cells reach the machine through the runtime; a client library does not load.
 
     On a card with writes on, the runtime write is the positive control: it
     lands, so anything refused afterwards is refused for going around the
-    runtime and not for the card's posture. The raw put is refused with its own
-    reason, the line that names the runtime call, and one ``raw_client_write``
-    record, and the setpoint stays where the runtime put it.
-
-    The last scenario is the one only real libca can pose. The door opened by
-    an in-flight runtime write reaches the worker the connector hands the put
-    to, and nothing else: a monitor callback libca delivers on its own thread
-    during that write is outside it, so its client put is refused while the
-    write it was woken by is still going.
+    runtime and not for the card's posture. A client package's import and a
+    client library's ``ctypes`` load are each refused with the line that names
+    the runtime calls and one ``raw_client_import`` record naming what was
+    refused; the setpoint stays where the runtime put it, no client module is
+    left loaded, and a runtime write after the refusals still lands.
     """
     assert terminal.session_id and terminal.first_target
     # The baseline target is the only one whose limits make the setpoint writable.
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
+    band = repo_view(terminal.repo).motion_envelope(WRITE_READBACK)
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     kernel_id = session["kernel"]["id"]
     channel_session = uuid.uuid4().hex
+
+    def refused_once(code: str, records_before: int) -> dict[str, str]:
+        refused = _run_cell(socket, code, channel_session)
+        assert refused.error_name == "ClientLibraryRefusedError", refused
+        assert CLIENT_REFUSED_TEXT in refused.error_value, refused.error_value
+        assert "osprey.runtime" in refused.error_value, refused.error_value
+        assert HINT_RAW_CLIENT_IMPORT in refused.stdout, refused.stdout
+        new_records = terminal.ledger()[records_before:]
+        raw = [r for r in new_records if r.get("reason") == "raw_client_import"]
+        assert len(raw) == 1, new_records
+        record = raw[0]
+        assert record["surface"] == SURFACE
+        assert record["decision"] == "refused"
+        assert record["session"] == f"kernel:{kernel_id}"
+        assert record["subject"] == "notebook_cell"
+        return dict(token.split("=", 1) for token in record["detail"].split())
+
     try:
         with terminal.kernel_channels(kernel_id, channel_session) as socket:
             stamps = _stamps(socket, channel_session)
@@ -955,31 +964,24 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
                 f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 1.0)\n",
                 channel_session,
             )
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
-            records_before = len(terminal.ledger())
-            refused = _run_cell(socket, RAW_CAPUT_CELL, channel_session)
-            assert refused.error_name == "ChannelWriteBlockedError", refused
-            assert RAW_CLIENT_WRITE_TEXT in refused.error_value, refused.error_value
-            assert HINT_RAW_CLIENT_WRITE in refused.stdout, refused.stdout
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+            detail = refused_once(CLIENT_IMPORT_CELL, len(terminal.ledger()))
+            assert detail.get("package") == "aioca", detail
+            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
-            new_records = terminal.ledger()[records_before:]
-            raw = [r for r in new_records if r.get("reason") == "raw_client_write"]
-            assert len(raw) == 1, new_records
-            record = raw[0]
-            assert record["surface"] == SURFACE
-            assert record["decision"] == "refused"
-            assert record["session"] == f"kernel:{kernel_id}"
-            assert record["subject"] == "notebook_cell"
-            detail = dict(token.split("=", 1) for token in record["detail"].split())
-            assert detail["channel"] == WRITE_TARGET, record
+            detail = refused_once(LIBCA_LOAD_CELL, len(terminal.ledger()))
+            assert detail.get("library", "").startswith("libca"), detail
 
-            seen = json.loads(_run_ok(socket, DOOR_PROOF_CELL, channel_session))
-            during = [call for call in seen if call["in_flight"]]
-            assert any(call["refused"] == "RAW_CLIENT_WRITE" for call in during), seen
-            assert all(call["refused"] is not None for call in seen), seen
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 3.0, "rb": 3.0})
+            loaded = json.loads(_run_ok(socket, NO_CLIENT_LOADED_CELL, channel_session))
+            assert loaded == [], loaded
+
+            _run_ok(
+                socket,
+                f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 3.0)\n",
+                channel_session,
+            )
+            _assert_held(_setpoint(socket, channel_session, band), 3.0, band)
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
 
@@ -1117,7 +1119,7 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
     """
     assert terminal.agent_data_root and terminal.pty_pid
     settings = json.loads(
-        (terminal.repo / "build" / PERSONA_PROJECT / ".claude" / "settings.json").read_text(
+        (terminal.repo / "build" / RENDER_PROJECT / ".claude" / "settings.json").read_text(
             encoding="utf-8"
         )
     )

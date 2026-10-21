@@ -1,0 +1,347 @@
+{
+  "atjson": 1,
+  "elements": [
+    {
+      "FamName": "START",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    },
+    {
+      "FamName": "BPM01",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "HCM01",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "VCM01",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "QF01",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        1.2
+      ],
+      "K": 1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DF01",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "QD01",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -1.2
+      ],
+      "K": -1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DD01",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM02",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "HCM02",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "VCM02",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "QF02",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        1.2
+      ],
+      "K": 1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DF02",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "QD02",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -1.2
+      ],
+      "K": -1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DD02",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM03",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "HCM03",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "VCM03",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "QF03",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        1.2
+      ],
+      "K": 1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DF03",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "QD03",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -1.2
+      ],
+      "K": -1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DD03",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "BPM04",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Monitor"
+    },
+    {
+      "FamName": "HCM04",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "VCM04",
+      "Length": 0.0,
+      "PassMethod": "CorrectorPass",
+      "KickAngle": [
+        0.0,
+        0.0
+      ],
+      "Class": "Corrector"
+    },
+    {
+      "FamName": "QF04",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        1.2
+      ],
+      "K": 1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DF04",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "QD04",
+      "Length": 0.3,
+      "PassMethod": "StrMPoleSymplectic4Pass",
+      "MaxOrder": 1,
+      "NumIntSteps": 10,
+      "PolynomA": [
+        0.0,
+        0.0
+      ],
+      "PolynomB": [
+        0.0,
+        -1.2
+      ],
+      "K": -1.2,
+      "EApertures": [
+        0.02,
+        0.02
+      ],
+      "Class": "Quadrupole"
+    },
+    {
+      "FamName": "DD04",
+      "Length": 1.2,
+      "PassMethod": "DriftPass",
+      "Class": "Drift"
+    },
+    {
+      "FamName": "END",
+      "Length": 0.0,
+      "PassMethod": "IdentityPass",
+      "Class": "Marker"
+    }
+  ],
+  "properties": {
+    "name": "LINE",
+    "energy": 2000000000.0,
+    "particle": {
+      "name": "relativistic",
+      "rest_energy": 0.0,
+      "charge": -1.0
+    },
+    "periodicity": 1
+  }
+}

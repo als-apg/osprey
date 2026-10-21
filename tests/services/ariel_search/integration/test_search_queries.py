@@ -209,7 +209,7 @@ async def partial_repository(repository, seed_entry_factory, seeded_prefixes):
     Returns:
         The repository, with the seven entries upserted.
     """
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     day = localize_facility(datetime(2025, 10, 6, 15, 30))
     other_day = localize_facility(datetime(2025, 11, 3, 10, 0))

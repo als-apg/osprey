@@ -343,7 +343,7 @@ osprey-display-menu .display-menu-logout-icon {
    banner; the state it carries is what makes it worth looking at.
 
    Everything is keyed off four data attributes the chip module sets —
-   `data-target-kind` (live | standin | va | simulated), `data-state`
+   `data-target-kind` (live | standin | va), `data-state`
    (writes | sandbox | read-only), `data-enforceable`, `data-pending` — so no
    colour name and no state word lives in the JS.
 
@@ -418,7 +418,7 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* The machine's name — the kind's own word (Real machine, Rehearsal,
-   Simulator, Demo) or the deployment's configured display name. A configured
+   Simulator) or the deployment's configured display name. A configured
    name is free text, so the chip caps it with an ellipsis rather than letting
    one long name push the header's other actions off screen; the full name
    stays on the chip's title. */
@@ -429,13 +429,6 @@ osprey-display-menu .display-menu-logout-icon {
   font-weight: var(--weight-medium);
   letter-spacing: 0.04em;
   color: var(--text-primary);
-}
-
-/* A simulator is the unremarkable case: it drops to the secondary weight so
-   the eye skips it, exactly as the popover's own row label does. */
-.control-target-chip[data-target-kind="simulated"] .ctc-short {
-  color: var(--text-secondary);
-  font-weight: var(--weight-regular);
 }
 
 .ctc-sep {
@@ -751,9 +744,8 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* A simulator is the unremarkable case: it drops to the secondary weight so
-   the eye skips it, exactly as the chip's short label does. */
-.ctc-row[data-target-kind="va"] .ctc-name,
-.ctc-row[data-target-kind="simulated"] .ctc-name {
+   the eye skips it. */
+.ctc-row[data-target-kind="va"] .ctc-name {
   color: var(--text-secondary);
   font-weight: var(--weight-regular);
 }
@@ -766,7 +758,7 @@ osprey-display-menu .display-menu-logout-icon {
    machine, success on a simulator; off is the neutral resting position (a
    toggle's off must read as resting, not as a warning). Locked keeps the
    switch on screen, disabled, with the reason on hover. While the turn-on
-   confirm is up the knob parks mid-track behind a dashed ring
+   confirm is up the knob parks mid-track behind a dashed outline
    (`data-pending`): a switch implies "now", and nothing has been applied
    yet. */
 .ctc-switchwrap {
@@ -1143,7 +1135,7 @@ html[data-ui-mode="simple"] .session-selector {
 .panel-rail-icon[data-icon="ariel"]::before { content: "\25ce"; }     /* ◎ ariel */
 .panel-rail-icon[data-icon="channel-finder"]::before { content: "\2315"; } /* ⌕ channels */
 .panel-rail-icon[data-icon="lattice"]::before { content: "\2b21"; }   /* ⬡ lattice */
-.panel-rail-icon[data-icon="okf"]::before { content: "\1f56e"; }      /* 🕮 knowledge */
+.panel-rail-icon[data-icon="okf"]::before { content: "\b6"; }         /* ¶ knowledge */
 .panel-rail-icon[data-icon="jupyter"]::before { content: "\25a6"; }  /* ▦ notebook cells */
 .panel-rail-icon[data-icon="system-health"]::before { content: "\223f"; } /* ∿ health trace */
 
@@ -1198,6 +1190,14 @@ html[data-ui-mode="simple"] .session-selector {
 .panel-rail-button.dragging {
   opacity: 0.4;
 }
+
+/* Reordering along the rail: a line at the edge the dragged entry will land
+   against. Inset shadows rather than borders, so the marker never shifts the
+   entries it sits between. */
+.panel-rail-button.drop-before { box-shadow: inset 0 2px 0 var(--color-accent-light); }
+.panel-rail-button.drop-after { box-shadow: inset 0 -2px 0 var(--color-accent-light); }
+html[data-rail-position="top"] .panel-rail-button.drop-before { box-shadow: inset 2px 0 0 var(--color-accent-light); }
+html[data-rail-position="top"] .panel-rail-button.drop-after { box-shadow: inset -2px 0 0 var(--color-accent-light); }
 
 /* The design system's `.agent-attention` badge is pinned to the same top-right
    corner (highlight.css), so the two would sit on top of each other. The badge
@@ -1308,6 +1308,15 @@ html[data-ui-mode="simple"] .session-selector {
    to the class rule above, so a docs anchor hidden by rail-utility.js (no
    web.docs_url configured) would keep painting without this. */
 .panel-utility-btn[hidden] {
+  display: none;
+}
+
+/* An operator hid the control (its right-click "Hide", rail-more-menu.js). The
+   flag is the bar layout's, stamped on <html> by the server and kept live by
+   bar-host.js. Withdrawn by display alone and never removed: the status bar's
+   Feedback item and the feedback boot reach the button by id and click it. */
+html[data-rail-docs="hidden"] #panel-docs-link,
+html[data-rail-feedback="hidden"] #panel-feedback-btn {
   display: none;
 }
 

@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import os
 import queue
 import subprocess
 import sys
@@ -28,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.agent_runner.launcher import (
     agent_cli_path,
@@ -148,7 +148,10 @@ def plugin(tmp_path: Path, ping_script: Path) -> Path:
 def probe_env(tmp_path: Path) -> dict[str, str]:
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
+    # The probe runs the pinned build under the environment a headless run gets:
+    # the product's base child env, with only the isolation keys laid over it.
     return {
+        **build_base_child_env(),
         "HOME": str(home),
         "CLAUDE_CONFIG_DIR": str(home / ".claude"),
         "ANTHROPIC_API_KEY": "probe",
@@ -161,7 +164,6 @@ def probe_env(tmp_path: Path) -> dict[str, str]:
         "MCP_CONNECTION_NONBLOCKING": "0",
         "MCP_CONNECT_TIMEOUT_MS": str(_MCP_CONNECT_TIMEOUT_MS),
         "MCP_TIMEOUT": str(_MCP_CONNECT_TIMEOUT_MS),
-        "PATH": os.pathsep.join([str(Path(sys.executable).parent), "/usr/bin", "/bin"]),
     }
 
 

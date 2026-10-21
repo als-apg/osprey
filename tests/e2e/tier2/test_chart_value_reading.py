@@ -24,10 +24,12 @@ The world is a real deployment (``osprey up --dev``): the virtual accelerator,
 the MongoDB archiver with its recorder, ARIEL's Postgres and the qmd sidecar. A
 mock archive would synthesize last year on request; a store with retention
 answers honestly that it holds nothing there, which is what makes the picture the
-only record. The logbook bundle is removed from both simulation trees after
-seeding, so the plot's numbers are not one ``Read`` away in the agent's cwd; the
-recent bundle stays, being the live overlay, with the filesystem-search tools
-closed as in every scenario benchmark.
+only record. Both scenarios are facility scenario files, installed into the
+deployment's ``data/facility/scenarios/`` before the build. The logbook scenario
+is concealed after seeding (its file, its render copy, its simulator-view entry
+and attached files, its active-state line), so the plot's numbers are not one
+``Read`` away in the agent's cwd; the recent scenario stays, being the live
+overlay, with the filesystem-search tools closed as in every scenario benchmark.
 
 Grading has three layers. A deterministic floor over the trace: a channel-finder
 tool ran, ``archiver_read`` ran on the DCCT, ``attachment_view`` ran on the
@@ -200,12 +202,12 @@ def _profile_edits() -> dict[str, Any]:
     records a VA and idles on a mock. ``archiver.type`` selects the store that
     ``va_archiver:`` declares (declaring alone would leave the agent reading the
     mock beside a full store). ARIEL stays on, so ``deployed_services`` keeps
-    its Postgres and the qmd sidecar hybrid search answers from; OpenObserve goes
-    with telemetry, graphdb with the graph channel-finder paradigm (the
-    hierarchical database the preset also ships answers instead). The bluesky
-    stack, dispatch, the record archive and the web terminals are trimmed as the
-    archiver-world lane trims them. The archive is CI-sized: two days of
-    retention are a lifetime away from a 380-day-old entry.
+    its Postgres and the qmd sidecar hybrid search answers from; the telemetry
+    store and gateway go with telemetry, graphdb with the graph channel-finder
+    paradigm (the hierarchical database the preset also ships answers instead).
+    The bluesky stack, dispatch, the record archive and the web terminals are
+    trimmed as the archiver-world lane trims them. The archive is CI-sized: two
+    days of retention are a lifetime away from a 380-day-old entry.
     """
     return {
         "config": {
@@ -269,7 +271,7 @@ def _init_args(repo: Path) -> list[str]:
 
 
 def _build_project(output_dir: Path) -> Path:
-    """``osprey init`` + ``osprey build`` out of process; the bundles go in between.
+    """``osprey init`` + ``osprey build`` out of process; the scenarios go in between.
 
     Its own two verbs rather than the plan-stack builder, which pins a bluesky
     bridge this lane does not deploy.
@@ -279,9 +281,10 @@ def _build_project(output_dir: Path) -> Path:
     result = _run([str(osprey_bin), "init", *_init_args(repo)], output_dir, BUILD_TIMEOUT_SEC)
     assert result.returncode == 0, f"osprey init failed:\n{result.stdout}\n{result.stderr}"
 
-    # Between the two verbs: the build copies <repo>/data into the render, so a
-    # bundle written now exists in both trees, which is what concealment expects.
-    fixture.install_bundles(repo / "data" / "simulation" / "scenarios")
+    # Between the two verbs: the build reads <repo>/data/facility into the render
+    # and its simulator view, so a scenario written now exists in every tree
+    # concealment scrubs.
+    fixture.install_scenarios(repo / "data" / "facility" / "scenarios")
 
     build = [
         str(osprey_bin),
@@ -388,7 +391,7 @@ async def _seeded_attachment_id(config: dict[str, Any]) -> str:
 
 
 def _seed_world(repo: Path) -> str:
-    """Apply both scenarios, conceal the logbook bundle, return the picture id.
+    """Apply both scenarios, conceal the logbook scenario, return the picture id.
 
     The seeding path reads ``services.postgresql`` from the process config and
     the ARIEL password from the environment, exactly as ``osprey sim apply``
@@ -396,8 +399,8 @@ def _seed_world(repo: Path) -> str:
     seed. The Mongo password is read from the repo's ``.env`` by the rewrite
     itself.
     """
-    from osprey.utils.config import config_anchored_at, load_config
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.config import config_anchored_at, load_config
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(repo / ".env")
     patch = pytest.MonkeyPatch()
@@ -405,7 +408,7 @@ def _seed_world(repo: Path) -> str:
     try:
         config_path = render_dir(repo) / "config.yml"
         with config_anchored_at(config_path):
-            applied = activate_scenarios(repo, fixture.RECENT_BUNDLE, fixture.LOGBOOK_BUNDLE)
+            applied = activate_scenarios(repo, fixture.RECENT_SCENARIO, fixture.LOGBOOK_SCENARIO)
             assert applied.logbook_seeded >= 3, (
                 f"logbook seeding wrote {applied.logbook_seeded} entries"
             )
@@ -414,7 +417,7 @@ def _seed_world(repo: Path) -> str:
             assert fixture.DCCT_CHANNEL in archive.channels, (
                 f"the archive rewrite did not touch {fixture.DCCT_CHANNEL}: {archive}"
             )
-            conceal_scenario_ground_truth(repo, fixture.LOGBOOK_BUNDLE)
+            conceal_scenario_ground_truth(repo, fixture.LOGBOOK_SCENARIO)
             config = load_config(str(config_path))
             return asyncio.run(_seeded_attachment_id(config))
     finally:

@@ -160,8 +160,10 @@ async def test_feedback_hook_is_silent(feedback_project):
 
     # -- Assertions --
     assert_agent_ran(result)
-    if not [t for t in result.tool_traces if "channel-finder" in t.name]:
-        pytest.skip("the model never called the channel finder; the capture hook never fired")
+    assert [t for t in result.tool_traces if "channel-finder" in t.name], (
+        "the agent never called the channel finder, so the capture hook never fired "
+        f"and its silence was not tested. Tools called: {result.tool_names}"
+    )
 
     # Hook-internal keywords that should never appear in agent output
     hook_keywords = [

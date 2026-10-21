@@ -145,8 +145,8 @@ from osprey.deployment.compose_generator import (
     ensure_shared_corpus_dir,
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, container_image_context
+from tests._container_support import docker_cli_unavailable_reason_once
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
 #: a diagnostic: a Docker Desktop run remaps bind-mount ownership, so it can
@@ -164,7 +164,7 @@ LINUX_ONLY_REASON = (
 )
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 def _linux_enough() -> bool:
@@ -205,7 +205,7 @@ PROBE_SURFACE = "e2e_audit_mechanism"
 #: from the render because the entrypoint reads no config either: this module
 #: plays the render's role and hands the container the same two variables
 #: compose does.
-BUNDLE_RELPATH = "data/facility_knowledge"
+BUNDLE_RELPATH = "data/facility/knowledge"
 
 #: The gid floor the entrypoint enforces. Below this it refuses to join —
 #: deliberately, because a bind that looks system-owned inside the container is
@@ -284,7 +284,7 @@ out = {
 }
 
 from osprey.audit.writer import audit_dir, record
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 out["identity"] = acting_identity()
 out["audit_dir"] = str(audit_dir())

@@ -8,12 +8,18 @@ arrives as a file, mounted into the container and named by
 ``SettableSpec``/``ReadableSpec`` shapes that ``devices/connector.py`` builds
 from.
 
-The document has exactly two top-level keys, both optional::
+The document has two device keys, both optional, and an optional ``schema``
+line naming the document and its version::
 
+    schema: osprey.facility.bluesky_devices/1
     settables:
       - name: SR:C01:QF:1          # device name; also the event-data column key
         setpoint: SR:C01:QF:1:SP
         readback: SR:C01:QF:1:RB   # optional; omitted => reads the setpoint PV
+        settle_tolerance: 0.05     # optional; or {relative: 1.0e-4} of the demand
+      - name: SR:C01:QD:1
+        setpoint: SR:C01:QD:1:SP
+        motion_band: 0.011         # optional; the readback's simulated motion
     readables:
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
@@ -55,11 +61,33 @@ SETTABLES_KEY = "settables"
 READABLES_KEY = "readables"
 """Top-level key holding the read-only device entries."""
 
+SCHEMA_KEY = "schema"
+"""Top-level key naming the document and its version; the parser does not read it."""
+
 TOP_LEVEL_KEYS = (SETTABLES_KEY, READABLES_KEY)
+"""The device keys the document may carry."""
+
+ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 """The only keys the document may carry; anything else rejects the document."""
 
 _SETTABLE_REQUIRED = ("name", "setpoint")
 _SETTABLE_OPTIONAL = ("readback",)
+SETTLE_TOLERANCE_KEY = "settle_tolerance"
+"""Optional settable key: how far the readback may sit from the demand once settled.
+
+A number >= 0 in the channel's unit, or ``{relative: <number >= 0>}``, the bound
+as a fraction of the demand. A device with one settles within the larger of it
+and the profile's ``bluesky.settle_tolerance`` on every lane."""
+MOTION_BAND_KEY = "motion_band"
+"""Optional settable key: how far the readback's simulated motion carries it.
+
+A number >= 0 in the channel's unit, written for a device that declares no
+tolerance. Only a simulated lane settles within it; any other lane settles
+within the profile's floor."""
+RELATIVE_KEY = "relative"
+"""The one key of a relative ``settle_tolerance``."""
+_SETTABLE_NUMERIC_OPTIONAL = (MOTION_BAND_KEY,)
+_SETTABLE_TOLERANCE_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
 _READABLE_OPTIONAL: tuple[str, ...] = ()
 
@@ -74,6 +102,34 @@ def _clean(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip() or None
+
+
+def _tolerance(value: Any) -> float | None:
+    """Return ``value`` as a float >= 0, or ``None`` if it is not one.
+
+    A bool is refused although Python counts it as an int: ``true`` in a
+    device file is a typo, never a tolerance of 1. NaN compares false and is
+    refused with the negatives.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if number >= 0 else None
+
+
+def _settle(value: Any) -> tuple[float | None, float | None] | None:
+    """Return a ``settle_tolerance`` as ``(absolute, relative)``, or ``None`` if malformed.
+
+    A number >= 0 is absolute; a mapping holding exactly ``relative``, a number
+    >= 0, is relative. Anything else is malformed.
+    """
+    if isinstance(value, dict):
+        if set(value) != {RELATIVE_KEY}:
+            return None
+        relative = _tolerance(value[RELATIVE_KEY])
+        return None if relative is None else (None, relative)
+    absolute = _tolerance(value)
+    return None if absolute is None else (absolute, None)
 
 
 def _load_document(path: Path) -> Any:
@@ -116,6 +172,10 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     optional: absent or explicitly null means the device reads its setpoint PV;
     present but not a non-empty string is a malformed entry, because silently
     reading the setpoint would hide a typo'd readback address.
+    ``settle_tolerance`` and ``motion_band`` are optional too: absent or null
+    leaves the device without that bound; a ``settle_tolerance`` that is not a
+    number >= 0 or ``{relative: <number >= 0>}``, or a ``motion_band`` that is
+    not a number >= 0, is a malformed entry.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -145,7 +205,40 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 )
                 continue
 
-        specs.append(SettableSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv))
+        settle: tuple[float | None, float | None] | None = (None, None)
+        if entry.get(SETTLE_TOLERANCE_KEY) is not None:
+            settle = _settle(entry[SETTLE_TOLERANCE_KEY])
+        if settle is None:
+            logger.warning(
+                "skipping %s (%r): %r is present but not a number >= 0 or {relative: <number>}",
+                where,
+                name,
+                SETTLE_TOLERANCE_KEY,
+            )
+            continue
+
+        band: float | None = None
+        if entry.get(MOTION_BAND_KEY) is not None:
+            band = _tolerance(entry[MOTION_BAND_KEY])
+            if band is None:
+                logger.warning(
+                    "skipping %s (%r): %r is present but not a number >= 0",
+                    where,
+                    name,
+                    MOTION_BAND_KEY,
+                )
+                continue
+
+        specs.append(
+            SettableSpec(
+                name=name,
+                setpoint_pv=setpoint_pv,
+                readback_pv=readback_pv,
+                settle_tolerance=settle[0],
+                settle_relative=settle[1],
+                motion_band=band,
+            )
+        )
     return specs
 
 
@@ -230,13 +323,13 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
         )
         return [], []
 
-    unknown = [key for key in doc if key not in TOP_LEVEL_KEYS]
+    unknown = [key for key in doc if key not in ACCEPTED_KEYS]
     if unknown:
         logger.warning(
             "device file %s has unknown top-level key(s) %r (expected only %r); no devices built",
             path,
             unknown,
-            list(TOP_LEVEL_KEYS),
+            list(ACCEPTED_KEYS),
         )
         return [], []
 
@@ -246,15 +339,25 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
 
 
 def _validate_section(
-    section: Any, key: str, required: tuple[str, ...], optional: tuple[str, ...]
+    section: Any,
+    key: str,
+    required: tuple[str, ...],
+    optional: tuple[str, ...],
+    numeric: tuple[str, ...] = (),
+    tolerances: tuple[str, ...] = (),
 ) -> list[str]:
-    """Return the problems in one device section (empty list ⇒ none)."""
+    """Return the problems in one device section (empty list ⇒ none).
+
+    ``optional`` keys are strings when present; ``numeric`` keys are numbers
+    >= 0 when present; ``tolerances`` keys are numbers >= 0 or ``{relative:
+    <number >= 0>}`` when present.
+    """
     if section is None:
         return []
     if not isinstance(section, list):
         return [f"{key!r} must be a list of device entries, got {type(section).__name__}"]
 
-    known = set(required) | set(optional)
+    known = set(required) | set(optional) | set(numeric) | set(tolerances)
     problems: list[str] = []
     for index, entry in enumerate(section):
         where = f"{key}[{index}]"
@@ -267,6 +370,15 @@ def _validate_section(
         for field in optional:
             if entry.get(field) is not None and _clean(entry[field]) is None:
                 problems.append(f"{where}: {field!r} must be a non-empty string when present")
+        for field in numeric:
+            if entry.get(field) is not None and _tolerance(entry[field]) is None:
+                problems.append(f"{where}: {field!r} must be a number >= 0 when present")
+        for field in tolerances:
+            if entry.get(field) is not None and _settle(entry[field]) is None:
+                problems.append(
+                    f"{where}: {field!r} must be a number >= 0 or {{relative: <number >= 0>}} "
+                    "when present"
+                )
         unknown = [name for name in entry if name not in known]
         if unknown:
             problems.append(f"{where}: unknown key(s) {unknown!r}; expected only {sorted(known)!r}")
@@ -324,13 +436,18 @@ def validate_device_document(doc: Any) -> list[str]:
         ]
 
     problems: list[str] = []
-    unknown = [key for key in doc if key not in TOP_LEVEL_KEYS]
+    unknown = [key for key in doc if key not in ACCEPTED_KEYS]
     if unknown:
         problems.append(
-            f"unknown top-level key(s) {unknown!r}; expected only {list(TOP_LEVEL_KEYS)!r}"
+            f"unknown top-level key(s) {unknown!r}; expected only {list(ACCEPTED_KEYS)!r}"
         )
     problems += _validate_section(
-        doc.get(SETTABLES_KEY), SETTABLES_KEY, _SETTABLE_REQUIRED, _SETTABLE_OPTIONAL
+        doc.get(SETTABLES_KEY),
+        SETTABLES_KEY,
+        _SETTABLE_REQUIRED,
+        _SETTABLE_OPTIONAL,
+        _SETTABLE_NUMERIC_OPTIONAL,
+        _SETTABLE_TOLERANCE_OPTIONAL,
     )
     problems += _validate_section(
         doc.get(READABLES_KEY), READABLES_KEY, _READABLE_REQUIRED, _READABLE_OPTIONAL

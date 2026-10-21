@@ -91,8 +91,8 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
@@ -130,7 +130,8 @@ TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
-OPENOBSERVE_PORT = 25980
+TELEMETRY_GATEWAY_PORT = 25218
+TELEMETRY_STORE_PORT = 29023
 QMD_PORT = 28180
 MONGODB_PORT = 47917
 
@@ -321,22 +322,18 @@ def _served(port: int) -> bool:
     cannot be a client of both (the reason the directory conftest's own
     readiness probe is a subprocess).
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
-    nothing: a probe that will not die is read here as a container that is
-    not serving, and the word is written and flushed before the exit.
+    It leaves through ``os._exit`` for that file's other reason: aioca's exit
+    hook destroys the CA context, and that blocks for as long as a name-server
+    circuit is still retrying a port nothing serves yet -- the very case a
+    readiness probe polls through. The word is written and flushed before the
+    exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=1.0, "
-        "connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     env = {
         **os.environ,
@@ -367,7 +364,7 @@ def live_endpoint():
         pytest.skip("VA e2e disabled")
     inspected = _docker("image", "inspect", e2e_conftest.IMAGE, timeout=60)
     if inspected.returncode != 0:
-        pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host")
+        pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host. {e2e_conftest.IMAGE_REMEDY}")
 
     port = _free_port()
     name = f"{LIVE_ENDPOINT_PREFIX}-{port}"
@@ -444,7 +441,8 @@ def _profile_edits() -> dict[str, Any]:
             "claude_code.servers.bluesky.enabled": True,
             "modules.web_terminals.enabled": False,
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,
@@ -754,8 +752,10 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
 
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so nothing here hardcodes a facility channel
-    or asks for a value outside the band the deployment declares. Each call
-    shifts that band by a sub-percent, band-relative nudge (see
+    or asks for a value outside the band the deployment declares. The axis is
+    therefore the first settable whose setpoint ``limits.yaml`` bounds as
+    writable: a settable with no limits record has no band to sweep inside of.
+    Each call shifts that band by a sub-percent, band-relative nudge (see
     :data:`_STAGING`) -- enough to make the draft new, far too little to change
     what any test asserts about it, and bounded so the sweep never leaves the
     middle of the declared band however many times this is called.
@@ -764,9 +764,19 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
     bpms = stack.bpms[lane]
     assert correctors, f"the build staged no settable devices for lane {lane!r}"
     assert bpms, f"the build staged no readable devices for lane {lane!r}"
-    axis_name = next(iter(correctors))
-    setpoint_address, _readback = correctors[axis_name]
-    entry = stack.limits[setpoint_address]
+    bounded = [
+        (name, stack.limits[setpoint])
+        for name, (setpoint, _readback) in correctors.items()
+        if isinstance(stack.limits.get(setpoint), dict)
+        and stack.limits[setpoint].get("writable") is True
+        and "min_value" in stack.limits[setpoint]
+        and "max_value" in stack.limits[setpoint]
+    ]
+    assert bounded, (
+        f"no settable device on lane {lane!r} has a writable, bounded limits record, "
+        f"so there is no declared band to sweep"
+    )
+    axis_name, entry = bounded[0]
     low, high = float(entry["min_value"]), float(entry["max_value"])
     span = high - low
     nudge = (next(_STAGING) % 10) * 0.005 * span

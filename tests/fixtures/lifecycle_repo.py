@@ -11,7 +11,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     als-exemplar/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  personas/  web-terminal-context/
+    ├── data/  tiers/  apps/  web-terminal-context/
     ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with_ci=True only)
     │  ═ SECRETS — ignored, durable ══════════════════
@@ -46,13 +46,23 @@ the full artifact lists, the Bluesky/virtual-accelerator stack, every
 ``config:`` key. The exemplar exists to pin the *form* ``init`` emits; the
 content belongs to the preset, and a byte-for-byte gate is only satisfiable
 that way. What the redesign does change: the four-zone header, comments moved
-onto the new verb surface, the persona catalog pointed at ``build/`` and at
-``personas/*.yml``, and the deploy block above.
+onto the new verb surface, the roster spelled as people with a ``tier`` plus the
+``shared`` app cards, and the deploy block above.
+
+``tiers/`` and ``apps/`` hold explicit materializations of the bundled tier and
+app presets: the bundled file's comments and keys, a header in place of its
+own, and a ``provenance:`` block naming the bundled source by stem and its
+content hash. A tier keeps the deployment's name in its ``name:``; an app keeps
+the bundled ``name:``, which is its card title. Neither carries ``extends:`` or
+``exclude:``, and neither spells an attachment fact (``deploy_services``,
+``services``, ``modules.web_terminals.enabled``): those follow from the
+folder.
 
 Three values cannot be frozen into the text: the installed OSPREY version, the
 bundled presets' content hashes, and the provider catalog's content hash, all of
 which the real emission stamps into the provenance header. They are written as
 ``@OSPREY_VERSION@``, ``@PRESET_HASH:<preset>@`` and ``@PROVIDERS_HASH@``
+(a tier or app hash as ``@PRESET_HASH:tiers/<name>@``, ``@PRESET_HASH:apps/<name>@``)
 sentinels and expanded at materialization, so a byte-comparison against a live
 ``osprey init`` stays meaningful as the repo moves. Sentinels rather than
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
@@ -91,17 +101,35 @@ import pytest
 #: name a test should expect.
 EXEMPLAR_DIRNAME = "als-exemplar"
 
-#: The preset the exemplar was materialized from, and the persona presets whose
-#: deltas sit in ``personas/`` — the operator tiers plus the two standalone
-#: terminals the stack runs beside them, logbook research and facility knowledge.
+#: The preset the exemplar was materialized from.
 EXEMPLAR_PRESET = "control-assistant"
-PERSONA_PRESETS: Mapping[str, str] = {
-    "admin": "control-assistant-admin",
-    "knowledge": "control-assistant-knowledge",
-    "logbook": "control-assistant-logbook",
-    "readonly": "control-assistant-readonly",
-    "readwrite": "control-assistant-readwrite",
+
+#: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
+#: source under ``presets/tiers/``. Location is the type: a file is a tier
+#: because it sits in ``tiers/``, and its provenance names the source by stem.
+TIER_PRESETS: Mapping[str, str] = {
+    "admin": "admin",
+    "readonly": "readonly",
+    "readwrite": "readwrite",
 }
+
+#: The retired name of :data:`TIER_PRESETS`, kept only so a test module that
+#: still imports it collects. No new code reads it.
+RENDER_PRESETS = TIER_PRESETS
+
+#: The bundled apps materialized into ``apps/``, as file stem -> bundled source
+#: under ``presets/apps/``. Each is a shared card everyone on the roster opens,
+#: listed in the profile's ``modules.web_terminals.shared``.
+APP_PRESETS: Mapping[str, str] = {
+    "channel-finder": "channel-finder",
+    "knowledge": "knowledge",
+    "logbook": "logbook",
+}
+
+#: ``modules.web_terminals.shared`` as the exemplar writes it. The order is
+#: the landing page's, and it fixes each app's derived port slot:
+#: ``INDEX_MAX - position``, so the first app sits on the top slot.
+SHARED_APPS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
 
 #: Durable state zone, created empty. A build recreates these when absent
 #: (FR-2), so a fresh clone and a reset repo look identical here.
@@ -132,7 +160,7 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-#   SOURCE   yours to edit, kept in git: this file, data/, personas/
+#   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
@@ -144,7 +172,7 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   preset content hash: @PRESET_HASH:control-assistant@
 
 name: Als Exemplar
-# Names the compose project, volumes, images, persona renders; not the folder.
+# Names the compose project, volumes, images, tier and app renders; not the folder.
 project_name: als-exemplar
 
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
@@ -164,8 +192,9 @@ provider: anthropic
 # knowledge graph this deployment runs (`services.graphdb`), the same store
 # the facility-knowledge-graph agent reads, so channels, devices and their
 # addresses have one source. `osprey set channel_finder_mode=...` also
-# accepts hierarchical, in_context or middle_layer, each reading a channel
-# database file from data/ instead; every persona inherits the mode.
+# accepts hierarchical, in_context or middle_layer, each reading the
+# channel-finder view the build writes under data/channel_finder/ instead;
+# every tier inherits the mode, and each app sets its own.
 channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -173,9 +202,6 @@ channel_finder_mode: graph
 # need; add your own through an overlay.
 
 hooks:
-  - hook-log          # Append every tool call to a structured JSONL audit log
-  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
-  - hook-config       # Inject project config.yml path into every tool call env
   - approval          # Gate hardware-write tool calls on human approval prompt
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
@@ -205,7 +231,7 @@ rules:
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
   # setup-mode is left out on purpose: it can edit config.yml and .mcp.json,
-  # which is admin work. The `control-assistant-admin` persona adds it back,
+  # which is admin work. The `admin` tier in tiers/ adds it back,
   # which is where an admin-facing profile of your own should start too.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
@@ -213,6 +239,7 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
 
@@ -240,13 +267,12 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
+  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
-  # The events and bluesky panels are declared by the write-armed personas
+  # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
-  # Available — uncomment to enable:
-  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -269,12 +295,12 @@ virtual_accelerator:
   # set). Like `port`, it is outside this deployment's port block, so a second
   # deployment on this host that also runs the simulator sets its own.
   # pva_port: 5075
-  # A second copy of the simulator with a small fixed offset on its readouts,
-  # stood up as this deployment's own third control target: `standin`. From
+  # A second copy of the simulator, with no errors of its own, stood up as
+  # this deployment's own third control target: `standin`. From
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
-  # meets there is a real machine's behaviour — approval prompts, strict-limit
+  # meets there is a real machine's behaviour — approval prompts, limit
   # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
   # move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
@@ -285,8 +311,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in, and its seeded history carries
-  # the same offsets: the archive belongs to the machine.
+  # one lane. The archiver records the stand-in: the archive belongs to the
+  # machine.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -334,15 +360,6 @@ va_archiver:
 # `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means
@@ -356,14 +373,15 @@ config:
   # simulator, and this deployment's baseline: it is the one machine here where
   # a write is harmless, while "live_standin", the stand-in declared above, is
   # a target the operator switches to on purpose. "epics" is your own control
-  # system, "mock" needs no containers but cannot complete a plan. "doocs" and
-  # "tango" reach those control systems in place of Channel Access. Those five
-  # are every type `osprey init` will materialize; `osprey config --defaults`
-  # lists them too.
+  # system. "doocs" and "tango" reach those control systems in place of
+  # Channel Access. Those four are every type `osprey init` will materialize;
+  # `osprey config --defaults` lists them too.
+  # `control_system.connector.virtual_accelerator.serving: in_process` runs the
+  # same simulator without containers, but cannot complete a plan.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
-  # `gateways` and `probe_channel` first — then the switch probes that target,
-  # requires the strict limits pair below, then your own
+  # `gateways` and `probe_channel` first — then the switch probes that target
+  # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because
@@ -376,7 +394,7 @@ config:
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
   # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # simulator, which cannot move a magnet; the read-only tier pins it off.
   # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
@@ -389,30 +407,14 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # Every write checked against data/channel_limits.json, and a channel that
-  # file does not list refused rather than waved through. Both hardware-shaped
-  # targets — `standin` and `live` — require this pair before a session may
-  # switch onto them, so a rehearsal runs the posture the real machine gets.
+  # Limits are optional. `enabled: false` = no limits at all. `mode:
+  # exclusive` = only channels in the limits file can be written. `mode:
+  # optional` = channels in the file are held to their limits, every other
+  # channel is written with no limits. A
+  # `control_system.connector.<type>.limits_checking` block stating both
+  # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
-  control_system.limits_checking.allow_unlisted_channels: false
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and the machine a session starts
-  # on, so this block is the posture a session opens under. It states the
-  # exception as a whole block: a per-type posture REPLACES the pair above for
-  # that connector type rather than merging with it, so both leaves are written
-  # out here.
-  # Writes to the simulator are still checked against the same file; what
-  # changes is that a channel the file does not list is allowed through
-  # instead of refused, because on a scratch machine an unlisted channel is a
-  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
-  # block of its own: it is hardware-shaped, so it keeps the strict pair the
-  # real machine gets, and a permissive block here would make
-  # `control_target_set standin` refuse the very switch this preset exists to
-  # rehearse.
-  control_system.connector.virtual_accelerator.limits_checking.enabled: true
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;
@@ -432,30 +434,22 @@ config:
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
   #
-  # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
-  control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
   #
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Same machine model as the mock connector, so `osprey sim apply` stays
-  # consistent whichever connector is active.
-  control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
-  # Fractional noise on the synthesised readings. Unset falls through to
-  # `control_system.connector.mock.noise_level`, and then to the simulator's
-  # own 0.01; `0` serves the channels flat, which is what a comparison of two
-  # reads wants. It reaches the container as VA_NOISE_LEVEL.
-  # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-readwrite` and `control-assistant-admin` personas write
-  # this key.
+  # `readwrite` and `admin` tiers in tiers/ write this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
+  # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
+  # control_system.connector.virtual_accelerator.serving: served
+  # Milliseconds each read and write takes when the simulator is served in process; unread when served.
+  # control_system.connector.virtual_accelerator.response_delay_ms: 10
   # Channel the target switch reads to prove this target is reachable before
-  # making it active. Served by the simulation machine model.
+  # making it active. The simulator serves it from the built facility.
   control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
@@ -482,9 +476,6 @@ config:
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
-  # Limits posture for the live machine alone, both leaves required.
-  # control_system.connector.epics.limits_checking.enabled: true
-  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -509,15 +500,12 @@ config:
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
   # is the point of this block rather than an omission — what is left is how
-  # long a call is given and the four leaves every connector type answers.
+  # long a call is given and the two leaves every connector type answers.
   # Seconds an ENS lookup, a property read or a property set is given.
   # control_system.connector.doocs.timeout_s: 5.0
   # Write posture for the DOOCS machine. Same tri-state as the epics leaf
   # above: stating it pins it, and only a literal true arms writes.
   # control_system.connector.doocs.writes_enabled: false
-  # Limits posture for the DOOCS machine alone, both leaves required.
-  # control_system.connector.doocs.limits_checking.enabled: true
-  # control_system.connector.doocs.limits_checking.allow_unlisted_channels: false
   # Property the target switch reads to prove this machine is reachable.
   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
   # TANGO connector: one coordinate of its own, the device database, spelled
@@ -529,10 +517,8 @@ config:
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout_s: 5.0
-  # The same four leaves as every other connector type, for the TANGO machine.
+  # The same two leaves as every other connector type, for the TANGO machine.
   # control_system.connector.tango.writes_enabled: false
-  # control_system.connector.tango.limits_checking.enabled: true
-  # control_system.connector.tango.limits_checking.allow_unlisted_channels: false
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
@@ -561,11 +547,10 @@ config:
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
   archiver.auto_bin_points: 10000
-  # Mock archiver: synthesizes history from the same simulation machine model
-  # as the control-system connector, derived from
-  # `control_system.connector.<type>.simulation_file`. Set only to override.
+  # Mock archiver: replays history from the build's simulator view, the same
+  # view the simulator serves; it takes no file setting.
   # archiver.type: mock_archiver
-  # archiver.settings.simulation_file: data/simulation/machine.json
+  # archiver.settings.sample_rate_hz: 1.0
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.
@@ -658,15 +643,6 @@ config:
   # channel_finder.web.host: 127.0.0.1
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
-  # Descriptive names for channels that belong to no device family, generated
-  # offline by `osprey channel-finder build-database --use-llm`. That flag
-  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # model id the provider serves; omitted, the deployment's main model.
-  # Build-time only.
-  # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
-  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
-  # channel_finder.channel_name_generation.llm_batch_size: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -729,6 +705,9 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
+  # agent searches the logbook. true adds the Search view there and opens on it.
+  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -764,9 +743,10 @@ config:
   # 503, MCP server refuses to start). Check edits with
   # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
   ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most storage-ring facilities share
-  # (a linac or FEL should delete the orbit-and-ring group). A starting point,
-  # not your vocabulary: edit it. Relative to the project root.
+  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
+  # share (a linac or FEL should delete the group the file's header marks for
+  # it). A starting point, not your vocabulary: edit it. Relative to the
+  # project root.
   ariel.vocabulary.path: data/ariel/vocabulary.yml
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
@@ -911,7 +891,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility_knowledge
+  facility_knowledge.bundle_path: data/facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -923,7 +903,7 @@ config:
   # ── Tier floor ─────────────────────────────────────────────────────────────
   # The privileges every tier built from this preset starts WITHOUT. Each key
   # here is off at the bottom and lifted back on by exactly the tier that is
-  # meant to have it, so a new persona inherits the restricted posture by
+  # meant to have it, so a new tier inherits the restricted posture by
   # default and a privilege is something a profile has to ask for by name.
   #
   # The agent's own deployment-editing tool. It rewrites this repo's profile
@@ -958,21 +938,22 @@ config:
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the OpenObserve store this
-  # deployment runs (`services.openobserve.*` below). On by default: the
+  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
+  # deployment runs, which stamps each record with its sender and writes it to
+  # the telemetry store (`services.telemetry_store.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
   claude_code.telemetry.enabled: true
-  # openobserve | generic
-  claude_code.telemetry.backend: openobserve
-  # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
-  # and is refused against the auto-derived openobserve endpoint (HTTP only).
+  # gateway | generic
+  claude_code.telemetry.backend: gateway
+  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
+  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
   claude_code.telemetry.protocol: http/protobuf
   # Signals to export, all three unless listed. Drop traces for a collector
   # that takes no traces; built-in tool output rides traces and goes with them.
   # claude_code.telemetry.signals: [metrics, logs]
-  # No endpoint key: with backend openobserve it is derived per network
-  # context (the host's OpenObserve slot, or the store's own listen port
+  # No endpoint key: with backend gateway it is derived per network
+  # context (the gateway's published port on the host, or its own listen port
   # inside the deploy network), so the in-container dispatch worker does not
   # emit to its own loopback.
   # For a collector this deployment does not run, name it and the variable
@@ -980,17 +961,11 @@ config:
   # claude_code.telemetry.backend: generic
   # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
   # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-  # The store's INGEST account: `osprey up` creates a service account named by
-  # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
-  # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
-  # would be a published credential.
-  claude_code.telemetry.openobserve.user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
-  claude_code.telemetry.openobserve.password: ${ZO_INGEST_SA_TOKEN}
-  # OpenObserve organisation the records land in.
-  claude_code.telemetry.openobserve.org: default
-  # Content gates, all on. The store captures full transcripts behind the
-  # ZO_ROOT_USER_PASSWORD `osprey up` writes into .env; anyone with that
-  # password and a route to the host can read everything. Set any gate to
+  # No credential key either: every sender logs in to the gateway with a
+  # login `osprey build` mints into a file of its own, outside the .env chain.
+  # Content gates, all on. The store captures full transcripts; a named
+  # reader, and anyone holding the store's admin credential on this host, can
+  # read everything. Set any gate to
   # false to keep that category out of the emitted telemetry.
   claude_code.telemetry.log_user_prompts: true
   claude_code.telemetry.log_assistant_responses: true
@@ -1026,14 +1001,19 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # OpenObserve, the local telemetry store the agent emits to (see
-  # `claude_code.telemetry.*` above). `osprey up` mints a strong
-  # ZO_ROOT_USER_PASSWORD into .env. Compose directory, under build/.
-  services.openobserve.path: ./services/openobserve
-  # Growth bound: drop telemetry older than N days (min 3). A named volume has
-  # no size cap, so age is the size knob; `osprey health` warns as the backing
-  # disk fills.
-  services.openobserve.retention_days: 14
+  # The telemetry store and the gateway the agent emits to (see
+  # `claude_code.telemetry.*` above). Compose directories, under build/.
+  services.telemetry_store.path: ./services/telemetry_store
+  services.telemetry_gateway.path: ./services/telemetry_gateway
+  # Growth bound: the store drops rows older than N days. A named volume has
+  # no size cap, so age is the size knob.
+  services.telemetry_store.retention_days: 14
+  # Who may query the store with SQL: the deployment admin on the roster below.
+  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
+  # (0600) and prints the file and the query page, never the key. Delete the
+  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
+  services.telemetry_store.readers:
+    - name: carol
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -1053,8 +1033,8 @@ config:
   # exists and is non-empty, so until then it is legitimately unhealthy. Scale
   # it with the corpus: too short reports a working container as failed.
   # services.qmd.first_index_grace: 3600
-  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
-  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # Neo4j graph store holding a DISPOSABLE mirror of the build's graph view.
+  # The facility file stays the source of truth and `osprey build && osprey up`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
   # semantic search cannot, and it is what the channel finder reads when
   # `channel_finder_mode:` selects the graph paradigm.
@@ -1065,20 +1045,6 @@ config:
   # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
-  # Corpus to seed the store from, relative to the build directory. This is
-  # the demo machine: the same devices and channels the channel database in
-  # data/ describes, rebuilt as a graph, so graph answers and channel search
-  # agree. Regenerate it after editing the channel database with
-  # `osprey knowledge build-ttl data/demo_machine.ttl`. Point it at your own
-  # TTL, or remove the key to bring the store up bootstrapped but empty.
-  services.graphdb.ttl_path: ./data/demo_machine.ttl
-  # Search index derived from the corpus above at build time, and the default —
-  # uncomment only to move it. The channel explorer's search, the channel roster
-  # and the agent's keyword tool read this file rather than querying the store,
-  # so it answers in milliseconds at any corpus size. Resolved against the
-  # render like `ttl_path`; rebuild it by hand after regenerating the TTL with
-  # `osprey knowledge build-index`.
-  # services.graphdb.index_path: ./data/channel_databases/graph.duckdb
   # JVM memory. Neo4j sizes nothing automatically inside a container, so all
   # three are spelled out. Budget roughly heap_max_size + pagecache_size +
   # ~0.5G overhead; a substantially larger graph wants more.
@@ -1103,7 +1069,8 @@ config:
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
     - postgresql
-    - openobserve
+    - telemetry_store
+    - telemetry_gateway
     - qmd
     - graphdb
   # Host interface the services publish on. 127.0.0.1 keeps every port
@@ -1144,8 +1111,8 @@ config:
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
   # osprey:panel-port lattice_dashboard
-  # The LATTICE tab never auto-launches here: it needs this section and
-  # `lattice` in `web_panels:` above.
+  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
+  # binds its slot. Uncomment only to move it or switch it off.
   # lattice_dashboard.host: 127.0.0.1
   # lattice_dashboard.port: <a port outside this deployment's block>
   # lattice_dashboard.auto_launch: true
@@ -1179,11 +1146,11 @@ config:
   # invites until a browser dismisses it or finishes the tour; `always` invites
   # on every load and offers no permanent dismissal, which is what a shared
   # read-only screen wants; `never` offers nothing and leaves the tour on the
-  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # rail's More menu and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
-  # a persona that reaches no machine.
+  # an app that reaches no machine.
   # web.control_target_picker: true
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site. Commented
@@ -1240,6 +1207,10 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
+  # The SYSTEM tab is served but starts off the rail: the status bar's health
+  # dot opens it, and so does ⋯ More on the rail, which can also pin it there.
+  # Delete this line to give it a rail entry from the first load.
+  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1270,11 +1241,6 @@ config:
   # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
-  # Short facility token; use your facility's initials. It keys the facility
-  # graph's identifiers and names `/app/<prefix>-assistant`, the in-container
-  # directory of a terminal with no persona render of its own. Container names
-  # come from the top-level `project_name:` instead.
-  facility.prefix: ca
   # The hostname people open in a browser. 127.0.0.1 is your own machine; set
   # your real hostname to reach it from anywhere else.
   deploy.fqdn: 127.0.0.1
@@ -1301,7 +1267,7 @@ config:
     # To override one port rather than move the block, name it here:
     #   nginx_port: 18000         # the landing page everyone opens first
     #   web_base_port: 18100      # first per-user web-terminal port
-    default_persona: readonly   # used for any user below with no persona
+    default_tier: readonly   # used for any user below with no tier
     # Every terminal below asks for a login (user alice: password alice, and
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
     auth:
@@ -1337,10 +1303,10 @@ config:
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
     #   authorization:
-    #     roles: {operator: {persona: readwrite}, viewer: {persona: readonly}}
+    #     roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}
     #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
-    # How the landing page is laid out. Omit this whole block and you get one
-    # section holding every entry below, headed "Terminals".
+    # How the landing page is laid out. Omit this whole block and you get the
+    # people below first and the shared apps after them, headed "Apps".
     landing:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
@@ -1354,75 +1320,46 @@ config:
       # The line under everything. Set to "" for no footer.
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
-        # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `logbook` and `knowledge` below) moves into a
-        # section of its own, drawn as an accent-edged panel underneath it.
-        # So the page reads people first, services after.
+        # `users` renders the people on the roster below, one card each.
         - type: users
           label: Users
           # `names: hidden` swaps the name cards in this section for one "Log in
           # to your terminal" button, so the page lists nobody. It needs the
           # login wall above (auth.method password or oidc).
           # names: shown
+        # `apps` renders one card per entry in `shared:` below, titled by the
+        # app's own `name:` in apps/. Everyone on the roster opens them.
+        - type: apps
+          label: Apps
     users:
-      # One web terminal per entry. `index` pins that user's ports, `persona`
-      # picks their permissions from the list below, and `display_name` becomes
-      # the browser tab title, which is how you tell the terminals apart.
+      # One web terminal per person. `index` pins that user's ports, `tier`
+      # names their access level in tiers/, and `display_name` becomes the
+      # browser tab title, which is how you tell the terminals apart.
       - name: alice
         index: 0
-        persona: readwrite
+        tier: readwrite
         display_name: "Control Room (Alice)"
       - name: bob
         index: 1
-        persona: readonly
+        tier: readonly
         display_name: "Read-Only View (Bob)"
-      # Not a person: a second product running beside them. Same machinery as
-      # any other entry — its own container, ports and volumes — but what is
-      # behind the card is the ARIEL logbook assistant, not a control terminal.
-      - name: logbook
-        index: 2
-        persona: logbook
-        display_name: "Logbook Research"
-        # A shared card: everyone on this roster opens it with their own
-        # password. It has no password of its own, so none is set in .env.
-        access: any
-      # The second product beside them: the facility knowledge layer — the
-      # knowledge graph, the graph channel finder and the knowledge bundle —
-      # read-only, with no control system behind it. Shared like the card
-      # above. Index 4 rather than 3 so carol's ports below stay where they
-      # were; the page follows roster order, so it sits with its sibling.
-      - name: knowledge
-        index: 4
-        persona: knowledge
-        display_name: "Facility Knowledge"
-        access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
       # tool. Behind the login wall like every other person on this page: an
       # admin card without one would hand deployment edits to anyone who opens
-      # it. Last in the roster so the operator cards stay where they are.
+      # it.
       - name: carol
-        index: 3
-        persona: admin
+        index: 2
+        tier: admin
         display_name: "Deployment Admin (Carol)"
-    personas:
-      # `osprey build` builds one of these per file in personas/, into build/.
-      # `osprey up` builds nothing: if one is missing it stops and says so.
-      readonly:
-        build_profile: personas/readonly.yml
-      readwrite:
-        build_profile: personas/readwrite.yml
-      admin:
-        build_profile: personas/admin.yml
-      logbook:
-        build_profile: personas/logbook.yml
-        # Puts this persona's users under their own landing-page heading
-        # instead of in with the people. Presentation only — it changes
-        # nothing about the container, its ports, or what it can do.
-        landing_group: Standalone deployments
-      knowledge:
-        build_profile: personas/knowledge.yml
-        landing_group: Standalone deployments
+    # Apps everyone above may open, each defined in apps/<name>.yml: a second
+    # agent beside this deployment's own, on this deployment's services. Each
+    # gets its own container and a port slot counted down from the top of the
+    # user block, in this order; no password of its own, so none is set in .env.
+    shared:
+      - logbook          # Logbook Research: search and synthesise the logbook
+      - knowledge        # Facility Knowledge: how the machine is built
+      - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
   # ── Health checks ──────────────────────────────────────────────────────────
   # `osprey health` warns when the disk holding this deployment has less than
@@ -1457,6 +1394,15 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models:
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0
+  # Scenarios a deployment that never chose a set starts in, by name from
+  # the facility's scenarios; `osprey sim apply` replaces the set.
+  # Absent or [] starts in nominal alone.
+  simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
@@ -1482,6 +1428,9 @@ dispatch:
   workspace_mode: isolated
   max_concurrent_runs: 2
   max_queue_depth: 50
+  # The tier a dispatched job runs at. A job has nobody to approve a write, so
+  # the workers run read-only; remove the line to run the deployment's own posture.
+  tier: readonly
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:
@@ -1513,14 +1462,14 @@ env:
     OSPREY_AUTH_PW_CAROL: carol
 data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
-requires_osprey_version: '>=2026.9.0'
+requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
 # build compares it against the installed preset and mentions it when the
 # preset has moved on; `osprey validate` refuses every difference from the
 # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
 # by `deviation_marker:`). This profile is the source of truth either way.
 # `providers_hash` is the same record for providers.yml beside this file;
-# `osprey profile expand --providers` refreshes the packaged entries in it.
+# `osprey init --revalidate` refreshes the packaged entries in it.
 provenance:
   preset: control-assistant
   preset_hash: @PRESET_HASH:control-assistant@
@@ -1529,14 +1478,6 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
-
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 is the flat whole-database view, so it serves one paradigm only.
-#
-# tier: 3
 
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in
@@ -1685,299 +1626,34 @@ WEB_TERMINALS_IMAGE_SOURCE_LINE = (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SOURCE zone — persona deltas
+# SOURCE zone — tiers and apps
 # ─────────────────────────────────────────────────────────────────────────────
 
-PERSONA_LOGBOOK_YML = """\
-# Als Exemplar (logbook) — settings for one web login
+TIER_READONLY_YML = """\
+# Als Exemplar (readonly) — one access level of this deployment's agent
 #
-# Only the differences from profile.yml belong here. The build merges this
-# file over that one, picking up any edit you make there. To see the combined
-# result:
-#   osprey validate personas/logbook.yml
+# A tier adds to profile.yml and never subtracts from it: the build lays this
+# file over that one, picking up any edit you make there. Services, data and
+# ports stay profile.yml's. To see the combined result:
+#   osprey validate tiers/readonly.yml
 #
-# Made from the bundled `control-assistant-logbook` preset.
-#
-#   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-logbook@
-
-name: Als Exemplar (logbook)
-
-# Attached render: this persona builds a per-user terminal image only and
-# connects to the shared web tier the hosting deployment runs on the same host.
-# No services are scaffolded — the ARIEL Postgres it reads is the hosting
-# deployment's, already declared there.
-deploy_services: false
-
-# The logbook-research persona instead of the control-room operator one. This is
-# the single biggest reason this tier feels like a different product: the agent's
-# whole brief is written for logbook work.
-claude_md_template: CLAUDE.ariel.md.j2
-
-# Open on the ARIEL tab rather than the always-on Workspace tab. The workspace
-# tab stays present — the deep-research skill hands artifacts off through it —
-# it is just not the one you land on.
-default_panel: ariel
-
-# ── What this tier drops ─────────────────────────────────────────────────────
-# A persona can only add to an inherited list, never subtract from it, so
-# everything the control-room agent carries and a logbook agent has no use for
-# is removed here by name. What is left is the `ariel-standalone` selection.
-exclude:
-  hooks:
-    - writes-check        # No hardware writes to pre-check
-    - limits              # No per-channel limits to enforce
-    - cf-feedback-capture  # No channel finder to tune
-  rules:
-    - python-execution    # The Python sandbox is off (see config: below)
-    - data-visualization  # Plotting needs the sandbox this tier does not run
-    - control-system-safety  # EPICS PV rules, with no EPICS behind them
-    - test-ioc-safety     # Test-IOC port isolation, likewise
-  skills:
-    - diagnose            # Fault diagnosis is control-room work
-    - demo-gallery
-    - demo-ui
-    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
-    - operating-bluesky-plans  # and so does running one
-    - bluesky-plans            # and so does listing them
-  agents:
-    - channel-finder
-    - data-visualizer
-    - facility-knowledge
-    - pyat-specialist
-    # Logbook search and deep research are re-added below as SKILLS, which is
-    # how the standalone ARIEL agent invokes them: from the main agent, with the
-    # whole session's context, rather than through a subagent boundary that a
-    # single-purpose agent gains nothing from crossing.
-    - logbook-search
-    - logbook-deep-research
-  web_panels:
-    - channel-finder
-    - okf
-    - system-health
-    - jupyter         # Notebook kernels read and write through the control target
-# The `safety` rule is deliberately NOT excluded, and this is the one place this
-# tier differs from the standalone preset. Its tools are gone, so the rule
-# governs nothing today and costs a few lines of prompt. It stays because this
-# agent runs inside a deployment that does move hardware: if anyone ever turns a
-# control server back on here, the rule should already be in place rather than
-# be the thing someone remembered to add.
-
-skills:
-  - logbook-deep-research   # Multi-phase logbook investigation
-
-# ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY — see the base profile's block.
-config:
-  # The axis this tier is defined by: no control-system surface at all. Each
-  # line switches off a tool server the base turns on. Together they are what
-  # makes this a logbook terminal rather than a control-room one with the
-  # panels hidden — the tools are absent, not merely unused.
-  claude_code.servers.controls.enabled: false
-  claude_code.servers.python.enabled: false
-  claude_code.servers.channel-finder.enabled: false
-  claude_code.servers.bluesky.enabled: false
-  claude_code.servers.health.enabled: false
-  claude_code.servers.osprey_facility_knowledge.enabled: false
-  # The graph store is a control-room surface too, and this tier's exclusion
-  # of it has to be said: the build tells every attached render where the
-  # hosting deployment's services are (the Reach Contract), and a
-  # `services.graphdb` block is what makes the graph server render. Only a
-  # server switched off is told nothing about the store.
-  claude_code.servers.graph.enabled: false
-  # Pinned even though every server that would honour it is gone, for the
-  # same reason the read-only tier pins it: this key is the write boundary,
-  # and it must not drift if the base's default ever changes. Three keys, not
-  # one — see the read-only preset for why.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
-  # Creating a logbook entry is this agent's only write of any kind, and it is
-  # approval-gated like every other write in OSPREY. Publishing it is the half
-  # that actually reaches the facility's logbook, so it is gated too.
-  approval.tools.entry_create: always
-  approval.tools.entry_publish: always
-  # Full split-pane layout: the ARIEL search panel is the point of this tier, so
-  # it needs the panel area. Pinned rather than left to the server default for
-  # the same reason the other two tiers pin theirs.
-  web.ui_mode: expert
-  # No control-target picker in the title bar: nothing in this persona reaches
-  # the machine, so the bar names none.
-  web.control_target_picker: false
-  # No shipped example plot in this WORKSPACE: the example invites the reader
-  # to ask the agent for a live plot, which this persona cannot produce.
-  artifact_server.example_artifact: false
-  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
-  # containers). Without this override the inherited roster would make this
-  # render try to host a second web tier on the same host ports.
-  modules.web_terminals.enabled: false
-  # Nothing here says where the hosting deployment's services are — the qmd
-  # sidecar hybrid logbook search dials (the point of this tier), the Postgres
-  # the logbook lives in, the telemetry store. This persona is an attached
-  # render (`services: {}` of its own) built beside that deployment, and the
-  # build copies every such fact from the deployment's own render into it
-  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
-  # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. The build renders
-  # no services for this persona and writes `deployed_services: []` into its
-  # config — every `services.*` key inherited from the base profile is dropped
-  # from this render, except the ones that name a file in the render's own
-  # data tree (the graph corpus and its search index), which stay as this
-  # render's own — and a host that differs is named here.
-"""
-
-PERSONA_KNOWLEDGE_YML = """\
-# Als Exemplar (knowledge) — settings for one web login
-#
-# Only the differences from profile.yml belong here. The build merges this
-# file over that one, picking up any edit you make there. To see the combined
-# result:
-#   osprey validate personas/knowledge.yml
-#
-# Made from the bundled `control-assistant-knowledge` preset.
+# Made from the bundled `readonly` tier. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-knowledge@
-
-name: Als Exemplar (knowledge)
-
-# Attached render: this persona builds a per-user terminal image only and
-# connects to the shared web tier the hosting deployment runs on the same host.
-# No services are scaffolded — the graph store it reads is the hosting
-# deployment's, already declared there.
-deploy_services: false
-
-# The knowledge persona instead of the control-room operator one: the agent's
-# brief is written for answering "how is the machine built" from three
-# read-only sources and citing which one answered.
-claude_md_template: CLAUDE.knowledge.md.j2
-
-# Open on the KNOWLEDGE tab rather than the always-on Workspace tab. The
-# CHANNELS tab is the other one this persona keeps.
-default_panel: okf
-
-# ── What this persona drops ──────────────────────────────────────────────────
-# A persona can only add to an inherited list, never subtract from it, so
-# everything the control-room agent carries and a knowledge terminal has no
-# use for is removed here by name. What stays: the channel-finder,
-# facility-knowledge and facility-knowledge-graph agents, the KNOWLEDGE and
-# CHANNELS panels, and the channel-finder feedback hook (it captures
-# channel-finder results and needs no control system).
-exclude:
-  hooks:
-    - writes-check        # No hardware writes to pre-check
-    - limits              # No per-channel limits to enforce
-  rules:
-    - workflows           # Scan, ramp and restore patterns: operator work
-    - python-execution    # The Python sandbox is off (see config: below)
-    - data-visualization  # Plotting needs the sandbox this persona does not run
-    - control-system-safety  # EPICS PV rules, with no EPICS behind them
-    - test-ioc-safety     # Test-IOC port isolation, likewise
-  skills:
-    - diagnose            # Fault diagnosis is control-room work
-    - session-report      # Writes to the logbook, which this persona cannot reach
-    - demo-gallery
-    - demo-ui
-    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
-    - operating-bluesky-plans  # and so does running one
-    - bluesky-plans            # and so does listing them
-  agents:
-    - data-visualizer
-    - logbook-search          # The logbook is the logbook persona's
-    - logbook-deep-research
-    - pyat-specialist         # Lattice computation needs the Python sandbox
-  web_panels:
-    - ariel
-    - system-health
-    - jupyter         # Notebook kernels read and write through the control target
-# The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
-# rule governs nothing today and costs a few lines of prompt. It stays because
-# this agent runs inside a deployment that does move hardware: if anyone ever
-# turns a control server back on here, the rule should already be in place.
-
-# ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY — see the base profile's block.
-config:
-  # The axis this persona is defined by: knowledge tools and nothing else.
-  # Each line switches off a tool server the base turns on. The graph server,
-  # the channel finder (graph mode, see `channel_finder_mode` in the base) and
-  # the facility knowledge server are the three left on.
-  claude_code.servers.controls.enabled: false
-  claude_code.servers.python.enabled: false
-  claude_code.servers.bluesky.enabled: false
-  claude_code.servers.health.enabled: false
-  claude_code.servers.ariel.enabled: false
-  # Read-only, stated at the one tool that would write: drafting a knowledge
-  # concept edits the shared bundle, which is curation work for a login that
-  # can edit the deployment. Deny lists UNION across `extends`, so this adds to
-  # the base's floor.
-  claude_code.permissions.deny:
-    - mcp__osprey_facility_knowledge__draft_concept
-  # Pinned even though every server that would honour it is gone, for the
-  # same reason the read-only tier pins it: this key is the write boundary,
-  # and it must not drift if the base's default ever changes. Three keys, not
-  # one — see the read-only preset for why.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
-  # Full split-pane layout: the KNOWLEDGE panel is the point of this persona,
-  # so it needs the panel area. Pinned rather than left to the server default,
-  # like the other tiers pin theirs.
-  web.ui_mode: expert
-  # No control-target picker in the title bar: nothing in this persona reaches
-  # the machine, so the bar names none.
-  web.control_target_picker: false
-  # No shipped example plot in this WORKSPACE: the example invites the reader
-  # to ask the agent for a live plot, which this persona cannot produce.
-  artifact_server.example_artifact: false
-  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
-  # containers). Without this override the inherited roster would make this
-  # render try to host a second web tier on the same host ports.
-  modules.web_terminals.enabled: false
-  # Nothing here says where the hosting deployment's services are — the graph
-  # store's bolt port above all. This persona is an attached render
-  # (`services: {}` of its own) built beside that deployment, and the build
-  # copies every such fact from the deployment's own render into it (the
-  # Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
-  # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. The build renders
-  # no services for this persona and writes `deployed_services: []` into its
-  # config — every `services.*` key inherited from the base profile is dropped
-  # from this render, except the ones that name a file in the render's own
-  # data tree (the graph corpus and its search index), which stay as this
-  # render's own — and a host that differs is named here.
-"""
-
-PERSONA_READONLY_YML = """\
-# Als Exemplar (readonly) — settings for one web login
-#
-# Only the differences from profile.yml belong here. The build merges this
-# file over that one, picking up any edit you make there. To see the combined
-# result:
-#   osprey validate personas/readonly.yml
-#
-# Made from the bundled `control-assistant-readonly` preset.
-#
-#   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-readonly@
+#   content hash: @PRESET_HASH:tiers/readonly@
 
 name: Als Exemplar (readonly)
 
-# Attached render: this persona builds per-user terminal images only and
-# connects to the shared web tier the hosting deployment runs on the same host.
-# No services are scaffolded — the injector blocks inherited from the base are
-# all gated on this flag and skip cleanly.
-deploy_services: false
-
 # ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY — see the base profile's block.
+# Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The axis this persona hard-pins, and it takes three keys rather than one.
+  # The axis this tier hard-pins, and it takes three keys rather than one.
   # The flat key is the posture a connector type inherits when its own block
   # says nothing, so on its own it is not a floor: a per-type `true` anywhere
-  # in the chain — the base, an overlay, a facility's own edit — would arm that
-  # type over it. So the read-only tier pins every block off as well as the key
-  # they inherit from, and a type that arms writes here has to be added by name.
+  # in the deployment's profile would arm that type over it. So the read-only
+  # tier pins every block off as well as the key they inherit from, and a type
+  # that arms writes here has to be added by name.
   control_system.writes_enabled: false
   control_system.connector.epics.writes_enabled: false
   control_system.connector.virtual_accelerator.writes_enabled: false
@@ -1985,69 +1661,53 @@ config:
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
   # pins `expert`), same rationale as writes_enabled.
   #
-  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
-  # because their declarations live in the readwrite persona delta and never
-  # reach this build (see the note in the base's config: block).
+  # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
+  # because only the write-capable tiers add them by name.
   web.ui_mode: simple
-  # The hosting deployment owns the web-terminal tier (nginx, landing,
-  # per-user containers). Without this override the inherited roster would
-  # make this render try to host a second web tier on the same host ports.
-  modules.web_terminals.enabled: false
-  # Nothing here says where the hosting deployment's services are — the graph
-  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
-  # in, the telemetry store, the bluesky bridge. This persona is an attached
-  # render (`services: {}` of its own) built beside that deployment, and the
-  # build copies every such fact from the deployment's own render into it
-  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
-  # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. Move a port on the
-  # hosting profile and every persona follows; spell a different one here and
-  # the build refuses the contradiction. The build renders no services for
-  # this persona and writes `deployed_services: []` into its config — every
-  # `services.*` key inherited from the base profile is dropped from this
-  # render, except the ones that name a file in the render's own data tree
-  # (the graph corpus and its search index), which stay as this render's own
-  # — and a host that differs IS named here.
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed tier and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: readonly
+  preset_hash: @PRESET_HASH:tiers/readonly@
 """
 
-PERSONA_READWRITE_YML = """\
-# Als Exemplar (readwrite) — settings for one web login
+TIER_READWRITE_YML = """\
+# Als Exemplar (readwrite) — one access level of this deployment's agent
 #
-# Only the differences from profile.yml belong here. The build merges this
-# file over that one, picking up any edit you make there. To see the combined
-# result:
-#   osprey validate personas/readwrite.yml
+# A tier adds to profile.yml and never subtracts from it: the build lays this
+# file over that one, picking up any edit you make there. Services, data and
+# ports stay profile.yml's. To see the combined result:
+#   osprey validate tiers/readwrite.yml
 #
-# Made from the bundled `control-assistant-readwrite` preset.
+# Made from the bundled `readwrite` tier. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-readwrite@
+#   content hash: @PRESET_HASH:tiers/readwrite@
 
 name: Als Exemplar (readwrite)
 
-# Attached render: this persona builds per-user terminal images only and
-# connects to the shared web tier the hosting deployment runs on the same host.
-deploy_services: false
-
-# The write-oriented panels. Persona lists UNION over the base, so these are
-# added to the inherited builtin set. Each tab's URL, path and label are not
-# spelled here: the hosting deployment's build derives them when it injects
-# the event dispatcher and the bluesky-web sidecar, and this attached render
-# is told them from that render (the Reach Contract, `osprey.deployment.reach`)
-# — so a sidecar moved on the hosting profile moves the tab with it.
+# The write-oriented panels, added by name to the deployment's builtin set.
+# Each tab's URL, path and label are not spelled here: the deployment's build
+# derives them when it injects the event dispatcher and the bluesky-web
+# sidecar, and this tier's render is told them from the deployment's render
+# (the Reach Contract, `osprey.deployment.reach`), so a sidecar moved in the
+# deployment's profile moves the tab with it.
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
 
 # ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY — see the base profile's block.
+# Dotted keys ONLY, as in the deployment's own config: block.
 config:
   # The tier boundary, and it takes three keys. Armed on the simulator alone.
   # The flat key is what every connector type inherits when its own block says
   # nothing, so its false is what the stand-in reads. The epics block is pinned
-  # by name so a per-type `true` added anywhere lower in the chain cannot lift
-  # the live machine's ceiling. Only a literal `true` arms a type, and a
-  # per-type value never falls back to the flat key.
+  # by name so a per-type `true` in the deployment's profile cannot lift the
+  # live machine's ceiling. Only a literal `true` arms a type, and a per-type
+  # value never falls back to the flat key.
   control_system.writes_enabled: false
   control_system.connector.epics.writes_enabled: false
   control_system.connector.virtual_accelerator.writes_enabled: true
@@ -2055,86 +1715,68 @@ config:
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason writes_enabled is.
   web.ui_mode: expert
-  # The hosting deployment owns the web-terminal tier (nginx, landing,
-  # per-user containers). Without this override the inherited roster would
-  # make this render try to host a second web tier on the same host ports.
-  modules.web_terminals.enabled: false
-  # Nothing here says where the hosting deployment's services are — the graph
-  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
-  # in, the telemetry store, the bluesky bridge, the EVENTS and BLUESKY tabs'
-  # URLs. This persona is an attached render (`services: {}` of its own) built
-  # beside that deployment, and the build copies every such fact from the
-  # deployment's own render into it (the Reach Contract,
-  # `osprey.deployment.reach`). Per-user web-terminal containers run
-  # `network_mode: host`, so container `localhost` IS the deployment host and
-  # the copied ports are dialed there. Move a port on the hosting profile and
-  # every persona follows; spell a different one here and the build refuses
-  # the contradiction. The build renders no services for this persona and
-  # writes `deployed_services: []` into its config — every `services.*` key
-  # inherited from the base profile is dropped from this render, except the
-  # ones that name a file in the render's own data tree (the graph corpus and
-  # its search index), which stay as this render's own — and a host that
-  # differs IS named here.
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed tier and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: readwrite
+  preset_hash: @PRESET_HASH:tiers/readwrite@
 """
 
-PERSONA_ADMIN_YML = """\
-# Als Exemplar (admin) — settings for one web login
+TIER_ADMIN_YML = """\
+# Als Exemplar (admin) — one access level of this deployment's agent
 #
-# Only the differences from profile.yml belong here. The build merges this
-# file over that one, picking up any edit you make there. To see the combined
-# result:
-#   osprey validate personas/admin.yml
+# A tier adds to profile.yml and never subtracts from it: the build lays this
+# file over that one, picking up any edit you make there. Services, data and
+# ports stay profile.yml's. To see the combined result:
+#   osprey validate tiers/admin.yml
 #
-# Made from the bundled `control-assistant-admin` preset.
+# Made from the bundled `admin` tier. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-admin@
+#   content hash: @PRESET_HASH:tiers/admin@
 
 name: Als Exemplar (admin)
 
-# Attached render: this persona builds per-user terminal images only and
-# connects to the shared web tier the hosting deployment runs on the same host.
-# No services are scaffolded — the injector blocks inherited from the base are
-# all gated on this flag and skip cleanly.
-deploy_services: false
-
 # The write-oriented panels, exactly as the readwrite tier declares them: the
 # admin tier is a full operator desk plus deployment editing, never an operator
-# desk minus. Persona lists UNION over the base, so these are added to the
-# inherited builtin set. Each tab's URL, path and label are not spelled here:
-# the hosting deployment's build derives them when it injects the event
-# dispatcher and the bluesky-web sidecar, and this attached render is told
-# them from that render (the Reach Contract, `osprey.deployment.reach`).
+# desk minus. Added by name to the deployment's builtin set. Each tab's URL,
+# path and label are not spelled here: the deployment's build derives them when
+# it injects the event dispatcher and the bluesky-web sidecar, and this tier's
+# render is told them from the deployment's render (the Reach Contract,
+# `osprey.deployment.reach`).
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
 
-# The guided configuration workflow, left out of the base on purpose because it
-# edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
-# added to the inherited selection rather than replacing it.
+# The guided configuration workflow, left out of the deployment's own
+# selection on purpose because it edits config.yml and .mcp.json. Added by name
+# to the deployment's skills.
 skills:
   - setup-mode      # Inspect the deployment's configuration and patch it
 
 # ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY — see the base profile's block.
+# Dotted keys ONLY, as in the deployment's own config: block.
 config:
   # The admin tier carries readwrite's control posture exactly: armed on the
   # simulator, read-only on both hardware-shaped targets. The flat key is what
   # every connector type inherits when its own block says nothing, the epics
-  # block is pinned by name so no per-type `true` lower in the chain can lift
-  # the live ceiling, and the simulator's block is the one type armed. What
-  # makes this the admin tier is the deployment-editing block below, not a
+  # block is pinned by name so no per-type `true` in the deployment's profile
+  # can lift the live ceiling, and the simulator's block is the one type armed.
+  # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
   control_system.writes_enabled: false
   control_system.connector.epics.writes_enabled: false
   control_system.connector.virtual_accelerator.writes_enabled: true
-  # The axis this tier is defined by: the three privileges the base floors, all
-  # lifted here and nowhere else.
+  # The axis this tier is defined by: the three privileges the deployment
+  # floors, all lifted here and nowhere else.
   #
-  # The deployment-editing tool. `remove_deny` subtracts the base's deny for
-  # this render alone — the direction a floor has to be lifted in, since string
-  # lists only ever union across `extends`. What is left is the `ask` entry the
-  # workspace server declares, which routes the call through the approval hook.
+  # The deployment-editing tool. `remove_deny` subtracts the deployment's deny
+  # for this render alone, the direction a floor has to be lifted in, since
+  # string lists only ever union. What is left is the `ask` entry the workspace
+  # server declares, which routes the call through the approval hook.
   claude_code.permissions.remove_deny:
     - mcp__osprey_workspace__setup_patch
   # The same capability from the browser: the web Config panel edits the
@@ -2148,27 +1790,356 @@ config:
   # gallery editors need the panel area. Pinned rather than left to the server
   # default, for the same reason the other tiers pin theirs.
   web.ui_mode: expert
-  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
-  # containers). Without this override the inherited roster would make this
-  # render try to host a second web tier on the same host ports.
-  modules.web_terminals.enabled: false
-  # Nothing here says where the hosting deployment's services are — the graph
-  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
-  # in, the telemetry store, the bluesky bridge. This persona is an attached
-  # render (`services: {}` of its own) built beside that deployment, and the
-  # build copies every such fact from the deployment's own render into it
-  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
-  # containers run `network_mode: host`, so container `localhost` IS the
-  # deployment host and the copied ports are dialed there. Move a port on the
-  # hosting profile and every persona follows; spell a different one here and
-  # the build refuses the contradiction. The build renders no services for
-  # this persona and writes `deployed_services: []` into its config — every
-  # `services.*` key inherited from the base profile is dropped from this
-  # render, except the ones that name a file in the render's own data tree
-  # (the graph corpus and its search index), which stay as this render's own
-  # — and a host that differs IS named here.
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed tier and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: admin
+  preset_hash: @PRESET_HASH:tiers/admin@
 """
 
+APP_LOGBOOK_YML = """\
+# Logbook Research — an app this deployment offers on a shared card
+#
+# A complete agent definition of its own: the lists below are its whole
+# selection, and nothing is inherited from profile.yml's lists or subtracted
+# from them. Services, data, provider and model are profile.yml's, and its
+# config: keys are laid over profile.yml's. To see the combined result:
+#   osprey validate apps/logbook.yml
+#
+# Made from the bundled `logbook` app. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   content hash: @PRESET_HASH:apps/logbook@
+
+name: Logbook Research
+
+# The logbook-research brief instead of the control-room operator one: the
+# agent's whole brief is written for searching, reading and synthesising
+# logbook entries through the ARIEL tools.
+claude_md_template: CLAUDE.logbook.md.j2
+
+# Open on the ARIEL search tab. The always-on Workspace tab stays present (the
+# deep-research skill hands artifacts off through it); it is just not the one
+# you land on.
+default_panel: ariel
+
+# No channel finder: finding a channel address is not logbook work, and the
+# channel-finder server is switched off below. A deployment that wants channel
+# lookups beside the logbook offers the `channel-finder` app.
+channel_finder_mode: null
+
+hooks:
+  - approval          # Gate logbook entry creation on user approval prompt
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this app carries today. It stays because
+  # the app runs inside a deployment that does move hardware: if a control
+  # server is ever switched back on here, the rule is already in place.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - workflows         # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone          # Always localise timestamps to facility timezone
+
+# Logbook search and deep research run as SKILLS from the main agent, with the
+# whole session's context, rather than through a subagent boundary that a
+# single-purpose agent gains nothing from crossing.
+skills:
+  - session-report          # Summarise session actions and outcomes to the logbook
+  - logbook-deep-research   # Multi-phase logbook investigation
+
+agents:
+  # Structural machine questions a logbook investigation runs into ("which
+  # magnets sit in sector 3?") are answered from the deployment's graph store.
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - ariel             # ARIEL search interface
+
+# No tool servers of its own; the deployment's facility servers are not this
+# app's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this app does without is named here.
+config:
+  # No control-system surface at all: the tools are absent, not merely unused.
+  # Each line is a decision about a server the deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.channel-finder.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The facility knowledge bundle answers "how is the machine documented"; that
+  # is the `knowledge` app's question, not this one's.
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab), `ariel` (the point of this
+  # app) and `graph` (the facility-knowledge-graph subagent dials the
+  # deployment's graph store). The event dispatcher renders only with the
+  # EVENTS panel, which no app carries.
+  #
+  # The write boundary, pinned on all three keys: the flat key every connector
+  # type inherits, and both hardware-shaped types by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Creating a logbook entry is this agent's only write of any kind, and it is
+  # approval-gated like every other write. Publishing is the half that reaches
+  # the facility's logbook, so it is gated too.
+  approval.tools.entry_create: always
+  approval.tools.entry_publish: always
+  # Full split-pane layout: the ARIEL search panel needs the panel area.
+  web.ui_mode: expert
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false
+  # No shipped example plot: it invites a live plot this app cannot produce.
+  artifact_server.example_artifact: false
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed app and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: logbook
+  preset_hash: @PRESET_HASH:apps/logbook@
+"""
+
+APP_KNOWLEDGE_YML = """\
+# Facility Knowledge — an app this deployment offers on a shared card
+#
+# A complete agent definition of its own: the lists below are its whole
+# selection, and nothing is inherited from profile.yml's lists or subtracted
+# from them. Services, data, provider and model are profile.yml's, and its
+# config: keys are laid over profile.yml's. To see the combined result:
+#   osprey validate apps/knowledge.yml
+#
+# Made from the bundled `knowledge` app. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   content hash: @PRESET_HASH:apps/knowledge@
+
+name: Facility Knowledge
+
+# The knowledge brief: answering "how is the machine built" from three
+# read-only sources and citing which one answered.
+claude_md_template: CLAUDE.knowledge.md.j2
+
+# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this app keeps.
+default_panel: okf
+
+# Channel addresses come from the graph, the same store the knowledge-graph
+# subagent queries, so a channel and the device it belongs to have one source.
+channel_finder_mode: graph
+
+hooks:
+  - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this app carries today. It stays because
+  # the app runs inside a deployment that does move hardware.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - timezone          # Always localise timestamps to facility timezone
+
+# No skills: every bundled skill either writes to the logbook, drives the
+# machine or needs the Python sandbox, and this app reaches none of them.
+skills: []
+
+agents:
+  - channel-finder            # Finds channel addresses in the graph
+  - facility-knowledge        # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - okf               # KNOWLEDGE tab, for browsing the facility knowledge bundle
+  - channel-finder    # Interactive channel-finder web UI
+
+# No tool servers of its own; the deployment's facility servers are not this
+# app's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this app does without is named here.
+config:
+  # No control-system surface and no logbook: each line is a decision about a
+  # server the deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The logbook is the `logbook` app's.
+  claude_code.servers.ariel.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
+  # (the bundle), `channel-finder` and `graph` (the store both read). The event
+  # dispatcher renders only with the EVENTS panel, which no app carries.
+  #
+  # Reading the bundle, never writing to it: drafting a concept is the
+  # deployment's editors' work, not a shared card's.
+  claude_code.permissions.deny:
+    - mcp__osprey_facility_knowledge__draft_concept
+  # The write boundary, pinned on all three keys: the flat key every connector
+  # type inherits, and both hardware-shaped types by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
+  web.ui_mode: expert
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false
+  # No shipped example plot: it invites a live plot this app cannot produce.
+  artifact_server.example_artifact: false
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed app and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: knowledge
+  preset_hash: @PRESET_HASH:apps/knowledge@
+"""
+
+APP_CHANNEL_FINDER_YML = """\
+# Channel Finder — an app this deployment offers on a shared card
+#
+# A complete agent definition of its own: the lists below are its whole
+# selection, and nothing is inherited from profile.yml's lists or subtracted
+# from them. Services, data, provider and model are profile.yml's, and its
+# config: keys are laid over profile.yml's. To see the combined result:
+#   osprey validate apps/channel-finder.yml
+#
+# Made from the bundled `channel-finder` app. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   content hash: @PRESET_HASH:apps/channel-finder@
+
+name: Channel Finder
+
+# The channel-finder brief: how to query, narrow and report channel addresses.
+claude_md_template: CLAUDE.channel-finder.md.j2
+
+# Open on the CHANNELS tab.
+default_panel: channel-finder
+
+# File-based: the hierarchical channel database from the deployment's data
+# tree, browsed level by level. No graph store is needed.
+channel_finder_mode: hierarchical
+
+hooks:
+  - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this app carries today. It stays because
+  # the app runs inside a deployment that does move hardware.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - workflows         # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone          # Always localise timestamps to facility timezone
+
+# No skills: every bundled skill either writes to the logbook, drives the
+# machine or needs the Python sandbox, and this app reaches none of them.
+skills: []
+
+agents:
+  - channel-finder    # Finds channel addresses (the mode above decides how)
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - channel-finder    # Interactive channel-finder web UI
+
+# No tool servers of its own; the deployment's facility servers are not this
+# app's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this app does without is named here.
+config:
+  # No control-system surface: each line is a decision about a server the
+  # deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The logbook is the `logbook` app's, the knowledge bundle the `knowledge`
+  # app's.
+  claude_code.servers.ariel.enabled: false
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # No graph: this app is file-based, so it never dials the deployment's graph
+  # store even when one runs.
+  claude_code.servers.graph.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab) and `channel-finder` (the
+  # point of this app). The event dispatcher renders only with the EVENTS
+  # panel, which no app carries.
+  #
+  # The write boundary, pinned on all three keys: the flat key every connector
+  # type inherits, and both hardware-shaped types by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Full split-pane layout: the CHANNELS panel needs the panel area.
+  web.ui_mode: expert
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false
+  # No shipped example plot: it invites a live plot this app cannot produce.
+  artifact_server.example_artifact: false
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed app and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: channel-finder
+  preset_hash: @PRESET_HASH:apps/channel-finder@
+"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — dispatch triggers
@@ -2316,7 +2287,6 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
-# ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
@@ -2384,12 +2354,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `personas/` | yes | yes |
+| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `personas/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -2525,14 +2495,14 @@ config:
 
 ### Mounting an extra directory into a web terminal
 
-Deployments that give people their own web terminals mount per persona, under
-`config:`. Each entry is a container volume string of two or three non-empty
-parts, `source:target` or `source:target:mode`:
+Deployments that give people their own web terminals mount per tier, in that
+tier's file under `tiers/`. Each entry is a container volume string of two or
+three non-empty parts, `source:target` or `source:target:mode`:
 
 ```yaml
-config:
-  modules.web_terminals.personas.operator.extra_mounts:
-    - /opt/facility/data:/data:ro
+# tiers/readwrite.yml
+extra_mounts:
+  - /opt/facility/data:/data:ro
 ```
 
 Every key named here is written up in full at https://als-apg.github.io/osprey/.
@@ -2625,7 +2595,7 @@ render-build:
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
-    - pip install --no-cache-dir "osprey-framework>=2026.9.0"
+    - pip install --no-cache-dir "osprey-framework>=2026.10.0"
   script:
     - osprey validate
     - osprey build --skip-lifecycle --skip-deps
@@ -2797,7 +2767,8 @@ compose_project() {
 
 # The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
 # build/config.yml, then docker before podman — the first whose compose
-# and daemon both answer.
+# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
+# (podman-docker) is passed over, as `osprey up` passes over it.
 container_runtime() {
   local pinned="${CONTAINER_RUNTIME:-}" runtime
   if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
@@ -2809,6 +2780,11 @@ container_runtime() {
     podman) printf podman; return ;;
   esac
   for runtime in docker podman; do
+    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \\
+      && docker --version 2>&1 \\
+        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
+      continue
+    fi
     if command -v "$runtime" >/dev/null 2>&1 \\
       && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
       printf '%s' "$runtime"
@@ -2905,7 +2881,8 @@ fi
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
   probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
-  probe_http 'openobserve: telemetry store on 10050'        http://localhost:10050/healthz
+  probe_tcp  'telemetry-gateway: OTLP receiver on 10051'    localhost 10051
+  probe_http 'telemetry-store: query interface on 10804'    http://localhost:10804/ping
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────
@@ -2915,12 +2892,13 @@ fi
 # /health, the route its auth gate lets through.
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_http 'landing page'          http://localhost:10000/
-  probe_http 'terminal (alice)'      http://localhost:10100/health
-  probe_http 'terminal (bob)'        http://localhost:10101/health
-  probe_http 'terminal (logbook)'    http://localhost:10102/health
-  probe_http 'terminal (carol)'      http://localhost:10103/health
-  probe_http 'terminal (knowledge)'  http://localhost:10104/health
+  probe_http 'landing page'               http://localhost:10000/
+  probe_http 'terminal (alice)'           http://localhost:10100/health
+  probe_http 'terminal (bob)'             http://localhost:10101/health
+  probe_http 'terminal (carol)'           http://localhost:10102/health
+  probe_http 'terminal (channel-finder)'  http://localhost:10197/health
+  probe_http 'terminal (knowledge)'       http://localhost:10198/health
+  probe_http 'terminal (logbook)'         http://localhost:10199/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
@@ -2951,112 +2929,101 @@ exit 0
 # volume. Each file below is valid content of its real kind.
 
 DATA_README_MD = """\
-# Data
+# Project Data Directory
 
 Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, facility knowledge, and simulation scenarios. These are your files.
-They are tracked, and `osprey build` only ever reads them.
+query sets, and the facility's sources and scenarios. These are your files —
+edit them freely.
+
+## Directory Structure
+
+The channel-finder indexes are not here: each is a view the build writes from
+`facility/` into the render. As shipped by the preset:
 
 ```
 data/
-├── raw/                                  # CSV address data (in_context path)
 ├── channel_databases/
-│   ├── tiers/tier{1,3}/<paradigm>.json  # staged, one per paradigm
-│   └── TEMPLATE_EXAMPLE.json            # database format example
-├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
-├── channel_limits.json                   # per-channel write limits
-├── facility_ontology.json                # device vocabulary (facility.ontology)
-├── machine_state_channels.json           # address list reconciled against the VA manifest
-├── facility_knowledge/                   # markdown knowledge bundle
-└── simulation/                           # mock-connector scenarios
+│   └── examples/                         # Hierarchy-shape examples
+├── benchmarks/
+│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
+├── facility/                              # The facility's authored sources
+│   ├── knowledge/                         # Markdown knowledge bundle
+│   └── scenarios/                         # Simulation scenarios
 ```
 
-The build collapses the staged sets down to the ones `channel_finder_mode` and
-`tier` select, writing the result under `build/`. This directory is never
-rewritten by a build.
-"""
+`osprey build` copies the benchmark query file matching `channel_finder_mode`
+to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
+`tree_queries.json` for every other mode. Each channel-finder index is the view
+the build writes at its own path; nothing is flattened. The render drops the
+`benchmarks/cross_paradigm/` subtree.
 
-CHANNEL_DB_HIERARCHICAL_JSON = """\
-{
-  "_comment": "Hierarchical channel database. Unified 6-level naming: RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD.",
-  "hierarchy": {
-    "levels": [
-      { "name": "ring", "type": "tree" },
-      { "name": "system", "type": "tree" },
-      { "name": "family", "type": "tree" },
-      { "name": "device", "type": "instances" },
-      { "name": "field", "type": "tree" },
-      { "name": "subfield", "type": "tree" }
-    ],
-    "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}"
-  },
-  "tree": {
-    "SR": {
-      "DIAG": {
-        "BPM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "POSITION": {
-              "X": { "description": "Horizontal beam position", "units": "mm" },
-              "Y": { "description": "Vertical beam position", "units": "mm" }
-            }
-          }
-        },
-        "DCCT": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01"] },
-            "CURRENT": {
-              "RB": { "description": "Total stored beam current", "units": "mA" }
-            }
-          }
-        }
-      },
-      "MAG": {
-        "HCM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "CURRENT": {
-              "RB": { "description": "Horizontal corrector current readback", "units": "A" },
-              "SP": { "description": "Horizontal corrector current setpoint", "units": "A" }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
+## Database Paradigms
 
-CHANNEL_DB_IN_CONTEXT_JSON = """\
-{
-  "_comment": "Flat in-context channel database. One entry per address.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "description": "Total stored beam current",
-      "units": "mA"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "description": "BPM 1 horizontal beam position",
-      "units": "mm"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "description": "Horizontal corrector 1 current setpoint",
-      "units": "A"
-    }
-  }
-}
-"""
+`channel_finder_mode` in the build profile picks one of three ways to organize
+the same channel namespace as a file; all three are views of the same
+facility records. The mode's fourth value, `graph`, is not one of them: it
+answers from the facility knowledge graph rather than a channel database. Its
+corpus is `data/graph/facility.ttl`, the graph view the build writes from
+`facility/`, seeded into the `services.graphdb` store.
 
-CHANNEL_DB_TEMPLATE_EXAMPLE_JSON = """\
-{
-  "_comment": "Database format example. Copy this shape when hand-authoring a channel database.",
-  "channels": {
-    "FACILITY:SYSTEM:FAMILY:01:FIELD:RB": {
-      "description": "What this channel reports, in one sentence",
-      "units": "mm"
-    }
-  }
-}
+### `in_context` — flat structure
+
+Best for fewer than about 1,000 channels. The whole database fits in the
+agent's context, so lookup is direct semantic search over a flat list of
+channels.
+
+### `hierarchical` — nested structure
+
+Best for more than about 1,000 channels. The agent navigates the hierarchy
+level by level instead of loading everything at once: the facility's place
+words by depth, then class, device and leaf.
+
+### `middle_layer` — functional structure
+
+An MML-organized functional hierarchy: System / Family / Field / Subfield.
+Navigation mirrors the way operators reason about devices rather than the way
+the control system names them.
+
+## Database Tools
+
+Database tools are `osprey channel-finder` CLI subcommands. Each reads the
+active database from `config.yml` unless you pass `--database`.
+
+Validate database format and structure:
+
+```bash
+osprey channel-finder validate
+osprey channel-finder validate --database data/channel_finder/hierarchical.json
+```
+
+Preview database contents:
+
+```bash
+osprey channel-finder preview
+osprey channel-finder preview --database data/channel_finder/hierarchical.json
+```
+
+## Benchmarks
+
+Evaluate channel-finder accuracy against the query set in
+`data/benchmarks/queries.json`:
+
+```bash
+# Full query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
+
+# A slice of the query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
+
+# Repeat each query to measure run-to-run variance
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
+```
+
+Results are written to `data/benchmarks/results/` as JSON reports carrying
+per-query outcomes, accuracy, timing, and cost.
 """
 
 BENCHMARK_QUERIES_JSON = """\
@@ -3070,77 +3037,6 @@ BENCHMARK_QUERIES_JSON = """\
     "targeted_pv": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"]
   }
 ]
-"""
-
-#: The exemplar's own compiled ontology — the table ``facility.ontology`` names.
-#:
-#: A profile that carries a ``data:`` tree REPLACES the bundle's, so the copy
-#: control-assistant ships never reaches this repo: an exemplar facility
-#: declares its own vocabulary or it declares none, and a declared table that is
-#: not on disk stops the build by design. Written against this repo's own three
-#: families (``BPM``, ``DCCT``, ``HCM``) rather than copied from the demo
-#: machine, because that is what a real facility's table looks like and what the
-#: rendered terminology tables should show.
-FACILITY_ONTOLOGY_JSON = """\
-{
-  "_generated": "Generated from facility_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
-  "root": "AcceleratorDevice",
-  "family_to_class": {
-    "BPM": "BeamPositionMonitor",
-    "DCCT": "BeamCurrentMonitor",
-    "HCM": "HCorrector"
-  },
-  "classes": {
-    "AcceleratorDevice": { "altLabels": [], "parent": null },
-    "BeamCurrentMonitor": {
-      "altLabels": ["beam current monitor", "current monitor", "dcct"],
-      "parent": "Instrumentation"
-    },
-    "BeamPositionMonitor": {
-      "altLabels": ["beam position monitor", "bpm", "position monitor"],
-      "parent": "Instrumentation"
-    },
-    "Corrector": {
-      "altLabels": ["corrector", "orbit corrector", "steering magnet"],
-      "parent": "Magnet"
-    },
-    "HCorrector": {
-      "altLabels": ["hcor", "horizontal corrector", "horizontal steering magnet"],
-      "parent": "Corrector"
-    },
-    "Instrumentation": { "altLabels": ["diagnostics", "instrumentation"], "parent": "AcceleratorDevice" },
-    "Magnet": { "altLabels": ["electromagnet", "magnet"], "parent": "AcceleratorDevice" }
-  }
-}
-"""
-
-CHANNEL_LIMITS_JSON = """\
-{
-  "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
-  "SR:MAG:HCM:01:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true },
-  "SR:MAG:HCM:02:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true }
-}
-"""
-
-MACHINE_STATE_CHANNELS_JSON = """\
-{
-  "_comment": "Machine-state addresses, reconciled against the VA manifest at build time; only the keys are read. One canonical list regardless of channel-finder mode.",
-  "_version": "2.0",
-
-  "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },
-  "SR:DIAG:BPM:01:POSITION:X": { "label": "BPM 1 horizontal position", "group": "orbit" },
-  "SR:DIAG:BPM:01:POSITION:Y": { "label": "BPM 1 vertical position", "group": "orbit" },
-  "SR:MAG:HCM:01:CURRENT:RB": { "label": "Corrector 1 current", "group": "magnets" }
-}
-"""
-
-RAW_ADDRESS_LIST_CSV = """\
-address,description,family_name,instances,sub_channel
-# === STANDALONE CHANNELS (no templating) ===
-SR:DIAG:DCCT:01:CURRENT:RB,Total stored beam current in milliamps,,,
-# === DEVICE FAMILIES (one row expands to one channel per instance) ===
-SR:DIAG:BPM:{i}:POSITION:X,Horizontal beam position,BPM,01;02,X
-SR:DIAG:BPM:{i}:POSITION:Y,Vertical beam position,BPM,01;02,Y
 """
 
 FK_INDEX_MD = """\
@@ -3222,141 +3118,33 @@ Never open a sector valve against a pressure differential. The interlock will
 refuse, and forcing it risks the whole ring's vacuum.
 """
 
-#: Each channel is a mapping carrying exactly one of ``value`` or ``expr`` --
-#: the schema ``osprey.simulation.machine.parse_machine`` enforces, and the one
-#: the shipped presets are written in. A bare number here would look like a
-#: reasonable shorthand and is not: the parser rejects it, so the exemplar would
-#: name a simulation model that no engine can load.
-DEMO_MACHINE_TTL = """\
-# The knowledge-graph corpus `services.graphdb` seeds and the graph channel
-# finder answers from. One device per channel family of machine.json, each
-# binding stating its address and its direction.
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-
-<https://narad.example.org/device/demo_SR_DCCT01> a narad_sem:BeamCurrentMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:DCCT01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> ;
-    narad_p:ordinalInFacility 1 ;
-    narad_p:ordinalInSection 1 ;
-    narad_p:rawType "DCCT" ;
-    narad_p:sPositionM 0.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "DCCT01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:DCCT01:CURRENT_RB" ;
-    narad_p:description "Stored beam current" ;
-    narad_p:fullPv "SR:DIAG:DCCT:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:beam_current .
-
-<https://narad.example.org/device/demo_SR_BPM01> a narad_sem:BeamPositionMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:BPM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_BPM01_POSITION_X>,
-        <https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> ;
-    narad_p:ordinalInFacility 2 ;
-    narad_p:ordinalInSection 2 ;
-    narad_p:rawType "BPM" ;
-    narad_p:sPositionM 1.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "BPM01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_X> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_X" ;
-    narad_p:description "Beam position monitor 1, horizontal" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:X" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_x .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_Y" ;
-    narad_p:description "Beam position monitor 1, vertical" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:Y" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_y .
-
-<https://narad.example.org/device/demo_SR_HCM01> a narad_sem:HorizontalCorrector ;
-    narad_p:deviceId "narad:device:demo:SR:HCM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB>,
-        <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> ;
-    narad_p:ordinalInFacility 3 ;
-    narad_p:ordinalInSection 3 ;
-    narad_p:rawType "HCM" ;
-    narad_p:sPositionM 2.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "HCM01" ;
-    narad_p:system "MAG" .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_RB" ;
-    narad_p:description "Horizontal corrector 1 current, readback" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:hcm_current .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_SP" ;
-    narad_p:description "Horizontal corrector 1 current, setpoint" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:SP" ;
-    narad_p:protocol "ca" ;
-    narad_p:writesSignal narad_sem:hcm_current .
+#: The facility's records, cut to the one channel the profile names: the
+#: virtual accelerator's ``probe_channel`` must be a channel of the facility
+#: file the build assembles from them.
+FACILITY_PLACES_YAML = """\
+- id: SR
+  level: machine
+  description: Storage ring
 """
 
-SIMULATION_MACHINE_JSON = """\
-{
-  "name": "Als Exemplar demo machine",
-  "description": "Nominal machine values the mock connector serves as readbacks.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "value": 500.0,
-      "units": "mA",
-      "description": "Stored beam current"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "value": 0.02,
-      "units": "mm",
-      "description": "Beam position monitor 1, horizontal"
-    },
-    "SR:DIAG:BPM:01:POSITION:Y": {
-      "value": -0.01,
-      "units": "mm",
-      "description": "Beam position monitor 1, vertical"
-    },
-    "SR:MAG:HCM:01:CURRENT:RB": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, readback"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, setpoint"
-    }
-  }
-}
+FACILITY_DEVICES_YAML = """\
+- id: SR/GAUGESR01
+  class: Gauge
+  names:
+  - GAUGESR01
+  place: SR
 """
 
-SIMULATION_NOMINAL_SCENARIO_JSON = """\
-{
-  "description": "All systems nominal."
-}
+FACILITY_CHANNELS_YAML = """\
+- id: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  'on':
+    device: SR/GAUGESR01
+  signal: vacuum_readback
+  unit: Pa
+  names:
+  - StorageRing_VacGauge_SR01_Pressure_Readback
+  description: Storage ring vacuum gauge SR01 pressure readback
 """
-
-SIMULATION_VACUUM_BURST_SCENARIO_JSON = """\
-{
-  "description": "A vacuum excursion in sector 1 costs beam lifetime; stored current falls.",
-  "overrides": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": 380.0
-  }
-}
-"""
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # The exemplar, assembled
@@ -3372,33 +3160,27 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "README.md": README_MD,
     "ci-extra.yml": CI_EXTRA_YML,
     "triggers.yml": TRIGGERS_YML,
-    "personas/logbook.yml": PERSONA_LOGBOOK_YML,
-    "personas/knowledge.yml": PERSONA_KNOWLEDGE_YML,
-    "personas/readonly.yml": PERSONA_READONLY_YML,
-    "personas/readwrite.yml": PERSONA_READWRITE_YML,
-    "personas/admin.yml": PERSONA_ADMIN_YML,
+    "tiers/readonly.yml": TIER_READONLY_YML,
+    "tiers/readwrite.yml": TIER_READWRITE_YML,
+    "tiers/admin.yml": TIER_ADMIN_YML,
+    "apps/logbook.yml": APP_LOGBOOK_YML,
+    "apps/knowledge.yml": APP_KNOWLEDGE_YML,
+    "apps/channel-finder.yml": APP_CHANNEL_FINDER_YML,
+    # One context slot per person on the roster. An app is not a person: its
+    # card has no per-user context, so it gets no slot.
     "web-terminal-context/alice/.gitkeep": "",
-    "web-terminal-context/logbook/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",
-    "web-terminal-context/knowledge/.gitkeep": "",
+    "web-terminal-context/carol/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,
-    "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,
-    "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
-    "data/benchmarks/cross_paradigm/queries/tier3_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/channel_limits.json": CHANNEL_LIMITS_JSON,
-    "data/facility_ontology.json": FACILITY_ONTOLOGY_JSON,
-    "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
-    "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
-    "data/facility_knowledge/index.md": FK_INDEX_MD,
-    "data/facility_knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
-    "data/facility_knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
-    "data/facility_knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
-    "data/facility_knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
-    "data/demo_machine.ttl": DEMO_MACHINE_TTL,
-    "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
-    "data/simulation/scenarios/nominal/scenario.json": SIMULATION_NOMINAL_SCENARIO_JSON,
-    "data/simulation/scenarios/vacuum-burst/scenario.json": SIMULATION_VACUUM_BURST_SCENARIO_JSON,
+    "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
+    "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
+    "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/knowledge/index.md": FK_INDEX_MD,
+    "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
+    "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
+    "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
+    "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy
@@ -3408,7 +3190,7 @@ CI_PIPELINE_FILES: Mapping[str, str] = {
     "scripts/verify.sh": VERIFY_SH,
 }
 
-_PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:([a-z0-9-]+)@")
+_PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:((?:tiers/|apps/)?[a-z0-9-]+)@")
 _VERSION_SENTINEL = "@OSPREY_VERSION@"
 _PROVIDERS_HASH_SENTINEL = "@PROVIDERS_HASH@"
 _IMAGE_SOURCE_MARKER = "@WEB_TERMINALS_IMAGE_SOURCE@"
@@ -3423,7 +3205,11 @@ def _osprey_version() -> str:
 
 
 def _preset_hash(preset_name: str) -> str:
-    """Content hash of a bundled preset, or the emitters' unavailable marker."""
+    """Content hash of a bundled preset, or the emitters' unavailable marker.
+
+    A tier or app is named kind-qualified (``tiers/readonly``, ``apps/logbook``):
+    the stem alone does not say which folder of the package it comes from.
+    """
     from osprey.cli.build_profile_merge import compute_preset_hash
 
     return compute_preset_hash(preset_name) or "(unavailable)"

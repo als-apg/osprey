@@ -9,6 +9,7 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import json
 import os
 import re
 import sys
@@ -16,6 +17,13 @@ import sys
 import pytest
 
 from tests._control_context_fixtures import write_control_context, write_server_report
+from tests._guarded_run import (
+    PLANTED_REFUSED,
+    held_lock,
+    link_directory,
+    lock_path,
+    plant_kind,
+)
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -75,6 +83,159 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     )
 
     assert _is_allow(result)  # All tools pass
+
+
+#: The values a hand edit can leave on ``approval.enabled`` that are not a bool.
+NON_BOOL_SWITCHES = [None, "false", 0, "", 1]
+
+#: A write the policy asks about and a read the policy skips: the deny covers both.
+SWITCH_CALLS = [
+    pytest.param(
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        id="write",
+    ),
+    pytest.param("mcp__controls__channel_read", {"channels": ["TEST:PV"]}, id="skip-read"),
+]
+
+
+def _switch_config(make_config, approval):
+    return make_config({"approval": approval, "control_system": {"writes_enabled": True}})
+
+
+def _switch_sentence(value):
+    return (
+        f"approval.enabled is {value!r}, not true or false; "
+        "set approval.enabled to true or false in profile.yml and rebuild"
+    )
+
+
+def _section_sentence(value):
+    return (
+        f"approval is {value!r}, not a mapping; "
+        "set approval.enabled to true or false in profile.yml and rebuild"
+    )
+
+
+def _deny_reason(result):
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "deny"
+    return output["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(("tool_name", "tool_input"), SWITCH_CALLS)
+@pytest.mark.parametrize("enabled", NON_BOOL_SWITCHES)
+def test_a_non_bool_switch_denies_every_call(
+    tmp_path, hook_runner, make_config, enabled, tool_name, tool_input
+):
+    """A switch that is not true or false asks nobody and allows nothing."""
+    config = _switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": enabled})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        tool_name,
+        tool_input,
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence(enabled)
+
+
+@pytest.mark.parametrize(("tool_name", "tool_input"), SWITCH_CALLS)
+@pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+def test_a_section_that_is_not_a_mapping_denies_every_call(
+    tmp_path, hook_runner, make_config, section, tool_name, tool_input
+):
+    """A bare ``approval:`` line is a deny with the fix, never a crash."""
+    config = _switch_config(make_config, section)
+
+    result = hook_runner(
+        "osprey_approval.py",
+        tool_name,
+        tool_input,
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _section_sentence(section)
+
+
+def test_a_non_bool_switch_deny_files_a_refused_record(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
+    from pathlib import Path
+
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=_switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": "false"}),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence("false")
+    records = [
+        json.loads(line)
+        for path in Path(tmp_path).rglob("hook_approval.jsonl")
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 1
+    assert records[0]["decision"] == "refused"
+    assert records[0]["reason"] == "approval_config_invalid"
+    assert records[0]["subject"] == "mcp__controls__channel_write"
+
+
+def test_a_non_bool_switch_denies_under_dispatch(tmp_path, hook_runner, make_config, monkeypatch):
+    """A headless dispatch run gets the same deny; nobody is there to ask."""
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=_switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": 0}),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence(0)
+
+
+@pytest.mark.parametrize("enabled", [*NON_BOOL_SWITCHES, "true"])
+def test_the_hook_spells_the_switch_fault_like_the_build(enabled):
+    """The standalone hook restates the build's sentence; the two never drift."""
+    from osprey.cli.build_posture_check import approval_enabled_fault
+    from tests.hooks.conftest import import_hook
+
+    hook = import_hook("osprey_approval")
+    rendered = {"approval": {**DEFAULT_TOOLS_CONFIG, "enabled": enabled}}
+    assert hook._APPROVAL_CONFIG_INVALID_REASON.format(value=enabled) == approval_enabled_fault(
+        rendered
+    )
+
+
+@pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+def test_the_hook_spells_the_section_fault_like_the_build(section):
+    from osprey.cli.build_posture_check import approval_enabled_fault
+    from tests.hooks.conftest import import_hook
+
+    hook = import_hook("osprey_approval")
+    assert hook._APPROVAL_SECTION_INVALID_REASON.format(value=section) == approval_enabled_fault(
+        {"approval": section}
+    )
 
 
 def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
@@ -1297,7 +1458,14 @@ def test_readonly_execute_still_prompts_when_writes_are_not_armed(
     on every unarmed deployment — the tool `writes_check` deliberately lets
     through is the one this hook must keep asking about.
     """
-    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+    config = _posture_config(
+        make_config,
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        },
+    )
 
     result = hook_runner(
         "osprey_approval.py",
@@ -1323,7 +1491,14 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
     `launch_token_required` once the queue drains — and a plain stop is ungated
     everywhere by design.
     """
-    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+    config = _posture_config(
+        make_config,
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        },
+    )
 
     result = hook_runner(
         "osprey_approval.py",
@@ -1488,7 +1663,11 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="channel_write-on-the-armed-simulator",
         ),
         pytest.param(
-            {"type": "mock", "writes_enabled": False},
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": False,
+            },
             None,
             "mcp__python__execute",
             {"code": "caput('SR:QF:SP', 1.5)", "execution_mode": "readwrite"},
@@ -1497,7 +1676,11 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="readwrite-execute-unarmed",
         ),
         pytest.param(
-            {"type": "mock", "writes_enabled": False},
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": False,
+            },
             None,
             "mcp__python__execute",
             {"code": "print(1)", "execution_mode": "readonly"},
@@ -1647,13 +1830,14 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
 
     config_path = tmp_path / "config.yml"
-    config_path.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config_path.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
     reset_config_cache()
 
     launches: list[str] = []
-    monkeypatch.setattr(launcher, "ensure_artifact_server", lambda: launches.append("artifact"))
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
 
     hook = hook_module("osprey_approval")
@@ -1870,3 +2054,773 @@ def test_raw_client_write_deny_files_a_refused_record(
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"
     assert records[0]["subject"] == "mcp__python__execute"
+
+
+# ---------------------------------------------------------------------------
+# Guarded runs: the target's run lock on the execute prompt
+# ---------------------------------------------------------------------------
+
+#: Asks for every execute call, on a deployment whose baseline target is ``va``.
+GUARDED_ALWAYS_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"execute": "always", "execute_file": "always"},
+    },
+    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+}
+
+#: Asks only for readwrite or write-shaped execute calls.
+GUARDED_SELECTIVE_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"execute": "selective", "execute_file": "selective"},
+    },
+    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+}
+
+
+def _lock(repo_root, target="va"):
+    """The run lock of *target* under *repo_root*, its directory created."""
+    path = lock_path(target, repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _run_guarded(hook_runner, make_config, tmp_path, tool_input, *, tool="execute", config=None):
+    return hook_runner(
+        "osprey_approval.py",
+        f"mcp__python__{tool}",
+        tool_input,
+        config_path=make_config(config or GUARDED_ALWAYS_CONFIG),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+
+def _reason(result):
+    return result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def _updated(result):
+    return result["hookSpecificOutput"].get("updatedInput")
+
+
+def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
+    result = _run_guarded(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"file_path": "scan.py", "execution_mode": "readwrite"},
+        tool="execute_file",
+    )
+
+    assert _decision(result) == "ask"
+    assert _updated(result)["approved_target"] == "va"
+    assert _updated(result)["file_path"] == "scan.py"
+
+
+@pytest.mark.parametrize("tool", ["execute", "execute_file"])
+def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
+    tmp_path, hook_runner, make_config, tool
+):
+    result = _run_guarded(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"code": "print(1)", "file_path": "scan.py", "execution_mode": "readonly"},
+        tool=tool,
+    )
+
+    assert _decision(result) == "ask"
+    assert _updated(result) is None
+
+
+def _planted_victim(tmp_path):
+    """A file outside the guarded-run directory; ``(path, its bytes)``."""
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep\n")
+    return victim, victim.read_bytes()
+
+
+def _run_tree(repo_root):
+    """Every name under *repo_root*'s guarded-run directory and what it is, ``None`` when absent.
+
+    Read without following a link and without opening anything but a regular
+    file that can be read, so a planted FIFO is never opened.
+    """
+    top = lock_path("va", repo_root).parent.parent
+    if not os.path.lexists(top):
+        return None
+    tree = {}
+    for where, dirs, files in os.walk(top):
+        for name in sorted(dirs + files):
+            path = os.path.join(where, name)
+            info = os.lstat(path)
+            relative = os.path.relpath(path, top)
+            if os.path.islink(path):
+                tree[relative] = ("link", os.readlink(path))
+            elif os.path.isdir(path):
+                tree[relative] = ("directory", info.st_mode)
+            elif not os.path.isfile(path):
+                tree[relative] = ("other", info.st_mode)
+            elif os.access(path, os.R_OK):
+                with open(path, "rb") as handle:
+                    tree[relative] = ("file", info.st_mode, info.st_nlink, handle.read())
+            else:
+                tree[relative] = ("file", info.st_mode, info.st_nlink, None)
+    return tree
+
+
+def _plant_nothing(tmp_path, _stack):
+    pass
+
+
+def _plant_empty_run_dir(tmp_path, _stack):
+    _lock(tmp_path)
+
+
+def _plant_free_lock(tmp_path, _stack):
+    _lock(tmp_path).touch()
+
+
+def _plant_held_with_holder(tmp_path, stack):
+    stack.enter_context(
+        held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path)
+    )
+
+
+def _plant_held_empty(tmp_path, stack):
+    stack.enter_context(held_lock("va", "", root=tmp_path))
+
+
+def _plant_unreadable(tmp_path, stack):
+    path = _lock(tmp_path)
+    path.touch()
+    path.chmod(0o000)
+    stack.callback(path.chmod, 0o664)
+
+
+def _plant_linked_directory(tmp_path, _stack):
+    path = _lock(tmp_path)
+    path.touch()
+    link_directory(path.parent)
+
+
+def _planter(kind):
+    def plant(tmp_path, _stack):
+        victim, _ = _planted_victim(tmp_path)
+        plant_kind(_lock(tmp_path), kind, victim)
+
+    return plant
+
+
+_LOCK_STATES = [
+    pytest.param(_plant_nothing, id="no-run-dir"),
+    pytest.param(_plant_empty_run_dir, id="empty-run-dir"),
+    pytest.param(_plant_free_lock, id="free-lock-file"),
+    pytest.param(_plant_held_with_holder, id="held-with-holder"),
+    pytest.param(_plant_held_empty, id="held-empty-record"),
+    pytest.param(
+        _plant_unreadable,
+        id="unreadable",
+        marks=pytest.mark.skipif(os.geteuid() == 0, reason="root opens a file of mode 000"),
+    ),
+    *(pytest.param(_planter(kind), id=f"planted-{kind}") for kind in PLANTED_REFUSED),
+    pytest.param(_plant_linked_directory, id="linked-target-dir"),
+]
+
+
+@pytest.mark.parametrize("plant", _LOCK_STATES)
+def test_the_prompt_binds_the_target_whatever_holds_its_lock(
+    plant, tmp_path, hook_runner, make_config
+):
+    import contextlib
+
+    victim = tmp_path / "victim"
+    tool_input = {"code": "print(1)", "execution_mode": "readwrite", "approved_target": "live"}
+    with contextlib.ExitStack() as stack:
+        plant(tmp_path, stack)
+        planted = _run_tree(tmp_path)
+        victim_before = victim.read_bytes() if victim.exists() else None
+
+        result = _run_guarded(hook_runner, make_config, tmp_path, tool_input)
+
+        assert _run_tree(tmp_path) == planted
+        assert (victim.read_bytes() if victim.exists() else None) == victim_before
+
+    assert _decision(result) == "ask"
+    assert _updated(result) == {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_target": "va",
+    }
+
+
+# ---------------------------------------------------------------------------
+# The ask stamp records the fields the approval prompt bound the call to
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stamp_dir(tmp_path, monkeypatch):
+    """The identity state directory the hook files its ask stamps in."""
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return state
+
+
+def _asked(hook_runner, make_config, tmp_path, tool, tool_input, config, tool_use_id):
+    return hook_runner(
+        "osprey_approval.py",
+        f"mcp__python__{tool}",
+        tool_input,
+        config_path=make_config(config),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+        hook_input_extra={"hook_event_name": "PreToolUse", "tool_use_id": tool_use_id},
+    )
+
+
+def _stamp(stamp_dir, tool_use_id):
+    import json
+
+    return json.loads((stamp_dir / f"approval_ask_{tool_use_id}.json").read_text())
+
+
+def _approved(mapping):
+    return {key: value for key, value in mapping.items() if key.startswith("approved_")}
+
+
+@pytest.mark.parametrize(
+    ("tool", "config", "tool_input"),
+    [
+        pytest.param(
+            "execute",
+            GUARDED_SELECTIVE_CONFIG,
+            {"code": "print(1)", "execution_mode": "readwrite"},
+            id="execute-selective",
+        ),
+        pytest.param(
+            "execute",
+            GUARDED_ALWAYS_CONFIG,
+            {"code": "print(1)", "execution_mode": "readwrite"},
+            id="execute-always",
+        ),
+        pytest.param(
+            "execute_file",
+            GUARDED_ALWAYS_CONFIG,
+            {"file_path": "scan.py", "execution_mode": "readwrite"},
+            id="execute_file-always",
+        ),
+    ],
+)
+def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
+    tmp_path, hook_runner, make_config, stamp_dir, tool, config, tool_input
+):
+    agent_input = {**tool_input, "approved_target": "agent-target"}
+
+    result = _asked(hook_runner, make_config, tmp_path, tool, agent_input, config, "toolu_rw1")
+
+    assert _decision(result) == "ask"
+    stamp = _stamp(stamp_dir, "toolu_rw1")
+    assert _approved(stamp) == _approved(_updated(result))
+    assert set(_approved(stamp)) == {"approved_target"}
+    assert stamp["approved_target"] == "va"
+    assert "agent-target" not in stamp.values()
+
+
+def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    tool_input = {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_view_sha256": "ab" * 32,
+    }
+
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        "execute",
+        tool_input,
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_rw2",
+    )
+
+    assert _decision(result) == "ask"
+    stamp = _stamp(stamp_dir, "toolu_rw2")
+    assert set(_approved(stamp)) == {"approved_target"}
+    assert "approved_view_sha256" not in stamp
+
+
+def test_an_agent_supplied_field_never_reaches_a_readonly_stamp(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    tool_input = {
+        "code": "print(1)",
+        "execution_mode": "readonly",
+        "approved_target": "live",
+    }
+
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        "execute",
+        tool_input,
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_ro1",
+    )
+
+    assert _decision(result) == "ask"
+    assert _updated(result) is None
+    assert _approved(_stamp(stamp_dir, "toolu_ro1")) == {}
+
+
+def test_an_ask_the_harness_never_received_leaves_no_approved_stamp(
+    tmp_path, hook_module, monkeypatch
+):
+    approval = hook_module("osprey_approval")
+    monkeypatch.setattr(approval, "_approval_state_dir", lambda _hook_input: str(tmp_path))
+
+    class _Broken:
+        def write(self, _text):
+            raise OSError("stdout closed")
+
+        def flush(self):
+            raise OSError("stdout closed")
+
+    monkeypatch.setattr(approval.sys, "stdout", _Broken())
+    output = {
+        "hookSpecificOutput": {
+            "permissionDecision": "ask",
+            "updatedInput": {"approved_target": "va"},
+        }
+    }
+
+    with pytest.raises(OSError):
+        approval._emit_ask(
+            output,
+            {"tool_use_id": "toolu_lost", "tool_name": "x"},
+            {"approved_target": "va"},
+        )
+
+    assert list(tmp_path.glob("approval_ask_*.json")) == []
+
+
+# ---------------------------------------------------------------------------
+# pyaml_measure: the view, the stepping and the binding
+# ---------------------------------------------------------------------------
+
+_VIEW_BYTES = b"type: pyaml.accelerator\nmachine: SR\n"
+_VIEW_RELATIVE = "data/pyaml/SR/configuration.yaml"
+_HCOR = [f"SR:HCM:{index:02d}:SP" for index in range(1, 23)]
+_VCOR = ["SR:VCM:01:SP"]
+_QUADS = ["SR:QF:01:SP", "SR:QF:02:SP"]
+
+
+def _measurement_block(**changes):
+    import hashlib
+
+    block = {
+        "kinds": {
+            "orm": {"hcor": "SR_HCM", "vcor": "SR_VCM"},
+            "trm": {"quad": "SR_QF"},
+        },
+        "groups": {
+            "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
+            "hcor": _HCOR,
+            "vcor": _VCOR,
+            "quad": _QUADS,
+        },
+        "view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
+    block.update(changes)
+    return block
+
+
+def _plant_view(render, data=_VIEW_BYTES):
+    path = render / "data" / "pyaml" / "SR" / "configuration.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def _measure(hook_runner, make_config, tmp_path, tool_input, *, block=None, cwd=None, extra=None):
+    hook_config = {**DEFAULT_APPROVAL_CONFIG, "measurement": {"SR": block or _measurement_block()}}
+    return hook_runner(
+        "osprey_approval.py",
+        "mcp__python__pyaml_measure",
+        tool_input,
+        config_path=make_config(GUARDED_ALWAYS_CONFIG),
+        cwd=cwd or tmp_path,
+        hook_config=hook_config,
+        hook_input_extra=extra,
+    )
+
+
+def _denied_reason(result):
+    assert _decision(result) == "deny"
+    return result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_the_measurement_prompt_shows_the_view_and_every_stepping_argument(
+    tmp_path, hook_runner, make_config
+):
+    import hashlib
+
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm", "model": "SR"})
+
+    assert _decision(result) == "ask"
+    reason = _reason(result)
+    digest = hashlib.sha256(_VIEW_BYTES).hexdigest()
+    assert 'Model: SR\nKind: orm\nModulation: "bipolar"\n' in reason
+    assert f"pyAML view: {_VIEW_RELATIVE}\n  sha256 {digest}\n" in reason
+    listed = "".join(f'\n  "{address}"' for address in [*_HCOR, *_VCOR])
+    assert f"Setpoints stepped: 23{listed}\n" in reason
+    assert " more" not in reason
+    assert _updated(result)["approved_view_sha256"] == digest
+
+
+def test_a_measurement_stepping_more_than_a_prompt_lists_is_denied_unasked(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    _plant_view(tmp_path)
+    hcor = [f"SR:HCM:{index:03d}:SP" for index in range(1, 501)]
+    groups = {**_measurement_block()["groups"], "hcor": hcor}
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm"},
+        block=_measurement_block(groups=groups),
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_pm_many"},
+    )
+
+    assert _denied_reason(result) == (
+        "pyaml_measure: orm on SR steps 501 setpoints, more than an approval prompt lists"
+    )
+    assert not (stamp_dir / "approval_ask_toolu_pm_many.json").exists()
+
+
+def test_the_named_correctors_are_the_ones_listed(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm", "correctors": [_VCOR[0]], "modulation": "unipolar"},
+    )
+
+    reason = _reason(result)
+    assert 'Modulation: "unipolar"' in reason
+    assert f'Setpoints stepped: 1\n  "{_VCOR[0]}"' in reason
+
+
+def test_a_group_step_shows_the_group_it_expands(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "trm", "modulation": "unipolar", "by": "group"},
+    )
+
+    reason = _reason(result)
+    assert 'By: "group"\n  group SR_QF steps 2 setpoints as one knob' in reason
+    assert f'Setpoints stepped: 2\n  "{_QUADS[0]}"\n  "{_QUADS[1]}"' in reason
+
+
+def test_a_group_step_with_modulation_omitted_shows_unipolar(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm", "by": "group"})
+
+    reason = _reason(result)
+    assert 'Modulation: "unipolar"\nBy: "group"\n' in reason
+
+
+_RF = ["SR:RF:FREQ:SP"]
+_SEXTS = ["SR:SF:01:SP", "SR:SF:02:SP", "SR:SD:01:SP"]
+_RF_PLANT = "DEFAULT_RF_PLANT"
+
+
+def _rf_block(**changes):
+    block = _measurement_block(
+        kinds={
+            "orm": {"hcor": "SR_HCM", "vcor": "SR_VCM"},
+            "dispersion": {"rf": _RF_PLANT},
+            "trm": {"quad": "SR_QF"},
+            "crm": {"rf": _RF_PLANT, "sext": "SR_S"},
+            "chromaticity_monitor": {"rf": _RF_PLANT},
+        },
+        groups={
+            "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
+            "hcor": _HCOR,
+            "vcor": _VCOR,
+            "quad": _QUADS,
+            "sext": _SEXTS,
+        },
+        rf=_RF,
+    )
+    block.update(changes)
+    return block
+
+
+@pytest.mark.parametrize(
+    ("kind", "stepped"),
+    [
+        ("dispersion", _RF),
+        ("crm", [*_RF, *_SEXTS]),
+        ("chromaticity_monitor", _RF),
+    ],
+)
+def test_a_kind_that_steps_the_rf_lists_its_setpoint(
+    tmp_path, hook_runner, make_config, kind, stepped
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind}, block=_rf_block())
+
+    assert _decision(result) == "ask"
+    listed = "".join(f'\n  "{address}"' for address in stepped)
+    assert f"Setpoints stepped: {len(stepped)}{listed}" in _reason(result)
+
+
+def test_named_correctors_add_no_corrector_to_a_dispersion(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "dispersion", "correctors": [_VCOR[0]]},
+        block=_rf_block(),
+    )
+
+    assert f'Setpoints stepped: 1\n  "{_RF[0]}"' in _reason(result)
+
+
+@pytest.mark.parametrize("kind", ["dispersion", "crm", "chromaticity_monitor"])
+def test_a_kind_that_steps_the_rf_is_denied_when_the_view_names_no_rf_setpoint(
+    tmp_path, hook_runner, make_config, kind
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind}, block=_rf_block(rf=[]))
+
+    assert _denied_reason(result) == (
+        f"pyaml_measure: {kind} steps the RF frequency and the pyAML view of SR names no "
+        f"RF setpoint: {_VIEW_RELATIVE}"
+    )
+
+
+def test_each_group_line_counts_that_groups_own_setpoints(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner, make_config, tmp_path, {"kind": "crm", "by": "group"}, block=_rf_block()
+    )
+
+    reason = _reason(result)
+    assert f'By: "group"\n  group SR_S steps {len(_SEXTS)} setpoints as one knob\n' in reason
+    assert f"Setpoints stepped: {len(_SEXTS) + len(_RF)}\n" in reason
+
+
+def test_a_measurement_on_a_held_target_is_asked_with_both_approved_fields(
+    tmp_path, hook_runner, make_config
+):
+    import hashlib
+
+    _plant_view(tmp_path)
+    with held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path):
+        result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"})
+
+    assert _decision(result) == "ask"
+    assert _approved(_updated(result)) == {
+        "approved_target": "va",
+        "approved_view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
+
+
+def test_the_binding_overwrites_what_the_agent_supplied(tmp_path, hook_runner, make_config):
+    import hashlib
+
+    _plant_view(tmp_path)
+    agent_input = {
+        "kind": "orm",
+        "approved_target": "agent-target",
+        "approved_view_sha256": "ab" * 32,
+    }
+
+    result = _measure(hook_runner, make_config, tmp_path, agent_input)
+
+    assert _updated(result) == {
+        "kind": "orm",
+        "approved_target": "va",
+        "approved_view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
+
+
+_HOSTILE = "SR\u009bQF\u202e:\u200bSP\n = 9"
+
+
+def test_prompt_text_renders_each_setpoint_as_one_printable_line(
+    tmp_path, hook_runner, make_config
+):
+    _plant_view(tmp_path)
+    hostile = [_HOSTILE, _HOSTILE.replace("\u200b", "")]
+    block = _measurement_block(groups={**_measurement_block()["groups"], "quad": hostile})
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm"}, block=block)
+
+    lines = _reason(result).splitlines()
+    start = lines.index("Setpoints stepped: 2")
+    first, second = lines[start + 1 : start + 3]
+    assert all(line.isascii() and line.isprintable() for line in (first, second))
+    assert first == f"  {json.dumps(hostile[0])}"
+    assert second == f"  {json.dumps(hostile[1])}"
+    assert first != second
+
+
+def test_a_view_whose_bytes_differ_from_the_record_is_denied(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path, _VIEW_BYTES + b"# edited\n")
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"})
+
+    assert _denied_reason(result) == (
+        f"pyaml_measure: the pyAML view of SR differs from the one the build recorded: "
+        f"{_VIEW_RELATIVE}"
+    )
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"kind": "crm"},
+        {"kind": "bba"},
+        {"kind": ["orm"]},
+        {"kind": "orm", "model": "LINE"},
+    ],
+    ids=["unlisted-kind", "unknown-kind", "non-string-kind", "model-without-view"],
+)
+def test_a_call_the_block_does_not_map_reaches_the_tool_unasked(
+    tmp_path, hook_runner, make_config, stamp_dir, tool_input
+):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        tool_input,
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_um1"},
+    )
+
+    assert _decision(result) == "allow"
+    assert _updated(result) is None
+    assert not (stamp_dir / "approval_ask_toolu_um1.json").exists()
+
+
+def test_the_prompt_lists_only_what_the_blocks_map_steps(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+    block = _measurement_block(kinds={"orm": {"hcor": "SR_HCM"}})
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"}, block=block)
+
+    listed = "".join(f'\n  "{address}"' for address in _HCOR)
+    assert f"Setpoints stepped: {len(_HCOR)}{listed}" in _reason(result)
+    assert all(address not in _reason(result) for address in _VCOR)
+
+
+@pytest.mark.parametrize("layout", ["host", "container"])
+def test_a_host_and_a_container_render_resolve_the_same_view(
+    tmp_path, hook_runner, make_config, layout
+):
+    render = tmp_path / "repo" / "build" if layout == "host" else tmp_path / "project"
+    if layout == "host":
+        (tmp_path / "repo" / "profile.yml").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "repo" / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    _plant_view(render)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"}, cwd=render)
+
+    assert _decision(result) == "ask"
+    assert f"pyAML view: {_VIEW_RELATIVE}\n" in _reason(result)
+
+
+def test_the_measurement_stamp_holds_its_two_approved_fields(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm", "approved_view_sha256": "ab" * 32},
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_pm1"},
+    )
+
+    stamp = _stamp(stamp_dir, "toolu_pm1")
+    assert _approved(stamp) == _approved(_updated(result))
+    assert set(_approved(stamp)) == {"approved_target", "approved_view_sha256"}
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("execute", {"code": "print(1)", "execution_mode": "readwrite"}),
+        ("execute_file", {"file_path": "scan.py", "execution_mode": "readwrite"}),
+    ],
+)
+def test_a_view_digest_rides_only_in_a_measurements_input(
+    tmp_path, hook_runner, make_config, stamp_dir, tool, tool_input
+):
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        tool,
+        {**tool_input, "approved_view_sha256": "ab" * 32},
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_nv1",
+    )
+
+    assert _decision(result) == "ask"
+    assert "approved_view_sha256" not in _updated(result)
+    stamp = _stamp(stamp_dir, "toolu_nv1")
+    assert set(_approved(stamp)) == {"approved_target"}
+
+
+def test_the_hook_restates_what_the_tool_steps_and_its_defaults(hook_module):
+    from osprey.mcp_server.python_executor.tools import _pyaml_measure_args as tool
+
+    approval = hook_module("osprey_approval")
+    assert approval._PYAML_BY_KINDS == tool.BY_KINDS
+    assert approval._PYAML_DEFAULT_MODULATION == tool.DEFAULT_MODULATION
+    assert approval._PYAML_DEFAULT_BY == tool.DEFAULT_BY
+    assert approval._PYAML_GROUP == tool.GROUP
+    assert approval._PYAML_GROUP_MODULATION == tool.GROUP_MODULATION
+    assert approval._PYAML_CORRECTOR_ROLES == tool._CORRECTOR_ROLES
+
+
+def test_the_hook_restates_the_view_writers_names(hook_module):
+    from osprey.facility.views import pyaml as view
+
+    approval = hook_module("osprey_approval")
+    assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
+    assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE

@@ -393,9 +393,9 @@ def test_the_endpoints_section_is_the_deploys_own_block(tmp_path, rendered):
     compose.write_text(
         f"""
 services:
-  openobserve:
+  telemetry_gateway:
     ports:
-      - "127.0.0.1:{ports["openobserve"]}:5080"
+      - "127.0.0.1:{ports["telemetry_gateway"]}:4318"
   postgresql:
     ports:
       - "127.0.0.1:{ports["postgres"]}:5432"
@@ -408,20 +408,20 @@ services:
     output = rendered.export_text()
 
     assert deploy_summary.summary_title(config) in output
-    assert output.index("services") < output.index("openobserve")
+    assert output.index("services") < output.index("telemetry_gateway")
     assert output.index("stores") < output.index("postgresql")
-    assert f"http://127.0.0.1:{ports['openobserve']}" in output
+    assert f"127.0.0.1:{ports['telemetry_gateway']}" in output
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 
-def test_the_endpoints_section_resolves_personas_against_the_live_checkout(tmp_path, monkeypatch):
+def test_the_endpoints_section_resolves_renders_against_the_live_checkout(tmp_path, monkeypatch):
     """Status hands ``endpoint_entries`` the repo it is reporting on.
 
-    The panel rows are narrowed per persona by reading each persona's rendered
+    The panel rows are narrowed per render by reading each render's rendered
     project, and a checkout that was moved or copied records a ``project_root``
     pointing at the OTHER copy — which would narrow this deployment's bands
     against somebody else's roster. The compose files in the same call are
-    already anchored on the live root; the persona lookup has to be too.
+    already anchored on the live root; the render lookup has to be too.
     """
     from osprey.deployment import deploy_summary
 
@@ -474,7 +474,7 @@ class TestNoRuntimeInstalled:
 
     def test_services_declared_still_fails(self, monkeypatch, rendered) -> None:
         """A deployment that needs a runtime and has none is broken, and says so."""
-        result = self._query(monkeypatch, {"deployed_services": ["openobserve"]}, installed=False)
+        result = self._query(monkeypatch, {"deployed_services": ["postgresql"]}, installed=False)
         assert result is None
 
         printed = rendered.export_text()

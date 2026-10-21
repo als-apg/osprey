@@ -15,7 +15,7 @@ under ``--drift=error``, :data:`~osprey.cli.build_profile_drift.NOTE_KINDS`
 never do. The accepted cost of that ruling is that a preset changing a default
 in a newer OSPREY arrives as a note rather than as a refusal.
 
-The same comparison answers a second question, for ``osprey profile expand``:
+The same comparison answers a second question, for ``osprey init --revalidate``:
 :func:`~osprey.cli.build_profile_drift.lacking_config_keys` — not which leaves
 differ but which the profile has not got, flattened to one dotted key each.
 
@@ -195,7 +195,7 @@ def test_a_marker_still_silences_a_note(repo: Path) -> None:
     assert report.stale_markers == []
 
 
-# ── the leaves `osprey profile expand` writes ────────────────────────────────
+# ── the leaves `osprey init --revalidate` writes ─────────────────────────────
 
 
 def test_a_fresh_materialization_lacks_nothing(repo: Path) -> None:

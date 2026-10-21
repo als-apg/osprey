@@ -18,9 +18,9 @@ first. A missing file is the bridge's refusal too, and stays one here: the
 compose renderer's mount-time check already says so for a deployment that
 arms writes, and this adds the parse.
 
-Writes-gated for the same reason the bridge and the mount are. A deployment
-that leaves every target read-only may name a database it stages later, and
-a build that refused it would be refusing a shape the deploy path supports.
+Writes-gated for the same reason the bridge and the mount are: a deployment
+that leaves every target read-only never opens the limits database, so no
+reader of it has anything to refuse.
 """
 
 from __future__ import annotations

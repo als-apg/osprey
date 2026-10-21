@@ -2,7 +2,7 @@
 
 Covers: summary mode, exact lookup (found/not-found/mixed), regex search,
 property filters, combined search+filter, parameter validation, limits-disabled,
-and the reported limits posture (tri-state allow_unlisted_channels plus the
+and the reported limits posture (tri-state mode plus the
 config key that answered, resolved for the deployment's control target).
 """
 
@@ -23,7 +23,6 @@ from tests.mcp_server.conftest import (
 
 TEST_LIMITS_DB = {
     "_version": "1.0",
-    "defaults": {"writable": True, "confirm": True},
     "MAG:HCM01:CURRENT:SP": {
         "min_value": -10.0,
         "max_value": 10.0,
@@ -61,27 +60,27 @@ class FakeChannelLimitsConfig:
 
 
 def _resolve_confirm(channel_address: str) -> bool:
-    """Mirror LimitsValidator.resolve_confirm: channel → defaults → True."""
+    """Mirror LimitsValidator.resolve_confirm: channel → True."""
     cfg = TEST_LIMITS_DB.get(channel_address)
     if isinstance(cfg, dict) and "confirm" in cfg:
         return bool(cfg["confirm"])
-    return bool(TEST_LIMITS_DB["defaults"].get("confirm", True))
+    return True
 
 
-DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
+VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
 def _make_validator(
-    allow_unlisted: bool | None = True,
-    allow_unlisted_key: str = DEPLOYMENT_WIDE_KEY,
+    mode: str | None = "optional",
+    mode_key: str = DEPLOYMENT_WIDE_KEY,
 ) -> MagicMock:
     """Build a mock LimitsValidator from TEST_LIMITS_DB.
 
     Args:
-        allow_unlisted: The tri-state posture answer — ``None`` is an unset
-            deployment-wide key, which refuses unlisted channels.
-        allow_unlisted_key: The config key that answered, as
+        mode: The limits mode — ``None`` is an unset deployment-wide key,
+            which refuses a channel with no record.
+        mode_key: The config key that answered, as
             ``LimitsValidator._from_posture`` puts it into ``policy``.
     """
     validator = MagicMock()
@@ -90,19 +89,19 @@ def _make_validator(
 
     limits = {}
     for addr, cfg in TEST_LIMITS_DB.items():
-        if addr.startswith("_") or addr == "defaults" or not isinstance(cfg, dict):
+        if addr.startswith("_") or not isinstance(cfg, dict):
             continue
         limits[addr] = FakeChannelLimitsConfig(
             channel_address=addr,
             min_value=cfg.get("min_value"),
             max_value=cfg.get("max_value"),
             max_step=cfg.get("max_step"),
-            writable=cfg.get("writable", True),
+            writable=cfg["writable"],
         )
     validator.limits = limits
     validator.policy = {
-        "allow_unlisted_channels": allow_unlisted,
-        "allow_unlisted_key": allow_unlisted_key,
+        "mode": mode,
+        "mode_key": mode_key,
         "on_violation": "error",
     }
     return validator
@@ -128,9 +127,9 @@ def _get_channel_limits():
 
 
 async def test_summary_mode():
-    """No params → stats, policy, defaults, version."""
+    """No params → stats, policy, version."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -143,22 +142,22 @@ async def test_summary_mode():
     assert data["summary"]["read_only"] == 2
     assert data["summary"]["has_step_limit"] == 1
     assert data["summary"]["version"] == "1.0"
-    assert data["access_details"]["policy"]["allow_unlisted_channels"] is True
-    assert data["access_details"]["policy"]["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
-    assert data["access_details"]["defaults"]["writable"] is True
+    assert data["access_details"]["policy"]["mode"] == "optional"
+    assert data["access_details"]["policy"]["mode_key"] == DEPLOYMENT_WIDE_KEY
+    assert "defaults" not in data["access_details"]
 
 
 async def test_summary_confirm_breakdown():
     """Summary reports how many channels resolve to confirm true vs false."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
         result = await fn()
 
     data = extract_response_dict(result)
-    # Only DIAG:TEMP:SP opts out; the rest inherit defaults.confirm = true.
+    # Only DIAG:TEMP:SP opts out; the rest state no confirm and confirm.
     assert data["summary"]["confirm_breakdown"] == {"true": 5, "false": 1}
     # The retired per-level breakdown is gone: no summary key names it any more.
     assert not [key for key in data["summary"] if "verification" in key]
@@ -172,7 +171,7 @@ async def test_summary_confirm_breakdown():
 async def test_lookup_found():
     """Single known channel → full config with the resolved confirm flag."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -190,9 +189,9 @@ async def test_lookup_found():
 
 
 async def test_lookup_confirm_opt_out():
-    """A channel with confirm: false reports it; defaults are not applied over it."""
+    """A channel with confirm: false reports it."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -204,10 +203,10 @@ async def test_lookup_confirm_opt_out():
 
 
 async def test_lookup_not_found_blocked():
-    """Unknown channel + allow_unlisted=false → BLOCKED."""
+    """Unknown channel + mode exclusive → BLOCKED."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=False),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode="exclusive"),
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
@@ -220,10 +219,10 @@ async def test_lookup_not_found_blocked():
 
 
 async def test_lookup_not_found_allowed():
-    """Unknown channel + allow_unlisted=true → allowed."""
+    """Unknown channel + mode optional → allowed."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=True),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode="optional"),
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
@@ -238,24 +237,24 @@ async def test_lookup_not_found_allowed():
 async def test_summary_unset_reports_null_and_deployment_wide_key():
     """Deployment-wide key unset → the summary reports null, not a permissive default."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=None),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode=None),
     ):
         fn = _get_channel_limits()
         result = await fn()
 
     data = extract_response_dict(result)
     policy = data["access_details"]["policy"]
-    assert policy["allow_unlisted_channels"] is None
-    assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
+    assert policy["mode"] is None
+    assert policy["mode_key"] == DEPLOYMENT_WIDE_KEY
 
 
 @pytest.mark.usefixtures("control_context_root")
 async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
     """Unset is nobody's permission: the unlisted channel is refused, key named."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=None),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode=None),
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
@@ -263,8 +262,8 @@ async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
     data = extract_response_dict(result)
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
     assert ch["in_database"] is False
-    assert ch["allow_unlisted_channels"] is None
-    assert ch["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
+    assert ch["mode"] is None
+    assert ch["mode_key"] == DEPLOYMENT_WIDE_KEY
     assert ch["policy_action"].startswith("BLOCKED")
     assert DEPLOYMENT_WIDE_KEY in ch["policy_action"]
 
@@ -275,8 +274,8 @@ async def test_posture_is_resolved_for_the_record_target(
     """The tool asks for the posture of the target the deployment's record names."""
     write_control_context(control_context_root, target="va")
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode="optional", mode_key=VA_KEY),
     ) as from_config:
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
@@ -284,8 +283,8 @@ async def test_posture_is_resolved_for_the_record_target(
     from_config.assert_called_once_with(target="va")
     data = extract_response_dict(result)
     ch = data["access_details"]["channels"]["UNKNOWN:PV"]
-    assert ch["allow_unlisted_channels"] is True
-    assert ch["allow_unlisted_key"] == VA_KEY
+    assert ch["mode"] == "optional"
+    assert ch["mode_key"] == VA_KEY
     assert ch["policy_action"] == "allowed (no limits enforced)"
 
 
@@ -293,14 +292,14 @@ async def test_summary_reports_the_per_target_key(control_context_root, write_co
     """A per-type block answers: the summary names that key, not the deployment-wide one."""
     write_control_context(control_context_root, target="va")
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=True, allow_unlisted_key=VA_KEY),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode="optional", mode_key=VA_KEY),
     ):
         fn = _get_channel_limits()
         result = await fn()
 
     data = extract_response_dict(result)
-    assert data["access_details"]["policy"]["allow_unlisted_key"] == VA_KEY
+    assert data["access_details"]["policy"]["mode_key"] == VA_KEY
 
 
 async def test_a_record_on_va_answers_the_va_block_not_the_deployment_wide_one(
@@ -315,20 +314,20 @@ async def test_a_record_on_va_answers_the_va_block_not_the_deployment_wide_one(
 
     def _block_for(*, target=None):
         return _make_validator(
-            allow_unlisted=True,
-            allow_unlisted_key=VA_KEY if target == "va" else DEPLOYMENT_WIDE_KEY,
+            mode="optional",
+            mode_key=VA_KEY if target == "va" else DEPLOYMENT_WIDE_KEY,
         )
 
     write_control_context(control_context_root, target="va")
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         side_effect=_block_for,
     ):
         fn = _get_channel_limits()
         result = await fn()
 
     policy = extract_response_dict(result)["access_details"]["policy"]
-    assert policy["allow_unlisted_key"] == VA_KEY
+    assert policy["mode_key"] == VA_KEY
 
 
 async def test_an_unreadable_record_falls_back_to_the_deployment_wide_block():
@@ -336,7 +335,7 @@ async def test_an_unreadable_record_falls_back_to_the_deployment_wide_block():
     with (
         _unreadable_record(),
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=_make_validator(),
         ) as from_config,
     ):
@@ -351,26 +350,26 @@ async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one(
     control_context_root, write_control_context
 ):
     """A validator built from a bare policy dict carries no key; report the honest default."""
-    validator = _make_validator(allow_unlisted=False)
-    del validator.policy["allow_unlisted_key"]
+    validator = _make_validator(mode="exclusive")
+    del validator.policy["mode_key"]
     write_control_context(control_context_root, target="live")
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=validator,
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["UNKNOWN:PV"])
 
     ch = extract_response_dict(result)["access_details"]["channels"]["UNKNOWN:PV"]
-    assert ch["allow_unlisted_channels"] is False
-    assert ch["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
+    assert ch["mode"] == "exclusive"
+    assert ch["mode_key"] == DEPLOYMENT_WIDE_KEY
 
 
 async def test_lookup_multiple_mixed():
     """Mix of found + not-found channels."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(allow_unlisted=False),
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(mode="exclusive"),
     ):
         fn = _get_channel_limits()
         result = await fn(channels=["MAG:HCM01:CURRENT:SP", "NONEXISTENT:PV"])
@@ -385,7 +384,7 @@ async def test_lookup_multiple_mixed():
 async def test_read_only_channel_details():
     """Read-only channel shows writable: false."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -404,7 +403,7 @@ async def test_read_only_channel_details():
 async def test_pattern_match():
     """MAG:.* → matches 2 MAG channels."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -420,7 +419,7 @@ async def test_pattern_match():
 async def test_search_entries_carry_confirm():
     """Compact search entries report confirm, never verification vocabulary."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -436,7 +435,7 @@ async def test_search_entries_carry_confirm():
 async def test_pattern_no_match():
     """Non-matching pattern → empty results, still success."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -465,7 +464,7 @@ async def test_pattern_invalid_regex():
 async def test_name_contains_matches_regex_metacharacters_literally():
     """name_contains uses literal matching for names with [], (), ., ^, etc."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -480,7 +479,7 @@ async def test_name_contains_matches_regex_metacharacters_literally():
 async def test_name_contains_treats_dot_as_literal():
     """Literal matching should not treat '.' as a regex wildcard."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -500,7 +499,7 @@ async def test_name_contains_treats_dot_as_literal():
 async def test_filter_writable():
     """filter_by=writable → writable channels only."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -515,7 +514,7 @@ async def test_filter_writable():
 async def test_filter_read_only():
     """filter_by=read_only → read-only channels only."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -530,7 +529,7 @@ async def test_filter_read_only():
 async def test_filter_has_step_limit():
     """filter_by=has_step_limit → channels with max_step."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -571,7 +570,7 @@ async def test_the_filter_set_carries_no_retired_readback_filter():
 async def test_combined_pattern_and_filter():
     """pattern + filter_by → intersection."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -587,7 +586,7 @@ async def test_combined_pattern_and_filter():
 async def test_combined_name_contains_and_filter():
     """name_contains + filter_by → literal search filtered by property."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
     ):
         fn = _get_channel_limits()
@@ -649,7 +648,7 @@ async def test_invalid_filter_error():
 async def test_limits_disabled():
     """from_config() returns None → disabled response (not an error)."""
     with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=None,
     ):
         fn = _get_channel_limits()

@@ -149,6 +149,9 @@ describe('baseline arming', () => {
   });
 });
 
+/** A /api/state body whose periodic SR selection is ready. */
+const READY = { selection: { model: 'SR', status: 'ready', capabilities: { verify: true } } };
+
 describe('contribution', () => {
   test('publishes the name and the three actions, disabled until a lattice loads', () => {
     createHeader(makeCallbacks()).init();
@@ -165,15 +168,29 @@ describe('contribution', () => {
     expect(contributedItem('baseline').disabled).toBe(true);
   });
 
-  test('a loaded lattice enables the actions and names the tile bar', () => {
+  test('header names the model', () => {
     const header = createHeader(makeCallbacks());
     header.init();
 
-    header.syncState({ base_lattice: '/lattices/alsu/AR_full.mat' });
+    header.syncState(READY);
 
-    expect(contributedItem('lattice-name').text).toBe('AR_full.mat');
+    expect(contributedItem('lattice-name').text).toBe('SR');
     expect(contributedItem('refresh').disabled).toBe(false);
+    expect(contributedItem('verify').disabled).toBe(false);
     expect(contributedItem('baseline').disabled).toBe(false);
+  });
+
+  test('Verify disabled for a single-pass selection', () => {
+    const header = createHeader(makeCallbacks());
+    header.init();
+
+    header.syncState({
+      selection: { model: 'LINE', status: 'ready', capabilities: { verify: false } },
+    });
+
+    expect(contributedItem('lattice-name').text).toBe('LINE');
+    expect(contributedItem('verify').disabled).toBe(true);
+    expect(contributedItem('refresh').disabled).toBe(false);
   });
 
   test('the armed label matches the resting one in length, so neighbours hold still', () => {
@@ -190,7 +207,7 @@ describe('contribution', () => {
     // and a panel has no way to ask it for a width.
     const header = createHeader(makeCallbacks());
     header.init();
-    header.syncState({ base_lattice: '/fake.mat' });
+    header.syncState(READY);
 
     const resting = contributedItem('baseline').label;
     byId('btn-baseline').click();
@@ -204,10 +221,10 @@ describe('contribution', () => {
     const cb = makeCallbacks();
     const header = createHeader(cb);
     header.init();
-    header.syncState({ base_lattice: '/fake.mat' });
+    header.syncState(READY);
 
     byId('btn-baseline').click();
-    header.syncState({ base_lattice: null });
+    header.syncState({ selection: { model: null, status: 'none', capabilities: {} } });
 
     expect(contributedItem('baseline').label).toBe('Baseline');
     expect(qs(byId('btn-baseline'), '.baseline-label').textContent).toBe('Baseline');

@@ -41,7 +41,7 @@ def _get_channel_read():
     return get_tool_fn(channel_read)
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic values through the real tool body.
 
     Values are keyed by address; an ``Exception`` instance is raised instead of
@@ -65,7 +65,7 @@ def _threshold_patch(inline_max: int | None):
     if inline_max is None:
         return nullcontext()
 
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     real = config_module.get_config_value
 
@@ -74,18 +74,20 @@ def _threshold_patch(inline_max: int | None):
             return inline_max
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey.utils.config.get_config_value", side_effect=fake)
+    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
 
 
 async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
-    connector = _MockConnector(values)
+    connector = _FakeConnector(values)
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -206,7 +208,7 @@ async def test_non_numeric_oversized_array_has_no_stats(tmp_path, monkeypatch):
 
 
 async def test_failed_address_reported_with_error_text(tmp_path, monkeypatch):
-    """One bad address in a batch surfaces in channels_failed; the rest succeed."""
+    """One bad address in a batch is named under missing; the rest succeed."""
     values = {
         "SR:GOOD:RB": 1.5,
         "SR:BAD:RB": TimeoutError("PVA timeout after 5s"),
@@ -217,20 +219,17 @@ async def test_failed_address_reported_with_error_text(tmp_path, monkeypatch):
     assert data["status"] == "success"
     assert data["summary"]["channels_read"] == 2
     assert set(data["summary"]["readings"]) == {"SR:GOOD:RB", "SR:ALSO_GOOD:RB"}
-    failed = data["summary"]["channels_failed"]
-    assert set(failed) == {"SR:BAD:RB"}
-    assert "PVA timeout after 5s" in failed["SR:BAD:RB"]
-    assert "TimeoutError" in failed["SR:BAD:RB"]
+    assert data["summary"]["missing"] == {"SR:BAD:RB": "TimeoutError: PVA timeout after 5s"}
     assert "1 failed" in data["description"]
     # One individual read per requested address.
     assert connector.calls == list(values)
 
 
-async def test_no_failures_means_no_channels_failed_key(tmp_path, monkeypatch):
-    """The scalar envelope is unchanged when every channel answers."""
+async def test_a_complete_read_carries_an_empty_missing_map(tmp_path, monkeypatch):
+    """Every channel answered: the summary still names missing, as ``{}``."""
     data, _ = await _read(tmp_path, monkeypatch, {"SR:CURRENT:RB": 500.2})
 
-    assert "channels_failed" not in data["summary"]
+    assert data["summary"]["missing"] == {}
     assert "values_withheld" not in data["access_details"]
 
 

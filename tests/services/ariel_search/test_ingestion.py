@@ -1365,6 +1365,85 @@ class TestGenericJSONAdapterWrite:
 
         assert data["entries"][0]["books"] == ["Operations"]
 
+    def test_supports_attachments_follows_write_support(self):
+        """A local file source takes files with an entry; an HTTP source takes none."""
+        assert GenericJSONAdapter(self._make_config("/tmp/test.json")).supports_attachments
+        http = GenericJSONAdapter(self._make_config("https://example.com/data.json"))
+        assert http.supports_attachments is False
+
+    @pytest.mark.asyncio
+    async def test_create_entry_keeps_files_beside_the_json_file(self, tmp_path):
+        """Each file is copied under the source directory and listed on the entry."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "entries.json"
+        upload_dir = tmp_path / "upload"
+        upload_dir.mkdir()
+        plot = upload_dir / "orbit plot.png"
+        plot.write_bytes(b"\x89PNG plot")
+        note = upload_dir / "note.txt"
+        note.write_bytes(b"a note")
+        adapter = GenericJSONAdapter(self._make_config(str(json_file)))
+
+        entry_id = await adapter.create_entry(
+            FacilityEntryCreateRequest(
+                subject="Orbit", details="Drift", attachment_paths=[str(plot), str(note)]
+            )
+        )
+
+        (stored,) = json.loads(json_file.read_text())["entries"]
+        assert [a["filename"] for a in stored["attachments"]] == ["orbit plot.png", "note.txt"]
+        assert [a["type"] for a in stored["attachments"]] == ["image/png", "text/plain"]
+        for item, source in zip(stored["attachments"], (plot, note), strict=True):
+            assert not item["url"].startswith("/")
+            assert entry_id in item["url"]
+            assert (tmp_path / item["url"]).read_bytes() == source.read_bytes()
+
+    @pytest.mark.asyncio
+    async def test_files_written_by_create_entry_are_read_back_as_its_attachments(self, tmp_path):
+        """The entry the adapter wrote comes back from fetch with the same files."""
+        from osprey.services.ariel_search.attachments import fetchable_url
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "entries.json"
+        plot = tmp_path / "orbit.png"
+        plot.write_bytes(b"\x89PNG plot")
+        adapter = GenericJSONAdapter(self._make_config(str(json_file)))
+
+        entry_id = await adapter.create_entry(
+            FacilityEntryCreateRequest(
+                subject="Orbit", details="Drift", attachment_paths=[str(plot)]
+            )
+        )
+        (entry,) = [e async for e in adapter.fetch_entries()]
+
+        assert entry["entry_id"] == entry_id
+        (item,) = entry["attachments"]
+        assert item["filename"] == "orbit.png"
+        assert fetchable_url(item["url"], file_source=True)
+
+    @pytest.mark.asyncio
+    async def test_create_entry_with_an_unreadable_file_writes_no_entry(self, tmp_path):
+        """A file that cannot be copied fails the write before the entry is appended."""
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        json_file = tmp_path / "entries.json"
+        json_file.write_text('{"entries": []}')
+        adapter = GenericJSONAdapter(self._make_config(str(json_file)))
+
+        with pytest.raises(IngestionError, match="missing.png"):
+            await adapter.create_entry(
+                FacilityEntryCreateRequest(
+                    subject="Orbit",
+                    details="Drift",
+                    attachment_paths=[str(tmp_path / "missing.png")],
+                )
+            )
+
+        assert json.loads(json_file.read_text()) == {"entries": []}
+        attachments_dir = tmp_path / "attachments"
+        assert not attachments_dir.exists() or not any(attachments_dir.iterdir())
+
 
 class TestALSLogbookAdapterWrite:
     """Tests for ALS adapter write support."""

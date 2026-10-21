@@ -69,7 +69,10 @@
 /**
  * The schema-v1 document. `rev` is the server's monotonic revision (0 for a
  * document that has never been saved); `header_visible` and `status_visible`
- * hide a bar without emptying it.
+ * hide a bar without emptying it; `rail_docs_visible` and
+ * `rail_feedback_visible` hide the rail's Docs and Feedback controls. The two
+ * rail flags are optional in a stored document — one saved before they existed
+ * shows both — so their absence is not a change.
  * @typedef {object} BarLayout
  * @property {number} version
  * @property {number} rev
@@ -77,6 +80,8 @@
  * @property {readonly BarLayoutItem[]} status
  * @property {boolean} header_visible
  * @property {boolean} status_visible
+ * @property {boolean} rail_docs_visible
+ * @property {boolean} rail_feedback_visible
  */
 
 /**
@@ -140,6 +145,8 @@ export function emptyLayout() {
     status: [],
     header_visible: true,
     status_visible: true,
+    rail_docs_visible: true,
+    rail_feedback_visible: true,
   });
 }
 
@@ -208,6 +215,8 @@ function normalizeDocument(doc, catalog, ctx, isDefault) {
       status: status.items,
       header_visible: headerVisible,
       status_visible: statusVisible,
+      rail_docs_visible: doc.rail_docs_visible !== false,
+      rail_feedback_visible: doc.rail_feedback_visible !== false,
     }),
     changed: header.changed || status.changed || revChanged || visibleChanged,
     readonly: header.lossy || status.lossy,
@@ -380,7 +389,8 @@ function hasOwn(target, key) {
  * handed fails loudly instead of corrupting the next comparison.
  * @param {{version: number, rev: number, header: BarLayoutItem[],
  *          status: BarLayoutItem[], header_visible: boolean,
- *          status_visible: boolean}} layout
+ *          status_visible: boolean, rail_docs_visible: boolean,
+ *          rail_feedback_visible: boolean}} layout
  * @returns {BarLayout}
  */
 function freezeLayout(layout) {

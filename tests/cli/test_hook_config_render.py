@@ -38,6 +38,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from tests._preset_data import bundle_data_root
 
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
@@ -52,19 +53,8 @@ _EXPECTED_KEYS = {
     "control_system_write_tools",
     "mixed_read_write_tools",
     "lane_addressed_tools",
+    "measurement",
 }
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree this fixture hands the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. This fixture
-    renders straight from a bundle rather than from a profile, so it names the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(tmp_path):
@@ -97,7 +87,7 @@ def _create_project(tmp_path):
             project_name=name,
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            data_root=_bundle_data_root(),
+            data_root=bundle_data_root(),
             context={"channel_finder_mode": "hierarchical", **(context or {})},
             force=True,
         )
@@ -427,6 +417,7 @@ def test_absent_servers_key_renders_empty_lists_silently():
     config = json.loads(_render_direct(manager, {"control_system_write_tools": []}))
 
     assert set(config) == _EXPECTED_KEYS
+    assert config.pop("measurement") == {}
     assert all(value == [] for value in config.values())
 
 
@@ -436,6 +427,7 @@ def test_rendered_file_is_valid_json_on_a_bare_render():
     config = json.loads(_render_direct(manager, {"servers": [], "control_system_write_tools": []}))
 
     assert set(config) == _EXPECTED_KEYS
+    assert config.pop("measurement") == {}
     for value in config.values():
         assert isinstance(value, list)
 

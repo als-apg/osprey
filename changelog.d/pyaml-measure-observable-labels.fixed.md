@@ -1,0 +1,1 @@
+A pyAML observable without a plane, or with an unknown plane, no longer ends a `pyaml_measure` run in a traceback: the result is refused by the observable's name, and the measurement file the run saved is named.

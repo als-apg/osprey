@@ -17,8 +17,11 @@ mutation itself explaining why a fixture cannot do the job.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator
 from pathlib import Path
+
+import pytest
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +30,8 @@ WHITELIST: dict[str, set[str]] = {
     # libca latches EPICS_CA_* at C-library init, on the first import of
     # epics/softioc anywhere in the process; the ports are picked from free
     # ones at the same moment for the same reason.
-    "va/test_record_factory.py": {"os.environ", "socket"},
     "va/test_apply_fault.py": {"os.environ", "socket"},
+    "va/test_lume_pva_seam.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA / gallery ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
@@ -48,11 +51,22 @@ WHITELIST: dict[str, set[str]] = {
     "scripts/test_changelog_fragments.py": {"sys.modules"},
     "scripts/test_docs_publish.py": {"sys.modules"},
     "scripts/test_fusion_calibration.py": {"sys.modules"},
-    "scripts/test_scenario_plots.py": {"sys.modules"},
+    "scripts/test_bpm_polarity_picture.py": {"sys.modules"},
     # The Teams relay ships as a service template, not a package: its
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.
     "bridges/teams/test_relay_validation.py": {"sys.modules"},
+    # The demo facility's element table is a script loaded by path, and its rows
+    # feed a parametrize decorator the same way.
+    "facility/test_element_table.py": {"sys.modules"},
+    "facility/test_mml_parse.py": {"sys.modules"},
+    "scripts/test_panel_rename.py": {"sys.modules"},
+    # The demo facility's transfer-line scripts import their siblings by bare
+    # name, as generate.py runs them: the loader holds the scripts folder on
+    # sys.path only while one executes, and their sections feed parametrize.
+    "facility/test_gate_chain.py": {"sys.modules", "sys.path"},
+    "facility/test_transfer_decks.py": {"sys.modules", "sys.path"},
+    "facility/test_transfer_wiring.py": {"sys.modules", "sys.path"},
     "va/e2e/conftest.py": {"socket", "sys.modules"},
     # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
     # imports any osprey module: osprey.cli.styles builds its Console at import
@@ -69,6 +83,23 @@ _LIST_MUTATORS = frozenset(
 )
 _SOCKET_OPENERS = frozenset({"socket", "create_connection", "create_server", "socketpair"})
 _PORT_HELPERS = frozenset({"free_port", "_free_port"})
+
+#: Identifiers at least one of which every write the checks below detect has to
+#: spell in the source: an ``os.environ`` write names ``environ`` (or
+#: ``putenv``/``unsetenv``), a socket opens through ``socket`` or a port helper,
+#: and ``sys.path``/``sys.modules`` need ``sys`` plus the attribute. A module
+#: that spells none of them is skipped unparsed -- most of the tree, and
+#: parsing it is what the audit spends its time on.
+_ANY_KIND_TOKEN = re.compile(r"\b(?:environ|putenv|unsetenv|socket|_?free_port)\b")
+_SYS_TOKEN = re.compile(r"\bsys\b")
+_SYS_ATTR_TOKEN = re.compile(r"\b(?:path|modules)\b")
+
+
+def _could_mutate(source: str) -> bool:
+    """False only for a module that cannot contain any write the audit detects."""
+    if _ANY_KIND_TOKEN.search(source):
+        return True
+    return bool(_SYS_TOKEN.search(source) and _SYS_ATTR_TOKEN.search(source))
 
 
 def _dotted(node: ast.AST) -> str:
@@ -166,6 +197,8 @@ def import_time_mutations(source: str) -> set[str]:
     one at import time executes its body then (this is how
     ``test_matrix_dashboard.py`` registers its ``sys.modules`` entry).
     """
+    if not _could_mutate(source):
+        return set()
     tree = ast.parse(source)
     local_functions = {
         node.name: node
@@ -224,3 +257,32 @@ def test_whitelisted_sites_carry_justification():
         "Add the comment directly above the mutation, saying what forces it to run at "
         "import time rather than in a fixture."
     )
+
+
+#: One import-time write per way the audit can see one.
+_ONE_OF_EACH = {
+    "os.environ assignment": ('import os\nos.environ["A"] = "1"\n', "os.environ"),
+    "os.environ delete": ('import os\ndel os.environ["A"]\n', "os.environ"),
+    "os.environ mutator": ('import os\nos.environ.setdefault("A", "1")\n', "os.environ"),
+    "os.putenv": ('import os\nos.putenv("A", "1")\n', "os.environ"),
+    "os.unsetenv": ('import os\nos.unsetenv("A")\n', "os.environ"),
+    "sys.path assignment": ("import sys\nsys.path = []\n", "sys.path"),
+    "sys.path mutator": ('import sys\nsys.path.insert(0, "x")\n', "sys.path"),
+    "sys.modules assignment": ('import sys\nsys.modules["m"] = None\n', "sys.modules"),
+    "sys.modules mutator": ('import sys\nsys.modules.pop("m")\n', "sys.modules"),
+    "socket opener": ("import socket\nsocket.socket()\n", "socket"),
+    "port helper": ("free_port()\n", "socket"),
+    "private port helper": ("_free_port()\n", "socket"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_ONE_OF_EACH))
+def test_the_unparsed_skip_never_hides_a_detectable_write(case: str) -> None:
+    """Every kind the AST check detects survives the token pre-filter.
+
+    The whitelist test only parses modules that spell one of
+    :data:`_ANY_KIND_TOKEN`'s identifiers; a detection added without its
+    identifier would silently never run. This pins the two together.
+    """
+    source, kind = _ONE_OF_EACH[case]
+    assert kind in import_time_mutations(source)

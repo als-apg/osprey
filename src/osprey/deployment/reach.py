@@ -1,7 +1,7 @@
 """The Reach Contract: how a container reaches the services its deployment runs.
 
 A deployment's services are reached by clients that do not deploy them — every
-web-terminal persona is an *attached* render (``deploy_services: false``) whose
+web-terminal render is an *attached* render (``deploy_services: false``) whose
 container shares the host's network namespace and dials the hosting
 deployment's Postgres, its qmd sidecar, its graph store, its bluesky bridge,
 its telemetry store — and each of those clients resolves its endpoint through
@@ -20,7 +20,7 @@ enforcement reads the same declaration:
   :func:`project_attached_overrides` copies each contract's client-facing
   keys from the HOST's rendered config into the attached render, gated on the
   consumer being switched on there. The build already knows every
-  client-facing fact about its services; no persona restates one, and a
+  client-facing fact about its services; no render restates one, and a
   service moved on the hosting profile moves every client with it.
   An attached profile built with no deployment in its repo is projected from
   what its app template deploys at the shipped defaults instead — the
@@ -31,7 +31,7 @@ enforcement reads the same declaration:
   restates a stack the render does not run — except the keys a contract
   declares *render-local* (:attr:`ReachContract.render_local`,
   :func:`render_local_keys`): a file in the render's own ``data/`` tree, the
-  graph corpus and its search index, which the persona stages exactly as its
+  graph corpus and its search index, which the render stages exactly as its
   host does and reads from inside its own container.
 * **The build refuses.** :func:`reach_errors` reads a rendered config and
   refuses a consumer that is on with nothing to resolve — the generic backstop
@@ -50,7 +50,7 @@ enforcement reads the same declaration:
 The registry is a mapping keyed by the ``services.<name>`` key, collected
 here like :data:`osprey.registry.mcp.FRAMEWORK_SERVERS`. Predicates are the
 ones the web-terminal render already grants credentials by
-(:mod:`osprey.deployment.web_terminals.personas`), imported rather than
+(:mod:`osprey.deployment.web_terminals.roster`), imported rather than
 restated, so the registry and the render cannot disagree about who is
 entitled to what.
 """
@@ -73,7 +73,6 @@ from osprey.bluesky_bridge_connection import (
     lane_env_prefix,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
@@ -92,7 +91,7 @@ from osprey.deployment.qmd_service import (
 from osprey.deployment.qmd_service import CORPORA_CONFIG_KEY as QMD_CORPORA_CONFIG_KEY
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.web_terminals.personas import (
+from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
     as_dict,
@@ -245,12 +244,12 @@ class ReachContract:
         consumers: The in-container clients, each with its switch and resolver.
         projected: The keys copied into an attached render from its host.
         credentials: The env vars entitled containers receive.
-        no_client_reach: The service is dialed by nothing inside a persona
+        no_client_reach: The service is dialed by nothing inside a render
             container (a host-side writer, a worker the host dials); the
             contract exists to say so, and ``note`` says why. Such a contract
-            declares no consumer, but may still project a fact a persona READS
+            declares no consumer, but may still project a fact a render READS
             about its host rather than dials — the recorder's block, which is
-            how a persona session knows whose history the archive holds.
+            how a render session knows whose history the archive holds.
         derived_by: Name of the build block that already derives this
             service's client facts for attached renders on its own path
             (the archive: :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides`).
@@ -285,7 +284,7 @@ class ReachContract:
 
 @dataclass(frozen=True)
 class SharedPath:
-    """A host directory bound into every entitled persona container.
+    """A host directory bound into every entitled render container.
 
     Attributes:
         config_key: The dotted key naming the directory.
@@ -401,7 +400,7 @@ def _channel_finder_graph_on(config: Mapping[str, Any]) -> bool:
     # The graph paradigm's channel finder is its own MCP server, shipped on
     # the rendered pipeline (registry: condition="channel_finder_pipeline")
     # and dialing the store through its own server context — independent of
-    # the `graph` server's switch. A persona that switches the graph server
+    # the `graph` server's switch. A render that switches the graph server
     # off but keeps the channel finder still needs the store.
     return dotted_get(config, "channel_finder.pipeline_mode") == "graph" and _servers_enabled(
         config, "channel-finder", default=True
@@ -419,12 +418,10 @@ def _ariel_on(config: Mapping[str, Any]) -> bool:
 
 
 def _telemetry_on(config: Mapping[str, Any]) -> bool:
+    from osprey.build.claude_code_telemetry import GATEWAY_BACKEND
+
     telemetry = as_dict(as_dict(as_dict(config).get("claude_code")).get("telemetry"))
-    return (
-        bool(telemetry.get("enabled"))
-        and telemetry.get("backend") == "openobserve"
-        and not telemetry.get("endpoint")
-    )
+    return bool(telemetry.get("enabled")) and telemetry.get("backend") == GATEWAY_BACKEND
 
 
 def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
@@ -438,7 +435,7 @@ def _launch_token_needed(lane: str) -> Predicate:
     # arms a queue start there is granted on that target's write posture and no
     # other: a deployment whose baseline is a live machine arms its
     # virtual-accelerator lane while the live lane stays disarmed. Every lane
-    # asks personas.config_needs_launch_token_for, which also reads a lane this
+    # asks renders.config_needs_launch_token_for, which also reads a lane this
     # render never carried as nothing to arm.
     def _needed(config: Mapping[str, Any]) -> bool:
         return config_needs_launch_token_for(config, lane)
@@ -455,7 +452,7 @@ def _second_lane_on(lane: str) -> Predicate:
     on AND this render carries the block — a single-lane render has no such
     consumer at all, and a render told the lane by projection has one from
     that moment on. That is what lets one registry entry serve both shapes:
-    absent on the host means absent from the persona means nothing to refuse.
+    absent on the host means absent from the render means nothing to refuse.
     """
 
     def _on(config: Mapping[str, Any]) -> bool:
@@ -485,7 +482,7 @@ def _target_configured(config: Mapping[str, Any], target: str) -> bool:
     written. Delegated rather than restated because the runtime enumerates a
     deployment's machines by that same predicate, and a contract that judged
     "this render can reach that machine" its own way could switch a consumer on
-    for a target no session will be offered. A persona render whose ``config:``
+    for a target no session will be offered. A render whose ``config:``
     overlay dropped the block has no client for that machine, whatever a
     projected port still says.
 
@@ -508,13 +505,23 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     which is what a VA connector is built from — not ``control_system.type``,
     which says which target the deployment BOOTS on. A deployment whose
     baseline is the live machine or the stand-in still offers ``va`` to any
-    session that switches to it, and its persona renders still have to be told
+    session that switches to it, and its renders still have to be told
     the port that session would dial; gating on the baseline withheld the
     projection from exactly those renders.
-    """
-    from osprey_connectors.types import TARGET_VA
 
-    return _target_configured(config, TARGET_VA)
+    And the ``va`` it resolves to talks to a network: the simulator served in
+    process lives inside the process that asks, so there is no container port
+    for a session to dial and none is projected.
+    """
+    from osprey_connectors.types import TARGET_VA, resolve_target, talks_to_network
+
+    if not _target_configured(config, TARGET_VA):
+        return False
+    section = as_dict(config).get("control_system")
+    try:
+        return talks_to_network(section, resolve_target(section, TARGET_VA))
+    except ValueError:
+        return False
 
 
 def _live_standin_on(config: Mapping[str, Any]) -> bool:
@@ -535,8 +542,7 @@ def _live_standin_on(config: Mapping[str, Any]) -> bool:
 
     The port, meanwhile, is projected into every attached render ungated (see
     the contract's ``projected``) because the roster's LABEL reads it. A render
-    built from a template that configures no stand-in — hello_world,
-    ariel_standalone — or a persona whose overlay carries no connector block at
+    built from a template that configures no stand-in — hello_world — or a render whose overlay carries no connector block at
     all therefore holds the port for its label and switches no consumer on, and
     refusing that render would refuse the projection that makes the label
     honest.
@@ -923,18 +929,18 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.uri", gate=_graph_store_wanted),
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.username", gate=_graph_store_wanted),
             # Which database on that store holds the corpus: the host's fact
-            # about an external store, opened by every session a persona's
+            # about an external store, opened by every session a render's
             # clients start, and meaningless without the address it sits beside.
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.database", gate=_graph_store_wanted),
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
-        # The corpus and the search index derived from it are files in the
-        # render's own data/ tree, which every attached render stages: the
-        # build derives the persona's index from the persona's own corpus key,
-        # and inside the container the roster, the explorer and the keyword
-        # tool resolve both files against the render they sit in.
-        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY, GRAPHDB_INDEX_PATH_CONFIG_KEY),
+        # The corpus is a file in the render's own data/ tree, which every
+        # attached render stages: the build derives the render's index from
+        # the render's own corpus key, and inside the container the explorer
+        # and the keyword tool resolve the corpus and the index beside it
+        # against the render they sit in.
+        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY,),
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(
@@ -966,25 +972,41 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),
-    "openobserve": ReachContract(
-        service="openobserve",
+    "telemetry_gateway": ReachContract(
+        service="telemetry_gateway",
         consumers=(
             Consumer(
                 name="agent telemetry (OTLP exporter)",
                 switch_key="claude_code.telemetry.enabled",
                 is_on=_telemetry_on,
-                # The endpoint always derives (host from context, port from the
-                # block or the listen port); the projection keeps the port the
-                # host's.
+                # The gateway address always derives (host from where the
+                # launch runs, port from the block or the port base); the
+                # projection keeps the port the host's.
                 resolves=_always,
                 dial=_telemetry_dial,
             ),
         ),
-        projected=(ProjectedKey("services.openobserve.port", gate=_telemetry_on),),
-        # Every container emits as the one ingest account, by design (the
-        # compose template's ZO_INGEST_SA_TOKEN note): ungated.
-        credentials=(CredentialGrant("ZO_INGEST_SA_TOKEN", None),),
-        note="the exporter posts to the published port on loopback",
+        projected=(ProjectedKey("services.telemetry_gateway.port", gate=_telemetry_on),),
+        # Each sender authenticates with the login in its own
+        # `.env.telemetry-sender.<identity>` env_file, never a granted
+        # compose-environment credential.
+        note="the exporter posts to the gateway's published port",
+    ),
+    "telemetry_store": ReachContract(
+        service="telemetry_store",
+        no_client_reach=True,
+        note=(
+            "only the gateway, the archive pass and the history page query it; "
+            "nothing in a render container dials the store"
+        ),
+    ),
+    "history": ReachContract(
+        service="history",
+        no_client_reach=True,
+        note=(
+            "browsers reach the history page through the readers' origin; "
+            "nothing in a render container dials it"
+        ),
     ),
     "bluesky": ReachContract(
         service="bluesky",
@@ -1016,7 +1038,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     # serves, and which one is rendered depends on the deployment baseline.
     # Not an app-template service: the injector writes the block beside lane
     # 1's, reusing the bluesky service template. Projected exactly like lane
-    # 1, port and target, so a persona's session switched to the other
+    # 1, port and target, so a render's session switched to the other
     # machine is routed to that machine's lane rather than refused as a
     # single-lane render — and armed by that lane's own token, granted on the
     # write posture of the target that lane drives rather than on lane 1's.
@@ -1039,7 +1061,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # The reverse grant — the sidecar is handed each entitled user's own
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
-        # (personas.bluesky_panel_secret_env_vars).
+        # (renders.bluesky_panel_secret_env_vars).
         # The url IS the endpoint: a profile that pins one for a sidecar it
         # does not deploy has named it.
         names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
@@ -1095,7 +1117,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 dial=_live_standin_dial,
             ),
         ),
-        # UNGATED, alone among the service ports here. An attached or persona
+        # UNGATED, alone among the service ports here. An attached or render
         # render carries `services: {}` except for the keys projected into it,
         # and this port is not only how a client dials the stand-in: it is the
         # whole evidence `osprey_connectors.standin.live_standin_active` reads
@@ -1103,7 +1125,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # deployment's own stand-in container. A gate would withhold it from
         # exactly the renders a multi-user deployment hands its operators, and
         # the same machine would be described one way in a single-user session
-        # and another through a persona. Projecting it everywhere costs nothing
+        # and another through a render. Projecting it everywhere costs nothing
         # it could be misread for: an SSH tunnel to a real gateway on loopback
         # carries no such block, so it stays a real machine, which is the truth.
         projected=(ProjectedKey("services.live_standin.port", gate=None),),
@@ -1122,41 +1144,41 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     "archiver_recorder": ReachContract(
         service="archiver_recorder",
         no_client_reach=True,
-        # Nothing in a persona container dials the recorder — and one fact
+        # Nothing in a render container dials the recorder — and one fact
         # about it still has to travel. `archive_belongs_to_standin` reads
         # whether the deployment records its own store to decide WHOSE history
         # the archive holds, and on that answer the `live` target is refused:
         # a real machine's readings spliced onto a stand-in's synthesized past
-        # is the one thing an archive must never contain. A persona reads that
+        # is the one thing an archive must never contain. A render reads that
         # same store, so the gate has to hold in a multi-user session exactly
         # as it does in a single-user one — but the host's spelling of the
         # fact, `deployed_services`, is empty in every attached render.
         #
         # So the block the injector writes for a deployed recorder is
         # projected, ungated like the stand-in port beside it. It is the
-        # host's fact that it records, not a directory the persona has: the
+        # host's fact that it records, not a directory the render has: the
         # predicate is its only reader, and no attached render grows a surface
         # from it — a service is rendered, mounted and started off
         # `deployed_services` (compose_generator.find_service_config is driven
         # by that list), never off the presence of a `services:` block.
         projected=(ProjectedKey("services.archiver_recorder.path", gate=None),),
         note=(
-            "a host-side writer; a persona reads the store, not the recorder — "
+            "a host-side writer; a render reads the store, not the recorder — "
             "its path is projected as the host's fact that it records one, which "
-            "gates the `live` target in a persona session too"
+            "gates the `live` target in a render session too"
         ),
     ),
     "dispatch_worker": ReachContract(
         service="dispatch_worker",
         no_client_reach=True,
-        note="the worker dials the persona's project, never the reverse",
+        note="the worker dials the render's project, never the reverse",
     ),
     **_outbound_only_contracts(),
 }
 
 
 def _bundle_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
-    # Imported here, as :mod:`osprey.deployment.web_terminals.personas` does:
+    # Imported here, as :mod:`osprey.deployment.web_terminals.roster` does:
     # compose_generator imports the web-terminal package at module level.
     from osprey.deployment.compose_generator import resolve_facility_bundle_dir
 
@@ -1169,7 +1191,7 @@ def _mirror_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) ->
     return resolve_ariel_mirror_dir(config, repo_root)
 
 
-#: Host directories bound into entitled persona containers, each at the path
+#: Host directories bound into entitled render containers, each at the path
 #: the container's own resolver derives for the key (see
 #: :mod:`osprey.deployment.web_terminals.render`).
 SHARED_PATHS: tuple[SharedPath, ...] = (

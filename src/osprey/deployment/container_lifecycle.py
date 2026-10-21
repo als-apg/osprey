@@ -4,6 +4,7 @@ Manages the lifecycle of containerized service deployments using
 Docker or Podman compose.
 """
 
+import contextlib
 import hashlib
 import ipaddress
 import json
@@ -27,6 +28,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment import telemetry_config
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
@@ -44,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_site_image_axes,
 )
+from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
@@ -52,7 +55,7 @@ from osprey.deployment.errors import (
     NoRenderedBuildError,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     preflight_graphdb_config,
 )
@@ -79,16 +82,16 @@ from osprey.deployment.service_tokens import (
     _VAR_GENERATORS,  # noqa: F401  (re-exported for tests)
     _VAR_VALIDATORS,  # noqa: F401  (re-exported for tests)
     _effective_value,
-    _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
     _is_forbidden_value,
     _raise_forbidden_var,
     _raise_invalid_var,
-    _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _validate_var,
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.telemetry_store.stage import compose_executor
+from osprey.deployment.telemetry_store.stage import stage_store as stage_telemetry_store
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
@@ -97,9 +100,16 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
+from osprey.deployment.web_terminals.render_images import (
+    build_render_images,
+    dispatch_worker_tier_image,
+    render_build_session,
+    verify_renders,
+)
+from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.utils.config import config_anchored_at, load_project_config
-from osprey.utils.dotenv import (
+from osprey_connectors.config import config_anchored_at, load_project_config
+from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_SHARED_FILENAME,
@@ -111,8 +121,8 @@ from osprey.utils.dotenv import (
     parse_dotenv_file,
     write_env_merged,
 )
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 
 logger = get_logger("deployment.lifecycle")
 
@@ -129,32 +139,18 @@ logger = get_logger("deployment.lifecycle")
 # ``deployed_services``, so the membership guard in ``_ensure_service_tokens``
 # would skip it and the key would never mint.
 #
-# openobserve is included for a DIFFERENT reason than the others. Its compose
-# template *does* carry an insecure ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``
-# default, so a deploy does not fail without a real secret — left alone it
-# silently comes up on a shared, publicly-known password. Because that store
-# captures full agent conversation transcripts (every telemetry content gate
-# defaults ON), minting a per-deploy ``ZO_ROOT_USER_PASSWORD`` replaces the
-# shared default with a strong secret that BOTH the container and the agent's
-# telemetry resolver read from the same ``.env`` value (single source of truth).
-# The agent's config references ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``, so
-# it stays launchable before the first deploy and picks up the minted value on
-# its next launch. The email is a username, not a secret (it has a sensible
-# non-secret default), so only the password is minted. See
-# ``_generate_openobserve_password`` for why a plain token recipe won't do.
-#
-# postgresql follows the openobserve rationale: its compose template carries an
-# insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so left alone the ARIEL
-# store comes up on a shared, publicly-known password. Minting a per-deploy
+# postgresql is included for a DIFFERENT reason than the others. Its compose
+# template *does* carry an insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so
+# a deploy does not fail without a real secret — left alone the ARIEL store
+# silently comes up on a shared, publicly-known password. Minting a per-deploy
 # ``ARIEL_DB_PASSWORD`` replaces it with a strong secret that the container
 # (POSTGRES_PASSWORD) and the agent's DSN (derived from the ``services.postgresql``
 # block by ``resolve_ariel_dsn``, which substitutes the same
 # ``${ARIEL_DB_PASSWORD:-ariel}``) read from the same ``.env`` value. An explicit
 # ``ariel.database.uri`` still wins when a project sets one.
 # NOTE: Postgres only reads POSTGRES_PASSWORD when *initializing* a fresh data
-# volume — a pre-existing volume keeps its original password (same
-# stale-volume caveat as openobserve; recreate the volume to adopt the minted
-# value).
+# volume — a pre-existing volume keeps its original password (recreate the
+# volume to adopt the minted value).
 #
 # mongodb is the archiver store, and follows the same shape one step further:
 # its compose template carries an insecure ``${MONGO_ROOT_PASSWORD:-osprey}``
@@ -170,7 +166,7 @@ logger = get_logger("deployment.lifecycle")
 # NOTE: mongod, like postgres, reads its root credentials only when
 # initializing a fresh data volume — the same stale-volume caveat applies.
 #
-# graphdb is the Neo4j knowledge-graph store, and follows the openobserve
+# graphdb is the Neo4j knowledge-graph store, and follows the postgresql
 # rationale with one wrinkle the other three do not have: its compose template
 # passes credentials as the COMPOSITE ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``,
 # so the minted value is only the password half. Left alone the store comes up
@@ -202,7 +198,6 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # refuses startup instead of minting a value nothing outside the container
     # can learn — the mint here is what makes the deployed panel reachable.
     "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
-    "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     # Two identities on one store: the owner ingestion writes with, and the
     # SELECT-only role the agent's raw-SQL path connects as. Both are read by
     # Postgres only while it initializes a fresh volume, and both fill the
@@ -210,49 +205,6 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "postgresql": ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
     "graphdb": ("GRAPHDB_PASSWORD",),
-}
-
-# Non-secret settings written into ``.env`` for a deployed service, as
-# ``service -> ((var, default), ...)``. Keyed by ``deployed_services`` membership
-# exactly like ``_SERVICE_TOKEN_VARS``, and never overwriting a value that is
-# already there — but a DIFFERENT concern, which is why it is a different map.
-#
-# ``_SERVICE_TOKEN_VARS`` declares machine-generated secrets, and every name it
-# reaches is minted through ``_VAR_GENERATORS`` under that module's CSPRNG bar.
-# A constant is not a secret and has no recipe, so registering one there would
-# mean writing a generator that returns a fixed string — a value the bar has no
-# meaning for, sitting in the map an operator reads to learn what osprey
-# considers secret.
-#
-# The reason to write a default down at all is discoverability. Both halves of
-# the OpenObserve login are needed to reach the store, and the email previously
-# existed only as a ``:-`` fallback inline in the compose template and the
-# rendered config.yml. An operator looking for their credentials found a
-# password in ``.env``, no email anywhere, and nothing naming the file that
-# would have told them. Writing the default makes ``.env`` the whole answer,
-# and — because it is the same value the ``:-`` fallback resolves to — records
-# the login rather than changing it.
-_SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
-    "openobserve": (
-        # Must stay equal to the ``${ZO_ROOT_USER_EMAIL:-…}`` fallback in
-        # ``osprey/templates/services/openobserve/docker-compose.yml.j2``; the
-        # mint tests parse the template and pin the two together.
-        ("ZO_ROOT_USER_EMAIL", "root@example.com"),
-        # The telemetry INGEST account: the identity the agent authenticates as
-        # when it ships telemetry, so root's credentials never travel into a
-        # rendered ``config.yml`` or a web-terminal environment. An account
-        # name, not a secret — written down for exactly the discoverability
-        # reason the root email is, and never overwritten when an operator
-        # names their own.
-        #
-        # Unlike the root email this one has NO ``:-`` fallback in the
-        # openobserve compose template, and must not grow one. The store reads
-        # ``ZO_ROOT_USER_*`` to initialize itself and knows nothing about this
-        # account until the post-start provisioner creates it through the API;
-        # the fallback that matters belongs to the *agent's* telemetry config,
-        # which is where a reader of ``config.yml`` looks for it.
-        ("ZO_INGEST_USER_EMAIL", "ingest@example.com"),
-    ),
 }
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -357,12 +309,6 @@ class VolumeInitializedStore(NamedTuple):
 #: ``_preflight_stale_store_volumes`` is the only thing standing between that
 #: operator and a login that will not work for reasons nothing has named.
 _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
-    "ZO_ROOT_USER_PASSWORD": VolumeInitializedStore(
-        service="openobserve",
-        volume="openobserve_data",
-        container="-openobserve",
-        cred_env="ZO_ROOT_USER_PASSWORD",
-    ),
     "ARIEL_DB_PASSWORD": VolumeInitializedStore(
         service="postgresql",
         volume="ariel_postgres_data",
@@ -413,73 +359,6 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
     ),
 }
 
-
-class StoreIssuedCredential(NamedTuple):
-    """Where one credential this deploy does NOT choose comes from.
-
-    Two names, both of which a provisioner needs and neither of which any other
-    registry in this module records:
-
-    * ``service`` — the ``deployed_services`` key whose store issues the
-      credential, and the name shown to the operator;
-    * ``identity_var`` — the ``.env`` variable naming the *account* the secret
-      belongs to. A store-issued secret is meaningless without the identity it
-      was issued for: both halves are presented together on every request, and
-      a provisioner asking the store for "the token" has to say whose.
-    """
-
-    service: str
-    identity_var: str
-
-
-#: Secrets the STORE issues and this deploy only records — the inverse of every
-#: other credential registry in this module, and the reason it is a registry of
-#: its own rather than an entry in one of them.
-#:
-#: ``_SERVICE_TOKEN_VARS`` + ``_VAR_GENERATORS`` say "osprey chooses this value
-#: before the stack starts". ``_VOLUME_INITIALIZED_VARS`` says "osprey chose it,
-#: and a surviving volume may not have adopted it". Neither sentence is true
-#: here: OpenObserve mints a service account's token itself (a 16-character
-#: alphanumeric string, read back with ``GET /api/{org}/service_accounts/{email}``
-#: once the container is live), so the value simply does not exist at the moment
-#: every other credential in this file is written.
-#:
-#: What each of the three obvious registrations would actually do, since a
-#: reader's instinct is that one of them must fit:
-#:
-#: * ``_VAR_GENERATORS`` would FABRICATE a token the store never issued. The
-#:   ``.env`` would look perfectly healthy and every telemetry request would
-#:   401 — the failure this registry exists to make impossible.
-#: * ``_VAR_VALIDATORS`` grades osprey's own recipes. ``_validate_openobserve_password``
-#:   (8–128 characters, four character classes) rejects a legitimate
-#:   16-character alphanumeric server token outright, so registering it would
-#:   refuse every working deploy; and a value the store chose is not osprey's
-#:   to grade in the first place.
-#: * ``_VOLUME_INITIALIZED_VARS`` misfires twice, either half of it fatally.
-#:   Its harvest reads the credential out of the store container's *environment*
-#:   (``cred_env``), and a service-account token was never in any container's
-#:   environment — it lives inside the volume's own database — so
-#:   ``_harvest_original_credential`` would answer ``None`` forever and
-#:   ``--reuse-stores`` would report an adoptable store as unrecoverable. Worse,
-#:   ``_volume_initialized_vars_that_would_be_minted`` predicts a mint for every
-#:   registered var carrying no non-empty value, and ``deploy_restart`` hands
-#:   that prediction to ``_preflight_stale_store_volumes`` as ``minted`` — so a
-#:   restart with a surviving ``openobserve`` volume and a not-yet-harvested
-#:   token would abort as stale, over a credential that is absent exactly as
-#:   designed.
-#:
-#: What the registration IS for: this name reaches ``.env`` from a deploy-time
-#: writer, just later in the run than the others, and that is precisely what
-#: ``_deploy_written_env_vars`` has to know. Being in the census makes a
-#: ``env.pinned`` declaration on it refuse (``_preflight_pinned_writers`` — the
-#: deploy writes it, so no chain can own it), and stops the required-env probe
-#: from telling an operator to supply a value only the store can produce.
-_STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
-    "ZO_INGEST_SA_TOKEN": StoreIssuedCredential(
-        service="openobserve",
-        identity_var="ZO_INGEST_USER_EMAIL",
-    ),
-}
 
 # Service key of the Bluesky plan lane every project has had since the bridge
 # shipped, and the keys the OPT-IN second lane can take. A lane is named for
@@ -950,54 +829,6 @@ def _ensure_service_tokens(
                 name for name in generated if name in _VOLUME_INITIALIZED_VARS
             }
 
-    # Write the non-secret service settings (_SERVICE_DEFAULT_VARS) for every
-    # deployed service that declares one. Its OWN block, outside `if
-    # required_vars:` and outside `if generated:`, and that placement is the
-    # whole upgrade path: the mint is idempotent, so a project deployed before
-    # this existed has a `.env` carrying a password and no email, generates
-    # nothing on its next deploy, and would never receive the line if this rode
-    # along with the minted block. Exactly the deployments that need it are the
-    # ones with nothing left to mint.
-    #
-    # Presence is read the same way the mint reads it — process env over `.env`,
-    # non-empty — so an operator's value is never overwritten and a re-run
-    # appends nothing. Reported separately from the token ledger, and the VALUE
-    # is shown: these are account names, not secrets, and an operator who cannot
-    # see what was written is back where they started.
-    defaults: dict[str, str] = {}
-    existing_defaults = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    for svc_name, var_defaults in _SERVICE_DEFAULT_VARS.items():
-        if svc_name not in services:
-            continue
-        for var, default in var_defaults:
-            if _effective_value(var, existing_defaults).strip():
-                continue  # keep the operator's value
-            defaults[var] = default
-
-    if defaults:
-        _append_env_block(
-            env_path,
-            "Service account names (osprey up) — not secrets",
-            defaults,
-        )
-        # Same repair the mint makes, for the same reason: the deploy loaded
-        # this `.env` over the process environment before we got here, so a name
-        # the file spelled EMPTY left an empty copy in `os.environ` that
-        # outranks the `--env-file` line for compose's interpolation. Without
-        # this the container receives the blank while `.env` shows the default —
-        # written down and not delivered. Names absent from the environment stay
-        # absent and reach the containers through `--env-file` as usual.
-        for var, value in defaults.items():
-            if var in os.environ:
-                os.environ[var] = value
-        _report_fact(
-            f"wrote {len(defaults)} service account name(s) → .env",
-            wrote=(
-                ".env",
-                ", ".join(f"{var}={value}" for var, value in defaults.items()),
-            ),
-        )
-
     # Validate the effective value of every required var — whichever of
     # process env, an existing .env, or a value just minted above the caller
     # actually sees — against its registered _VAR_VALIDATORS constraint (if
@@ -1068,7 +899,7 @@ def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) 
     copy of the credential each surviving volume was initialized with. Asking
     after the stop would find every volume unrecoverable, having just made it so.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     services = {str(s) for s in (config.get("deployed_services") or [])}
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -1149,7 +980,7 @@ def _stale_store_volumes(
     way every time), together with each one's harvested original credential —
     ``None`` where the volume can no longer be reopened.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     try:
         existing = {resource.name for resource in probe.volumes_for_project(project)}
@@ -1260,7 +1091,7 @@ def _adopt_original_credentials(
     checks before its ``down`` and therefore before any mint, so the file may
     not carry the name at all and the value has to be appended.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -1374,11 +1205,11 @@ def _refuse_invented_history(config: dict) -> None:
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
-    :func:`~osprey.connectors.honesty.pairing_in_rendered_config`.
+    :func:`~osprey_connectors.honesty.pairing_in_rendered_config`.
 
     The refused machine is *named* in the message rather than assumed: the
     pairing covers every type in
-    :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
+    :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
     baselined on the live stand-in must be told about the stand-in and not about
     a virtual accelerator it does not run.
 
@@ -1387,8 +1218,8 @@ def _refuse_invented_history(config: dict) -> None:
         for itself — a virtual accelerator or the live stand-in — with the mock
         archiver, an unset ``archiver.type`` included.
     """
-    from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-    from osprey.connectors.types import resolve_control_system_type
+    from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey_connectors.types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
     if not pairing.is_invented_history:
@@ -1405,8 +1236,9 @@ def _refuse_invented_history(config: dict) -> None:
         f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
         f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
-        f"to a connector reading a store this stack writes, or set the `type:` under "
-        f"`control_system:` to 'mock' for an honestly storeless deployment. To have "
+        f"to a connector reading a store this stack writes, or serve the simulator in "
+        f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
+        f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
         f"`va_archiver:` block — the control-assistant preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
@@ -1981,9 +1813,7 @@ def _assert_env_interpolation_safe(var: str, value: str) -> None:
     what the mint happened to draw.
 
     Every OTHER secret this module mints already avoids the problem by
-    construction (``token_urlsafe``/``token_hex`` alphabets, and OpenObserve's
-    recipe explicitly excludes ``$`` for exactly this family of reasons), so
-    this guard exists for values whose alphabet is not ours to choose: an
+    construction (``token_urlsafe``/``token_hex`` alphabets), so this guard exists for values whose alphabet is not ours to choose: an
     operator-supplied key, or a public half derived from one. Freshly minted
     pairs are re-drawn instead of refused — see `_derive_qserver_keypair`.
 
@@ -2142,7 +1972,7 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     """The site's ``--build-arg`` flags for one image build, context staged.
 
     One producer for the three images ``osprey up`` builds from OSPREY's own
-    recipes — the project image, each persona image and the web-terminal auth
+    recipes — the project image, each render image and the web-terminal auth
     sidecar — so a deployment behind a
     TLS-intercepting proxy, on an internal package index, or on an air-gapped
     host configures those facts once in ``config.yml`` and every managed build
@@ -2509,6 +2339,20 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 _PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
 
 
+def _deployed_project_image_services(config: dict) -> list[str]:
+    """Every service this deployment renders on the project image's compose line.
+
+    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the history
+    page, which is never a ``deployed_services`` entry: it is rendered exactly
+    when :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds.
+    """
+    deployed = {str(s) for s in (config.get("deployed_services") or [])}
+    services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
+    if telemetry_config.history_page_deployed(config):
+        services.append(telemetry_config.HISTORY_SERVICE)
+    return services
+
+
 def _service_image_target(config: dict, env: dict, service: str) -> str:
     """The image ``service`` will actually run.
 
@@ -2524,7 +2368,16 @@ def _service_image_target(config: dict, env: dict, service: str) -> str:
     than restated here. It is the same function the template's innermost
     ``default(...)`` renders from, so a prediction made here and the reference
     compose ends up carrying cannot drift onto different axes.
+
+    A dispatch worker running at a tier (``services.dispatch_worker.tier``)
+    runs that tier's render and nothing else:
+    :func:`~osprey.deployment.web_terminals.render_images.dispatch_worker_tier_image`
+    names it and refuses ``OSPREY_WORKER_IMAGE`` or a contradicting pin.
     """
+    if service == "dispatch_worker":
+        tier_image = dispatch_worker_tier_image(config, env)
+        if tier_image is not None:
+            return tier_image
     override = env.get("OSPREY_WORKER_IMAGE")
     if override:
         return str(override)
@@ -2540,6 +2393,51 @@ def _worker_image_target(config: dict, env: dict) -> str:
     return _service_image_target(config, env, "dispatch_worker")
 
 
+def _build_referenced_renders(
+    config: dict,
+    repo_root: Path | str,
+    dev_mode: bool,
+    env: dict,
+    *,
+    web_terminals_enabled: bool,
+) -> None:
+    """Build the dispatch tier's render, with every other referenced render, before the worker.
+
+    A worker running at a tier runs ``<p>-<tier>:local`` in local mode, and
+    nothing in ``compose up`` builds that tag: so ``osprey up`` builds the whole
+    reference set (the roster's tiers and apps, plus the dispatch tier) in one
+    step beside the project image, after checking each has a render. The web
+    stack's own pass later finds those tags built
+    (:func:`~osprey.deployment.web_terminals.render_images.render_build_session`).
+    Registry mode builds nothing; compose pulls the tier image like any other.
+
+    No-op when no tier is set, so such a start runs exactly as before.
+
+    :param config: Raw deploy config.
+    :param repo_root: The deployment repo.
+    :param dev_mode: Whether ``--dev`` was passed.
+    :param env: Environment for the builds (read for ``OSPREY_WORKER_IMAGE``,
+        which a tier refuses).
+    :param web_terminals_enabled: Whether this deployment runs the web
+        terminals, whose roster joins the reference set. Without them the
+        dispatch tier is built alone.
+    :raises ValueError: A contradicting worker image, or a referenced render
+        that is missing or does not resolve.
+    """
+    if dispatch_tier_name(config) is None:
+        return
+    # Refused before anything is built: the tier decides the worker's image.
+    dispatch_worker_tier_image(config, env)
+    resolved_users: list[dict] = []
+    if web_terminals_enabled:
+        web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+        resolved_users = resolve_cards(web_terminals, config.get("registry") or {}, strict=True)
+    verify_renders(
+        config, resolved_users, repo_root=Path(repo_root), serves_roster=web_terminals_enabled
+    )
+    build_render_images(config, resolved_users, dev_mode, env, serves_roster=web_terminals_enabled)
+
+
 def _project_image_build_target(config: dict, env: dict) -> str | None:
     """The image tag :func:`_build_project_image` will build, or ``None``.
 
@@ -2547,7 +2445,7 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     build will happen at all without running it. Three ways it does not: this
     host says its images are prebuilt (:func:`_resolve_prebuilt_images`), this
     deployment deploys none of the services that run the project image
-    (:data:`_PROJECT_IMAGE_SERVICES`), or every one it deploys names another
+    (:func:`_deployed_project_image_services`), or every one it deploys names another
     image (:func:`_service_image_target`).
 
     The prebuilt switch is asked first and outranks the rest, because it is a
@@ -2572,10 +2470,9 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     if _resolve_prebuilt_images(config):
         return None
     project_image = str(resolve_image_defaults(config)["worker"])
-    services = {str(s) for s in (config.get("deployed_services") or [])}
     if any(
-        service in services and _service_image_target(config, env, service) == project_image
-        for service in _PROJECT_IMAGE_SERVICES
+        _service_image_target(config, env, service) == project_image
+        for service in _deployed_project_image_services(config)
     ):
         return project_image
     return None
@@ -2621,15 +2518,15 @@ def _project_image_build_cmd(
     """Construct the ``<runtime> build`` argv that produces the project image.
 
     Carries the same ``com.osprey.project`` label
-    :func:`osprey.deployment.web_terminals.persona_images._persona_image_build_cmd`
-    stamps on its persona images, so a later ``nuke`` can verify a tag belongs
+    :func:`osprey.deployment.web_terminals.render_images._render_image_build_cmd`
+    stamps on its render images, so a later ``nuke`` can verify a tag belongs
     to this deployment before removing it. Under ``dev_mode`` an
-    ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
+    ``OSPREY_DEV=1`` build-arg is added (mirroring the render dev path), so
     the Dockerfile's dev branch can key off it.
 
     The site's own build args — proxy bypass, package index, TLS-intercepting
     CA, offline vendoring — come from :func:`site_image_build_args`, the one
-    producer this build shares with the persona and sidecar builds, and
+    producer this build shares with the render and sidecar builds, and
     contribute nothing when the deployment declares none.
 
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
@@ -2719,7 +2616,7 @@ def _build_project_image(
     :param build_context: The container repo this image is built from —
         ``<repo>/build/.image/<project>``, which ``osprey build`` rendered
         against the ``/app/<project>`` path the container sees rather than this
-        host's (:func:`osprey.utils.workspace.container_image_context`). Passed
+        host's (:func:`osprey_connectors.workspace.container_image_context`). Passed
         explicitly because it is the one thing here that is NOT the compose
         project directory. Building from ``<repo>/build`` instead would produce
         an image whose every recorded path — ``project_root``, and the
@@ -2740,8 +2637,8 @@ def _build_project_image(
         if _resolve_prebuilt_images(config):
             project_tag = resolve_image_defaults(config)["worker"]
             if any(
-                service in services and _service_image_target(config, env, service) == project_tag
-                for service in _PROJECT_IMAGE_SERVICES
+                _service_image_target(config, env, service) == project_tag
+                for service in _deployed_project_image_services(config)
             ):
                 _report_group("images")
                 _report_step("skipped image build (prebuilt images)")
@@ -3113,7 +3010,7 @@ def _selected_variant_profile(repo_root: Path) -> Path | None:
         profile as-is.
     """
     from osprey.cli.variant_selection import resolve_variant_selection
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     try:
         return resolve_variant_selection(repo_root).path
@@ -3221,7 +3118,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
 
     A name counts as provided when ANY source the stack reads carries a
     non-empty value for it: this repo's env chain (``.env.shared`` under
-    ``.env``, via :func:`~osprey.utils.dotenv.merge_chain`) or the process
+    ``.env``, via :func:`~osprey_connectors.dotenv.merge_chain`) or the process
     environment. The union rather than a precedence order, because the question
     here is existence, not which value wins — and both halves are needed: the
     chain is read from ``repo_root``, which under ``osprey up --repo`` is not
@@ -3562,26 +3459,19 @@ def _deploy_written_env_vars() -> set[str]:
     must not depend on which services happen to be enabled today — otherwise
     the contradiction stays invisible until the deploy that first turns one on.
 
-    Five writers, all of them appending to (or rewriting) the local file on the
+    Three writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
     * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
-    * :data:`_SERVICE_DEFAULT_VARS` — the non-secret settings written down for
-      discoverability;
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
       (:func:`_adopt_original_credentials`, over
-      :data:`_VOLUME_INITIALIZED_VARS`);
-    * the secrets a live store issues and the deploy harvests back into ``.env``
-      (:data:`_STORE_ISSUED_VARS`). Later in the run than the rest — the value
-      does not exist until the container is up — but written by this command all
-      the same, which is the only thing this census asks.
+      :data:`_VOLUME_INITIALIZED_VARS`).
 
     :return: The names, as one set.
     """
     written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
-    written |= {var for pairs in _SERVICE_DEFAULT_VARS.values() for var, _default in pairs}
     # Every lane's control-plane pair, not only lane 1's: the census is a
     # census of names this command can write, and a two-lane deploy writes two
     # pairs. Enumerated from the lane keys rather than from this deploy's
@@ -3589,7 +3479,6 @@ def _deploy_written_env_vars() -> set[str]:
     for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
-    written |= set(_STORE_ISSUED_VARS)
     return written
 
 
@@ -3626,8 +3515,8 @@ def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
         "Pinned variable is machine-minted: env.pinned declares %s, which the deploy "
         "writes into %s itself.\n"
         "  A pin says the chain under this root is the variable's only source, and these "
-        "names are provisioned by `osprey up` — the service token mint, the service "
-        "defaults, the bluesky provisioners, or the credential `--reuse-stores` restores "
+        "names are provisioned by `osprey up` — the service token mint, the bluesky "
+        "provisioners, or the credential `--reuse-stores` restores "
         "from a surviving data volume. The declaration cannot hold against a writer in "
         "the same command.\n"
         "  %s",
@@ -3879,167 +3768,6 @@ def _preflight_env_chain_drift(compose_files: list[str], repo_root: Path | str) 
     )
 
 
-def _preflight_build_derived_env(
-    compose_files: list[str],
-    repo_root: Path | str,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> None:
-    """Refuse the deploy when the build's own env keys are gone from the chain.
-
-    ``osprey build`` writes BOTH :data:`~osprey.utils.dotenv.BUILD_DERIVED_KEYS`
-    (``VA_CHANNELS_FILE``, ``VA_LATTICE``) into ``.env`` whenever it generates
-    ``build/data/simulation/channel_manifest.json``, and nothing else ever
-    writes them. So a manifest on disk beside a chain that carries only one of
-    them, or neither, is a key that was LOST — a line deleted by hand, a
-    ``.env`` restored from an older copy — and not a choice anybody made.
-
-    Left alone, the loss surfaces in the worst place: the compose templates
-    hand the container ``${VA_CHANNELS_FILE:-}``, the entrypoint refuses an
-    empty pointer rather than serving the framework's bundled demo namespace,
-    and the operator gets an unhealthy container whose compose log says only
-    that it exited. Named here instead, ahead of anything that costs time.
-
-    A refusal rather than a warning, for the reason
-    :func:`_preflight_env_chain_drift` gives: a stack started without the key
-    has no outcome anybody asked for.
-
-    Keyed on the names the rendered compose files actually interpolate, so a
-    stack that deploys no reader of the key (no virtual accelerator, no
-    recorder) is not refused over a manifest nothing reads. Existence is the
-    union of the chain and the process environment, as
-    :func:`_preflight_declared_env_unset` takes it, and an empty value counts
-    as no value: ``KEY=`` puts the same empty string in the container as no
-    line at all — and it is the shape that survives a rebuild, because the
-    build appends and never rewrites a key already on file.
-
-    :param compose_files: The compose files this deploy will start, in ``-f``
-        order. Relative entries resolve against *repo_root*.
-    :param repo_root: The deployment repo root, holding the chain and the
-        render.
-    :param environ: The environment to check against. ``None`` reads the live
-        one overlaid with the shell values the CLI's entry-time ``.env`` load
-        replaced, matching what the stack is actually started with.
-    A value that is present but names no file in the render is refused on the
-    same reasoning. ``VA_LATTICE`` is a file's name inside the tree the
-    container mounts, looked up verbatim, and the entrypoint exits FATAL on a
-    name it cannot find — after every image in the stack has been built. The
-    name is checked here against that same tree instead.
-
-    :raises RuntimeError: The manifest exists, some compose file interpolates
-        a build-derived key, and neither the chain nor the environment gives
-        it a value -- or gives it the name of a file the render does not carry.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import BUILD_DERIVED_KEYS
-
-    root = Path(repo_root).expanduser().absolute()
-    manifest = Path(BUILD_DIRNAME) / "data" / "simulation" / MANIFEST_FILENAME
-    if not (root / manifest).is_file():
-        return
-
-    wanted = sorted(BUILD_DERIVED_KEYS & _interpolated_vars_across(compose_files, root))
-    if not wanted:
-        return
-
-    if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
-
-        process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
-    else:
-        process_env = environ
-
-    chain = merge_chain(root)
-    missing = [
-        name
-        for name in wanted
-        if not (chain.get(name) or "").strip() and not (process_env.get(name) or "").strip()
-    ]
-    if not missing:
-        _preflight_served_lattice(wanted, root, chain, process_env)
-        return
-
-    names = ", ".join(missing)
-    logger.error(
-        "Build-derived env lost: %s is on disk, but %s is unset in the env chain and the "
-        "environment.\n"
-        "  `osprey build` writes %s into %s whenever it generates that manifest, and the "
-        "container it points at refuses to start on an empty value rather than serve the "
-        "framework's bundled demo namespace. A manifest on disk beside a chain missing the "
-        "key is a key that was lost, not a choice.\n"
-        "  Run `osprey build` to write it back, then `osprey up`. Delete an empty `%s=` line "
-        "first: the build appends and never rewrites a key already on file.",
-        manifest,
-        names,
-        " and ".join(sorted(BUILD_DERIVED_KEYS)),
-        ENV_LOCAL_FILENAME,
-        names,
-    )
-    raise RuntimeError(
-        f"build-derived env preflight failed: {names} is unset while {manifest} exists "
-        "(see report above). Run `osprey build`, then `osprey up`."
-    )
-
-
-def _preflight_served_lattice(
-    wanted: Sequence[str],
-    root: Path,
-    chain: Mapping[str, str],
-    process_env: Mapping[str, str],
-) -> None:
-    """Refuse the deploy when ``VA_LATTICE`` names no file in the render.
-
-    The value is a lattice file's name relative to the virtual accelerator's
-    data directory, which is the ``build/data/simulation`` the compose service
-    mounts, and the container's entrypoint resolves it there verbatim — case
-    included — exiting FATAL on a name that is not in the tree it was handed.
-    :data:`~osprey.utils.dotenv.VA_LATTICE_DEFAULT` is the one value naming no
-    file, and an absolute value names a path in the container's filesystem that
-    this host cannot speak for; neither is a name to look up.
-
-    The refusal names the path it checked, because the fix depends on what the
-    operator meant by the value and only they can say which.
-
-    :param wanted: The build-derived keys the rendered compose files
-        interpolate. A stack no reader of the lattice deploys is not refused.
-    :param root: The deployment repo root, holding the render.
-    :param chain: The merged env chain, as the caller read it.
-    :param process_env: The environment the stack is started with.
-    :raises RuntimeError: The value names a file the render does not carry.
-    """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, VA_LATTICE_KEY
-
-    if VA_LATTICE_KEY not in wanted:
-        return
-    name = (chain.get(VA_LATTICE_KEY) or process_env.get(VA_LATTICE_KEY) or "").strip()
-    if not name or name == VA_LATTICE_DEFAULT or Path(name).is_absolute():
-        return
-
-    served = Path(BUILD_DIRNAME) / "data" / "simulation" / name
-    if (root / served).is_file():
-        return
-
-    logger.error(
-        "Build-derived env stale: %s=%s names no file in the render (%s is not there).\n"
-        "  The accelerator looks the name up verbatim in the directory it mounts and refuses "
-        "to start when it misses, so the stack would be built and then fail to boot.\n"
-        "  Delete the %s line from %s and run `osprey build`, which re-derives the lattice "
-        "this project's tree serves; or set %s=%s to serve the manifest's channels without "
-        "physics.",
-        VA_LATTICE_KEY,
-        name,
-        served,
-        VA_LATTICE_KEY,
-        ENV_LOCAL_FILENAME,
-        VA_LATTICE_KEY,
-        VA_LATTICE_DEFAULT,
-    )
-    raise RuntimeError(
-        f"build-derived env preflight failed: {VA_LATTICE_KEY}={name} names no file in "
-        f"{served} (see report above)."
-    )
-
-
 def _preflight_env_shadowing(
     compose_files: list[str],
     repo_root: Path | str,
@@ -4054,8 +3782,7 @@ def _preflight_env_shadowing(
     pointed at it explicitly (see :func:`_env_file_args`). But the env file is
     not the last word on document interpolation, and *which* word it is depends
     on the provider (see below). Either way a stale export means the stack can
-    start on a value its volumes were never initialized with — an openobserve
-    that will not accept the password in the chain, a database whose data
+    start on a value its volumes were never initialized with — a database whose data
     directory answers to the chain's value while the container is handed
     another one.
 
@@ -4116,7 +3843,7 @@ def _preflight_env_shadowing(
     **Names only, never values.** Which variable diverged is the actionable
     fact; what either side holds is a secret, and a warning is the one place a
     secret would leak into a terminal, a CI log and a bug report at once. Same
-    rule as :func:`osprey.utils.dotenv.compose_unsafe_vars` and the build's own
+    rule as :func:`osprey_connectors.dotenv.compose_unsafe_vars` and the build's own
     divergence warning.
 
     :param compose_files: The compose files this deploy will start, in ``-f``
@@ -4128,7 +3855,7 @@ def _preflight_env_shadowing(
         directory and the home of the env chain compose is pointed at.
     :param environ: The process environment to compare against. ``None`` reads
         the live one, overlaid with the shell values the CLI's entry-time
-        ``.env`` load replaced (:func:`~osprey.utils.config.dotenv_shell_overrides`)
+        ``.env`` load replaced (:func:`~osprey_connectors.config.dotenv_shell_overrides`)
         — the comparison is against what the operator's shell actually
         exported, which the in-process override would otherwise have erased.
     :param provider: The detected compose provider, when the caller has probed
@@ -4155,7 +3882,7 @@ def _preflight_env_shadowing(
     chain_values = merge_chain(root)
 
     if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
+        from osprey_connectors.config import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4363,7 +4090,7 @@ def _preflight_declared_env_unset(
         return []
 
     if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
+        from osprey_connectors.config import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4573,7 +4300,7 @@ def _preflight_buildkit(config: dict) -> None:
     except RuntimeError:
         return
 
-    from osprey.utils.config import dotenv_shell_overrides
+    from osprey_connectors.config import dotenv_shell_overrides
 
     refusal = buildkit_missing(runtime, {**os.environ, **dotenv_shell_overrides()})
     if refusal is not None:
@@ -4792,54 +4519,6 @@ def _preflight_host_ports(config, compose_files):
     )
 
 
-def _preflight_store_address(config, compose_files):
-    """Abort the start if the compose file publishes the telemetry store off its configured port.
-
-    A start renders nothing, so a hand-edit to one of the two files in ``build/``
-    (the config or the store's compose file) is started as written. The config
-    is the side every client reads: the agent's exporter, ``osprey health`` and
-    the ingest-account provisioner all dial ``services.openobserve.port``, so a
-    store published anywhere else would be started where none of them looks.
-    This runs before any container is touched, and it opens no compose file for
-    a project that does not deploy the store.
-
-    :param config: Loaded configuration dictionary
-    :type config: dict
-    :param compose_files: Rendered compose file paths for this start
-    :type compose_files: list[str]
-    :raises RuntimeError: If the store's port cannot be read, or the compose
-        file publishes the store on a different host port
-    """
-    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY
-    from osprey.deployment import openobserve_provision
-
-    if not openobserve_provision.store_deployed(config):
-        return
-    try:
-        mismatch = openobserve_provision.store_publish_mismatch(
-            config, parse_host_port_bindings(compose_files)
-        )
-    except ValueError as exc:
-        output.fail(
-            "The telemetry store's host port cannot be read",
-            str(exc),
-            OPENOBSERVE_PORT_REMEDY,
-        )
-        raise RuntimeError("telemetry store port preflight failed (see report above)") from exc
-    if mismatch is None:
-        return
-    output.fail(
-        f"The telemetry store is published on port {mismatch.published}, "
-        f"but its clients dial {mismatch.configured}",
-        f"{mismatch.compose_file} publishes it on {mismatch.published}; "
-        f"services.openobserve.port in the rendered config resolves to {mismatch.configured}, "
-        "which is where the ingest account is provisioned, osprey health probes, "
-        "and every agent exports.",
-        "Run `osprey build` to render both from services.openobserve.port.",
-    )
-    raise RuntimeError("telemetry store port preflight failed (see report above)")
-
-
 # ---------------------------------------------------------------------------
 # Staged archiver bring-up
 # ---------------------------------------------------------------------------
@@ -4943,436 +4622,58 @@ def _preflight_archiver_pymongo(config: dict) -> None:
         ) from exc
 
 
-#: The BPM readout fields the seed can reproduce, and the monitor axis each one
-#: displaces, in the spelling a bindings document gives that axis
-#: (``virtual_accelerator.bindings.ATTRIBUTES_BY_KIND``). Offsets only, and that
-#: is the whole design: with the rest of the readout chain at identity, a
-#: reading is exactly ``truth - offset``, so the seed reproduces the stand-in's
-#: systematic error by arithmetic on the value it already synthesized rather
-#: than by running a second copy of the readout. The same two fields are the
-#: only ones the shipped default may carry
-#: (``osprey.cli.build_profile_va_faults.STANDIN_BPM_ERROR_FIELDS``).
-_STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
-
-#: How the fingerprint names this transform. One kind today; the field exists so
-#: a later transform is a different value here rather than a silent MATCH.
-_STANDIN_TRANSFORM_KIND = "bpm_offsets"
-
-#: How the fingerprint names a seed whose lattice-served monitor readings are
-#: centred on the orbit the served model solves (see
-#: :func:`_solved_monitor_baselines`).
-_SOLVED_BASELINES_KIND = "solved_monitor_baselines"
-
-
-def _solved_monitor_baselines(project_dir: Path, channels: Sequence[dict]) -> dict[str, float]:
-    """The reading each lattice-served monitor serves at boot, by address.
-
-    A monitor the served tree binds to the lattice does not read the level its
-    ``machine.json`` entry declares: it reads the closed orbit the model solves,
-    and the virtual accelerator adds the machine file's motion on top of that.
-    Its seeded history has to sit on the same orbit, or every trend across the
-    boundary between the seeded past and the recorded present steps by the
-    difference. So the orbit is solved here the way the virtual accelerator
-    solves it at boot -- the same model, built from the same served tree and
-    channel set, read through the same bridge -- and the truth that bridge
-    publishes, before any motion or readout fault, is the answer.
-
-    :param project_dir: The deployment repo root.
-    :param channels: The manifest channel set being seeded.
-    :returns: ``{address: solved reading}`` for every seeded address the tree
-        serves as a monitor reading. Empty for a deployment whose chain serves
-        no lattice, whose served tree carries no lattice or no bindings, or
-        whose model cannot be built -- the last with a warning, because the
-        seed then describes the machine file's declared levels rather than the
-        orbit the live half will serve.
-    """
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
-
-    build_dir = project_dir / BUILD_DIRNAME
-    if resolved_va_lattice(project_dir, build_dir) == VA_LATTICE_DEFAULT:
-        return {}
-    data_root = served_data_root(project_dir, build_dir)
-    if data_root is None:
-        return {}
-    paths = ManifestPaths(data_root=data_root)
-    if not (paths.lattice_json.is_file() and paths.va_bindings.is_file()):
-        return {}
-
-    from osprey.services.virtual_accelerator.bindings import BindingsError
-    from osprey.services.virtual_accelerator.ioc.physics_bridge import (
-        OrbitSolveError,
-        PhysicsBridge,
-        UnknownDeviceError,
-    )
-    from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
-
-    try:
-        truth = PhysicsBridge(PyATRingModel(data_root, list(channels))).bpm_positions()
-    except (BindingsError, OrbitSolveError, UnknownDeviceError, OSError, ValueError) as exc:
-        logger.warning(
-            "  The served lattice under %s could not be solved (%s), so the archive seed "
-            "centres its monitor readings on the levels machine.json declares rather than "
-            "on the orbit the virtual accelerator will serve.",
-            data_root,
-            exc,
-        )
-        return {}
-    served = {str(channel["address"]) for channel in channels}
-    return {address: value for address, value in truth.items() if address in served}
-
-
-def _baselines_fingerprint(
-    baselines: Mapping[str, float], readout: Mapping[str, Any] | None
-) -> dict[str, Any]:
-    """The seed's value description when its monitor readings are rebased.
-
-    The solved levels are digested rather than listed: the fingerprint only has
-    to change when any of them does, and a digest keeps the stored manifest and
-    a mismatch report readable. The stand-in's readout description, when there
-    is one, rides along unchanged under ``readout``, because the offsets are
-    still subtracted from the rebased values exactly as before.
-    """
-    canonical = json.dumps(sorted(baselines.items()), separators=(",", ":"))
-    return {
-        "kind": _SOLVED_BASELINES_KIND,
-        "count": len(baselines),
-        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-        "readout": None if readout is None else dict(readout),
-    }
-
-
-def _served_monitor_readings(project_dir: Path):
-    """Where the served tree publishes each monitor reading, and at which element.
-
-    The seed displaces addresses, and the ``VA_BPM_ERRORS`` grammar names
-    devices, so something has to say which address carries which device's
-    reading on which transverse axis. Only the tree being served can: the
-    address grammar is the facility's, the element names are its lattice's, and
-    a deployment that models neither the way a demo ring does would otherwise
-    have a past seeded onto addresses it never serves.
-
-    :param project_dir: The deployment repo root, whose published render is
-        preferred over its source tree — the containers mount the render.
-    :returns: ``(monitors, readings)``, where *monitors* maps every published
-        monitor address to the element it sits at (the lookup
-        ``lattice.errors.resolve_device_seeds`` performs inside the container)
-        and *readings* maps ``(element, axis)`` to the address the reading is
-        published on. ``(None, None)`` when the served tree carries no bindings
-        document, or one that cannot be read — in which case nothing here can
-        place an offset, and saying so is the honest answer.
-    """
-    from osprey.services.virtual_accelerator.bindings import BindingsError, load_bindings
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-
-    data_root = served_data_root(project_dir, project_dir / BUILD_DIRNAME)
-    if data_root is None:
-        return None, None
-    path = ManifestPaths(data_root=data_root).va_bindings
-    if not path.is_file():
-        return None, None
-    try:
-        document = load_bindings(path)
-    except (BindingsError, OSError) as exc:
-        logger.warning(
-            "  The served bindings document %s could not be read (%s), so the archive "
-            "seed cannot tell which address carries which monitor's reading. The seeded "
-            "history is the unperturbed machine's.",
-            path,
-            exc,
-        )
-        return None, None
-
-    monitors: dict[str, str] = {}
-    readings: dict[tuple[str, str], str] = {}
-    for binding in document.bindings:
-        if binding.kind != "monitor" or binding.element is None:
-            continue
-        # A monitor serves its reading on its own address and the loader
-        # refuses it a second one, so ``setpoint_address`` is the only spelling
-        # a monitor has -- and it is the one the entrypoint keys its monitor
-        # table on, which is the agreement that lets an offset land where the
-        # container publishes it.
-        address = binding.setpoint_address
-        monitors[address] = binding.element
-        if binding.attribute is not None:
-            readings[binding.element, binding.attribute] = address
-    return monitors, readings
-
-
-def _standin_bpm_error_spec(project_dir: Path) -> str:
-    """The ``VA_BPM_ERRORS`` value the stand-in container will actually run.
-
-    The compose template renders the stand-in's variable as
-    ``"${VA_STANDIN_BPM_ERRORS-<default>}"``, so this mirrors that
-    interpolation exactly, in both of its halves.
-
-    **Presence, not truthiness.** ``-`` substitutes only for an UNSET variable,
-    so a chain that names the key with an EMPTY value gets the empty fault set
-    — an unperturbed stand-in, which is the documented way to run one. Rounding
-    that back up to the shipped default (as ``x or default`` did, mirroring the
-    older ``:-``) would seed a displaced past under a machine the live half is
-    serving clean.
-
-    **The fallback is lattice-conditional**, and the seed reaches it through
-    :func:`~osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`,
-    which resolves the env chain and then asks the rule's one owner,
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
-    — the same function the render writes the compose interpolation from. The
-    shipped offsets displace a lattice's model, so a deployment whose chain
-    serves no lattice is handed the empty set by the render and must be seeded
-    as the unperturbed machine it is.
-
-    The project's own ``.env`` is consulted first and the ambient environment
-    second, the same order and for the same reason
-    :func:`_archiver_seed_inputs` resolves ``VA_CHANNELS_FILE``: the build wrote
-    the project's value there, and an exported one is the fallback for a deploy
-    whose environment carries it instead. Only then does the rest of the env
-    chain and the lattice-conditional default get a say.
-    """
-    from osprey.cli.build_profile_va_faults import (
-        STANDIN_BPM_ERRORS_ENV,
-        effective_standin_bpm_errors,
-    )
-
-    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    for source in (env, os.environ):
-        if STANDIN_BPM_ERRORS_ENV in source:
-            return source[STANDIN_BPM_ERRORS_ENV].strip()
-    return effective_standin_bpm_errors(project_dir, project_dir / BUILD_DIRNAME)
-
-
-def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence[str]):
-    """The transform that makes the seeded past belong to the *stand-in*.
-
-    The archive belongs to the machine it records, and a model has no past. A
-    deployment that records its own store beside a stand-in records the
-    stand-in — the ``standin`` target, dialled through its own
-    ``control_system.connector.live_standin`` block, never the facility's
-    authored ``epics`` block — so the deploy-time seed has to carry the
-    stand-in's systematic BPM offsets too, or the store would hold a clean
-    machine's history under a displaced machine's present and every trend
-    across the seam would show a step no operator caused.
-
-    **Applied last, to the synthesized value.** The stand-in reads the beam
-    through its offsets, and the seed subtracts the same offsets from the value
-    it synthesized for that instant. For a monitor the served lattice computes,
-    that value is centred on the solved orbit and carries the machine file's
-    motion (see :func:`_solved_monitor_baselines`), which is what the stand-in
-    reads before its offsets too, so a seeded sample and a recorded one at the
-    same instant agree while no write has moved the orbit.
-
-    Offsets are the only reproducible field, which is why the shipped default
-    carries nothing else: with unit gain and calibration, positive polarity,
-    zero roll and no noise, ``lattice.errors.bpm_read`` reduces to
-    ``reading = truth - offset``. An operator override naming any other field
-    is applied by the container and skipped here, with a warning that names it.
-
-    **Which address a device's offset lands on comes from the served tree**, by
-    way of :func:`_served_monitor_readings`: the bindings say where each
-    monitor publishes its reading and which element it sits at, so the seed
-    displaces the addresses this deployment actually serves rather than a
-    grammar assumed of them. A deployment whose tree binds no monitors seeds
-    the unperturbed machine, which is what it serves.
-
-    :param config: The rendered deploy config, read only through
-        :func:`~osprey_connectors.standin.archive_belongs_to_standin` — the one
-        predicate the recorder's compose entry and its enablement gate bind to,
-        so the seeded half and the recorded half of one collection cannot answer
-        "whose past is this" differently. Its two conjuncts are both needed
-        here: a deployment that stood a stand-in up but runs no recorder never
-        samples it, and seeding that store with a displaced machine's past would
-        describe a machine nothing in this deployment records.
-    :param addresses: The channel set being seeded. Offsets are kept only for
-        addresses in it, so the recorded fingerprint describes what the store
-        actually holds rather than what the spec asked for.
-    :returns: ``(value_transform, transform_fingerprint)`` for
-        :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
-        ``None`` when the archive is not the stand-in's or the stand-in perturbs
-        none of the seeded channels — in which case the seed and its fingerprint
-        are byte-identical to a deployment without one.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        parse_bpm_error_spec,
-    )
-    from osprey_connectors.standin import archive_belongs_to_standin
-
-    if not archive_belongs_to_standin(config):
-        return None, None
-
-    spec = parse_bpm_error_spec(_standin_bpm_error_spec(project_dir))
-    if not spec:
-        return None, None
-
-    monitors, readings = _served_monitor_readings(project_dir)
-    if monitors is None:
-        return None, None
-    elements = frozenset(monitors.values())
-
-    served = set(addresses)
-    offsets: dict[str, float] = {}
-    unreproducible: set[str] = set()
-    unplaceable: set[str] = set()
-    for token, fields in spec.items():
-        # Both spellings the document carries, as the container accepts them:
-        # a published monitor address, or the element a monitor sits at.
-        element = monitors.get(token) or (token if token in elements else None)
-        if element is None:
-            unplaceable.add(token)
-            continue
-        for field, value in fields.items():
-            axis = _STANDIN_OFFSET_AXES.get(field)
-            if axis is None:
-                unreproducible.add(field)
-                continue
-            address = readings.get((element, axis))
-            if address is not None and address in served:
-                offsets[address] = value
-
-    if unplaceable:
-        logger.warning(
-            "  The live stand-in's readout perturbation names %s, which the served "
-            "bindings publish no monitor reading for. The seeded history carries no "
-            "offset for those devices, so the recorded present and the seeded past "
-            "will differ by them.",
-            ", ".join(sorted(unplaceable)),
-        )
-
-    if unreproducible:
-        logger.warning(
-            "The live stand-in's readout perturbation sets "
-            f"{', '.join(sorted(unreproducible))}, which the archive seed cannot reproduce: "
-            "only offsets are a pure subtraction of the synthesized value. The seeded "
-            "history carries the stand-in's offsets and none of those fields, so the "
-            "recorded present and the seeded past will differ by them."
-        )
-
-    if not offsets:
-        return None, None
-
-    def subtract_offsets(address: str, values: Sequence[Any]) -> Sequence[Any]:
-        """``reading = truth - offset`` for a perturbed BPM, others untouched."""
-        offset = offsets.get(address)
-        if offset is None:
-            return values
-        return [float(value) - offset for value in values]
-
-    return subtract_offsets, {"kind": _STANDIN_TRANSFORM_KIND, "offsets": dict(offsets)}
-
-
 def _archiver_seed_inputs(config: dict, project_dir: Path):
-    """The channel set, engine and boot values one base seed is built from.
+    """The archive composite one base seed is built from.
 
     Every import here is function-local. The seeder pulls in numpy and the
     simulation package, and hoisting either into this module's import path would
     put a scientific-stack import on every deploy-verb invocation, archiver
     or not.
 
-    The channel set is the build-generated manifest the Virtual Accelerator and
-    the recorder both read, resolved exactly as they resolve it
-    (``VA_CHANNELS_FILE``, relative names against ``data/simulation/``), so the
-    seeded history covers precisely the channels the live half serves. It is read
-    from the project's own ``.env`` first, because that is where the build wrote
-    it; the ambient value is the fallback for a deploy whose environment carries
-    it instead. Neither naming a manifest is a refusal, never the framework's
-    bundled channel set: a seed of another facility's namespace under this
-    deployment's name is indistinguishable, in the archive, from history.
+    The channel set and every value come from the render's simulator view, the
+    same view the Virtual Accelerator serves, so the seeded history covers
+    precisely the channels the live half serves and holds what it serves at
+    each instant. The composite is built at the active set and anchor the
+    scenario state file records. A render with no simulator view is a refusal:
+    a seed of a namespace the deployment does not serve is indistinguishable,
+    in the archive, from history.
 
-    The value transform rides along because it is decided from the same two
-    things this already has in hand — the config and the project's env chain —
-    and because a seed built without it would describe a different machine than
-    the recorder is sampling (see :func:`_standin_seed_transform`).
+    The archive is the same whichever machine it belongs to: a stand-in serves
+    the shared active set exactly as the sandbox does.
 
-    A monitor reading the served lattice computes is centred on the orbit that
-    lattice solves (:func:`_solved_monitor_baselines`) rather than on the level
-    ``machine.json`` declares for it: the engine is built with those levels as
-    its baselines, and the boot values carry them for a reading the machine
-    file does not describe. The file itself is never rewritten. Because the
-    rebased values are different stored values, the fingerprint says so.
-
-    :returns: ``(channels, engine, boot_values, value_transform,
-        transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
-        empty for a project with no machine model — every channel is then
-        procedural, which is a valid configuration, not a fault. The transform
-        is ``None`` unless this deployment's archive is its stand-in's; the
-        fingerprint is ``None`` unless it is, or the seed is rebased on a
-        solved orbit.
-    :raises RuntimeError: Nothing names a manifest to seed from.
+    :returns: The archive composite
+        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
+    :raises RuntimeError: The render carries no simulator view.
+    :raises ViewSchemaError: The render's view is from an older build.
     """
-    from osprey.services.virtual_accelerator.manifest.loaders import (
-        load_machine_json_channels,
-        load_manifest_file,
-    )
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey.simulation.apply import persisted_scenario_anchor
+    from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import read_active_state
+    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
-    if named:
-        manifest_path = Path(named)
-        if not manifest_path.is_absolute():
-            # The render's data dir, not the source zone: the build generates
-            # the manifest into `build/data/simulation` only, and that is the
-            # directory the VA and recorder containers mount as /data/simulation
-            # — so it is the one place a relative VA_CHANNELS_FILE can name the
-            # same channel set the live half serves.
-            manifest_path = project_dir / BUILD_DIRNAME / "data" / "simulation" / manifest_path
-        channels = load_manifest_file(manifest_path)
-    else:
+    view = SimulatorView.find(project_dir)
+    if view is None:
         raise RuntimeError(
-            "The archiver seed has no channel set to build from: VA_CHANNELS_FILE is unset "
-            f"in {project_dir / '.env'} and in the environment. `osprey build` writes it "
-            "whenever it generates the channel manifest; the seed never falls back to the "
-            "framework's bundled channel set."
+            "The archiver seed has no channel set to build from: no simulator view in "
+            f"{SimulatorView.path_for_project(project_dir)}. "
+            "Run `osprey build`; the seed never invents a namespace."
         )
-
-    transform, transform_fingerprint = _standin_seed_transform(
-        config, project_dir, [str(channel["address"]) for channel in channels]
-    )
-
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
-        return channels, None, {}, transform, transform_fingerprint
-
-    state_dir = resolve_state_dir(config, project_dir)
-    baselines = _solved_monitor_baselines(project_dir, channels)
-    if baselines:
-        # Built directly rather than through the engine cache: this engine's
-        # machine is not the file's as written, and a cached one would hand
-        # the rebased levels to every other reader of the same file.
-        resolved = machine_path.expanduser().resolve()
-        engine = SimulationEngine(
-            read_machine_json(resolved),
-            resolved,
-            state_dir=Path(state_dir).expanduser().resolve(),
-            baselines=baselines,
-        )
-        transform_fingerprint = _baselines_fingerprint(baselines, transform_fingerprint)
-    else:
-        engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
-    # The same map the Virtual Accelerator boots its records from: machine.json's
-    # static channel values, skipping the handful of derived channels that carry
-    # an expression instead. Anchoring the procedural generator on it is what
-    # makes a seeded sample and a recorded one describe the same machine.
-    boot_values = {
-        address: entry["value"]
-        for address, entry in load_machine_json_channels(machine_path).items()
-        if "value" in entry
-    }
-    boot_values.update(baselines)
-    return channels, engine, boot_values, transform, transform_fingerprint
+    names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
+    anchor = persisted_scenario_anchor(config, project_dir)
+    return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
 
 
-def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
+def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     """Re-apply the active scenario set onto a freshly rebuilt base.
 
     A reseed rewrites the whole base series, which erases the event windows the
     active scenarios had written into it. Without this the deployment would come
     back up claiming a fault is active while its history showed a clean machine —
     precisely the divergence the stored archiver exists to remove.
+
+    The set is the one the scenario state file records, re-applied at the anchor
+    it records. A render with no simulator view has no scenarios to re-apply.
 
     The logbook is deliberately left alone: a knob change rebuilds the archive,
     not the narrative, and purging ARIEL's entries here would destroy history
@@ -5388,14 +4689,21 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
 
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
-    from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
-    from osprey.simulation.engine import DEFAULT_SCENARIO
+    from osprey.simulation.apply import (
+        apply_scenarios,
+        persisted_scenario_anchor,
+        view_scenarios,
+    )
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    if engine is None:
-        logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
+    if view_scenarios(project_dir) is None:
+        logger.debug("No simulator view in this project; no scenarios to re-apply after the reseed")
         return
 
-    names = engine.active_scenarios()
+    names = resolve_active_scenarios(
+        read_active_state(resolve_simulation_state_dir(config, project_dir))[0]
+    )
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
     # asked for, as a side effect of a deploy meant to rebuild only the store.
@@ -5403,9 +4711,11 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     try:
         result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
     except Exception as exc:
-        # `nominal` is implicit, so the recovery command names the faults — which
-        # is what the operator activated and what `sim apply` expects back.
-        faults = [name for name in names if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO]
+        # `nominal` leads the set and is implicit, so the recovery command names
+        # the faults — which is what the operator activated and what `sim apply`
+        # expects back.
+        nominal, *faults = names
+        faults = faults or [nominal]
         raise RuntimeError(
             "The base series was rebuilt but the active scenarios could not be "
             "re-applied, so the archive currently shows a clean machine while the "
@@ -5501,7 +4811,7 @@ def _wait_for_archiver_store(
 
 
 def _seed_progress_reporter():
-    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+    """A :func:`~osprey_connectors.simulation.archive.seed_base` progress callback.
 
     Each firing becomes a step line under the verb's open phase, so a first
     deploy's multi-minute seed reports as it goes instead of stalling silently.
@@ -5583,7 +4893,7 @@ def _stage_archiver_store(
 
     Whatever the base, the active scenarios' event windows are re-applied onto a
     rebuilt one, and onto a matching one when this deploy has just activated the
-    machine's default scenarios (which that base has never seen).
+    default scenarios (which that base has never seen).
 
     Both rebuild paths quiesce the recorder first. It is one operation — stop the
     writer, drop the collection, rebuild it, re-apply the active scenarios — and
@@ -5600,17 +4910,18 @@ def _stage_archiver_store(
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
-    :param scenarios_activated: Whether this deploy just activated the machine's
-        default scenarios (see :func:`_activate_default_scenarios`).
+    :param scenarios_activated: Whether this deploy just activated the
+        ``simulation.default_scenarios`` set (see :func:`_activate_default_scenarios`).
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
-    from osprey.simulation.archiver_seed import (
+    from osprey_connectors.simulation.archive import (
         SeedKnobs,
         SeedState,
         compare_fingerprint,
         seed_base,
         seed_fingerprint,
+        waveform_collection,
     )
 
     store = _archiver_store_connection(config, project_dir)
@@ -5650,22 +4961,18 @@ def _stage_archiver_store(
     _report_group("archiver")
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("archiver store started")
 
     # Assembled while the store boots, and before the health budget starts: this
-    # reads a manifest and a machine model off disk, and charging that time
-    # against the store's start-up allowance would make a slow disk look like an
-    # unreachable server.
-    channels, engine, boot_values, value_transform, transform_fingerprint = _archiver_seed_inputs(
-        config, project_dir
-    )
-    fingerprint = seed_fingerprint(
-        knobs,
-        (str(channel["address"]) for channel in channels),
-        compression=compression,
-        transform_fingerprint=transform_fingerprint,
-    )
+    # builds the archive composite, one solve per physics model, and charging
+    # that time against the store's start-up allowance would make a slow solve
+    # look like an unreachable server.
+    archive = _archiver_seed_inputs(config, project_dir)
+    fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
 
     store_hint = f"{store['username']}@{store['host']}:{store['port']}"
     with archiver_collection(store) as collection:
@@ -5679,7 +4986,7 @@ def _stage_archiver_store(
             if scenarios_activated:
                 # Rare enough (once per deployment) that holding this idle
                 # client across the rewrite costs nothing worth restructuring for.
-                _reapply_active_scenarios(config, project_dir, engine)
+                _reapply_active_scenarios(config, project_dir)
             return
 
         if comparison.state is SeedState.MISMATCH:
@@ -5720,30 +5027,32 @@ def _stage_archiver_store(
                     "`osprey status` if the reseeded archive looks wrong."
                 )
 
+        # Both collections, still inside the quiesce: the recorder writes traces
+        # into the waveform sibling as well, and a base rebuilt beside a stale
+        # waveform history would serve two worlds.
         collection.drop()
+        waveform_store = {**store, "collection": waveform_collection(store["collection"])}
+        with archiver_collection(waveform_store) as waveforms:
+            waveforms.drop()
         # Before the work, not after it: this is the only warning an operator
         # gets that the next thing to happen is measured in minutes.
         _report_step(
-            f"seeding the archive base: {len(channels):,} channels over "
+            f"seeding the archive base: {len(archive.addresses):,} channels over "
             f"{knobs.retention_days} days (minutes on a first deploy)"
         )
         report = seed_base(
             collection,
-            channels,
+            archive,
             knobs,
             t0=datetime.now(UTC),
-            engine=engine,
-            boot_values=boot_values,
             compression=compression,
             progress=_seed_progress_reporter(),
-            value_transform=value_transform,
-            transform_fingerprint=transform_fingerprint,
         )
         _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
-    _reapply_active_scenarios(config, project_dir, engine)
+    _reapply_active_scenarios(config, project_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -5798,7 +5107,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
     """
     from osprey.port_layout import resolve_port_base
     from osprey.services.ariel_search.config import resolve_ariel_dsn
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -5887,7 +5196,7 @@ def _stage_ariel_store(
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
     :param scenarios_activated: The scenario set this deploy just activated as
-        the machine's default, empty when it activated none. A logbook that
+        ``simulation.default_scenarios``, empty when it activated none. A logbook that
         already holds entries keeps them, and the warning names the command that
         brings in that set's narrative.
     """
@@ -5911,7 +5220,10 @@ def _stage_ariel_store(
     _report_group("ariel")
     up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("ARIEL store started")
 
     ariel_config = _ariel_store_config(config, project_dir)
@@ -5940,7 +5252,7 @@ def _stage_ariel_store(
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
     elif scenarios_activated:
-        from osprey.simulation.engine import DEFAULT_SCENARIO
+        from osprey_connectors.simulation.state import DEFAULT_SCENARIO
 
         faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
         logger.warning(
@@ -5951,7 +5263,7 @@ def _stage_ariel_store(
 
 
 def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, ...]:
-    """Activate the machine's default scenarios when the deployment never chose a set.
+    """Activate ``simulation.default_scenarios`` when the deployment never chose a set.
 
     Run before the archiver and ARIEL stages, which then seed the history and the
     narrative of the set written here. Never fatal: a deployment whose defaults
@@ -5968,9 +5280,9 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
         active = activate_default_scenarios(config, project_dir)
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
-            f"The machine's default scenarios could not be activated, so this deployment "
-            f"runs `nominal` only. Run `osprey sim apply <names>` from {project_dir} to "
-            f"choose a set. Cause: {exc}"
+            f"The default scenarios (simulation.default_scenarios) could not be activated, "
+            f"so this deployment runs `nominal` only. Run `osprey sim apply <names>` from "
+            f"{project_dir} to choose a set. Cause: {exc}"
         )
         return ()
     if active:
@@ -6002,13 +5314,6 @@ _GRAPHDB_HEALTH_POLL_S = 2.0
 # and a query whose cost grows with the graph would make a big store look down.
 _GRAPHDB_PING_CYPHER = "RETURN 1 AS ok"
 
-# The one command that finishes the job by hand, named in every warning below
-# and by the graphdb health category's remedy text, so an operator reading
-# either is pointed at the same verb. Imported from the module both sides
-# already share their vocabulary through, rather than spelled here a second
-# time: two copies would agree only until one of them was edited.
-_GRAPHDB_RECOVERY_HINT = GRAPHDB_SEED_COMMAND
-
 
 def _graphdb_store_deployed(config: dict) -> bool:
     """True when this deploy runs the graph store itself.
@@ -6037,7 +5342,7 @@ def _graphdb_connection(config: dict, project_dir: Path):
     """
     from osprey.deployment.graphdb_service import resolve_graphdb_connection
     from osprey.port_layout import resolve_port_base
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -6064,7 +5369,7 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
     down in ``build/`` when it is there, and the project root itself otherwise —
     a container's project directory, or a legacy flat project, IS its own render.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     rendered = rendered_config_path(project_dir)
     return rendered.parent if rendered.is_file() else Path(project_dir)
@@ -6077,13 +5382,12 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     written, a relative one resolved against the ``config.yml`` directory
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`) — the
     one config-relative key that is, because the corpus it names is an
-    artifact of the render: the documented default,
-    ``./data/demo_machine.ttl``, is read from the ``data/`` tree the build
-    assembled for this project, so a corpus regenerated into the profile's
-    data tree reaches the store on the next build like every other rendered
-    artifact. ``osprey knowledge seed-graph`` reads the same key by the same
-    rule; two resolutions of one key would mean the deploy and the verb could
-    seed a store from different files while both reporting success.
+    artifact of the render: the derived value, ``./data/graph/facility.ttl``,
+    is the graph view the build wrote from the facility file, so a facility
+    file changed in the profile's data tree reaches the store on the next build
+    like every other rendered artifact. The build derives the channel search
+    index from the same key by the same rule; two resolutions of one key would
+    mean the store and the index could come from different files.
 
     :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
     :param project_dir: Root of the built project.
@@ -6133,33 +5437,46 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
 
 
 def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> None:
-    """Bootstrap the staged store and, on a first bring-up only, import its corpus.
+    """Bootstrap the staged store and make it hold exactly the configured corpus.
 
     One session for the whole sequence, and each step gated on the one before:
 
     * **bootstrap** — always, and idempotent. A store whose graph config is not
       osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
-      is reported and left alone: n10s refuses to re-initialize a configured
-      store, so importing into it would load a corpus under assumptions about the
-      graph's shape that do not hold. Only ``--force`` can resolve that, and only
-      by wiping — which a deploy does not get to do to data it did not write.
-    * **seed** — only into an EMPTY graph (zero ``(:Resource)`` nodes, n10s's own
-      bookkeeping not counted), and only when a corpus is configured. A deploy may
-      fill a blank; it may not overwrite a graph somebody seeded.
+      does not hold this corpus whatever its marker says: n10s refuses to
+      re-initialize a configured store, so it is replaced like a stamp mismatch.
+    * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
+      ``ttl_sha256`` of the configured corpus. Equal means the store holds this
+      corpus: its data is left as it is and only the prompt snapshot is re-baked.
+      Any other value, a missing marker included, means it does not: the store is
+      wiped, bootstrapped again (the wipe removes n10s's config with the data),
+      and the corpus imported.
     * **marker** — only after the import reports success. n10s commits in batches,
-      so a failed import leaves triples behind; a marker written regardless would
-      label that half-graph a good seed and every later run would report it
-      unchanged and skip it forever.
+      so a failed import leaves triples behind; a store left without a marker
+      reads as a mismatch, so the next deploy replaces it again.
+
+    ``osprey build`` names a corpus in every rendered ``services.graphdb``
+    block, so a block without one is a render defect, refused before the store
+    is touched.
 
     :param config: Raw deploy config.
     :param project_dir: Root of the built project.
     :param connection: The resolved graph-store connection.
+    :raises ValueError: If the rendered block names no corpus.
     """
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_TTL_PATH_CONFIG_KEY,
+        resolve_graphdb_service_config,
+    )
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     settings = resolve_graphdb_service_config(config)
     ttl_path = settings.ttl_path if settings is not None else None
+    if ttl_path is None:
+        raise ValueError(
+            f"the rendered config names no {GRAPHDB_TTL_PATH_CONFIG_KEY}. "
+            "Run `osprey build` to render it."
+        )
 
     with graph_seeder.open_session(
         connection.uri,
@@ -6168,52 +5485,39 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         database=connection.database,
     ) as session:
         bootstrapped = graph_seeder.bootstrap(session)
-        if not bootstrapped.ok:
-            logger.warning(
-                f"The graph store came up, but its {bootstrapped.message}. Nothing was "
-                f"imported, so its contents are whatever was already there. Run "
-                f"`{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir} to wipe it and "
-                f"re-seed under osprey's settings."
-            )
-            return
-        _report_step("graph store bootstrapped")
+        if bootstrapped.ok:
+            _report_step("graph store bootstrapped")
 
-        if graph_seeder.resource_count(session) > 0:
-            # The normal second-deploy path: a graph that already carries a
-            # corpus is left exactly as it is, and silently — this is not a
-            # problem, and a warning here would cry wolf on every redeploy.
-            # The rendered agent prompt is NOT left as it is: this deploy's
-            # build reset it to the placeholder, so it is re-baked from the
-            # live store on every up — which is what keeps prompt and store in
-            # sync by construction rather than by convention.
+        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
+        digest = graph_seeder.ttl_sha256(text)
+        if bootstrapped.ok and graph_seeder.read_marker(session) == digest:
+            # The normal redeploy path, and silent: the store already holds this
+            # corpus. The rendered agent prompt is re-baked regardless, because
+            # this deploy's build reset it to the placeholder.
             _bake_graph_prompt_snapshot(session, project_dir)
             return
 
-        if ttl_path is None:
-            _report_fact(
-                "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
-                f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
-                "corpus."
+        graph_seeder.wipe(session)
+        rebootstrapped = graph_seeder.bootstrap(session)
+        if not rebootstrapped.ok:
+            logger.warning(
+                f"The graph store was wiped, but its {rebootstrapped.message}. Nothing "
+                f"was imported. Run `{GRAPHDB_REBUILD_HINT}` from {project_dir}."
             )
             return
 
-        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
         imported = graph_seeder.import_ttl(session, text)
         if not imported.ok:
             logger.warning(
                 f"The graph store came up but importing {resolved} failed "
                 f"({imported.termination_status}: {imported.extra_info}), so graph queries "
                 f"will return little or nothing. Everything else in this deploy is "
-                f"unaffected. Fix the corpus and run `{_GRAPHDB_RECOVERY_HINT} --force` "
+                f"unaffected. Fix the corpus and run `{GRAPHDB_REBUILD_HINT}` "
                 f"from {project_dir}."
             )
             return
 
-        graph_seeder.write_marker(
-            session,
-            graph_seeder.ttl_sha256(text),
-            graph_seeder.parse_direction_source(text),
-        )
+        graph_seeder.write_marker(session, digest)
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
         _bake_graph_prompt_snapshot(session, project_dir)
 
@@ -6244,8 +5548,135 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
         _report_step(f"graph schema baked into {prompt_snapshot.describe_patched(patched)}")
 
 
+def _guard_ledger_feed(config, project_dir: Path) -> list:
+    """Quarantine non-regular ledger paths and list the directories nobody reads.
+
+    Each ``*.jsonl`` under an identity directory that is not a regular file — a
+    FIFO or a symlink — is renamed ``<name>.refused-<UTC ts>`` (a FIFO is first
+    opened for writing and closed, which frees a gateway blocked opening it),
+    and its path is printed. Every ``var/audit`` directory the built gateway
+    configuration has no receiver for is listed as not fed until the next
+    build.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project.
+    :returns: The paths moved aside (empty when nothing was).
+    :raises RuntimeError: When a non-regular path cannot be renamed.
+    """
+    if not telemetry_config.gateway_deployed(config):
+        return []
+    from osprey.deployment.telemetry_gateway import (
+        COLLECTOR_CONFIG_FILE,
+        quarantine_hostile_ledgers,
+    )
+    from osprey.health.core.telemetry_gateway import unfed_directories
+    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+
+    audit_root = project_dir / AUDIT_DIR_RELPATH
+    if not audit_root.is_dir():
+        return []
+    quarantined = quarantine_hostile_ledgers(audit_root)
+    for moved in quarantined:
+        _warn_fact(
+            f"Moved aside a ledger path that is not a regular file: {moved.path}",
+            f"Kept as {moved.moved_to.name}; the gateway reads regular files only.",
+        )
+    built = (
+        project_dir
+        / "build"
+        / "services"
+        / telemetry_config.GATEWAY_SERVICE
+        / COLLECTOR_CONFIG_FILE
+    )
+    try:
+        collector = yaml.safe_load(built.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return quarantined
+    if not isinstance(collector, dict):
+        return quarantined
+    unfed = unfed_directories(audit_root, collector)
+    if unfed:
+        _report_fact(f"Audit directories not fed until the next build: {', '.join(unfed)}")
+    return quarantined
+
+
+def _recreate_ledger_gateway(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Remove the running gateway so the ``up`` that follows starts a fresh one.
+
+    Renaming a FIFO or an endless file does not close the descriptor a running
+    reader already holds on it: that reader stays blocked, keeps the moved path
+    open and ignores the shutdown signal, so every later stop of the gateway
+    runs to its timeout. Only a new process lets go of it. The stop here may
+    itself run to the timeout (that is the stuck reader); the reader offsets
+    live in the gateway's storage volume, so the new gateway resumes every
+    regular ledger where the old one left it.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project.
+    :param provider: The compose provider this deploy resolved. ``None`` is the
+        docker shape.
+    """
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+    for verb, spool in (
+        (["stop", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-stop"),
+        (["rm", "-f", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-rm"),
+    ):
+        cmd = base_cmd + verb
+        logger.debug(f"Running command:\n    {' '.join(cmd)}")
+        run_captured(cmd, env=run_env, spool_name=spool, repo_root=project_dir, check=False)
+    _report_step("telemetry gateway removed, so the start below runs a fresh one")
+
+
+def _stage_telemetry_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Start the telemetry store alone and bring its schema and accounts up to date.
+
+    Unlike the graph store's staging, a failure here stops ``osprey up``: the
+    accounts script carries every withdrawal, so a store left short of it may
+    still let a withdrawn reader read. The error names the statement or the
+    table that stopped it (see :mod:`osprey.deployment.telemetry_store.stage`).
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds the credential files).
+    :param provider: The compose provider this deploy resolved. ``None`` is the
+        docker shape.
+    """
+    if not telemetry_config.store_deployed(config):
+        return
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("telemetry store")
+    up_cmd = base_cmd + ["up", "-d", telemetry_config.STORE_SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="telemetry-store-up", repo_root=project_dir, **bounds
+        )
+    _report_step("telemetry store started")
+    stage_telemetry_store(config, project_dir, compose_executor(base_cmd, run_env))
+    _report_step("telemetry store schema and accounts applied")
+
+
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the graph store, bootstrap it, and seed it on a first bring-up.
+    """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
     The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
     ahead of the full bring-up for the same kind of reason: a store that comes up
@@ -6258,8 +5689,8 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     one search surface among many, and a control room whose channels, plan runs
     and archive are all up should not be denied them because its graph could not
     be provisioned — but every warning names
-    ``osprey knowledge seed-graph`` (see :data:`_GRAPHDB_RECOVERY_HINT`), so the
-    gap is never silent.
+    :data:`~osprey.deployment.graphdb_service.GRAPHDB_REBUILD_HINT`, so the gap
+    is never silent.
 
     :param config: Raw deploy config.
     :param compose_files: Rendered compose file paths for this deploy.
@@ -6287,7 +5718,10 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     _report_group("graphdb")
     up_cmd = base_cmd + ["up", "-d", GRAPHDB_SERVICE_NAME]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("graph store started")
 
     try:
@@ -6298,62 +5732,10 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         logger.warning(
             f"The graph store could not be bootstrapped or seeded, so graph queries will "
             f"return nothing. Everything else in this deploy is unaffected. Run "
-            f"`{_GRAPHDB_RECOVERY_HINT}` from {project_dir} once the store is reachable. "
+            f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} once the store is reachable. "
             f"Cause: {exc}"
         )
         return
-
-
-def _stage_openobserve_identity(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the telemetry store, then provision the account that writes to it.
-
-    Staged like ARIEL's store and the archiver's, and for a reason neither of
-    them has: the ingest credential is issued by the STORE, so it cannot be
-    written before the store is running. Doing it here rather than after the
-    bring-up is what makes it work on both start shapes at once, because an
-    attached ``osprey up`` replaces this process with compose and never comes
-    back to run anything afterwards.
-
-    The store is brought up on its own first, exactly as ``up`` will leave it:
-    the same compose project, the same env chain, so the ``up`` below reconciles
-    a container that is already correct rather than recreating it.
-
-    :param config: Raw deploy config.
-    :param compose_files: Rendered compose file paths for this deploy.
-    :param env: The environment the deploy hands compose. A harvested token is
-        mirrored into it when it already carries the name (see
-        ``openobserve_provision._mirror_into_environment``).
-    :param project_dir: Root of the built project (holds ``.env``).
-    :param provider: The compose provider this deploy resolved, so the staging
-        invocation is shaped like the ``up`` that follows it.
-    """
-    from osprey.deployment import openobserve_provision
-
-    if not openobserve_provision.store_deployed(config):
-        return
-
-    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
-    base_cmd = compose_base_cmd(
-        get_runtime_command(config),
-        compose_files,
-        project_dir,
-        _env_file_args(project_dir, provider),
-        provider,
-    )
-
-    _report_group("openobserve")
-    up_cmd = base_cmd + ["up", "-d", openobserve_provision.SERVICE]
-    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="openobserve-store-up", repo_root=project_dir)
-    _report_step("telemetry store started")
-
-    outcome = openobserve_provision.provision_ingest_identity(
-        config, Path(project_dir) / COMPOSE_ENV_FILENAME, env=env
-    )
-    if outcome.action == "verified":
-        _report_step("ingest identity verified")
-    elif outcome.wrote_token:
-        _report_step("ingest identity provisioned")
 
 
 def deploy_up(
@@ -6518,7 +5900,7 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
     """The live view for one image's own ``<runtime> build``, labeled by its tag.
 
     :func:`compose_build_step_reporter`'s counterpart for the sites that build a
-    single image directly — the dispatch worker's project image, a persona
+    single image directly — the dispatch worker's project image, a render
     image, the auth sidecar. Two things differ from the compose case, and both
     are silent when a call site gets them wrong:
 
@@ -6536,6 +5918,64 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
             run_captured(..., on_line=report)
     """
     return BuildProgressReporter(image_tag, step_prefix=None)
+
+
+def _invoking_account() -> str | None:
+    """The name of the account running this command, or ``None`` if it has none.
+
+    A uid with no passwd entry — an arbitrary ``--user`` in a container — has
+    no name to compare, and that is an answer rather than an error.
+    """
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return None
+
+
+def _ensure_telemetry_credentials(config: dict, repo_root: Path | str) -> None:
+    """Provision the telemetry store's credential files, and say what changed.
+
+    Everything said is a file name. A reader's key is minted here and nowhere
+    else, and is never printed: the line names the file it is in and the page
+    the reader opens, and the operator hands the key over out of band. A
+    reader that left the config has its file set aside under a dated name in
+    the same start that drops its account, so adding the name back later mints
+    a new key rather than reviving the one that was handed out.
+
+    A no-op for a deployment without the store.
+
+    Args:
+        config: Raw deploy config.
+        repo_root: The deployment repo, where the files live.
+
+    Raises:
+        RuntimeError: If a sender's name cannot be a login name.
+    """
+    from osprey.deployment.deploy_summary import reader_page_url
+    from osprey.deployment.telemetry_credentials import (
+        ensure_telemetry_credentials,
+        reader_file,
+    )
+
+    try:
+        report = ensure_telemetry_credentials(repo_root, config, reader_keys=True)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    for name, set_aside in report.withdrawn:
+        _report_fact(f"reader {name}: withdrawn, key file set aside → {set_aside}")
+    for name in report.reader_keys:
+        _report_fact(f"reader {name}: key minted → {reader_file(name)}")
+        with contextlib.suppress(ValueError):
+            if (page := reader_page_url(config, name)) is not None:
+                _report_fact(f"reader {name}: signs in at {page}")
+    reader_files = {reader_file(name) for name in report.reader_keys}
+    service_files = [name for name in report.minted if name not in reader_files]
+    if service_files:
+        _report_fact(f"telemetry credential files created: {', '.join(service_files)}")
+    if report.purged:
+        _report_fact(f"telemetry credential files removed: {', '.join(report.purged)}")
 
 
 def _collect_unmet_preconditions(
@@ -6577,19 +6017,21 @@ def _collect_unmet_preconditions(
             has been built or started.
     """
     from osprey.deployment.errors import UnmetPreconditionsError
+    from osprey.deployment.telemetry_credentials import credential_file_problems
+    from osprey.deployment.telemetry_lint import host_identity_advisories, preflight_problems
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 
     findings: list[tuple[str, str]] = []
     if web_terminals_enabled:
         # Both halves off ONE lint pass: they are two readings of the same
-        # findings, and asking for them separately walked every persona's
+        # findings, and asking for them separately walked every render's
         # rendered config.yml twice on a pass that promises to report in
         # seconds.
         problems, advisories = web_terminal_preflight_report(config, repo_root=repo_root)
         findings.extend(problems)
         # Said, not refused over -- the privilege exposures that are real but
         # must not stop the start of a running stack (a privileged
-        # `default_persona`, an `auth.method: none` deployment). Printed rather
+        # `default_tier`, an `auth.method: none` deployment). Printed rather
         # than collected because the collection RAISES: an advisory in that list
         # would refuse the deploy it is trying to inform. Output, not a write,
         # so the pass keeps the purity its position depends on.
@@ -6600,6 +6042,17 @@ def _collect_unmet_preconditions(
     # the chain as it stands AFTER every mint above, so a token the deploy just
     # provisioned is not reported as missing -- see _required_env_problems.
     findings.extend(_required_env_problems(repo_root, env))
+    # The telemetry store's two start-blocking rules, asked of the config alone:
+    # reader names that would share one set of sign-on settings, and query
+    # limits that do not fit the store's memory limit.
+    findings.extend(preflight_problems(config))
+    # And of the files the step above provisioned: one it could not create, or
+    # one somebody else wrote with a mode that lets other accounts read it.
+    findings.extend(credential_file_problems(repo_root, config))
+    # Said, not refused over: sessions started from this account are recorded
+    # under the account that built the deployment.
+    for advisory in host_identity_advisories(config, _invoking_account()):
+        _warn_fact(advisory)
     if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
         findings.append(pin)
 
@@ -6791,9 +6244,6 @@ def _start_stack(
     # roster's per-index ports are covered too, so a port a foreign process
     # holds is named here rather than inside the new container's panel logs.
     _preflight_host_ports(config, compose_files)
-    # Refuse a build/ whose compose file and config name different store ports,
-    # ahead of every container-touching command, so the refusal leaves the host untouched.
-    _preflight_store_address(config, compose_files)
 
     # Refuse a pin the deploy itself would write over. Ahead of the override
     # refusal below because it is a statement about the profile alone: a
@@ -6861,18 +6311,17 @@ def _start_stack(
     if web_terminals_enabled:
         migrate_users_env(repo_root)
 
+    # The telemetry store's credential files: every account's that the build
+    # minted, again — a file deleted since is a credential being rotated — and
+    # the readers' keys, which only a start mints. A provisioning step of its
+    # own, above the reporting pass below, which only reads them.
+    _ensure_telemetry_credentials(config, repo_root)
+
     # Refuse a chain that is not the one this project was rendered against:
     # membership is fixed at build time, so a file added or removed since then
     # changes nothing about what the stack reads. Ahead of the advisory below
     # because there is no point reporting on a chain the render does not match.
     _preflight_env_chain_drift(compose_files, repo_root)
-
-    # Refuse a chain the build's own keys have gone missing from: the build
-    # writes VA_CHANNELS_FILE and VA_LATTICE together whenever it generates a
-    # channel manifest, so a manifest on disk beside a chain without them is a
-    # lost key, and the container would exit on the empty value. Reads only
-    # this deployment's own files, so it sits with the other refusals that do.
-    _preflight_build_derived_env(compose_files, repo_root)
 
     # Which compose implementation is behind the resolved runtime, answered once
     # for every invocation this start makes: the env-file fragment, the argv,
@@ -6929,7 +6378,7 @@ def _start_stack(
     # handing compose the overridden copy would make that a lie and silently
     # start the stack on the store's value instead. Variables `.env` added that
     # the shell never set are untouched (their process value IS the file's).
-    from osprey.utils.config import dotenv_shell_overrides
+    from osprey_connectors.config import dotenv_shell_overrides
 
     env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
@@ -6972,7 +6421,7 @@ def _start_stack(
         web_terminals_enabled=web_terminals_enabled,
     )
 
-    # Fail-fast web-terminal preflight (persona render + credential gate)
+    # Fail-fast web-terminal preflight (render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
     # abort on a missing provider secret must say so in seconds, not after
     # the whole project image has been built. deploy_up_web_terminals re-runs
@@ -6990,8 +6439,8 @@ def _start_stack(
     # No-op unless this project deploys the store itself. Anchored on the repo
     # root: the single root `.env` is the secret store the seeder authenticates
     # from, and every compose invocation on this path reads it with --env-file.
-    # A deployment that never chose a scenario set starts in the one its machine
-    # model names, activated before the two stages below so the archive and the
+    # A deployment that never chose a scenario set starts in the one its profile
+    # names, activated before the two stages below so the archive and the
     # logbook are seeded with that set's history and narrative.
     activated = _activate_default_scenarios(config, Path(repo_root))
 
@@ -7037,13 +6486,18 @@ def _start_stack(
     # built before the bake ships the placeholder prompt.
     _build_project_image(config, dev_mode, env, build_context)
 
-    # And the telemetry store, for a third reason: its ingest credential is one
-    # the STORE issues, so the only moment it can be harvested is with the store
-    # running. Here rather than after the bring-up below because the attached
-    # `up` never returns (it replaces this process with compose), so anything
-    # that must happen on both start shapes has to happen before the branch.
-    # No-op unless this project deploys the store itself.
-    _stage_openobserve_identity(config, compose_files, env, Path(repo_root), provider=provider)
+    # And the telemetry store: its schema and its accounts must be in place
+    # before the gateway inserts and before any reader or page queries it.
+    # Before the branch because the attached `up` never returns. Fatal: a
+    # store short of its accounts could leave a withdrawn reader able to read.
+    _stage_telemetry_store(config, compose_files, env, Path(repo_root), provider=provider)
+    # And the gateway's ledger directories, before compose recreates it: a
+    # planted FIFO or symlink is moved out of the readers' glob, and a
+    # directory no receiver reads is named. Fatal only when a path cannot be
+    # moved aside. A gateway already reading a moved path keeps it open, so it
+    # is replaced by the start below.
+    if _guard_ledger_feed(config, Path(repo_root)):
+        _recreate_ledger_gateway(config, compose_files, env, Path(repo_root), provider=provider)
 
     # Stage the site CA into every service context compose may build, once and
     # ahead of the branch: both paths below can build those images, and the
@@ -7053,11 +6507,23 @@ def _start_stack(
     if not _resolve_prebuilt_images(config):
         stage_service_site_ca(config, compose_files, repo_root)
 
+    # One render-build session for the rest of the start: the tier renders
+    # built just below are not built again by the web stack's own pass.
+    build_session = render_build_session()
+    build_session.__enter__()
+
     # Whatever stops the start -- a failed build, a refused `up`, an interrupt
     # -- the contexts give the bundle back: they hold it only while a build
     # can read it. The attached `up` clears before it replaces this process,
     # since nothing after `os.execvpe` runs.
     try:
+        # The tier render a tiered dispatch worker runs, with the rest of the
+        # reference set, built like the project image above and for the same
+        # reason: no compose build block produces it, and it must exist before
+        # the worker's `up`. No-op without a dispatch tier.
+        _build_referenced_renders(
+            config, repo_root, dev_mode, env, web_terminals_enabled=web_terminals_enabled
+        )
         if web_terminals_enabled:
             # The provider goes down with the fragment it shaped: that fragment is
             # already provider-specific (one merged file, or the repeated chain),
@@ -7089,7 +6555,7 @@ def _start_stack(
         run_env = runtime_env(config, {**env, **compose_provider_env(provider, repo_root)})
 
         base_cmd = compose_base_cmd(
-            with_plain_progress(get_runtime_command(config)),
+            with_plain_progress(get_runtime_command(config), provider=provider),
             compose_files,
             repo_root,
             _env_file_args(repo_root, provider),
@@ -7182,14 +6648,17 @@ def _start_stack(
             # answer a missing tag by building a locally-tagged impostor from the
             # template's `build:` block instead of failing on the image that never
             # arrived. The switch reaches compose's implicit builds only: explicit
-            # persona and auth-sidecar builds stay governed by `image_source`.
+            # render and auth-sidecar builds stay governed by `image_source`.
             cmd.append("--no-build")
         if detached:
             cmd.append("-d")
 
         logger.debug(f"Running command:\n    {' '.join(cmd)}")
         if detached:
-            run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
+            with watched_compose_up(cmd, config=config, env=run_env) as bounds:
+                run_captured(
+                    cmd, env=run_env, spool_name="compose-up", repo_root=repo_root, **bounds
+                )
             _report_step("containers started")
             log_endpoint_summary(config, compose_files)
         else:
@@ -7217,6 +6686,7 @@ def _start_stack(
             os.execvpe(cmd[0], cmd, run_env)
     finally:
         clear_staged_service_site_ca(compose_files, repo_root)
+        build_session.__exit__(None, None, None)
 
 
 def as_built_config_path(repo_root: Path | str) -> Path:
@@ -7511,10 +6981,10 @@ def up_as_built(
     at build time.
 
     Nothing else on this path reads ``profile.yml`` or writes into ``build/``.
-    Persona projects in particular are rendered by ``osprey build``, one per
-    delta in ``personas/``, and a start only checks they are there
-    (:func:`verify_persona_renders`) and refuses when they are not: a start that
-    rendered them would put a fresh persona beside a deployment built from an
+    Render projects in particular are rendered by ``osprey build``, one per
+    delta in ``tiers/``, and a start only checks they are there
+    (:func:`verify_renders`) and refuses when they are not: a start that
+    rendered them would put a fresh render beside a deployment built from an
     older profile. The services stack is untouched by any of it.
 
     Everything after the inputs are resolved is :func:`_start_stack`. What is
@@ -7564,7 +7034,7 @@ def _sidecar_dev_flavor(compose_files: list[str], repo_root: Path) -> tuple[list
 
     Only services that install the framework at image-build time matter (their
     ``build.args`` carry ``OSPREY_VERSION``). Pure-image services and images
-    built at start time (dispatch worker, personas) take their dev-ness from the
+    built at start time (dispatch worker, renders) take their dev-ness from the
     start verb and are none of this function's business.
 
     Args:
@@ -7730,7 +7200,7 @@ def _start_as_built(
     the anchor the host is the one participant in that contract left resolving
     against a working directory that holds no ``config.yml`` at all, and its
     lookups degrade to defaults without failing. See
-    :func:`~osprey.utils.config.config_anchored_at`.
+    :func:`~osprey_connectors.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):
         _warn_on_timezone_drift(config)
@@ -8012,7 +7482,7 @@ def down_deployment(repo_root: Path | str) -> None:
     provider = _compose_provider(config)
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -8172,7 +7642,7 @@ def deploy_down(config_path, dev_mode=False):
             logger.debug(f"  - {f}")
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -8252,7 +7722,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     repo_root = resolve_repo_root(config, config_path)
     provider = _compose_provider(config)
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -8264,21 +7734,6 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     subprocess.run(
         cmd, env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
     )
-
-    # After the restart, not before: the ingest credential is issued by a store
-    # that has to be answering to issue it, and `compose restart` takes it down
-    # and brings it back. The provisioner waits for readiness itself, so this
-    # covers the case a restart exists to repair here too, which is a data
-    # volume that was replaced under a `.env` still holding the old token.
-    #
-    # What a restart CANNOT do is deliver a newly harvested token to the
-    # containers: `compose restart` reuses each container's existing definition,
-    # so a value written now reaches them at the next `osprey up`. Provisioning
-    # anyway is what makes the store and the `.env` agree in the meantime, which
-    # is the half a later start cannot reconstruct.
-    from osprey.deployment import openobserve_provision
-
-    openobserve_provision.provision_ingest_identity(config, repo_root / COMPOSE_ENV_FILENAME)
 
     # If detached mode requested, detach after restart
     if detached:

@@ -17,9 +17,13 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
-from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
+from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
 from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
 from tests._agent_cli import STUB_AGENT_CLI
+from tests._builds import (  # noqa: F401 - the session's shared builds
+    built_control_assistant,
+    offline_build_env,
+)
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -845,7 +849,7 @@ def reset_state_between_tests():
     """
     # Reset before test
     from osprey.registry import reset_registry
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_registry()
     reset_config_cache()
@@ -1182,7 +1186,7 @@ def restore_cwd():
 def restore_root_logging():
     """Return root logging to its pre-collection state before and after every test.
 
-    Leak guarded: ``configure_logging()`` (``src/osprey/utils/logger.py``) makes
+    Leak guarded: ``configure_logging()`` (``osprey_connectors/logger.py``) makes
     three process-global changes — it sets the root logger level, installs an
     Osprey ``RichHandler``, and raises six third-party loggers to WARNING. Any
     test that reaches an entry point triggers all three, and they would then
@@ -1332,6 +1336,51 @@ def _no_companion_server_launches(request, monkeypatch):
 
 
 # ===================================================================
+# Bounded captured runs
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _bounded_runs_take_the_plain_spool_path(request):
+    """Route ``run_captured``'s bounded runs through its plain spool path.
+
+    A bounded run (a time limit or a watch, as every ``compose up`` now has)
+    starts its child with ``Popen`` in a process group of its own, because
+    stopping it has to reach that whole group. The deploy tests fake
+    ``subprocess.run`` — the plain spool path's one call — to record argv and
+    answer for compose. Without this, every one of them would let its
+    ``compose up`` escape to the real runtime through ``Popen``.
+
+    Only the runner is replaced: the argv, environment and spool a deploy test
+    observes are the ones the plain path gives a call, which is what the bounded
+    path gives it too. The runner's own tests opt out with
+    ``@pytest.mark.real_bounded_run``.
+
+    The patch is applied and undone here rather than through ``monkeypatch``:
+    an autouse fixture that requests ``monkeypatch`` moves its setup ahead of
+    the test's ``tmp_path``, so a test that patches ``os.open`` would still hold
+    that patch when ``tmp_path`` is removed at teardown.
+    """
+    if request.node.get_closest_marker("real_bounded_run"):
+        yield
+        return
+
+    from osprey.deployment import subprocess_capture
+
+    def _plain(cmd, *, env, cwd, spool_name, repo_root, check, **_bounds):
+        return subprocess_capture.run_captured(
+            cmd, env=env, cwd=cwd, spool_name=spool_name, repo_root=repo_root, check=check
+        )
+
+    real = subprocess_capture._run_bounded
+    subprocess_capture._run_bounded = _plain
+    try:
+        yield
+    finally:
+        subprocess_capture._run_bounded = real
+
+
+# ===================================================================
 # Marker-driven resource skip-gating
 # ===================================================================
 #
@@ -1360,8 +1409,7 @@ def _has_anthropic_api_key() -> bool:
 def _has_any_provider_api_key() -> bool:
     """True if any supported LLM provider key is set.
 
-    Mirrors the inline detection in tests/e2e/test_llm_channel_namer.py:
-    als-apg, cborg, amsc-i2, anthropic.
+    Checks ALS_APG_API_KEY, CBORG_API_KEY, AMSC_I2_API_KEY and ANTHROPIC_API_KEY.
     """
     import os as _os
 
@@ -1560,10 +1608,10 @@ def pytest_configure(config):
     # run at all, so the marker and its reason are read together.
     config.addinivalue_line(
         "markers",
-        "requires_als_profiles: the full install chain over a real facility's "
-        "MML export, which never enters the repo — needs that facility's "
-        "profiles checkout and the MATLAB its 2.0 export is produced on, and "
-        "skips with a named reason anywhere else.",
+        "requires_als_profiles: the install over a real facility's MML export, "
+        "which never enters the repo — import, build and boot; needs that "
+        "facility's profiles checkout, a named export and mapping, or a "
+        "stand-in tree, and skips naming the unset variables anywhere else.",
     )
 
     global _CI_DIAGNOSTICS
@@ -1644,6 +1692,62 @@ def pytest_xdist_make_scheduler(config, log):
     if config.getoption("dist", None) != "loadgroup":
         return None
     return FileOrGroupScheduling(config, log)
+
+
+# ===================================================================
+# The controller's half of the e2e provider refusal
+# ===================================================================
+#
+# ``tests/e2e/conftest.py`` refuses a run that names no provider and selects an
+# e2e test needing one. Under xdist that judgement runs in the workers, and a
+# worker cannot end the session cleanly: pytest reports its collection finished
+# even when the judging hook raised, the controller hands it tests, and the
+# worker's early exit then surfaces as xdist's ``INTERNALERROR`` about a crashed
+# item, with the refusal lost. So a worker hands its refusal to the controller
+# instead, and the controller prints it.
+#
+# The controller's half lives here, not beside the refusal: the controller
+# collects nothing, so it loads only the conftests on the path to each
+# argument. ``tests/e2e/conftest.py`` is one of them only when an argument lies
+# inside ``tests/e2e``; a whole-suite run names ``tests`` and loads this file
+# alone.
+
+#: ``workerinput`` flag the controller sets when it relays a worker's refusal.
+E2E_REFUSAL_RELAY_KEY = "osprey_e2e_refusal_relay"
+#: ``workeroutput`` key a worker hands its refusal to the controller under.
+E2E_REFUSAL_KEY = "osprey_e2e_refusal"
+#: The refusals the controller collected from its workers.
+_E2E_REFUSALS = pytest.StashKey[list[str]]()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """Tell each xdist worker that this controller prints its refusal."""
+    node.workerinput[E2E_REFUSAL_RELAY_KEY] = True
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node):
+    """Collect the refusal a worker handed over."""
+    message = getattr(node, "workeroutput", {}).get(E2E_REFUSAL_KEY)
+    if message:
+        node.config.stash.setdefault(_E2E_REFUSALS, []).append(message)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    """Print a relayed refusal and end the session as a usage error.
+
+    Every worker collects the same selection, so every refusal is identical and
+    the first one is printed.
+    """
+    refusals = session.config.stash.get(_E2E_REFUSALS, [])
+    if not refusals:
+        return
+    sys.stdout.flush()
+    sys.stderr.write(f"ERROR: {refusals[0]}\n")
+    sys.stderr.flush()
+    session.exitstatus = pytest.ExitCode.USAGE_ERROR
 
 
 # ===================================================================
@@ -1783,7 +1887,8 @@ class TestRegistryProvider(RegistryConfigProvider):
             "default_policy": "selective",
         },
         "control_system": {
-            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
+            "type": "virtual_accelerator",  # Use mock for tests - default patterns include write_channel/read_channel
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "execution": {
             "execution_method": "subprocess",
@@ -1839,7 +1944,8 @@ class TestRegistryProvider(RegistryConfigProvider):
             "default_policy": "selective",
         },
         "control_system": {
-            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
+            "type": "virtual_accelerator",  # Use mock for tests - default patterns include write_channel/read_channel
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "execution": {
             "execution_method": "subprocess",

@@ -144,7 +144,7 @@ def _hub_server(workspace_dir: Path, data_root: Path) -> Iterator[str]:
             "osprey.interfaces.web_terminal.app._launch_panel_server",
             side_effect=publish_artifact_url(),
         ),
-        patch("osprey.utils.workspace.resolve_shared_data_root", return_value=data_root),
+        patch("osprey_connectors.workspace.resolve_shared_data_root", return_value=data_root),
     ]
     with _apply_all(patches):
         from osprey.interfaces.web_terminal.app import create_app

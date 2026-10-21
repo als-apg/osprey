@@ -12,9 +12,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import ConfigurationError, RegistryError  # re-exported
-from osprey.utils.config import get_agent_dir, get_config_value
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import get_agent_dir, get_config_value
+from osprey_connectors.errors import ConfigurationError, RegistryError  # re-exported
+from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider  # noqa: F401 (re-exported)
 from .export import export_registry_to_json as _export_registry_to_json
@@ -180,17 +180,6 @@ class RegistryManager:
         :return: List of search module names
         """
         return list(self._registries["ariel_search_modules"].keys())
-
-    def get_ariel_search_module_registry(self) -> dict[str, str]:
-        """Get search module name → module_path mapping for ARIEL consumers.
-
-        :return: Dict mapping names to module paths
-        """
-        result = {}
-        for reg in self.config.ariel_search_modules:
-            if reg.name in self._registries["ariel_search_modules"]:
-                result[reg.name] = reg.module_path
-        return result
 
     def get_ariel_enhancement_module(self, name: str) -> tuple[type, Any] | None:
         """Retrieve an ARIEL enhancement module class and registration.
@@ -433,7 +422,7 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
     logger.debug("Creating registry from config...")
     try:
         if config_path:
-            from osprey.utils.config import get_config_builder
+            from osprey_connectors.config import get_config_builder
 
             get_config_builder(config_path=config_path, set_as_default=True)
             logger.debug(f"Set {config_path} as default configuration")
@@ -478,7 +467,7 @@ def initialize_registry(
     registry.initialize(silent=silent)
 
     try:
-        from osprey.connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system.limits_validator import LimitsValidator
 
         limits_validator = LimitsValidator.from_config()
         if limits_validator:

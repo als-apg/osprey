@@ -1318,7 +1318,16 @@ class TestTheLifespan:
         from osprey.mcp_server.control_system import server as server_mod
 
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch, raw={"control_system": {"type": "mock"}})
+        install_context(
+            manager,
+            monkeypatch,
+            raw={
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                }
+            },
+        )
 
         class NoProber:
             def __init__(self, *args, **kwargs) -> None:

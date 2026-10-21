@@ -7,7 +7,7 @@ content to stdout. It is defensive — never blocks a prompt — so all error pa
 fail open with exit code 0.
 
 The root comes from the config's ``agent_data.base_dir``. Tests with no config
-seed the framework default, :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`,
+seed the framework default, :data:`~osprey_connectors.workspace.DEFAULT_AGENT_DATA_BASE_DIR`,
 rather than a spelled-out literal: a test seeding a literal would silently stop
 putting the files where the hook looks, and a hook that finds no focus file
 strips nothing and still exits 0 — the failure would read as a pass.
@@ -22,7 +22,7 @@ import json
 
 import pytest
 
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK_NAME = "osprey_focus_validate.py"
 

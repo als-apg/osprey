@@ -28,12 +28,18 @@ repos:
         # The BuildKit captures are byte-exact for the same reason: a vertex
         # line whose payload is empty ends in the space that separated them,
         # and trimming it rewrites the thing the fixture exists to preserve.
+        # The demo element table is tab-separated with a fixed column count,
+        # so a row whose last cells are empty ends in tabs.
+        # The clickhouseexporter insert templates are verbatim copies of the
+        # upstream release they are named for, whose last line need not end
+        # in a newline; a byte normalized here is a byte upstream never shipped.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
+            scripts/facility_demo/injector_elements\.tsv|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
+            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -42,9 +48,9 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
+            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -54,13 +60,16 @@ repos:
       # every merge touching those pages fails on prose that is perfectly fine.
       - id: check-merge-conflict
         exclude: \.rst$
-      # Check YAML syntax
+      # Check YAML syntax. The previous-release profile fixture carries `@…@`
+      # sentinels its test expands before reading it, so it is YAML only once
+      # expanded; the test that loads it is what checks it.
       - id: check-yaml
+        exclude: ^tests/fixtures/previous_release_repo/profile\.yml$
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed. The floor is set by the
       # generated demo-machine graph corpus (~2.7 MB, shipped in the
-      # control_assistant and ariel_standalone presets alike);
+      # control_assistant preset);
       # raise the number rather than excluding a path, so the guard stays armed.
       - id: check-added-large-files
         args: ['--maxkb=3000']

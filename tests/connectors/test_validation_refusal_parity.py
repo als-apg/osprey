@@ -19,13 +19,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from tests.facility.served_tree import in_process_config, served_tree
 
-_DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = "osprey_connectors.control_system.doocs_connector.LimitsValidator.from_config"
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system.doocs_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
+_TANGO_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
 
 VALUE_SENT = 5.0
 
@@ -52,10 +53,11 @@ class WriteRun:
         self.client_call = client_call
 
 
-async def _run_mock(monkeypatch) -> WriteRun:
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
-    connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
     connector._limits_validator = _broken_validator()
 
     put = MagicMock()
@@ -67,7 +69,7 @@ async def _run_mock(monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=put)
 
 
-async def _run_doocs(_monkeypatch) -> WriteRun:
+async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
     doocs4py = MagicMock()
     doocs4py.__version__ = "2.0.0"
     doocs4py.names.return_value = [("FACILITY", "XFEL")]
@@ -76,9 +78,9 @@ async def _run_doocs(_monkeypatch) -> WriteRun:
         patch.dict(sys.modules, {"doocs4py": doocs4py}),
         patch(_DOOCS_LIMITS_PATCH, return_value=None),
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -89,7 +91,7 @@ async def _run_doocs(_monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=doocs4py.set)
 
 
-async def _run_tango(_monkeypatch) -> WriteRun:
+async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
     proxy = MagicMock()
     tango = MagicMock()
     tango.__version__ = "10.0.0"
@@ -102,9 +104,9 @@ async def _run_tango(_monkeypatch) -> WriteRun:
         patch.dict(sys.modules, {"tango": tango}),
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
-        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system.tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -115,13 +117,15 @@ async def _run_tango(_monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=proxy.write_attribute)
 
 
-_DRIVERS = {"mock": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
+_DRIVERS = {"in_process": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-async def test_a_validation_error_refuses_the_write_and_sends_nothing(connector_name, monkeypatch):
-    run = await _DRIVERS[connector_name](monkeypatch)
+async def test_a_validation_error_refuses_the_write_and_sends_nothing(
+    connector_name, monkeypatch, tmp_path
+):
+    run = await _DRIVERS[connector_name](monkeypatch, tmp_path)
 
     assert run.result.outcome is WriteOutcome.REFUSED
     assert run.result.refusal_reason == "VALIDATION_ERROR"

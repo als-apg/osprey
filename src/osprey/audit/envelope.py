@@ -4,8 +4,8 @@ An envelope answers the question an operator asks of a decision — *who did
 what, under which posture, as which role* — in one shape that MCP tool calls,
 HTTP mutations, hook decisions and logins all emit:
 
-``{ts, surface, actor, posture, posture_source, session, subject, decision,
-reason, detail?, role?, tool_use_id?, source?}``
+``{ts, surface, actor, posture, posture_source, session, on_behalf_of?,
+subject, decision, reason, detail?, role?, tool_use_id?, source?}``
 
 **What may go in an envelope.** Every field carries an *identifier* or a
 *config key* — a surface name, a username, a tool name, a dotted config key, a
@@ -45,6 +45,7 @@ all import it, and none of them may inherit an import cycle by doing so.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, ClassVar
@@ -132,6 +133,27 @@ MAX_DETAIL_CHARS = 1024
 MAX_SOURCE_CHARS = 8000
 
 
+#: Names the terminal session a process belongs to, for the processes that have
+#: no posture session of their own: a dispatched job, a host chat. Read by exact
+#: name, never by prefix — other variables begin with the same words and carry
+#: a lifetime and a directory, not a session.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
+
+
+def terminal_session() -> str | None:
+    """The terminal session this process was launched under, or ``None``.
+
+    What a record's ``session`` falls back to when its emitter had no posture
+    session to give. Both record shapes — :class:`AuditEnvelope` and the full
+    ``tool_call`` record — resolve the fallback here, so no emitter does.
+    Read per call: a launcher sets the variable on the child it spawns, and a
+    value captured at import would be the parent's. Bounded like every other
+    identifier (:data:`MAX_FIELD_CHARS`).
+    """
+    value = (os.environ.get(TERMINAL_SESSION_ENV) or "").strip()
+    return value[:MAX_FIELD_CHARS] or None
+
+
 def utc_timestamp() -> str:
     """Return the current UTC time in Osprey's audit timestamp format.
 
@@ -177,7 +199,13 @@ class AuditEnvelope:
         for chat children, the spawn-time key for PTY sessions. ``None`` only
         where no session key exists; *posture_source* already says why. A
         top-level field, never smuggled into *detail*, so toggle events and tool
-        records join on one key.
+        records join on one key. An envelope built without one takes
+        :func:`terminal_session`, so a process with no posture session still
+        names the terminal session it was launched under.
+    :param on_behalf_of: The person a service decided for, where the process
+        identity the record is filed under is not that person — the user a
+        login was for, the owner of a queued plan. An identifier; omitted when
+        unset or empty.
     :param subject: What was acted on — an MCP tool name, a dotted config key,
         a project-relative path, a login subject. An identifier, never a value.
     :param decision: What happened; see :data:`DECISIONS`.
@@ -211,6 +239,7 @@ class AuditEnvelope:
     subject: str
     decision: str
     reason: str
+    on_behalf_of: str | None = None
     detail: str | None = None
     role: str | None = None
     tool_use_id: str | None = None
@@ -265,7 +294,12 @@ class AuditEnvelope:
             if value is not None:
                 object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
 
-        for name in ("session", "tool_use_id"):
+        if self.session is None:
+            object.__setattr__(self, "session", terminal_session())
+        if not self.on_behalf_of:
+            object.__setattr__(self, "on_behalf_of", None)
+
+        for name in ("session", "on_behalf_of", "tool_use_id"):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
@@ -286,11 +320,15 @@ class AuditEnvelope:
         JSONL carries the same columns and a missing key can only mean an old
         record. Optional fields are omitted when unset, and
         ``source_truncated`` appears only when it is true, matching the P1
-        ledger it replaces.
+        ledger it replaces. ``on_behalf_of`` sits directly after ``session``:
+        a reader that takes the leading fields by position finds it there, and
+        nowhere else.
         """
         record: dict[str, Any] = {"ts": self.ts}
         for name in self.REQUIRED_FIELDS:
             record[name] = getattr(self, name)
+            if name == "session" and self.on_behalf_of is not None:
+                record["on_behalf_of"] = self.on_behalf_of
         if self.detail is not None:
             record["detail"] = self.detail
         if self.role is not None:

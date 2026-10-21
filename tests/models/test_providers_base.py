@@ -122,10 +122,18 @@ class _ChatViaDelegation(LiteLLMDelegatingProvider):
     """Inherits its chat endpoint from the LiteLLM base, overriding nothing itself."""
 
     name = "delegating-stub"
+    requires_api_key = False
+    requires_base_url = False
+    requires_model_id = False
+    supports_proxy = False
 
 
 class _ImageEmbeddingOnly(BaseProvider):
     name = "image-only-stub"
+    requires_api_key = False
+    requires_base_url = False
+    requires_model_id = False
+    supports_proxy = False
 
     def execute_image_embedding(self, inputs, *_args, **_kwargs):
         return [[0.0] for _ in inputs]
@@ -133,6 +141,10 @@ class _ImageEmbeddingOnly(BaseProvider):
 
 class _TextEmbeddingOnly(BaseProvider):
     name = "text-only-stub"
+    requires_api_key = False
+    requires_base_url = False
+    requires_model_id = False
+    supports_proxy = False
 
     def execute_embedding(self, texts, *_args, **_kwargs):
         return [[0.0] for _ in texts]
@@ -304,3 +316,36 @@ class TestFailureReason:
     def test_message_text_is_never_read(self):
         assert failure_reason(ValueError("connection refused")) is None
         assert failure_reason(RuntimeError("401 Unauthorized")) is None
+
+
+class TestRequiredFlagsAreDeclared:
+    """A provider class states every required flag, or is refused when defined."""
+
+    @pytest.mark.parametrize("missing", BaseProvider._REQUIRED_FLAGS)
+    def test_a_provider_missing_one_flag_is_refused_by_name(self, missing):
+        declared = dict.fromkeys(BaseProvider._REQUIRED_FLAGS, False)
+        del declared[missing]
+
+        with pytest.raises(TypeError) as refusal:
+            type("_Incomplete", (BaseProvider,), {"name": "incomplete-stub", **declared})
+
+        assert "incomplete-stub" in str(refusal.value)
+        assert missing in str(refusal.value)
+        for flag in declared:
+            assert flag not in str(refusal.value)
+
+    def test_a_flag_inherited_from_a_provider_counts_as_declared(self):
+        child = type("_Child", (AskSageProviderAdapter,), {"name": "asksage-child-stub"})
+
+        for flag in BaseProvider._REQUIRED_FLAGS:
+            assert getattr(child, flag) is getattr(AskSageProviderAdapter, flag)
+
+    def test_a_shared_base_that_names_no_provider_is_not_checked(self):
+        shared = type("_SharedBase", (BaseProvider,), {})
+
+        assert shared.name is NotImplemented
+
+    def test_every_registered_provider_reads_each_flag_as_a_bool(self):
+        for name, provider_class in _registered_providers():
+            for flag in BaseProvider._REQUIRED_FLAGS:
+                assert isinstance(getattr(provider_class, flag), bool), (name, flag)

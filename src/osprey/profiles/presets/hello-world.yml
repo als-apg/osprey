@@ -1,8 +1,8 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
-# write-safety chain. A mock control system, fourteen hooks, and one container (the
-# telemetry store), so `osprey init` → `osprey build` → `osprey web` is the entire
-# first session.
+# write-safety chain. The simulator, served in this process, eleven hooks, and
+# two containers (the telemetry store and its gateway), so `osprey init` → `osprey build` →
+# `osprey web` is the entire first session.
 #
 # `osprey init my-agent --preset hello-world` writes this out as
 # my-agent/profile.yml, at the root of a repo you own. Edit it there; the
@@ -22,6 +22,10 @@ name: Hello World
 # skeleton and config, with no channel databases, logbook, or benchmark data.
 app_template: hello_world
 
+# Which bundled facility this shows. Its files are copied into data/facility/,
+# and that copy is what the build reads from then on.
+facility: hello_world
+
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
@@ -40,9 +44,6 @@ provider: anthropic
 # need; add your own through an overlay.
 
 hooks:
-  - hook-log       # Append every tool call to a structured JSONL audit log
-  - target-state   # Stdlib reader for the control-target state file (helper, not wired to an event)
-  - hook-config    # Inject project config.yml path into every tool call env
   - error-guidance # Post-error hook that surfaces remediation hints
   # The next three are the write-safety chain, and no write reaches the control
   # system until all three agree. Remove any one of them and `osprey build`
@@ -50,7 +51,7 @@ hooks:
   # whose write tools it guarded. Only a read-only deployment may drop them.
   - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
-  - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+  - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
   - memory-guard   # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
@@ -63,8 +64,8 @@ rules:
   - safety          # Core safety rules: never write without approval
   - error-handling  # Standard error handling and retry guidance
   - timezone        # Always localise timestamps to facility timezone
-  # The `facility` rule is left out: mock channels have no naming scheme or
-  # units to teach. Add it once yours do.
+  # The `facility` rule is left out: the hello_world facility's channels have no
+  # naming scheme or units to teach. Add it once yours do.
 
 # The three empty lists below are where a real deployment grows. Leaving them
 # empty keeps the interface small; control-assistant shows them filled in.
@@ -120,11 +121,15 @@ mcp_servers:
 # host port (each service has a fixed slot above `deployment.port_base`).
 config:
   # ── Control system ─────────────────────────────────────────────────────────
-  # Which control system to talk to. "mock" invents a value for ANY channel
-  # name in-process, so reads work with no hardware and no containers behind
-  # them. The control-assistant preset shows the EPICS connector configuration,
+  # Which control system to talk to. `virtual_accelerator` is the simulator of
+  # the built facility; `serving: in_process` runs it inside this process — the
+  # facility's channels, its seeds and scenarios, no hardware and no containers
+  # — and refuses any address outside the facility. `served` reaches the same
+  # simulator in its container over Channel Access. The control-assistant
+  # preset shows the EPICS connector configuration,
   # and `osprey config --defaults` lists every shipped connector type.
-  control_system.type: mock
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
   # The FIRST guard in the write-safety chain: while false, every hardware
   # write is refused before the limits check or the approval prompt is even
   # consulted. Set it true, rebuild, and the two hooks below take over.
@@ -137,16 +142,13 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # The SECOND guard: every write is checked against the channel-limits file
-  # below (per-channel min/max and writable flags).
+  # The SECOND guard: every write is checked against the records in
+  # data/facility/limits.yaml (per-channel min/max and writable flags).
   control_system.limits_checking.enabled: true
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # Whether a channel the limits file does not list stays writable. The mock's
-  # invented channels need true; a production deployment sets false so an
-  # unknown channel fails closed.
-  control_system.limits_checking.allow_unlisted_channels: true
+  # `optional` = channels in the limits file are held to their limits, every
+  # other channel is written with no limits. `exclusive` = only channels in
+  # the file can be written.
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read.
@@ -211,25 +213,20 @@ config:
   claude_code.agents.logbook-deep-research.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs and metrics to the OpenObserve store this
-  # deployment runs (see `services.openobserve.*` below). On by default: the
+  # The agent emits OTLP logs and metrics to the telemetry gateway this
+  # deployment runs, which stamps each record with its sender and writes it to
+  # the telemetry store (see `services.telemetry_store.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
   claude_code.telemetry.enabled: true
-  # openobserve | generic
-  claude_code.telemetry.backend: openobserve
-  # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
-  # and is refused against the auto-derived openobserve endpoint (HTTP only).
+  # gateway | generic
+  claude_code.telemetry.backend: gateway
+  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
+  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
   claude_code.telemetry.protocol: http/protobuf
-  # No endpoint key: with backend openobserve it is derived per network context.
-  # The store's INGEST account: `osprey up` creates a service account named by
-  # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
-  # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
-  # would be a published credential.
-  claude_code.telemetry.openobserve.user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
-  claude_code.telemetry.openobserve.password: ${ZO_INGEST_SA_TOKEN}
-  # OpenObserve organisation the records land in.
-  claude_code.telemetry.openobserve.org: default
+  # No endpoint key: with backend gateway it is derived per network context.
+  # No credential key either: every sender logs in to the gateway with a
+  # login `osprey build` mints into a file of its own, outside the .env chain.
   # Content gates, all on: the store is local and loopback-bound. Set any to
   # false to keep that category out of the emitted telemetry.
   claude_code.telemetry.log_user_prompts: true
@@ -241,19 +238,27 @@ config:
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services, the one part of this project that needs
   # Docker or podman. Everything else runs container-free. This preset deploys
-  # exactly one: the telemetry store above.
+  # exactly two: the telemetry store and the gateway that feeds it.
   #
-  # Compose directory the build writes for the store, under build/.
-  services.openobserve.path: ./services/openobserve
-  # Growth bound: drop data older than N days (min 3). A named volume has no
+  # Compose directories the build writes for the two, under build/.
+  services.telemetry_store.path: ./services/telemetry_store
+  services.telemetry_gateway.path: ./services/telemetry_gateway
+  # Growth bound: the store drops rows older than N days. A named volume has no
   # size cap, so age is the size knob.
-  services.openobserve.retention_days: 14
+  services.telemetry_store.retention_days: 14
+  # Who may query the store with SQL: this preset has no roster, so the reader is the operator.
+  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
+  # (0600) and prints the file and the query page, never the key. Delete the
+  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
+  services.telemetry_store.readers:
+    - name: operator
   # Which declared services `osprey up` launches. No host ports are written
   # here: each service publishes on its fixed slot above `deployment.port_base`
-  # (set that key to move the whole block). Add `services.openobserve.port: <n>`
+  # (set that key to move the whole block). Add `services.telemetry_gateway.port: <n>`
   # only to pin one outside it.
   deployed_services:
-    - openobserve
+    - telemetry_store
+    - telemetry_gateway
   # Host interface the services publish on. 127.0.0.1 keeps every port
   # loopback-only, the safe state; 0.0.0.0 exposes them to the network.
   # deployment.bind_address: 127.0.0.1
@@ -282,9 +287,6 @@ config:
   # category nobody declared is still stored — it just keeps the default badge,
   # and the save logs a warning naming this key.
   # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
   # Starting theme for every web terminal. Each browser can override it from
   # the display menu.
   # web.theme: light
@@ -292,11 +294,11 @@ config:
   # invites until a browser dismisses it or finishes the tour; `always` invites
   # on every load and offers no permanent dismissal, which is what a shared
   # read-only screen wants; `never` offers nothing and leaves the tour on the
-  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # rail's More menu and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
-  # a persona that reaches no machine.
+  # a tier that reaches no machine.
   # web.control_target_picker: true
 
   # ── Health checks ──────────────────────────────────────────────────────────
@@ -326,3 +328,8 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models: null
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0

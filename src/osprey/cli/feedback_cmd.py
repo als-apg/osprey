@@ -42,10 +42,10 @@ from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.lifecycle import _require_running_runtime
-from osprey.deployment.web_terminals.personas import as_dict, resolve_personas
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import agent_data_base_dir, anchored_path
+from osprey.deployment.web_terminals.roster import as_dict, resolve_cards
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = get_logger("feedback")
 
@@ -383,7 +383,7 @@ def _verified_volumes(
 
     Volumes the listing turns up for users who are no longer on the roster are
     read too -- their feedback outlived their account -- using the first image
-    the roster resolves, since a departed user's persona may be gone.
+    the roster resolves, since a departed user's render may be gone.
 
     :param config: The deployment's rendered config.
     :param runtime: The container runtime binary, ``docker`` or ``podman``.
@@ -395,19 +395,12 @@ def _verified_volumes(
     listed_names = set(listed.values())
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    facility_prefix = str(as_dict(config.get("facility")).get("prefix") or "")
-    personas = resolve_personas(
-        web_terminals,
-        as_dict(config.get("registry")),
-        facility_prefix,
-        project_name=project,
-        strict=False,
-    )
+    renders = resolve_cards(web_terminals, as_dict(config.get("registry")), strict=False)
 
     targets: list[VolumeTarget] = []
     errors: list[VolumeError] = []
     roster_users: set[str] = set()
-    for entry in personas:
+    for entry in renders:
         user = str(entry.get("name") or "")
         if not user:
             continue
@@ -440,7 +433,7 @@ def _verified_volumes(
             continue
         targets.append(VolumeTarget(user=user, volume=volume, image=image, on_roster=True))
 
-    fallback_image = next((str(entry["image"]) for entry in personas if entry.get("image")), "")
+    fallback_image = next((str(entry["image"]) for entry in renders if entry.get("image")), "")
     for user, volume in sorted(listed.items()):
         if user in roster_users:
             continue

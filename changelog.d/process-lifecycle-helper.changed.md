@@ -1,0 +1,1 @@
+Connector-host children and job workers are put down by one shared helper in `osprey_connectors.process`, and `osprey_connectors.ipc.launch.terminate_host` is now `osprey_connectors.process.terminate`, which returns the reaped exit code.

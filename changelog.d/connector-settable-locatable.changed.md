@@ -1,0 +1,1 @@
+Connector-mediated settables implement Bluesky's `Locatable`, so a plan can ask `bps.locate(device)` where a device was told to go and where it is. The shipped plans now read their working points that way.

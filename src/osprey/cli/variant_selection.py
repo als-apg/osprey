@@ -28,9 +28,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import parse_dotenv_file
-from osprey.utils.logger import get_logger
+from osprey_connectors.dotenv import parse_dotenv_file
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .repo_resolver import PROFILE_FILENAME
 
@@ -143,7 +143,7 @@ def active_variant_overlay(repo_root: Path) -> Path | None:
     Args:
         repo_root: The directory holding ``profile.yml``, ``profiles/`` and the
             settings file. A directory that is not a deployment repo (a
-            ``personas/`` directory, a preset package) simply has no setting
+            ``tiers/`` directory, a preset package) simply has no setting
             and so selects nothing.
     """
     name = read_variant_setting(repo_root)

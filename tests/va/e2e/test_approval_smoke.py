@@ -14,28 +14,26 @@ is connector-agnostic -- it gates on the detected write pattern, not on
 ``tests/hooks/test_approval_hook.py`` and friends; nothing about VA changes
 that layer, so it isn't re-tested here.
 
-Drives the third corrector the served tree binds -- the first two are
+Drives the third corrector the served view wires -- the first two are
 exclusively owned by test_orbit_response.py / test_limits_enforcement.py for
-the life of the session container. Which channel that is comes from the tree's
-own ``va_bindings.json``, never a device name written down here.
+the life of the session container. Which channel that is comes from the view's
+own wiring, never a device name written down here.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from osprey.services.virtual_accelerator.bindings import Binding
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
 from tests.va.e2e import conftest as e2e_conftest
 
-#: Which writable corrector this lane drives, as a slot in the served tree's
-#: own kick bindings rather than a device name: slot 0 is
+#: Which writable corrector this lane drives, as a slot in the served view's
+#: own corrector wiring rather than a device name: slot 0 is
 #: ``test_orbit_response.py``'s for the life of the session container and slot
 #: 1 is ``test_limits_enforcement.py``'s, and this lane owns slot 2. Nothing
-#: about the addresses is spelled here
-#: -- the bindings document says which channels kick the beam and where each
-#: one reads back.
+#: about the addresses is spelled here -- the view says which channels kick
+#: the beam and where each one reads back.
 _CORRECTOR_SLOT = 2
 
 DEMO_CURRENT = 10.0
@@ -46,25 +44,25 @@ MIN_COLLECTED_TESTS = 3
 
 
 @pytest.fixture(scope="module")
-def corrector() -> Binding:
-    """The kick binding this lane drives, read when the lane runs.
+def corrector() -> e2e_conftest.Corrector:
+    """The corrector this lane drives, read when the lane runs.
 
     A fixture rather than a module constant: which channel this is, is a
     question about the served tree, and a tree that cannot answer it belongs in
     this lane's own failure rather than in the collection of every lane beside
     it.
     """
-    return e2e_conftest.kick_binding(_CORRECTOR_SLOT)
+    return e2e_conftest.corrector_at_slot(_CORRECTOR_SLOT)
 
 
 @pytest.fixture(scope="module")
-def corrector_sp(corrector: Binding) -> str:
+def corrector_sp(corrector: e2e_conftest.Corrector) -> str:
     """The address this lane writes a demand to."""
     return corrector.setpoint_address
 
 
 @pytest.fixture(scope="module")
-def corrector_rb(corrector: Binding) -> str:
+def corrector_rb(corrector: e2e_conftest.Corrector) -> str:
     """The address the same magnet reads its own field back on."""
     assert corrector.readback_address is not None
     return corrector.readback_address

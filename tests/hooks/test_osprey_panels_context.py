@@ -17,7 +17,9 @@ import json
 
 import pytest
 
-import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+from tests.hooks.conftest import import_hook
+
+panels = import_hook("osprey_panels_context")
 
 
 class _FakeResponse:
@@ -253,6 +255,12 @@ def test_write_snapshot_overwrites_previous_content():
     panels._write_snapshot(path, {"tiles": ["old"], "active": "old", "visible": ["old"]})
     panels._write_snapshot(path, {"tiles": ["new"], "active": "new", "visible": ["new"]})
     assert json.loads(open(path).read())["tiles"] == ["new"]
+
+
+def test_write_snapshot_writes_nothing_without_the_file_helper(temp_snapshot_dir, monkeypatch):
+    monkeypatch.setattr(panels, "_safety_file", None)
+    assert panels._write_snapshot(panels._snapshot_path("sess-1"), {"tiles": []}) is False
+    assert list(temp_snapshot_dir.iterdir()) == []
 
 
 def test_write_snapshot_returns_false_when_unwritable(tmp_path):

@@ -1,0 +1,1 @@
+Facility: `osprey.facility.views.graph_iri` mints the graph IRI of a place, device, channel or group as `<code>_<kind>_esc(<id>)` under `https://narad.example.org/<kind>/` and decodes it back to the raw id. No graph is written from it yet.

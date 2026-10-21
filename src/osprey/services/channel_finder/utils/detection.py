@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
 

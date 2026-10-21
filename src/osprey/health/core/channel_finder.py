@@ -14,7 +14,7 @@ selects what is consulted: the file-backed paradigms name a database file under
 ``channel_finder.pipelines.<mode>.database``, while ``graph`` answers from the
 deployment's graph store and so reads ``services.graphdb`` instead. The mode
 must name a real paradigm
-(:data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`); a mode nothing
+(:data:`~osprey.build.modes.VALID_CHANNEL_FINDER_MODES`); a mode nothing
 answers to raises :class:`~osprey.services.channel_finder.core.exceptions.PipelineModeError`
 rather than degrading to a row, because that is a defect in the configuration
 and not a store that happens to be down. The health runner isolates the failure
@@ -82,13 +82,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_BUILD_INDEX_COMMAND,
-    GRAPHDB_SEED_COMMAND,
-    UNRESOLVED_INDEX_PATH_REMEDY,
+    GRAPHDB_REBUILD_HINT,
     resolve_graph_index_path,
-    unresolved_index_path_detail,
 )
 from osprey.health.core.graphdb import _CONNECTION_ROW as _GRAPHDB_CONNECTION_ROW
 from osprey.health.core.graphdb import _DIGEST_PREFIX_LEN as _GRAPHDB_DIGEST_PREFIX_LEN
@@ -274,8 +271,8 @@ async def _graph_store_rows(cfg: Mapping[str, Any], base_dir: Path | None) -> li
             where a graph-mode project describes the store it answers from and
             the index derived from the same corpus.
         base_dir: Directory holding ``config.yml``, which is what this category
-            is handed as ``cwd`` and what a relative ``index_path`` resolves
-            against.
+            is handed as ``cwd`` and what the index's render-relative path
+            resolves against.
 
     Returns:
         The store's reachability row, the resource-count and seed rows when the
@@ -315,30 +312,18 @@ async def _graph_store_rows(cfg: Mapping[str, Any], base_dir: Path | None) -> li
 async def _search_index_row(
     cfg: Mapping[str, Any], base_dir: Path | None, seed: str
 ) -> CheckResult:
-    """Resolve the index's path and read it, or say why neither could happen.
+    """Resolve the index's path and read it.
 
     Args:
-        cfg: The parsed config mapping, read for ``services.graphdb.index_path``.
+        cfg: The parsed config mapping.
         base_dir: Directory holding ``config.yml``.
         seed: The store's corpus digest, or ``""`` when the store could not be
             read or carries no marker.
 
     Returns:
-        The ``channel_finder_search_index`` row. A malformed ``index_path`` is
-        reported as that row rather than raised, for the reason the graphdb
-        category gives for a malformed block: the same typo already refuses
-        loudly at deploy time, and a suite that crashes names no key.
+        The ``channel_finder_search_index`` row.
     """
-    try:
-        index_path = resolve_graph_index_path(cfg, base_dir)
-    except ValueError as exc:
-        return CheckResult(
-            _SEARCH_INDEX_ROW,
-            CATEGORY,
-            Status.WARNING,
-            unresolved_index_path_detail(exc),
-            details=UNRESOLVED_INDEX_PATH_REMEDY,
-        )
+    index_path = resolve_graph_index_path(cfg, base_dir)
     return await asyncio.to_thread(_index_row, index_path, seed)
 
 
@@ -369,8 +354,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             Status.WARNING,
             f"No search index at {index_path}",
             details=(
-                "'osprey build' writes it from the TTL corpus; rebuild it in place "
-                f"with `{GRAPHDB_BUILD_INDEX_COMMAND}`."
+                f"'osprey build' writes it from the TTL corpus; run `{GRAPHDB_REBUILD_HINT}`."
             ),
         )
 
@@ -397,7 +381,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Could not read the search index: {exc}",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     if row is None:
@@ -406,7 +390,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Search index carries no meta row ({index_path})",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     meta = dict(zip(META_KEYS, row, strict=True))
@@ -417,7 +401,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Search index is schema v{version}, this osprey reads v{SCHEMA_VERSION}",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     digest = str(meta["corpus_sha256"])
@@ -428,10 +412,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             Status.WARNING,
             "Search index and graph store were built from different corpora",
             value=f"index {digest[:_DIGEST_PREFIX_LEN]} · store {seed[:_DIGEST_PREFIX_LEN]}",
-            details=(
-                f"Rebuild the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`, or reseed the "
-                f"store with `{GRAPHDB_SEED_COMMAND}`."
-            ),
+            details=(f"Rebuild the index and reseed the store with `{GRAPHDB_REBUILD_HINT}`."),
         )
 
     value = f"{_index_counts(meta)} · {digest[:_DIGEST_PREFIX_LEN]}"
@@ -562,7 +543,9 @@ def _count_row(duckdb_path: Path) -> CheckResult:
     try:
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
-            row = con.execute(f"SELECT COUNT(*) FROM {_CHANNELS_TABLE}").fetchone()
+            row = con.execute(
+                f"SELECT COUNT(DISTINCT channel_name) FROM {_CHANNELS_TABLE}"
+            ).fetchone()
         finally:
             con.close()
     except Exception as exc:  # any duckdb error degrades to a warning

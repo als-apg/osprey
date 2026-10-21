@@ -1,5 +1,6 @@
 """Shared hook logging utility. No external dependencies."""
 
+import contextlib
 import json
 import os
 import re
@@ -79,6 +80,7 @@ FALLBACK_WRITE_TOOLS = [
     "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
+    "mcp__python__pyaml_measure",
 ]
 
 
@@ -197,7 +199,7 @@ def get_project_dir(hook_input=None):
 
 #: The marker that makes a directory a deployment repo root, and the name of the
 #: render zone inside it. Kept in step with ``osprey.cli.repo_resolver`` and
-#: ``osprey.utils.workspace``; spelled out here rather than imported because a
+#: ``osprey_connectors.workspace``; spelled out here rather than imported because a
 #: hook can be executed by a bare system ``python3`` with no ``osprey`` on its
 #: path, and the derivation below has to work under exactly that interpreter.
 PROFILE_MARKER = "profile.yml"
@@ -278,7 +280,7 @@ def get_repo_root(hook_input=None):
     ``build/`` is re-created wholesale by every ``osprey build``. Anything a hook
     writes for the rest of OSPREY to read — the pending-review store the feedback
     app serves, the focus/artifact state the gallery owns — must anchor one level
-    up, on the repo, exactly as ``osprey.utils.workspace.resolve_project_root``
+    up, on the repo, exactly as ``osprey_connectors.workspace.resolve_project_root``
     does for code that can import osprey. This is that rule, restated with the
     standard library only.
 
@@ -292,7 +294,7 @@ def get_repo_root(hook_input=None):
        control-context record, the audit ledger, the feedback store — outside
        every mount, where the writer that shares those files never looks.
        Qualified the same way, and for the same reason, as
-       ``osprey.utils.workspace.resolve_project_root``.
+       ``osprey_connectors.workspace.resolve_project_root``.
     2. The config's own directory — or its parent when that directory is the
        build zone. Same rule as ``workspace.repo_root_for_config``, and it comes
        *before* any walk because that is where ``resolve_project_root`` puts it:
@@ -367,7 +369,7 @@ def load_osprey_config(hook_input=None):
 # cannot drift apart. The literal serves a hook running with osprey off the
 # path, the one case where guessing beats crashing.
 try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
 except Exception:  # pragma: no cover - hooks must never crash the agent
     _DEFAULT_AGENT_DATA_ROOT = "var/agent_data"
 
@@ -591,6 +593,10 @@ UNKNOWN_IDENTITY = "unknown"
 #: process was not launched by a posture-carrying spawn site at all.
 POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
 POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+#: The launch-scoped terminal session, for a process with no posture session of
+#: its own (a dispatched job, a host chat). Mirrors
+#: ``osprey.audit.envelope.TERMINAL_SESSION_ENV``; read by exact name.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
 #: The closed set of provenances a record may claim for its posture, and the
 #: one a child-side emitter uses when the marker is absent, blank or
@@ -808,7 +814,9 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
     try:
         record = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
         identity = acting_identity()
-        session = _audit_component(os.environ.get(POSTURE_SESSION_ENV))
+        session = _audit_component(os.environ.get(POSTURE_SESSION_ENV)) or _audit_component(
+            os.environ.get(TERMINAL_SESSION_ENV)
+        )
         sandboxed = os.environ.get(EXECUTION_MODE_ENV) == READONLY_MODE
         record["surface"] = audit_surface(hook_name)
         record["actor"] = identity
@@ -833,14 +841,12 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
             fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
         except FileNotFoundError:
             path.parent.mkdir(parents=True, exist_ok=True)
-            try:
+            with contextlib.suppress(OSError):
                 # mkdir's mode is umask-masked and the setgid bit does not
                 # survive it at all, so the chmod is what actually sets the
                 # mode the deploy path provisions host-side. Best-effort: a
                 # narrower directory still beats a dropped record.
                 os.chmod(path.parent, AUDIT_DIR_MODE)
-            except OSError:
-                pass
             fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
 
         try:
@@ -851,10 +857,8 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
                 # appended onto a half-record and lost with it. One torn write
                 # must cost one record, not every record after it. The writer
                 # does exactly this, for exactly this reason.
-                try:
+                with contextlib.suppress(OSError):
                     os.write(fd, b"\n")
-                except OSError:
-                    pass
         finally:
             os.close(fd)
 

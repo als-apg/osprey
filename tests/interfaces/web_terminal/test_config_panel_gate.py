@@ -54,7 +54,7 @@ from osprey.interfaces.web_terminal.app import (
     unreadable_config_refusal,
 )
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 
 #: The dotted key under test. Spelled once so a rename shows up as one edit.
 CONFIG_PANEL_KEY = "web.config_panel.enabled"
@@ -95,7 +95,7 @@ def _client(project_dir, *, config_panel_enabled):
     app.include_router(router)
     app.state.config_path = project_dir / "config.yml"
     app.state.project_cwd = str(project_dir)
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     if config_panel_enabled is not None:
         app.state.config_panel_enabled = config_panel_enabled
     return TestClient(app)
@@ -222,7 +222,7 @@ class TestGateRunsFirst:
         for _label, send in _requests(disabled_client):
             send()
 
-        ring = disabled_client.app.state.agent_activity_ring
+        ring = disabled_client.app.state.agent_activity_buffer
         assert [frame for frame in ring if "refused" in frame["tool"]] == []
 
 
@@ -388,7 +388,7 @@ class TestResolvePrivilegeGates:
         def refuse_to_read(*args, **kwargs):
             pytest.fail("no config file was resolved, so nothing may be read")
 
-        with patch("osprey.utils.config.get_config_value", refuse_to_read):
+        with patch("osprey_connectors.config.get_config_value", refuse_to_read):
             gates = resolve_privilege_gates(None)
 
         assert gates == PrivilegeGates(True, True)
@@ -534,7 +534,7 @@ def _started_app(
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
         ),
-        patch("osprey.utils.config.get_config_value", fake_get_config_value),
+        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
     ):
         app = create_app(config_path=config_path, shell_command=["echo"])
         with TestClient(app) as client:

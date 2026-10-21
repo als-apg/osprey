@@ -22,7 +22,7 @@ import yaml
 
 from osprey.cli.build_profile import BuildProfile, DispatchConfig, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import env_names_errors
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)
@@ -142,13 +142,13 @@ def test_checker_names_the_yaml_resolver_for_a_boolean_entry() -> None:
 
 def test_service_env_names_applies_the_default() -> None:
     """``env_names()`` is the single place the empty case is spelled."""
-    assert ServiceDef(template="osprey.openobserve").env_names() == []
-    assert ServiceDef(template="osprey.openobserve", config={}).env_names() == []
+    assert ServiceDef(template="osprey.postgresql").env_names() == []
+    assert ServiceDef(template="osprey.postgresql", config={}).env_names() == []
 
 
 def test_service_env_names_keeps_the_authored_order() -> None:
     """Order is the author's — it is what the rendered block shows."""
-    svc = ServiceDef(template="osprey.openobserve", config={"env": ["B_VAR", "A_VAR"]})
+    svc = ServiceDef(template="osprey.postgresql", config={"env": ["B_VAR", "A_VAR"]})
     assert svc.env_names() == ["B_VAR", "A_VAR"]
 
 
@@ -379,7 +379,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
     """The axis appends like every other check — no fail-fast, no short-circuit."""
     profile = BuildProfile(
         name="",
-        tier=2,
+        channel_finder_mode="in-context",
         services={
             "gchat_bridge": ServiceDef(
                 template="osprey.gchat_bridge",
@@ -389,7 +389,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
     )
     messages = _errors(profile, tmp_path)
     assert "Profile 'name' is required" in messages
-    assert "tier must be 1 or 3 (got 2)" in messages
+    assert any("(got 'in-context')" in message for message in messages)
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages
     assert (
         "services.gchat_bridge.env[0] must be an environment variable name matching "
@@ -399,7 +399,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
 
 def test_a_malformed_service_key_is_reported_once_for_all_axes(tmp_path: Path) -> None:
     """Two axes walk the services mapping; a bool key is still one message."""
-    raw = yaml.safe_load("name: envaxis\nservices:\n  on:\n    template: osprey.openobserve\n")
+    raw = yaml.safe_load("name: envaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
     messages = _errors(_parse_profile(raw), tmp_path)
     assert len([m for m in messages if m.startswith("services keys must be strings")]) == 1

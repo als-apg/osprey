@@ -26,16 +26,16 @@ Where a tool's connector comes from
 There are two serving paths, and which one a deployment gets is decided once,
 by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capable`:
 
-* **Switch-capable** (at least two targets configured, and the deployment's own
-  control system is one of them): ``control_system()`` returns the proxy onto the
-  connector-host child. The in-process connector is never built — this server
-  holds no control-system client library at all, which is the only way a target
-  switch can actually move where tool calls land. A child that has died is not
+* **Switch-capable** (at least two targets configured): ``control_system()``
+  returns the proxy onto the connector-host child. The in-process connector is
+  never built — this server holds no control-system client library at all, which
+  is the only way a target switch can actually move where tool calls land. A child that has died is not
   papered over: the accessor raises
   :class:`~osprey.mcp_server.control_system.connector_host_manager.NoConnectorHostError`
   and every control-system-routed operation refuses with that reason until one
   is running again.
-* **Everything else** — a mock deployment, a single-target EPICS deployment,
+* **Everything else** — a deployment on the simulator in process alone, a
+  single-target EPICS deployment,
   any config that never named a second target — keeps the in-process cached
   connector, unchanged and untouched by any of this.
 
@@ -51,9 +51,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, overload
 
-from osprey.connectors.archiver.base import ArchiverConnector
-from osprey.connectors.control_system.base import ControlSystemConnector
-from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
     NoConnectorHostError,
@@ -62,7 +59,10 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors import control_context
+from osprey_connectors.archiver.base import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
+from osprey_connectors.control_system.base import ControlSystemConnector
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import configured_targets, target_writes_enabled
 
@@ -121,9 +121,12 @@ def claim_control_context(
 
     **A claim is a merge.** The target, generation and posture in the record are
     what this deployment is pointed at, and they outlive every process that
-    reads them; taking the file over changes who may write it, not what it
-    says. Only a record that is absent or too degraded to read at all starts
-    one, at *baseline*, generation 0, narrowing nothing.
+    reads them; taking the file over changes who may write it, and nothing else
+    of a record somebody has switched. A record nobody has switched follows the
+    deployment's baseline; every applied switch mints ``generation + 1``, so
+    generation 0 is a claim and never a switch (:func:`control_context.claimed`).
+    A record that is absent or too degraded to read at all starts one, at
+    *baseline*, generation 0, narrowing nothing.
 
     The write is read-verified: two servers starting together can both find the
     record ownerless, and the one that lost the race has to find that out
@@ -134,8 +137,8 @@ def claim_control_context(
     tool instead.
 
     Args:
-        baseline: The deployment's own configured target, used only when there
-            is no readable record to merge into.
+        baseline: The deployment's own configured target. It starts an absent
+            record, and it is what an unswitched (generation 0) record follows.
         server_pid: The PID to claim as. Defaults to this process, which is the
             only value production uses.
 
@@ -164,7 +167,7 @@ def claim_control_context(
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, owner=owner)
             if record is None
-            else replace(record, owner=owner)
+            else replace(control_context.claimed(record, baseline), owner=owner)
         )
         control_context.write_record(claimed)
 
@@ -406,7 +409,7 @@ class ControlSystemContext:
         if entry.instance is not None:
             return entry.instance
 
-        from osprey.connectors.factory import ConnectorFactory
+        from osprey_connectors.factory import ConnectorFactory
 
         instance: ControlSystemConnector | ArchiverConnector
         if name == "control_system":
@@ -513,7 +516,7 @@ class ControlSystemContext:
     @staticmethod
     def _load_config() -> MCPServerConfig:
         """Load config.yml via the shared config loader."""
-        from osprey.utils.workspace import load_osprey_config, resolve_config_path
+        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
 
         raw = load_osprey_config()
         config_path = resolve_config_path()
@@ -525,7 +528,7 @@ class ControlSystemContext:
     @staticmethod
     def _register_connector_types() -> None:
         """Register all connector types with ConnectorFactory."""
-        from osprey.connectors.factory import register_builtin_connectors
+        from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
 
@@ -549,7 +552,7 @@ class ControlSystemContext:
         """
         self._refuse_invented_history()
 
-        from osprey.connectors.factory import ConnectorFactory
+        from osprey_connectors.factory import ConnectorFactory
 
         cs = self.config.control_system
         if not cs:
@@ -573,7 +576,7 @@ class ControlSystemContext:
         """Abort startup on a machine with no recorded past and a synthesizing
         archiver.
 
-        Judged by :func:`~osprey.connectors.honesty.pairing_in_rendered_config`,
+        Judged by :func:`~osprey_connectors.honesty.pairing_in_rendered_config`,
         which resolves both keys through *nested sections only* — exactly as
         :attr:`MCPServerConfig.control_system` and :attr:`MCPServerConfig.archiver`
         do a few lines above, and exactly as the factory then reads what they
@@ -581,13 +584,13 @@ class ControlSystemContext:
         guards would not be a guard; the divergence would be the way through.
 
         The refused machine is *named* rather than assumed: the pairing covers
-        every type in :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`,
+        every type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`,
         so a deployment baselined on the live stand-in is told about the
         stand-in and not sent looking for a virtual accelerator its
         ``control_system:`` section does not name.
         """
-        from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_control_system_type
+        from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+        from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
         if not pairing.is_invented_history:
@@ -605,9 +608,9 @@ class ControlSystemContext:
             f"reads a store this deployment actually writes (a project built from the "
             f"control-assistant preset deploys one, and its type reads "
             f"{MONGODB_ARCHIVER!r}); or, if this deployment is meant to be a "
-            f"simulation nothing is real in, set the `type:` under `control_system:` "
-            f"to {MOCK!r} — a mock machine with a mock archive claims nothing it "
-            f"cannot back up."
+            f"simulation nothing is real in, serve the simulator in process "
+            f"(`control_system.connector.virtual_accelerator.serving: in_process`), "
+            f"whose synthesized archive claims nothing it cannot back up."
         )
 
     async def shutdown(self) -> None:

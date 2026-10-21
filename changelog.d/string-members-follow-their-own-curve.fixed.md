@@ -1,0 +1,1 @@
+A model imported with `osprey facility import mml` serves each magnet of a series string through its own exported conversion, from its own nominal current, by the supply's change from its start, so every magnet changes by the Middle Layer's own amount per ampere; a wiring slice may state its own `curve`. Re-import to pick it up.

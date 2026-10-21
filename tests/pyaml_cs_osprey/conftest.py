@@ -1,0 +1,391 @@
+"""Shared fixtures: a pyAML run under the run lock and a dict-backed ``osprey.runtime`` stand-in."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable, Iterator, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+import osprey.runtime
+import osprey_connectors.settle as settle_step
+from osprey.runtime import (
+    ENV_CONTROL_TARGET,
+    ENV_CONTROL_TARGET_GENERATION,
+    ControlTargetChangedError,
+)
+from osprey.runtime.guarded_run import lock
+from osprey_connectors.control_system.base import (
+    ChannelMetadata,
+    ChannelValue,
+    ChannelWriteResult,
+    ControlSystemConnector,
+    WriteOutcome,
+)
+from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelReadFailedError,
+    ChannelWriteFailedError,
+)
+from osprey_connectors.workspace import reset_config_cache
+from pyaml_cs_osprey import _run
+
+RUNTIME_FUNCTIONS = (
+    "read_channel",
+    "read_channels",
+    "write_channel",
+    "write_channels",
+    "channel_limits",
+)
+
+
+class FakeRuntime:
+    """Stands in for the channel functions of ``osprey.runtime`` over a dict of values.
+
+    Every call is recorded: ``calls`` names each function in order, ``reads`` holds the
+    single-channel read addresses, ``batch_reads`` and ``batch_timeouts`` the batch reads,
+    ``writes`` each single-channel write as ``(address, value, kwargs)`` and
+    ``batch_writes`` each batch write as ``(channel_values, kwargs)``.
+
+    Failures are injected by setting ``read_error`` / ``write_error`` (raised by every
+    read / write), adding an address to ``fail`` (its writes are unconfirmed) or to
+    ``refuse`` (its writes are refused as a ``MAX_STEP`` violation when the predicate
+    on the value holds). With ``batch_only``, a single-channel read or write fails the test.
+
+    Every write reports the phases the real runtime reports for it (see
+    :func:`_report_phases`), since ``osprey.runtime.record_writes`` hears only
+    what the runtime reports.
+    """
+
+    def __init__(
+        self,
+        values: dict[str, Any],
+        *,
+        batch_only: bool = False,
+    ) -> None:
+        self.values = dict(values)
+        self.batch_only = batch_only
+        self.limits: dict[str, ChannelLimitsConfig] = {}
+        self.read_error: BaseException | None = None
+        self.write_error: BaseException | None = None
+        self.refuse: dict[str, Callable[[Any], bool]] = {}
+        self.fail: set[str] = set()
+        self.calls: list[str] = []
+        self.reads: list[str] = []
+        self.batch_reads: list[list[str]] = []
+        self.batch_timeouts: list[float | None] = []
+        self.writes: list[tuple[str, Any, dict[str, Any]]] = []
+        self.batch_writes: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        self.polls: list[str] = []
+        self.on_poll: Callable[[str], None] | None = None
+
+    def read_channel(self, channel_address: str, **kwargs: Any) -> Any:
+        if self.batch_only:
+            raise AssertionError("a device list never reads one channel at a time")
+        self.calls.append("read_channel")
+        self.reads.append(channel_address)
+        if self.read_error is not None:
+            raise self.read_error
+        return self.values.get(channel_address)
+
+    def read_channels(self, addresses: Sequence[str], *, timeout: float | None = None) -> list[Any]:
+        self.calls.append("read_channels")
+        self.batch_reads.append(list(addresses))
+        self.batch_timeouts.append(timeout)
+        missing = [a for a in addresses if self.values.get(a) is None]
+        if missing:
+            raise ChannelReadFailedError(missing)
+        return [self.values[a] for a in addresses]
+
+    def write_channel(self, channel_address: str, value: Any, **kwargs: Any) -> None:
+        if self.batch_only:
+            raise AssertionError("a device list never writes one channel at a time")
+        self.calls.append("write_channel")
+        self.writes.append((channel_address, value, kwargs))
+        error: BaseException | None = self.write_error
+        refused = self.refuse.get(channel_address)
+        if error is None and refused is not None and refused(value):
+            error = ChannelLimitsViolationError(
+                channel_address,
+                value,
+                "MAX_STEP",
+                "step too large",
+                current_value=self.values[channel_address],
+            )
+        if error is None and channel_address in self.fail:
+            error = ChannelWriteFailedError(
+                channel_address, "UNCONFIRMED", "readback did not follow"
+            )
+        _report_phases(
+            [channel_address], error, lambda: self.values.update({channel_address: value})
+        )
+
+    def write_channels(self, channel_values: dict[str, Any], **kwargs: Any) -> None:
+        self.calls.append("write_channels")
+        self.batch_writes.append((dict(channel_values), kwargs))
+        _report_phases(
+            list(channel_values), self.write_error, lambda: self.values.update(channel_values)
+        )
+
+    def channel_limits(self, address: str) -> ChannelLimitsConfig | None:
+        return self.limits.get(address)
+
+    def set(self, address: str, value: Any) -> None:
+        """A pyAML device write: its prior value recorded, then written, inside a run only."""
+
+        def reraise(exc: Exception, *_addresses: Any) -> Exception:
+            return exc
+
+        _run.write(
+            [address],
+            lambda **kwargs: self.write_channel(address, value, **kwargs),
+            reraise,
+            map_read=reraise,
+            confirm=None,
+        )
+
+    def install(
+        self, monkeypatch: pytest.MonkeyPatch, names: Sequence[str] = RUNTIME_FUNCTIONS
+    ) -> FakeRuntime:
+        """Replace the named ``osprey.runtime`` functions with this fake's methods.
+
+        The runtime's connector is replaced too, so ``osprey.runtime.settle`` reads
+        its readbacks from this fake: each such read is ``"poll"`` in ``calls`` and
+        its address in ``polls``.
+        """
+        for name in names:
+            monkeypatch.setattr(osprey.runtime, name, getattr(self, name))
+
+        async def connector() -> _Readbacks:
+            return _Readbacks(self)
+
+        monkeypatch.setattr(osprey.runtime, "_get_connector", connector)
+        return self
+
+    async def poll(self, channel_address: str) -> ChannelValue:
+        """The runtime connector's read, as ``osprey.runtime.settle`` makes it."""
+        self.calls.append("poll")
+        self.polls.append(channel_address)
+        if self.on_poll is not None:
+            self.on_poll(channel_address)
+        return ChannelValue(
+            value=self.values.get(channel_address),
+            timestamp=datetime.now(UTC),
+            metadata=ChannelMetadata(),
+        )
+
+
+class _Readbacks:
+    """The runtime connector a :class:`FakeRuntime` serves: its reads are the fake's polls."""
+
+    def __init__(self, runtime: FakeRuntime) -> None:
+        self._runtime = runtime
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:
+        del timeout
+        return await self._runtime.poll(channel_address)
+
+
+def _report_phases(
+    addresses: Sequence[str], error: BaseException | None, store: Callable[[], None]
+) -> None:
+    """Report a write's phases as ``osprey.runtime`` does, storing the values when it lands.
+
+    The target pin and the limits net refuse before the ``attempt``
+    (``ControlTargetChangedError``, ``ChannelLimitsViolationError``): nothing is
+    reported. Past them each address reports ``attempt``; a stored value, or one
+    that went out unconfirmed (``ChannelWriteFailedError``), then reports
+    ``sent``, and any other error (a refusal, a transport failure) reports
+    nothing more. ``error`` is raised after the phases are reported.
+    """
+    if isinstance(error, ControlTargetChangedError | ChannelLimitsViolationError):
+        raise error
+    for address in addresses:
+        osprey.runtime._notify_write(address, "attempt")
+    if error is None:
+        store()
+    if error is None or isinstance(error, ChannelWriteFailedError):
+        for address in addresses:
+            osprey.runtime._notify_write(address, "sent")
+    if error is not None:
+        raise error
+
+
+class DictConnector(ControlSystemConnector):
+    """A connector over a dict of values, armed for writes, served through ``osprey.runtime``.
+
+    ``_state`` holds every channel's value; a read of an address it lacks fails, and
+    every write lands in it through :meth:`_put`, which a subclass overrides to fail
+    one address.
+    """
+
+    def __init__(self, values: dict[str, Any] | None = None) -> None:
+        self._state: dict[str, Any] = dict(values or {})
+        self._limits_validator = None
+
+    @property
+    def _writes_enabled(self) -> bool:
+        return True
+
+    async def connect(self, config: dict[str, Any]) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+        if channel_address not in self._state:
+            raise ValueError(f"{channel_address} is not served")
+        return ChannelValue(
+            value=self._state[channel_address],
+            timestamp=datetime.now(UTC),
+            metadata=ChannelMetadata(),
+        )
+
+    async def read_multiple_channels(self, channel_addresses, timeout=None):
+        return await self._read_concurrently(list(channel_addresses), timeout)
+
+    def _put(self, channel_address: str, value: Any) -> None:
+        self._state[channel_address] = value
+
+    async def write_channel(
+        self,
+        channel_address: str,
+        value: Any,
+        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+    ) -> ChannelWriteResult:
+        try:
+            self._put(channel_address, value)
+        except Exception as exc:
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=f"write failed: {exc}",
+            )
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.UNREQUESTED,
+        )
+
+    async def subscribe(self, channel_address, callback):
+        raise NotImplementedError
+
+    async def unsubscribe(self, subscription_id):
+        raise NotImplementedError
+
+    async def get_metadata(self, channel_address):
+        raise NotImplementedError
+
+    async def validate_channel(self, channel_address) -> bool:
+        return channel_address in self._state
+
+
+#: The control system of the throwaway deployment: a real machine's, so the
+#: baseline control target is ``live`` because the render says so.
+LIVE_CONTROL_SYSTEM = {"type": "epics", "connector": {"epics": {}}}
+
+
+@pytest.fixture
+def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """A throwaway deployment repo, the working directory, with no target stamp.
+
+    The repo holds its ``profile.yml`` and a render naming a real machine's
+    control system, so an unstamped run is on ``live`` and its lock lives under
+    ``<tmp>/repo/var/guarded_run/live/``; ``CONFIG_FILE`` names the render's
+    config, as the executor sets it for a sandbox. The config
+    caches are empty going in and coming out, so the render read is this repo's
+    and no later test is answered from it.
+    """
+    root = tmp_path / "repo"
+    (root / "build").mkdir(parents=True)
+    (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
+    (root / "build" / "config.yml").write_text(
+        yaml.safe_dump({"control_system": LIVE_CONTROL_SYSTEM}), encoding="utf-8"
+    )
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
+    monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
+    monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    reset_config_cache()
+    yield root
+    reset_config_cache()
+
+
+class RunRecord:
+    """The process's pyAML run as a test sees it."""
+
+    @property
+    def moved(self) -> dict[str, Any]:
+        """Each written address's value before its first write, in first-write order."""
+        return _run.moved()
+
+
+@pytest.fixture
+def guarded(guarded_repo: Path) -> Iterator[RunRecord]:  # noqa: ARG001 - the run needs its repo
+    """A pyAML run under ``live``'s run lock in a throwaway deployment repo, for the test."""
+    with lock("live"), _run.opened("live"):
+        yield RunRecord()
+    assert _run.moved() == {}, "the run ends with the test"
+
+
+@pytest.fixture
+def in_run() -> Iterator[RunRecord]:
+    """A pyAML run open for the test, as a ``run_tool`` call opens it, with no lock taken."""
+    with _run.opened("live"):
+        yield RunRecord()
+    assert _run.moved() == {}, "the run ends with the test"
+
+
+def plant_facility(root: Path, channels: dict[str, tuple[str, float | None]]) -> Path:
+    """Write ``build/facility.json`` stating ``setpoint -> (readback, absolute tolerance)``.
+
+    A ``None`` tolerance plants the setpoint with its pair and no tolerance.
+    """
+    path = root / "build" / "facility.json"
+    records = [
+        {
+            "id": setpoint,
+            "role": "setpoint",
+            "pair": pair,
+            **({} if bound is None else {"tolerance": {"absolute": bound}}),
+        }
+        for setpoint, (pair, bound) in channels.items()
+    ]
+    path.write_text(json.dumps({"channels": records}), encoding="utf-8")
+    return path
+
+
+class Clock:
+    """The settle step's clock, moved only by its pauses; every pause is recorded."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.pauses: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.pauses.append(seconds)
+        self.now += seconds
+
+    @classmethod
+    def install(cls, monkeypatch: pytest.MonkeyPatch) -> Clock:
+        """A fresh clock serving every settle the runtime runs in the test."""
+        fake = cls()
+        real = settle_step.settle
+
+        async def timed(connector: Any, landings: Any, *, timeout_s: float) -> None:
+            await real(connector, landings, timeout_s=timeout_s, clock=fake, sleep=fake.sleep)
+
+        monkeypatch.setattr(settle_step, "settle", timed)
+        return fake

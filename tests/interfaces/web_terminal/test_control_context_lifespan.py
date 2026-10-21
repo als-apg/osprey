@@ -591,6 +591,40 @@ async def test_an_eligible_request_is_applied_with_a_mint(
     assert not path.exists()
 
 
+async def test_the_owner_gate_derives_against_the_file_its_config_came_from(
+    control_context_root, write_control_context, liveness, monkeypatch
+):
+    """The gate fills unset gateway ports from the file the owner's config was read from."""
+    from osprey.mcp_server.control_system import target_eligibility
+
+    original = target_eligibility.evaluate_switch
+    seen: list = []
+
+    def recording(*args, **kwargs):
+        seen.append(kwargs.get("config_path"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(target_eligibility, "evaluate_switch", recording)
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    file_request(OTHER_TERMINAL_PID, "va", request_id="r-7", session="agent-7")
+    task = make_task(make_app())
+    task._rendered_config = switchable_config  # type: ignore[method-assign]
+    task._config_path = lambda: "/render/config.yml"  # type: ignore[method-assign]
+
+    await task.tick_once()
+
+    assert seen == ["/render/config.yml"]
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("va", 7)
+
+
+def test_the_owner_names_the_file_load_osprey_config_reads(monkeypatch, tmp_path):
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "x.yml"))
+    assert make_task(make_app())._config_path() == str(tmp_path / "x.yml")
+
+
 async def test_a_gate_that_raises_is_refused_as_internal_error(
     control_context_root, write_control_context, liveness, monkeypatch
 ):

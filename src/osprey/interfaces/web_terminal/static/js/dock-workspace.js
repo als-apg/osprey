@@ -42,9 +42,9 @@ const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
  *  this session.
  *
  *  Never used bare: every read and write goes through `layoutKey()`, which
- *  picks the view's variant and suffixes it per persona through
+ *  picks the view's variant and suffixes it per render through
  *  `scopedStorageKey()`. Project key alone is not enough on a multi-user mount,
- *  where every persona shares one origin and would otherwise inherit — and
+ *  where every render shares one origin and would otherwise inherit — and
  *  overwrite — whichever arrangement another operator left behind for the same
  *  project. Resolved at each use, never stored resolved, so the key always
  *  reflects the document actually being served (see storage-scope.js).
@@ -478,16 +478,20 @@ export function openTerminalPanel() {
  * Close the terminal tile (the rail entry's Delete-key path). The dock tab's
  * own "×" goes through dockview directly; both end at the same removePanel.
  * The rail's SESSION entry is unaffected — it is the permanent reopen
- * affordance.
+ * affordance. Resolves whether a tile was closed, so a caller offering an Undo
+ * offers one only for a close that happened.
+ * @returns {boolean}
  */
 export function closeTerminalPanel() {
-  if (!dockApi) return;
+  if (!dockApi) return false;
   const panel = dockApi.getPanel(PANEL_TERMINAL);
-  if (!panel) return;
+  if (!panel) return false;
   try {
     dockApi.removePanel(panel);
+    return true;
   } catch (err) {
     console.error('dock: terminal close failed', err);
+    return false;
   }
 }
 

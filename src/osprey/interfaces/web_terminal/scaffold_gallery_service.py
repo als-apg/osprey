@@ -13,6 +13,7 @@ routes its writes accordingly and reads the union of the surfaces.
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import logging
 import re
@@ -47,7 +48,7 @@ from osprey.interfaces.web_terminal.ownership import (
     reserved_write_channel,
     resolve_ownership,
 )
-from osprey.utils.config import resolve_env_vars
+from osprey_connectors.config import resolve_env_vars
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, annotation only
     from osprey.cli.scaffold_cmd import ClaimTarget
@@ -1335,10 +1336,8 @@ class ScaffoldGalleryService:
         content: str | None = None
         fpath = self.project_dir / rel_path
         if fpath.is_file():
-            try:
+            with contextlib.suppress(UnicodeDecodeError, PermissionError, OSError):
                 content = fpath.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, PermissionError, OSError):
-                pass
 
         if content is None and art is not None:
             try:

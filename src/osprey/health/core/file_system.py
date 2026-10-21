@@ -49,10 +49,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import ConfigurationError
 from osprey.health.config import DiskThresholds, parse_disk_thresholds
 from osprey.health.models import CheckResult, Status
-from osprey.utils.workspace import agent_data_base_dir
+from osprey_connectors.errors import ConfigurationError
+from osprey_connectors.workspace import agent_data_base_dir
 
 _CATEGORY = "file_system"
 
@@ -130,7 +130,7 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         ]
     if required is not None:
         # The deploy gate's own sentence, verbatim: it already names the
-        # variable, its provider and persona, what the absence costs and how to
+        # variable, its provider and render, what the absence costs and how to
         # resolve it, and carries no value. Restating it here would be a second
         # wording of the same refusal, free to drift from the one `osprey up`
         # prints.
@@ -232,8 +232,8 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     except Exception:  # don't fail if we can't check registry
         pass
 
-    # Check disk space. Container volumes (incl. the OpenObserve telemetry
-    # store, which has no hard size cap) grow into this filesystem, so report
+    # Check disk space. Container volumes (incl. the telemetry store and the
+    # gateway's disk-backed export queues) grow into this filesystem, so report
     # the percentage used and warn as it fills — the honest "how full" signal.
     try:
         thresholds = _disk_thresholds(config)
@@ -253,7 +253,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
                     _CATEGORY,
                     Status.WARNING,
                     f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)",
-                    details="Container volumes (incl. the OpenObserve store) grow into this disk.",
+                    details="Container volumes (incl. the telemetry store) grow into this disk.",
                 )
             )
         else:

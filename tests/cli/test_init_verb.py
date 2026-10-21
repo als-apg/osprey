@@ -15,7 +15,7 @@ different kinds of thing:
   against the exemplar's ~20 hand-authored files, which exist to pin paths
   rather than content. Every path the exemplar names must be present.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
-  ``personas/*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
+  ``the retired layer directory*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
   to where it wraps, so a preset edit that drifts from the specification
   fails here rather than shipping.
@@ -55,6 +55,7 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
+from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -212,7 +213,7 @@ def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) ->
 # ---------------------------------------------------------------------------
 #
 # Both tests below are the whole requirement, asserted in full. The prose they
-# police — `profile.yml`, `personas/*.yml`, `.env.example` and `triggers.yml` —
+# police — `profile.yml`, `the retired layer directory*.yml`, `.env.example` and `triggers.yml` —
 # is none of it init's own: it comes from the bundled preset's comments, the
 # header `build_profile_emit` renders, the project env template and the bundled
 # trigger file, so any of those can reintroduce a retired verb.
@@ -231,14 +232,12 @@ RETIRED_VERB_STRINGS = (
 
 #: How an emitted artifact spells a verb of the ``profile`` group.
 #:
-#: ``"osprey profile "`` used to sit in the tuple above, back when every verb
-#: an emitted artifact could name under that group was retired. It cannot stay:
-#: the packaged provider catalog and the retired-key refusal both name
-#: ``osprey profile expand``, which is a live verb. So the group literal is
-#: replaced with a live-command check, which trades one axis for another: it no
-#: longer refuses the group outright, and in exchange it refuses any verb the
-#: group does not actually answer to — including one retired or renamed later,
-#: the day it goes rather than whenever someone remembers to add its string.
+#: The group has live verbs, so the group literal cannot sit in the tuple
+#: above. It is a live-command check instead, which trades one axis for
+#: another: it does not refuse the group outright, and in exchange it refuses
+#: any verb the group does not actually answer to — including one retired or
+#: renamed later, the day it goes rather than whenever someone remembers to add
+#: its string.
 #: The pattern reads lowercase verbs only, so an uppercase spelling or an
 #: ``osprey profile --flag`` mention is not matched and not judged.
 PROFILE_VERB_MENTION = re.compile(r"osprey profile ([a-z][a-z0-9-]*)")
@@ -299,16 +298,16 @@ def test_every_profile_verb_an_emitted_artifact_names_exists(exemplar_repo: Path
 #: set the prose rewrite has to reach. All seven are listed because this tuple
 #: is the only thing that gates them: a file left out here is a file whose
 #: emitter could drift from the exemplar forever without anything going red.
-#: One entry per persona delta, so a newly shipped tier is byte-checked from
-#: its first release rather than whenever someone remembers to add it —
-#: ``personas/admin.yml`` joined this list when the ``admin`` tier landed.
+#: One entry per tier and app file, so a newly shipped layer is byte-checked
+#: from its first release rather than whenever someone remembers to add it.
 RENDERED_FILES = (
     "profile.yml",
-    "personas/logbook.yml",
-    "personas/knowledge.yml",
-    "personas/readonly.yml",
-    "personas/readwrite.yml",
-    "personas/admin.yml",
+    f"{TIERS_DIRNAME}/readonly.yml",
+    f"{TIERS_DIRNAME}/readwrite.yml",
+    f"{TIERS_DIRNAME}/admin.yml",
+    f"{APPS_DIRNAME}/logbook.yml",
+    f"{APPS_DIRNAME}/knowledge.yml",
+    f"{APPS_DIRNAME}/channel-finder.yml",
     ".env.example",
 )
 
@@ -367,24 +366,35 @@ def test_emitted_profile_resolves(exemplar_repo: Path) -> None:
     assert profile_dir == exemplar_repo
 
 
-def test_persona_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> None:
-    """The catalog names each persona's delta and nothing about where it lands.
+def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> None:
+    """The profile names no render: each tier and app file is its own source.
 
-    ``osprey build`` derives every persona's ``project``/``project_path`` from
-    ``project_name`` and writes them into ``build/config.yml``, so a catalog
-    that also spelled them would be a second home for one fact.
+    ``osprey build`` derives every render's ``project``/``project_path`` from
+    the files in ``tiers/`` and ``apps/`` and from ``project_name``, and writes
+    them into ``build/config.yml``, so a catalog in the profile would be a
+    second home for one fact. The roster names a tier per person and the apps
+    it shares, and every name it uses has its file.
     """
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
-    catalog = profile["config"]["modules.web_terminals"]["personas"]
+    web_terminals = profile["config"]["modules.web_terminals"]
 
-    # Fourth entry, ``admin``, joined the catalog with the admin tier:
-    # carol's login resolves to it.
-    assert sorted(catalog) == ["admin", "knowledge", "logbook", "readonly", "readwrite"]
-    for persona_name, entry in catalog.items():
-        assert entry["build_profile"] == f"personas/{persona_name}.yml"
-        assert "project" not in entry
-        assert "project_path" not in entry
-        assert (exemplar_repo / entry["build_profile"]).is_file()
+    assert "renders" not in web_terminals
+    assert sorted(p.stem for p in (exemplar_repo / TIERS_DIRNAME).iterdir()) == [
+        "admin",
+        "readonly",
+        "readwrite",
+    ]
+    assert sorted(p.stem for p in (exemplar_repo / APPS_DIRNAME).iterdir()) == [
+        "channel-finder",
+        "knowledge",
+        "logbook",
+    ]
+    tiers = {web_terminals["default_tier"], *(user["tier"] for user in web_terminals["users"])}
+    for tier in tiers:
+        assert (exemplar_repo / TIERS_DIRNAME / f"{tier}.yml").is_file(), tier
+    assert web_terminals["shared"] == ["logbook", "knowledge", "channel-finder"]
+    for app in web_terminals["shared"]:
+        assert (exemplar_repo / APPS_DIRNAME / f"{app}.yml").is_file(), app
 
 
 def test_init_records_the_folder_name_as_project_name(exemplar_repo: Path) -> None:
@@ -936,15 +946,14 @@ def test_unused_exported_keys_are_reported_not_dropped_silently(
 #: newline. The trailing blank line is real -- the git note is written with a
 #: leading newline, which is what separates it from the entry list.
 #:
-#: The persona list and the seeded-password list both moved when the ``admin``
-#: tier and carol's login landed: a fourth
-#: persona in the catalog and a fourth demo password in ``env.defaults``.
+#: One row per layer directory, naming its files: the tiers, then the apps.
 EXEMPLAR_REPORT = f"""\
 ✓ Created {EXEMPLAR_DIRNAME}
 
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
-  personas/     one per web login: admin, knowledge, logbook, readonly, readwrite
+  tiers/        access levels of your assistant: admin, readonly, readwrite
+  apps/         separate assistants on offer: channel-finder, knowledge, logbook
   .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does

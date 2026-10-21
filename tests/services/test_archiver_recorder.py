@@ -21,12 +21,16 @@ connector can read" is not a claim a fake can settle.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import ssl
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
@@ -43,7 +47,13 @@ from osprey.services.archiver_recorder import (
 
 # Not re-exported by the package: the enablement facts are this service's own
 # internal contract, and the package surface stays the narrow reader it was.
-from osprey.services.archiver_recorder.config import RecordingFacts, read_recording_facts
+from osprey.services.archiver_recorder.config import (
+    DEFAULT_DATA_DIR,
+    ChannelSet,
+    RecordingFacts,
+    read_recording_facts,
+)
+from osprey_connectors.simulation.archive import waveform_collection, waveform_document
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
@@ -78,6 +88,7 @@ def _write_config(
     standin_gateway: tuple[str, int | str] | None = None,
     standin_port: int | None = None,
     recorder_deployed: bool = True,
+    in_process: bool = False,
     **extra,
 ) -> Path:
     """A rendered config.yml, optionally shaped like a stand-in deployment.
@@ -94,9 +105,15 @@ def _write_config(
     decides whether ``archiver_recorder`` is in ``deployed_services`` — the two
     halves of "whose past is in this store". All four are independent arguments
     because the interesting cases are the ones where they disagree.
+
+    ``in_process`` serves the simulator in process: the deployment's own type
+    is the simulator, which then dials nothing a recorder could sample.
     """
+    control_system: dict = {"type": control_system_type}
+    if in_process:
+        control_system["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
     config: dict = {
-        "control_system": {"type": control_system_type},
+        "control_system": control_system,
         # This service is the recorder, so the deploy that mounts this config
         # ordinarily runs one. `recorder_deployed=False` is the render that
         # merely stood a stand-in up without ever sampling it.
@@ -150,6 +167,20 @@ class _FakeWriter:
         if self.fail_with is not None:
             raise self.fail_with
         self.samples.append((timestamp, dict(values)))
+
+
+class _FakeWaveformWriter(_FakeWriter):
+    """A fake writer that also records the traces it would have stored."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.traces: list[tuple[datetime, dict[str, list[float]]]] = []
+        self.trace_fail_with: Exception | None = None
+
+    def write_waveforms(self, timestamp: datetime, traces: dict[str, list[float]]) -> None:
+        if self.trace_fail_with is not None:
+            raise self.trace_fail_with
+        self.traces.append((timestamp, {a: list(t) for a, t in traces.items()}))
 
 
 def _reader(values):
@@ -241,125 +272,142 @@ def test_a_missing_knob_is_an_error_naming_it(tmp_path: Path, block: str, key: s
 
 
 # ---------------------------------------------------------------------------
-# Channel source: the manifest, never the limits DB
+# Channel source: the simulator view's addresses.json, channels only
 # ---------------------------------------------------------------------------
 
 
-def test_channel_source_is_the_manifest_named_by_va_channels_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Resolved exactly as the IOC resolves it — a relative name against the
-    shared data mount — so the recorder covers the channels actually served."""
-    manifest = {
-        "channels": [
-            {
-                "address": "SR:BPM01:X",
-                "ring": "SR",
-                "system": "diagnostics",
-                "family": "BPM",
-                "device": "BPM01",
-                "field": "X",
-                "subfield": "",
-                "record_type": "ai",
-                "noise": True,
-                "partition": "static_noisy",
-            }
-        ]
+def _addresses(view: Path, channels: list[str], status: list[str] | None = None) -> None:
+    """Write a simulator view's ``addresses.json`` listing ``channels`` and ``status``."""
+    view.mkdir(parents=True, exist_ok=True)
+    document = {
+        "schema": "osprey.facility.addresses/1",
+        "channels": channels,
+        "status": status or [],
     }
-    (tmp_path / "channel_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+    (view / "addresses.json").write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_channel_source_is_the_simulator_views_channels(tmp_path: Path) -> None:
+    """The recorder covers the channels the view lists, in the order it lists them."""
+    _addresses(tmp_path, ["SR:BPM01:X", "SR:BPM01:Y"])
+
+    assert resolve_channel_addresses(tmp_path) == ["SR:BPM01:X", "SR:BPM01:Y"]
+
+
+def test_the_status_addresses_are_not_recorded(tmp_path: Path) -> None:
+    """``status`` names the simulator's own model status channels, not the facility's."""
+    _addresses(tmp_path, ["SR:BPM01:X"], status=["demo:SIM:SR:STATUS"])
 
     assert resolve_channel_addresses(tmp_path) == ["SR:BPM01:X"]
 
 
-def test_an_unnamed_manifest_is_fatal_not_a_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unset is refused on the same terms as unloadable, and for the same
-    reason: the only channel set this service could choose unasked is the
-    framework's demo one, and an archive of those addresses under this
-    facility's name is indistinguishable later from a real record of it. The
-    refusal names the variable and where it should have come from."""
-    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
+def test_the_default_view_is_the_mounted_simulator_directory() -> None:
+    """The compose template mounts ``build/data/simulator`` at this path."""
+    assert DEFAULT_DATA_DIR == "/data/simulator"
 
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE") as excinfo:
+
+def test_a_missing_view_is_fatal_not_a_fallback(tmp_path: Path) -> None:
+    """Falling back to a built-in channel set would record another facility's
+    namespace into this facility's archive -- worse than not recording."""
+    with pytest.raises(RecorderConfigError, match="addresses.json") as excinfo:
         resolve_channel_addresses(tmp_path)
     assert "osprey build" in str(excinfo.value)
 
-    # The compose passthrough sends "" when the host variable is absent, so
-    # empty has to be refused exactly as unset is.
-    monkeypatch.setenv("VA_CHANNELS_FILE", "  ")
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE"):
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "not json",
+        json.dumps(["SR:BPM01:X"]),
+        json.dumps({"status": []}),
+        json.dumps({"channels": "SR:BPM01:X"}),
+        json.dumps({"channels": [1]}),
+    ],
+)
+def test_an_unreadable_view_is_fatal(tmp_path: Path, document: str) -> None:
+    (tmp_path / "addresses.json").write_text(document, encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match="addresses.json"):
         resolve_channel_addresses(tmp_path)
 
 
-def test_an_unloadable_manifest_is_fatal_not_a_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Falling back to the built-in channel set would record another facility's
-    namespace into this facility's archive — worse than not recording."""
-    monkeypatch.setenv("VA_CHANNELS_FILE", "missing.json")
+def test_any_channel_address_is_recorded(tmp_path: Path) -> None:
+    """Every address is recorded verbatim; the store encodes its field name."""
+    addresses = ["SR:BPM1.VAL", "$SR:BPM1:VAL", "ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1"]
+    _addresses(tmp_path, addresses)
 
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE"):
-        resolve_channel_addresses(tmp_path)
+    assert resolve_channel_addresses(tmp_path) == addresses
 
 
-def _manifest_with(tmp_path: Path, *addresses: str) -> None:
-    """Write a manifest listing exactly ``addresses`` and point the env at it."""
-    manifest = {
-        "channels": [
-            {
-                "address": address,
-                "ring": "SR",
-                "system": "diagnostics",
-                "family": "BPM",
-                "device": "BPM1",
-                "field": "VAL",
-                "subfield": "",
-                "record_type": "ai",
-                "noise": True,
-                "partition": "static_noisy",
-            }
-            for address in addresses
-        ]
-    }
-    (tmp_path / "channel_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+def _variables(view: Path, value_types: dict[str, str]) -> None:
+    """Write a simulator view's ``variables.json`` giving each channel its value type."""
+    channels = [
+        {
+            "address": address,
+            "role": "readback",
+            "pair": None,
+            "value_type": value_type,
+            "unit": None,
+            "description": None,
+            "writable": False,
+            "value_range": None,
+            "owner": "texture",
+            "on": None,
+            **({"shape": [TRACE_POINTS]} if value_type == "waveform" else {}),
+        }
+        for address, value_type in value_types.items()
+    ]
+    document = {"schema": "osprey.facility.simulator/2", "code": "demo", "channels": channels}
+    (view / "variables.json").write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_the_channel_set_is_partitioned_by_value_type(tmp_path: Path) -> None:
+    """A waveform channel is recorded as a trace, every other channel as a number;
+    the set as a whole is still the view's channels, in its order."""
+    _addresses(tmp_path, ["SR:BPM01:X", WAVEFORM, "SR:STATE:MODE"])
+    _variables(tmp_path, {"SR:BPM01:X": "float", WAVEFORM: "waveform", "SR:STATE:MODE": "enum"})
+
+    channels = resolve_channel_addresses(tmp_path)
+
+    assert channels == ["SR:BPM01:X", WAVEFORM, "SR:STATE:MODE"]
+    assert channels.scalars == ("SR:BPM01:X", "SR:STATE:MODE")
+    assert channels.waveforms == (WAVEFORM,)
+
+
+def test_without_value_types_every_channel_is_a_number(tmp_path: Path) -> None:
+    """A channel ``variables.json`` does not state carries the default value type."""
+    _addresses(tmp_path, ["SR:BPM01:X", "SR:BPM01:Y"])
+    _variables(tmp_path, {"SR:BPM01:X": "float"})
+
+    channels = resolve_channel_addresses(tmp_path)
+    assert channels.scalars == ("SR:BPM01:X", "SR:BPM01:Y")
+    assert channels.waveforms == ()
+
+    (tmp_path / "variables.json").unlink()
+    assert resolve_channel_addresses(tmp_path).waveforms == ()
 
 
 @pytest.mark.parametrize(
-    ("address", "cause"),
+    "document",
     [
-        ("SR:BPM1.VAL", "path separator"),
-        ("$SR:BPM1:VAL", "operator"),
+        "not json",
+        json.dumps({"schema": "osprey.facility.simulator/1", "channels": []}),
+        json.dumps({"schema": "osprey.facility.simulator/2"}),
+        json.dumps({"schema": "osprey.facility.simulator/2", "channels": [{"address": "X"}]}),
     ],
 )
-def test_an_address_the_archive_cannot_store_is_refused_by_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, address: str, cause: str
-) -> None:
-    """Refused at startup, not warned about once a tick with nothing archived.
+def test_unreadable_value_types_are_fatal(tmp_path: Path, document: str) -> None:
+    """Guessing a channel's value type would put a trace where a number goes."""
+    _addresses(tmp_path, ["X"])
+    (tmp_path / "variables.json").write_text(document, encoding="utf-8")
 
-    A tick is one flat document keyed by channel address. An address the store
-    cannot hold as a field name is not archivable, and a recorder that started
-    anyway would leave an archive that quietly does not hold that channel."""
-    _manifest_with(tmp_path, address)
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
-
-    with pytest.raises(RecorderConfigError) as excinfo:
+    with pytest.raises(RecorderConfigError, match="variables.json"):
         resolve_channel_addresses(tmp_path)
-    assert address in str(excinfo.value)
-    assert cause in str(excinfo.value)
 
 
-def test_a_storable_address_is_not_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The guard is about field names, not about an address grammar: a
-    facility that separates its levels with ``_`` or ``-`` records fine."""
-    _manifest_with(tmp_path, "ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1")
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
-
-    assert resolve_channel_addresses(tmp_path) == [
-        "ZZEXP_MAG_Q1_CURRENT_SP",
-        "ZZEXP-VAC-V1",
-    ]
+def test_a_waveform_channel_must_be_in_the_channel_set() -> None:
+    with pytest.raises(ValueError, match="not in the channel set"):
+        ChannelSet(["SR:BPM01:X"], waveforms=[WAVEFORM])
 
 
 # ---------------------------------------------------------------------------
@@ -487,22 +535,139 @@ async def test_a_failed_write_does_not_end_the_loop(tmp_path: Path) -> None:
 async def test_the_channel_access_reader_drops_channels_that_did_not_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """aioca reports a failed read as a falsy ``CANothing`` in the results list
-    rather than raising, which is what makes ``throw=False`` safe: one
-    unreachable channel must not cost the whole sample. Dropping those here is
+    """The reader samples through the real EPICS connector, here over a fake aioca.
+    A channel that never connects fails its own read and nothing else's: one
+    unreachable channel must not cost the whole sample. Dropping it here is
     what turns "did not answer" into an absent field downstream."""
-    import aioca
-
     from osprey.services.archiver_recorder.recorder import channel_access_reader
+    from tests.connectors._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
 
-    async def fake_caget(pvs, **kwargs):
-        return [1.5, aioca.CANothing(pvs[1], -1)]
-
-    monkeypatch.setattr(aioca, "caget", fake_caget)
+    install_fake_aioca(monkeypatch, {"SR:BPM01:X": FakeChannel(ca_reading(1.5))})
 
     values = await channel_access_reader(_settings())(["SR:BPM01:X", "SR:BPM02:X"])
 
     assert values == {"SR:BPM01:X": 1.5}
+
+
+async def test_each_sample_costs_one_read_per_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The connector fetches a channel's units and labels on its first read and
+    reuses them, so after the first sample each channel is one round trip."""
+    import aioca
+
+    from osprey.services.archiver_recorder.recorder import channel_access_reader
+    from tests.connectors._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
+
+    addresses = ["SR:BPM01:X", "SR:BPM02:X"]
+    fake = install_fake_aioca(monkeypatch, {a: FakeChannel(ca_reading(1.5)) for a in addresses})
+    read = channel_access_reader(_settings())
+
+    for _ in range(3):
+        assert await read(addresses) == dict.fromkeys(addresses, 1.5)
+
+    gets = [(name, kwargs["format"]) for call, name, kwargs in fake.calls if call == "caget"]
+    for address in addresses:
+        assert gets.count((address, aioca.FORMAT_TIME)) == 3
+        assert gets.count((address, aioca.FORMAT_CTRL)) == 1
+
+
+async def test_the_recorders_ca_environment_is_left_as_it_stands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compose entry hands the recorder its gateway in ``EPICS_CA_*``; the
+    connector it samples through must not rewrite that with a gateway block
+    written for the agent's side of the network."""
+    from osprey.services.archiver_recorder import recorder
+    from osprey_connectors.control_system.epics_connector import EPICSConnector
+    from tests.connectors._epics_fakes import install_fake_aioca
+
+    install_fake_aioca(monkeypatch)
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "virtual-accelerator:5064")
+    monkeypatch.setenv("EPICS_CA_AUTO_ADDR_LIST", "NO")
+
+    connector = await recorder._connect()
+
+    assert isinstance(connector, EPICSConnector)
+    assert connector._connector_type == "epics"
+    assert os.environ["EPICS_CA_NAME_SERVERS"] == "virtual-accelerator:5064"
+    assert os.environ["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
+
+
+class _StallingConnector:
+    """Answers every channel at once except those in ``stalled``, which never answer."""
+
+    def __init__(self, stalled: tuple[str, ...] = ()) -> None:
+        self.stalled = stalled
+        self.cancelled: list[str] = []
+        self.timeouts: list[float | None] = []
+
+    async def read_channel(self, address: str, timeout: float | None = None):
+        from osprey_connectors.control_system.base import ChannelValue
+
+        self.timeouts.append(timeout)
+        if address in self.stalled:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled.append(address)
+                raise
+        if address.endswith(":BROKEN"):
+            raise ConnectionError(f"Failed to connect to PV '{address}'")
+        return ChannelValue(value=2.5, timestamp=datetime.now(UTC))
+
+
+async def test_a_channel_that_never_answers_does_not_hold_the_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every read shares one deadline, the sample cadence. What answered by
+    then is kept, a failed read and a read still outstanding contribute
+    nothing, and the outstanding one is cancelled rather than left running."""
+    from osprey.services.archiver_recorder import recorder
+
+    connector = _StallingConnector(stalled=("SR:BPM02:X",))
+    connects: list[int] = []
+
+    async def connect():
+        connects.append(1)
+        return connector
+
+    monkeypatch.setattr(recorder, "_connect", connect)
+    # A fractional cadence keeps the test short; the deadline arithmetic is the same.
+    read = recorder.channel_access_reader(_settings(cadence_sec=0.2))
+    addresses = ["SR:BPM01:X", "SR:BPM02:X", "SR:BPM03:BROKEN"]
+
+    started = time.monotonic()
+    values = await read(addresses)
+    elapsed = time.monotonic() - started
+    await asyncio.sleep(0)  # let the cancelled read see its cancellation
+
+    assert values == {"SR:BPM01:X": 2.5}
+    assert 0.15 <= elapsed < 1.0
+    assert connector.cancelled == ["SR:BPM02:X"]
+    assert set(connector.timeouts) == {0.2}
+
+    # The connector is built on the first sample and reused for every later one.
+    await read(["SR:BPM01:X"])
+    assert connects == [1]
+
+
+async def test_a_connector_that_does_not_connect_in_time_costs_one_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.services.archiver_recorder import recorder
+
+    attempts: list[int] = []
+
+    async def connect():
+        attempts.append(1)
+        if len(attempts) == 1:
+            await asyncio.Event().wait()
+        return _StallingConnector()
+
+    monkeypatch.setattr(recorder, "_connect", connect)
+    read = recorder.channel_access_reader(_settings(cadence_sec=0.1))
+
+    assert await read(["SR:BPM01:X"]) == {}
+    assert await read(["SR:BPM01:X"]) == {"SR:BPM01:X": 2.5}
 
 
 async def test_non_numeric_channels_are_skipped_and_warned_about_once(
@@ -527,21 +692,157 @@ async def test_non_numeric_channels_are_skipped_and_warned_about_once(
     assert caplog.text.count("SR:STATE:MODE") == 1
 
 
+#: A waveform channel's address, and the number of points in its trace.
+WAVEFORM = "SR:SEK:WAVEFORM"
+TRACE_POINTS = 500
+
+
+def _trace(scale: float = 1.0) -> np.ndarray:
+    return np.linspace(0.0, scale, TRACE_POINTS)
+
+
+async def test_a_waveform_is_recorded_once_per_tail_cadence_never_in_scalar_docs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Traces go to the waveform path on the tail grid; the scalar documents
+    never carry one, and nothing is warned about as non-numeric."""
+    writer = _FakeWaveformWriter()
+    recorder = Recorder(
+        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        addresses=ChannelSet(["SR:BPM01:X", WAVEFORM], waveforms=[WAVEFORM]),
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml"),
+        reader=_reader({"SR:BPM01:X": 1.5, WAVEFORM: _trace()}),
+    )
+    start = datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)
+
+    with caplog.at_level(logging.WARNING):
+        for step in range(0, 130, 10):  # 12:00:00 .. 12:02:00, every scalar slot
+            await recorder.tick(start + timedelta(seconds=step))
+        # A second tick in an already-recorded tail slot writes nothing more.
+        await recorder.tick(start + timedelta(seconds=125))
+
+    assert len(writer.samples) == 13
+    assert all(values == {"SR:BPM01:X": 1.5} for _, values in writer.samples)
+    assert [ts for ts, _ in writer.traces] == [
+        start,
+        start + timedelta(seconds=60),
+        start + timedelta(seconds=120),
+    ]
+    for _, traces in writer.traces:
+        assert list(traces) == [WAVEFORM]
+        assert len(traces[WAVEFORM]) == TRACE_POINTS
+        assert all(isinstance(v, float) for v in traces[WAVEFORM])
+        assert traces[WAVEFORM] == _trace().tolist()
+    assert "non-numeric" not in caplog.text
+    assert WAVEFORM not in caplog.text
+
+
+async def test_a_waveform_off_the_tail_grid_is_not_recorded(tmp_path: Path) -> None:
+    """Only tail-grid instants carry traces: a missed one is a gap, never a
+    trace stamped with an instant it was not read at."""
+    writer = _FakeWaveformWriter()
+    recorder = Recorder(
+        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        addresses=ChannelSet([WAVEFORM], waveforms=[WAVEFORM]),
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml"),
+        reader=_reader({WAVEFORM: _trace()}),
+    )
+
+    wrote = await recorder.tick(datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC))
+
+    assert wrote is False
+    assert writer.traces == []
+    assert writer.samples == []
+
+
+async def test_a_plain_address_list_records_only_scalars(tmp_path: Path) -> None:
+    """A list without value types is the scalar path exactly as before."""
+    writer = _FakeWaveformWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml"),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC))
+
+    assert writer.samples == [(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC), {"SR:BPM01:X": 1.5})]
+    assert writer.traces == []
+
+
+async def test_a_waveform_that_answers_with_no_trace_is_warned_about_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    writer = _FakeWaveformWriter()
+    recorder = Recorder(
+        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        addresses=ChannelSet([WAVEFORM, "SR:SEK:OTHER"], waveforms=[WAVEFORM, "SR:SEK:OTHER"]),
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml"),
+        reader=_reader({WAVEFORM: "OFF", "SR:SEK:OTHER": _trace(2.0)}),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC))
+        await recorder.tick(datetime(2026, 8, 10, 12, 1, 0, tzinfo=UTC))
+
+    assert [list(traces) for _, traces in writer.traces] == [["SR:SEK:OTHER"], ["SR:SEK:OTHER"]]
+    assert caplog.text.count(WAVEFORM) == 1
+
+
+async def test_a_failed_trace_write_does_not_end_the_loop(tmp_path: Path) -> None:
+    writer = _FakeWaveformWriter()
+    writer.trace_fail_with = ConnectionError("store restarting")
+    recorder = Recorder(
+        settings=_settings(cadence_sec=10, tail_cadence_sec=60),
+        addresses=ChannelSet(["SR:BPM01:X", WAVEFORM], waveforms=[WAVEFORM]),
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml"),
+        reader=_reader({"SR:BPM01:X": 1.5, WAVEFORM: _trace()}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is True
+    writer.trace_fail_with = None
+    await recorder.tick(datetime(2026, 8, 10, 12, 1, 0, tzinfo=UTC))
+
+    assert len(writer.samples) == 2
+    assert [ts for ts, _ in writer.traces] == [datetime(2026, 8, 10, 12, 1, 0, tzinfo=UTC)]
+
+
 # ---------------------------------------------------------------------------
 # Enablement
 # ---------------------------------------------------------------------------
 
 
-async def test_a_mock_control_system_is_not_recorded(tmp_path: Path) -> None:
-    """A real machine's readings spliced onto a synthesized past is exactly the
-    two-world archive this service exists to prevent, and a mock has nothing
-    worth recording in the first place."""
+async def test_the_simulator_in_process_is_not_recorded(tmp_path: Path) -> None:
+    """The simulator in process serves nothing on the network, so there is no
+    machine for the recorder to sample, whatever its type says."""
     writer = _FakeWriter()
     recorder = Recorder(
         settings=_settings(),
         addresses=["SR:BPM01:X"],
         writer=writer,
-        config_path=_write_config(tmp_path / "config.yml", control_system_type="mock"),
+        config_path=_write_config(tmp_path / "config.yml", in_process=True),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is False
+    assert writer.samples == []
+
+
+async def test_a_real_machine_baseline_is_not_recorded(tmp_path: Path) -> None:
+    """A real machine's readings spliced onto a synthesized past is exactly the
+    two-world archive this service exists to prevent."""
+    writer = _FakeWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(tmp_path / "config.yml", control_system_type="epics"),
         reader=_reader({"SR:BPM01:X": 1.5}),
     )
 
@@ -552,7 +853,7 @@ async def test_a_mock_control_system_is_not_recorded(tmp_path: Path) -> None:
 async def test_the_control_system_flip_takes_effect_without_a_restart(tmp_path: Path) -> None:
     """The documented post-build flip is a config edit, and the poll is what
     makes it enough."""
-    config_path = _write_config(tmp_path / "config.yml", control_system_type="mock")
+    config_path = _write_config(tmp_path / "config.yml", in_process=True)
     writer = _FakeWriter()
     recorder = Recorder(
         settings=_settings(poll_sec=30),
@@ -750,7 +1051,7 @@ async def test_idling_logs_once_not_every_poll(
         settings=_settings(poll_sec=1),
         addresses=["SR:BPM01:X"],
         writer=_FakeWriter(),
-        config_path=_write_config(tmp_path / "config.yml", control_system_type="mock"),
+        config_path=_write_config(tmp_path / "config.yml", in_process=True),
         reader=_reader({"SR:BPM01:X": 1.5}),
     )
 
@@ -879,6 +1180,146 @@ def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection
     assert doc["expireAt"].replace(tzinfo=UTC) == timestamp + timedelta(hours=48)
 
 
+async def _connected_reader(
+    settings: RecorderSettings,
+    mongodb_container,  # noqa: F811
+    password: str,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The agent's archive connector, connected to the collection ``settings`` names."""
+    from osprey_connectors.archiver.mongodb_archiver_connector import (
+        HOST_OVERRIDE_ENV,
+        PORT_OVERRIDE_ENV,
+        MongoDBArchiverConnector,
+    )
+
+    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.setenv("RECORDER_SHAPE_PASSWORD", password)
+    connector = MongoDBArchiverConnector()
+    await connector.connect(
+        {
+            "host": mongodb_container["host"],
+            "port": mongodb_container["port"],
+            "name": settings.database,
+            "collection": settings.collection,
+            "auth": {
+                "source": mongodb_container["auth_db"],
+                "username": mongodb_container["username"],
+                "password_env": "RECORDER_SHAPE_PASSWORD",
+            },
+            "timeout_s": 10,
+        }
+    )
+    return connector
+
+
+async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
+    archive_collection,
+    mongodb_container,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Write, store and read back through the connector, each under the channel's address.
+
+    The stored field is ``field_name`` of the address, so MongoDB never reads
+    the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
+    """
+    from osprey_connectors.archiver.field_names import field_name
+
+    settings, collection, password = archive_collection
+    samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
+    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_sample(timestamp, samples)
+    finally:
+        writer.close()
+
+    doc = collection.find_one({"date": timestamp})
+    assert doc is not None
+    for address, value in samples.items():
+        assert doc[field_name(address)] == value
+    assert "SR:REC" not in doc
+
+    connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
+    try:
+        frame = await connector.get_data(
+            channels=list(samples),
+            start_date=timestamp - timedelta(seconds=5),
+            end_date=timestamp + timedelta(seconds=5),
+        )
+        availability = await connector.check_availability(list(samples))
+    finally:
+        await connector.disconnect()
+
+    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    assert read == samples
+    assert availability == dict.fromkeys(samples, True)
+
+
+async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
+    archive_collection,
+    mongodb_container,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A channel named after a field of the archive's own documents keeps that field intact.
+
+    The sample document keeps its ``date``, ``expireAt`` and ``_id``; the seed
+    manifest beside it in the collection is never read as a channel's history.
+    """
+    from osprey_connectors.archiver.field_names import field_name
+    from osprey_connectors.simulation.archive import SeedReport, write_manifest
+
+    settings, collection, password = archive_collection
+    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
+    write_manifest(
+        collection,
+        {"schema_version": 2},
+        seeded_at=timestamp - timedelta(hours=1),
+        report=SeedReport(channels=1),
+    )
+    samples = {
+        "date": 1.5,
+        "expireAt": 2.0,
+        "_id": 3.0,
+        "osprey_densified": 4.0,
+        "fingerprint": 5.0,
+    }
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_sample(timestamp, samples)
+    finally:
+        writer.close()
+
+    doc = collection.find_one({"date": timestamp})
+    assert doc is not None
+    assert doc["expireAt"].replace(tzinfo=UTC) == timestamp + timedelta(hours=48)
+    assert doc["_id"] != 3.0
+    assert "osprey_densified" not in doc
+    for address, value in samples.items():
+        assert doc[field_name(address)] == value
+
+    connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
+    try:
+        frame = await connector.get_data(
+            channels=list(samples),
+            start_date=timestamp - timedelta(seconds=5),
+            end_date=timestamp + timedelta(seconds=5),
+        )
+        availability = await connector.check_availability([*samples, "seeded_at"])
+        metadata = await connector.get_metadata("fingerprint")
+    finally:
+        await connector.disconnect()
+
+    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    assert read == samples
+    assert availability == {**dict.fromkeys(samples, True), "seeded_at": False}
+    assert metadata.is_archived is True
+    assert metadata.archival_start.replace(tzinfo=UTC) == timestamp
+
+
 def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_collection) -> None:
     """The two guards that let the recorder coexist with the seeded half of the
     collection: a second write leaves values it did not read alone, and it does
@@ -904,6 +1345,82 @@ def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_colle
     )
 
 
+@pytest.fixture
+def waveform_handle(archive_collection):
+    """The waveform collection beside ``archive_collection``, emptied around the test."""
+    settings, collection, password = archive_collection
+    handle = collection.database[waveform_collection(collection.name)]
+    handle.delete_many({})
+    try:
+        yield handle
+    finally:
+        handle.delete_many({})
+
+
+def test_stored_traces_are_the_waveform_document(archive_collection, waveform_handle) -> None:
+    """A recorded trace is exactly the document the shared helper builds, in the
+    waveform collection, and nothing of it lands in the snapshot documents."""
+    settings, collection, password = archive_collection
+    timestamp = datetime(2026, 8, 10, 12, 1, 0, tzinfo=UTC)  # on the tail grid
+    trace = _trace(3.0)
+
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_waveforms(timestamp, {WAVEFORM: trace.tolist(), "SR:SEK:OTHER": trace})
+    finally:
+        writer.close()
+
+    assert collection.count_documents({}) == 0, "a trace never goes into the snapshot documents"
+    for address in (WAVEFORM, "SR:SEK:OTHER"):
+        stored = waveform_handle.find_one({"date": timestamp, address: {"$exists": True}})
+        assert stored is not None
+        stored.pop("_id")
+        stored["date"] = stored["date"].replace(tzinfo=UTC)
+        stored["expireAt"] = stored["expireAt"].replace(tzinfo=UTC)
+        expected = waveform_document(
+            address, timestamp, trace, expire_at=expiry_for(timestamp, settings)
+        )
+        assert stored == expected
+        assert len(stored[address]) == TRACE_POINTS
+    assert stored["expireAt"] == timestamp + timedelta(days=settings.retention_days)
+
+
+def test_writing_a_trace_twice_replaces_it_and_never_restamps_expiry(
+    archive_collection, waveform_handle
+) -> None:
+    """The waveform half honours the same coexistence guards as the snapshot half."""
+    settings, _collection, password = archive_collection
+    timestamp = datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)
+    waveform_handle.insert_one({"date": timestamp, WAVEFORM: [0.0] * TRACE_POINTS})
+    waveform_handle.insert_one({"date": timestamp, "SR:SEK:SEEDED": [7.0] * TRACE_POINTS})
+
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_waveforms(timestamp, {WAVEFORM: _trace()})
+    finally:
+        writer.close()
+
+    assert waveform_handle.count_documents({"date": timestamp}) == 2
+    doc = waveform_handle.find_one({"date": timestamp, WAVEFORM: {"$exists": True}})
+    assert doc[WAVEFORM] == _trace().tolist()
+    assert "expireAt" not in doc
+    seeded = waveform_handle.find_one({"date": timestamp, "SR:SEK:SEEDED": {"$exists": True}})
+    assert seeded["SR:SEK:SEEDED"] == [7.0] * TRACE_POINTS
+
+
+def test_a_trace_that_is_not_one_dimensional_is_refused(archive_collection) -> None:
+    settings, _collection, password = archive_collection
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        with pytest.raises(ValueError, match="1-D"):
+            writer.write_waveforms(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC), {WAVEFORM: []})
+    finally:
+        writer.close()
+
+
 def test_a_missing_credential_is_a_connection_error(archive_collection) -> None:
     """A recorder that cannot write is not degraded, it is pointless — so the
     cause lands in the log at startup rather than as a silently empty archive."""
@@ -916,8 +1433,8 @@ def test_a_missing_credential_is_a_connection_error(archive_collection) -> None:
 def test_control_system_type_reads_the_file_each_time(tmp_path: Path) -> None:
     """The enablement question is answered from disk, not from a cached parse:
     the whole point is that an edit is visible without a restart."""
-    config_path = _write_config(tmp_path / "config.yml", control_system_type="mock")
-    assert read_control_system_type(config_path) == "mock"
+    config_path = _write_config(tmp_path / "config.yml", control_system_type="epics")
+    assert read_control_system_type(config_path) == "epics"
 
     _write_config(config_path, control_system_type="virtual_accelerator")
     assert read_control_system_type(config_path) == "virtual_accelerator"
@@ -934,66 +1451,66 @@ _RECORDS_ITS_STANDIN = {"standin_gateway": ("127.0.0.1", 5074), "standin_port": 
     [
         pytest.param(
             {"control_system_type": "virtual_accelerator"},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="the-baseline-virtual-accelerator-stood-nothing-up",
         ),
         # A stand-in deployment before and after `osprey set connector=epics`:
         # the rendered type moves, the machine being recorded does not.
         pytest.param(
             {"control_system_type": "virtual_accelerator", **_RECORDS_ITS_STANDIN},
-            RecordingFacts("virtual_accelerator", True),
+            RecordingFacts("virtual_accelerator", True, "ca"),
             id="records-its-standin",
         ),
         pytest.param(
             {"control_system_type": "epics", **_RECORDS_ITS_STANDIN},
-            RecordingFacts("epics", True),
+            RecordingFacts("epics", True, "ca"),
             id="records-its-standin-after-set-connector-epics",
         ),
         # localhost and ::1 are loopback the same way an address is.
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("localhost", 5074)},
-            RecordingFacts("virtual_accelerator", True),
+            RecordingFacts("virtual_accelerator", True, "ca"),
             id="loopback-spelled-localhost",
         ),
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("::1", 5074)},
-            RecordingFacts("virtual_accelerator", True),
+            RecordingFacts("virtual_accelerator", True, "ca"),
             id="loopback-spelled-v6",
         ),
         # The `standin` block's gateways moved to a real machine: the leftover
         # `services:` block loses, and the endpoint is what answers.
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("epics-gateway.example.org", 5074)},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="standin-gateways-moved-off-the-host",
         ),
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", 5064)},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="standin-built-elsewhere-than-the-gateways-dial",
         ),
         # A quoted port in the gateway block, coerced the same way the roster's
         # own label derivation coerces it: one endpoint, never two answers.
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", "5074")},
-            RecordingFacts("virtual_accelerator", True),
+            RecordingFacts("virtual_accelerator", True, "ca"),
             id="a-quoted-gateway-port-is-still-that-port",
         ),
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", "not-a-port")},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="a-gateway-port-that-names-no-port",
         ),
         # The two halves of "whose past is in this store", each without the
         # other. Neither alone makes the archive the stand-in's.
         pytest.param(
             {**_RECORDS_ITS_STANDIN, "recorder_deployed": False},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="a-standin-this-deployment-never-records",
         ),
         pytest.param(
             {"standin_gateway": ("127.0.0.1", 5074)},
-            RecordingFacts("virtual_accelerator", False),
+            RecordingFacts("virtual_accelerator", False, "ca"),
             id="a-recorder-with-no-standin-stood-up",
         ),
         # `live` always means the facility's authored `epics` block, and the
@@ -1004,7 +1521,7 @@ _RECORDS_ITS_STANDIN = {"standin_gateway": ("127.0.0.1", 5074), "standin_port": 
                 **_RECORDS_ITS_STANDIN,
                 "live_gateway": ("epics-gateway.example.org", 5064),
             },
-            RecordingFacts("epics", True),
+            RecordingFacts("epics", True, "ca"),
             id="a-real-live-machine-beside-the-recorded-standin",
         ),
         pytest.param(
@@ -1013,19 +1530,19 @@ _RECORDS_ITS_STANDIN = {"standin_gateway": ("127.0.0.1", 5074), "standin_port": 
                 "live_gateway": ("127.0.0.1", 5074),
                 "standin_port": 5074,
             },
-            RecordingFacts("epics", False),
+            RecordingFacts("epics", False, "ca"),
             id="an-epics-block-on-the-standins-port-is-not-the-standin",
         ),
         # An SSH tunnel: loopback, and nothing else.
         pytest.param(
             {"control_system_type": "epics", "live_gateway": ("localhost", 5064)},
-            RecordingFacts("epics", False),
+            RecordingFacts("epics", False, "ca"),
             id="an-ssh-tunnel-to-a-real-gateway",
         ),
         pytest.param(
-            {"control_system_type": "mock"},
-            RecordingFacts("mock", False),
-            id="the-ordinary-mock-project",
+            {"in_process": True},
+            RecordingFacts("virtual_accelerator", False, "in_process"),
+            id="the-simulator-in-process",
         ),
     ],
 )
@@ -1082,15 +1599,16 @@ def test_the_template_mounts_the_live_project_not_a_staged_config_copy() -> None
     `osprey build`, so a flip would need a rebuild while the service went on
     logging that it does not — the exact dishonesty this feature removes.
 
-    The mount source is `.` — bind sources resolve against the pinned compose
-    project directory, which is the deployment REPO ROOT — and CONFIG_FILE
-    names the as-built render inside it, reached through the directory mount so
-    a host edit is seen on the next poll.
+    The mount source is `./build` — bind sources resolve against the pinned
+    compose project directory, which is the deployment REPO ROOT, and the
+    render is the one directory under it that holds no secret file — and
+    CONFIG_FILE names the as-built config at its root, reached through the
+    directory mount so a host edit is seen on the next poll.
     """
     template = _recorder_template_text()
 
-    assert "- .:/app/project:ro" in template, (
-        "the recorder must mount the deployment repo; a staged copy is "
+    assert "- ./build:/app/project/build:ro" in template, (
+        "the recorder must mount the deployment's render; a staged copy is "
         "rewritten only by `osprey build`, so the enablement poll would re-read "
         "a stale copy and the documented no-rebuild flip would never arrive"
     )

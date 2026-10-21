@@ -11,7 +11,8 @@ should read before they start.
 
 ## Be mindful of what you approve
 
-OSPREY asks for your approval before any hardware write. That gate is where you
+OSPREY can ask for your approval before a hardware write; your control system
+team sets which writes it asks about. When it asks, that gate is where you
 decide, and it is worth the moment it takes.
 
 - Read the proposed command before approving it: the target channels, the values

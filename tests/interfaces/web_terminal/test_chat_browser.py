@@ -27,7 +27,7 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
 
 Harness: the panels-browser ``_live_server`` machinery (a real uvicorn server on
 a background thread, with ``_load_web_config``/``_load_panel_config``/
-``_launch_artifact_server`` patched so no companion backends are needed), plus
+``_launch_panel_server`` patched so no companion backends are needed), plus
 the Claude Agent SDK client faked where the agent runner constructs it. The
 fake ``ClaudeSDKClient`` replays a per-prompt *plan* of real SDK messages built
 by the helpers the ``operator_session`` unit tests use, so the agent runner's

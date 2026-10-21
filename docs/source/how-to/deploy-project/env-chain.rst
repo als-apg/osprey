@@ -104,25 +104,18 @@ What a deploy writes back
 -------------------------
 
 ``osprey up`` also *writes* to ``.env``. On first deploy it mints any missing
-service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
-``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so no service ever starts
-on a blank or publicly-known credential, appends them under a "Minted by
-deploy" heading, and restricts the file to owner-only permissions.
-``osprey build`` appends the pointers it derives from what it just rendered —
-currently two: ``VA_CHANNELS_FILE``, the name of the virtual accelerator's
-generated channel manifest (a name, not a path: the entrypoint resolves it
-against its data mount), and ``VA_LATTICE``, which states the lattice that
-manifest is backed by rather than letting the entrypoint default it away —
-under a "Derived by build" heading.
+service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN`` or
+``ARIEL_DB_PASSWORD``) so no service ever starts on a blank or publicly-known
+credential, appends them under a "Minted by deploy" heading, and restricts the
+file to owner-only permissions. The telemetry store's accounts are the
+exception: each has its own ``.env.telemetry-<account>`` file at the repo root,
+mode 0600, outside the env chain, so a container is handed only the accounts
+it acts as.
+``osprey build`` writes nothing into ``.env``: the virtual accelerator reads
+the simulator view the build renders under ``build/data/simulator/``.
 
-A third variable, ``VA_ENTRYPOINT_MODULE``, reaches the same container through
-the same passthrough and is the operator's to set: it names the Python module
-the virtual accelerator runs, and empty or unset runs OSPREY's own. The build
-never writes it, so nothing is reported about it
-(:ref:`va-serving-your-own-model`).
-
-Both writers are append-only, and a value already on file always wins. A value
-that disagrees with what a writer would have put there is *reported*, by name
+The deploy's write is append-only, and a value already on file always wins. A
+value that disagrees with what it would have put there is *reported*, by name
 and never by value, for you to resolve by hand. That is what makes the stack
 reproducible: a later start comes up on the same credentials the running
 containers were initialized with, instead of minting a second set they do not
@@ -182,7 +175,7 @@ are.
    agent's SQL tool queries through, created by an init script the same
    volume initialization runs. A volume that predates the role simply does not
    have it, and the agent says so once at start-up rather than failing. See
-   :doc:`../ariel/standalone-deployment` for adopting the role on an existing
+   :ref:`ariel-sql-readonly-role` for adopting the role on an existing
    database.
 
 Egress through a site proxy
@@ -229,7 +222,7 @@ certificate inside the container, and the chain is the wrong place to put it: a
 ``SSL_CERT_FILE`` naming a path the image does not carry stops httpx from
 constructing a client at all. Set ``images.site_ca`` in ``config.yml`` instead
 and rebuild — the CA is installed into the project image, each web-terminal
-persona image and the login sidecar, and each of the three points its own tools
+image and the login sidecar, and each of the three points its own tools
 at the merged bundle. The
 site-CA block ``osprey init`` writes into ``.env.shared`` is for the
 *containers* that read the whole chain, not for this.

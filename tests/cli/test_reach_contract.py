@@ -1,10 +1,10 @@
 """What an attached render is told about the host it hangs off.
 
-A persona built with no deployment in its own repo is told its host's facts by
+A render built with no deployment in its own repo is told its host's facts by
 reading the deployment the profile describes — :func:`_template_host_config`.
 That reading is where the ports come from: the panel URLs and service endpoints
-a persona is handed are derived from it, so a port missing there is a port no
-persona ever learns, and a port taken from the layout's own default rather than
+a render is handed are derived from it, so a port missing there is a port no
+render ever learns, and a port taken from the layout's own default rather than
 from the deployment's base is a port nothing answers on.
 
 An explicit profile spells the service blocks it deploys but need not spell a
@@ -58,11 +58,11 @@ def _host_reading(profile: BuildProfile) -> dict[str, Any]:
             project_deps=[],
             skip_deps=True,
             manager=TemplateManager(),
-            va_manifests={},
-            va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            facility={},
+            facility_sha256="",
         )
         return build_cmd._template_host_config(
             shared,
@@ -83,7 +83,7 @@ def _host_reading(profile: BuildProfile) -> dict[str, Any]:
 def _profile(**config: Any) -> BuildProfile:
     """An attached profile deploying at :data:`MOVED_BASE` with *config* over it."""
     return BuildProfile(
-        name="persona",
+        name="ops",
         channel_finder_mode="hierarchical",
         config={"deployment.port_base": MOVED_BASE, **config},
     )
@@ -159,7 +159,7 @@ class TestTheHostReadingCarriesTheLayoutPorts:
 
         Both sites call :func:`layout_port_fill` with the profile's own
         ``config:`` and the base it resolves, so every key the fill produces is
-        in the reading with the fill's value. A persona told a different number
+        in the reading with the fill's value. A render told a different number
         than its host publishes is the failure this pins.
         """
         profile = _profile(
@@ -177,14 +177,14 @@ class TestTheHostReadingCarriesTheLayoutPorts:
             assert reading["services"][service][leaf] == port
 
 
-class TestAPresetKeyAPersonaInherits:
+class TestAPresetKeyARenderInherits:
     """An inherited preset spelling is the host's value, not a second copy.
 
     Every shipped preset states its whole rendered configuration under
-    ``config:``, and a persona ``extends:`` one — so a persona's merged
+    ``config:``, and a render ``extends:`` one — so a render's merged
     ``config:`` already spells the projected keys its preset carries. Those
     spellings are where the host's value came from, so refusing them would
-    refuse every persona built from a preset that names a projected service.
+    refuse every render built from a preset that names a projected service.
     """
 
     #: Projected keys the control-assistant preset states itself. Read off the
@@ -207,7 +207,7 @@ class TestAPresetKeyAPersonaInherits:
 
         assert reach_override_errors(config, projected) == []
 
-    def test_a_persona_delta_that_contradicts_the_host_is_still_refused(self) -> None:
+    def test_a_layer_delta_that_contradicts_the_host_is_still_refused(self) -> None:
         """The invariant is agreement, so a disagreeing spelling still fails."""
         config = self._preset_config()
         projected = {key: spelled_values(config, key)[0][1] for key in self.PROJECTED}

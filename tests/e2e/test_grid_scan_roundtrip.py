@@ -61,7 +61,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -105,9 +105,9 @@ SCAN_TIMEOUT_SEC = 120.0
 # rectangular grid (not a degenerate single-point scan) -- 3 is the smallest
 # value that lets the "every point visited" check (b) distinguish "grid
 # actually swept" from "coincidentally saw the endpoints twice". Values stay
-# well inside the corrector channel_limits band (+-12A, same band
-# test_orm_roundtrip.py's SPAN_A documents) and grid_scan's own `ge=2`
-# num_points floor.
+# well inside the band of the corrector a limits record bounds (+-12A in the
+# example facility, the band test_orm_roundtrip.py's SPAN_A documents), and
+# NUM_POINTS meets grid_scan's own `ge=2` num_points floor.
 AXIS_START_A = -3.0
 AXIS_STOP_A = 3.0
 NUM_POINTS = 3
@@ -132,9 +132,10 @@ def _find_column(columns: list[str], device_name: str) -> str:
 class DeployedGridScanStack:
     """Everything the round-trip test needs about the one deployment repo."""
 
-    def __init__(self, repo: Path, corrector_name: str, bpm_name: str):
+    def __init__(self, repo: Path, corrector_name: str, corrector_readback: str, bpm_name: str):
         self.repo = repo
         self.corrector_name = corrector_name
+        self.corrector_readback = corrector_readback
         self.bpm_name = bpm_name
 
 
@@ -143,27 +144,6 @@ def deployed_grid_scan_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedGridScanStack]:
     base = tmp_path_factory.mktemp("grid_scan_roundtrip_build")
-
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. Selected from the repo's own channel roster — the same
-    # channel database the build materializes for the deployed channel finder,
-    # read here from the tier the profile pins because that is the only copy
-    # that exists this early.
-    correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal correctors, bpms
-        records = _orm_stack.roster_records(repo)
-        # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
-        # the orm plan, grid_scan doesn't sweep every named corrector against
-        # every named detector, so there is no benefit to _orm_stack's usual
-        # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
-        correctors = _orm_stack.select_correctors(records, count=1)
-        bpms = _orm_stack.select_bpms(records, count=1)
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -176,9 +156,14 @@ def deployed_grid_scan_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21300,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
     )
-    _orm_stack.assert_devices_authored(correctors, bpms)
+    # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
+    # the orm plan, grid_scan doesn't sweep every named corrector against
+    # every named detector, so there is no benefit to _orm_stack's usual
+    # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=1, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=1, model=model)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -213,9 +198,11 @@ def deployed_grid_scan_stack(
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
+        corrector_name, (_, corrector_readback) = next(iter(correctors.items()))
         yield DeployedGridScanStack(
             repo=repo,
-            corrector_name=next(iter(correctors)),
+            corrector_name=corrector_name,
+            corrector_readback=corrector_readback,
             bpm_name=next(iter(bpms)),
         )
     finally:
@@ -316,20 +303,25 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         f"detector column {bpm_col!r} has a null reading: {bpm_values}"
     )
 
-    # (b) every distinct commanded grid point was actually visited -- not
-    # stuck at one value, the corrector-echo regression this suite otherwise
-    # guards against via the orm plan's sweep.
-    distinct_values = {round(v, 3) for v in corrector_values}
-    assert len(distinct_values) == NUM_POINTS, (
-        f"expected {NUM_POINTS} distinct corrector readings (one per grid point), "
-        f"got {sorted(distinct_values)} from {corrector_values} -- the corrector may be stuck "
-        "at one value instead of stepping through the grid"
-    )
-    expected_values = {
-        round(AXIS_START_A + i * (AXIS_STOP_A - AXIS_START_A) / (NUM_POINTS - 1), 3)
+    # (b) every distinct commanded grid point was actually visited, by the
+    # readback -- not stuck at one value, the corrector-echo regression this
+    # suite otherwise guards against via the orm plan's sweep. The readback
+    # serves the demand plus the motion its seed declares, so each reading is
+    # held to that readback's settle band; the grid spacing is far wider, so a
+    # stuck corrector still fails.
+    commanded = [
+        AXIS_START_A + i * (AXIS_STOP_A - AXIS_START_A) / (NUM_POINTS - 1)
         for i in range(NUM_POINTS)
-    }
-    assert distinct_values == expected_values, (
-        f"corrector readings {sorted(distinct_values)} don't match the commanded grid points "
-        f"{sorted(expected_values)}"
+    ]
+    assert len(set(commanded)) == NUM_POINTS, (
+        f"the commanded grid points {commanded} are not {NUM_POINTS} distinct values"
+    )
+    readback = deployed_grid_scan_stack.corrector_readback
+    band = _facility_select.repo_view(deployed_grid_scan_stack.repo).motion_envelope(readback)
+    visits = list(zip(commanded, corrector_values, strict=True))
+    missed = [(point, read, band) for point, read in visits if abs(read - point) > band]
+    assert not missed, (
+        f"corrector readback {readback!r} did not visit every commanded grid point within its "
+        f"settle band; (commanded, read, band) misses: {missed} of {visits} -- the corrector "
+        "may be stuck at one value instead of stepping through the grid"
     )

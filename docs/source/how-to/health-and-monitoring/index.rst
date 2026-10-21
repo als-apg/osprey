@@ -28,8 +28,8 @@ you already run or to a local store the presets deploy alongside the project.
       :shadow: md
 
       Emitting the agent's telemetry over OTLP to any compatible backend, and
-      the local OpenObserve store the presets deploy by default for storing
-      and viewing it.
+      the local telemetry store and gateway the presets deploy by default for
+      storing and querying it.
 
    .. grid-item-card:: Keep the Agent Record
       :link: agent-record
@@ -39,9 +39,27 @@ you already run or to a local store the presets deploy alongside the project.
       Every store of what the agent was asked and did, where it lives, what
       deletes it, and the daily append-only archive that keeps a copy.
 
+   .. grid-item-card:: Read the Record
+      :link: read-the-record
+      :link-type: doc
+      :shadow: md
+
+      Name the people who may query the telemetry store with SQL, hand over
+      their keys, and know the limits every query runs under.
+
+   .. grid-item-card:: Reconstruct a Session
+      :link: reconstruct-session
+      :link-type: doc
+      :shadow: md
+
+      One SQL query, run as a reader, that puts a session's events, tool
+      calls, approvals and preflight checks back in the order they happened.
+
 .. toctree::
    :hidden:
 
    configure-health-checks
    monitor-agent
    agent-record
+   read-the-record
+   reconstruct-session

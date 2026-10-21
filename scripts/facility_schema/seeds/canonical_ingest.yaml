@@ -1,0 +1,412 @@
+id: https://narad.example.org/schema/canonical_ingest
+name: canonical_ingest
+title: NARAD Canonical Ingest Model
+description: >
+  Source-agnostic normalized ingest model for facility exports, used prior to
+  cross-facility semantic mapping.
+
+prefixes:
+  narad: https://narad.example.org/schema/canonical_ingest/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: narad
+default_range: string
+
+imports:
+  - linkml:types
+
+enums:
+  source_format_enum:
+    permissible_values:
+      uitf_json_export:
+      pals_yaml:
+      middle_layer_export:
+      channel_database_export:
+      csv_inventory:
+      unknown:
+
+  endpoint_candidate_kind_enum:
+    permissible_values:
+      suffix:
+      full_pv:
+      unknown:
+
+  limit_kind_enum:
+    permissible_values:
+      max:
+      min:
+      hard:
+      soft:
+      unknown:
+
+  unit_enum:
+    permissible_values:
+      m:
+      mm:
+      A:
+      mA:
+      T_m:
+      G_per_cm:
+      Torr:
+      mTorr:
+      unknown:
+
+classes:
+  CanonicalIngestDataset:
+    tree_root: true
+    slots:
+      - dataset_id
+      - title
+      - facility
+      - source_document
+      - beamline_sections
+      - devices
+      - notes
+
+  SourceDocument:
+    slots:
+      - source_id
+      - source_format
+      - source_path
+      - source_system
+      - exported_at
+      - facility_name
+      - checksum
+      - raw_topology_name
+      - raw_status
+
+  BeamlineSection:
+    slots:
+      - section_id
+      - source_name
+      - source_description
+      - is_contiguous
+      - source_document_id
+      - ordered_device_ids
+      - raw_metadata
+
+  DeviceRecord:
+    slots:
+      - device_id
+      - source_name
+      - raw_type
+      - source_section_id
+      - ordinal_index
+      - epics_name
+      - modeled_as
+      - local_system
+      - controller
+      - control_units
+      - housed_by
+      - powered_by
+      - s_position
+      - length
+      - interface_mode
+      - comments
+      - raw_properties
+      - device_properties
+      - endpoint_candidates
+      - limits
+      - source_ref
+      - relative_position
+
+  QuantityValue:
+    description: >
+      Numeric quantity with explicit units and optional provenance.
+    slots:
+      - numeric_value
+      - unit
+      - value_source_field
+      - unit_source
+      - provenance_note
+
+  RelativePosition:
+    slots:
+      - reference_device_name
+      - offset_s
+      - screen_x
+      - screen_y
+      - screen_z
+
+  EndpointCandidate:
+    slots:
+      - candidate_id
+      - endpoint_kind
+      - token
+      - pv_base
+      - full_pv
+      - source_field
+      - provenance_note
+      - explicit_signal_role
+      - explicit_units
+
+  LimitRecord:
+    slots:
+      - limit_id
+      - limit_kind
+      - limit_value
+      - units
+      - source_field
+      - provenance_note
+
+  RawProperty:
+    slots:
+      - key
+      - property_value
+      - value_type
+      - property_source_path
+
+  DeviceProperty:
+    description: >
+      A typed key-value property extracted from the raw source for a device.
+      Supersedes RawProperty by carrying explicit numeric/string/bool typed
+      slots and an optional physical unit, enabling typed RDF emission.
+    slots:
+      - property_key
+      - dp_numeric_value
+      - dp_string_value
+      - dp_bool_value
+      - dp_unit
+      - dp_source_field
+
+slots:
+  dataset_id:
+    identifier: true
+    required: true
+
+  title:
+    required: true
+
+  facility:
+    required: true
+
+  notes:
+    multivalued: true
+
+  source_document:
+    range: SourceDocument
+    required: true
+    inlined: true
+
+  beamline_sections:
+    range: BeamlineSection
+    multivalued: true
+    required: true
+    inlined_as_list: true
+
+  devices:
+    range: DeviceRecord
+    multivalued: true
+    required: true
+    inlined_as_list: true
+
+  source_id:
+    identifier: true
+    required: true
+
+  source_format:
+    range: source_format_enum
+    required: true
+
+  source_path:
+  source_system:
+  exported_at:
+    range: datetime
+  facility_name:
+  checksum:
+  raw_topology_name:
+  raw_status:
+
+  section_id:
+    identifier: true
+    required: true
+
+  source_name:
+    required: true
+
+  source_description:
+  is_contiguous:
+    range: boolean
+  source_document_id:
+
+  ordered_device_ids:
+    multivalued: true
+
+  raw_metadata:
+    range: RawProperty
+    multivalued: true
+    inlined_as_list: true
+
+  device_id:
+    identifier: true
+    required: true
+
+  raw_type:
+    required: true
+
+  source_section_id:
+    required: true
+
+  ordinal_index:
+    range: integer
+
+  epics_name:
+  modeled_as:
+  local_system:
+  controller:
+  control_units:
+  housed_by:
+  powered_by:
+
+  s_position:
+    range: QuantityValue
+    inlined: true
+
+  length:
+    range: QuantityValue
+    inlined: true
+
+  interface_mode:
+  comments:
+
+  raw_properties:
+    range: RawProperty
+    multivalued: true
+    inlined_as_list: true
+
+  endpoint_candidates:
+    range: EndpointCandidate
+    multivalued: true
+    inlined_as_list: true
+
+  limits:
+    range: LimitRecord
+    multivalued: true
+    inlined_as_list: true
+
+  source_ref:
+
+  relative_position:
+    range: RelativePosition
+    inlined: true
+
+  quantity_value_id:
+    identifier: true
+
+  numeric_value:
+    range: float
+    required: true
+
+  unit:
+    range: unit_enum
+    required: true
+
+  value_source_field:
+
+  unit_source:
+    description: >
+      Where the unit came from, e.g. raw_source, facility_default, mapping_rule, human_curated.
+    required: false
+
+  provenance_note:
+
+  reference_device_name:
+
+  offset_s:
+    range: QuantityValue
+    inlined: true
+
+  screen_x:
+    range: QuantityValue
+    inlined: true
+
+  screen_y:
+    range: QuantityValue
+    inlined: true
+
+  screen_z:
+    range: QuantityValue
+    inlined: true
+
+  candidate_id:
+    identifier: true
+    required: true
+
+  endpoint_kind:
+    range: endpoint_candidate_kind_enum
+    required: true
+
+  token:
+    required: true
+
+  pv_base:
+  full_pv:
+  source_field:
+
+  limit_id:
+    identifier: true
+    required: true
+
+  limit_kind:
+    range: limit_kind_enum
+    required: true
+
+  limit_value:
+    range: float
+
+  property_value:
+    range: string
+
+  units:
+  key:
+    required: true
+
+  value_type:
+  property_source_path:
+
+  property_key:
+    required: true
+    description: Canonical property key (e.g. betax, alphax, s_position).
+
+  dp_numeric_value:
+    range: float
+    required: false
+    description: Numeric value when the property is quantitative.
+
+  dp_string_value:
+    range: string
+    required: false
+    description: String value when the property is categorical or textual.
+
+  dp_bool_value:
+    range: boolean
+    required: false
+    description: Boolean value when the property is a flag.
+
+  dp_unit:
+    range: string
+    required: false
+    description: Physical unit string for numeric properties (e.g. m, A, rad).
+
+  dp_source_field:
+    range: string
+    required: false
+    description: Name of the originating raw source field.
+
+  device_properties:
+    range: DeviceProperty
+    multivalued: true
+    inlined_as_list: true
+
+  explicit_signal_role:
+    range: string
+    required: false
+    description: >
+      Pre-resolved semantic signal role from semantic_signal_enum; used by
+      adapters that know the role at ingest time (skips suffix map lookup).
+
+  explicit_units:
+    range: string
+    required: false
+    description: >
+      Physical units string provided by the adapter alongside explicit_signal_role.

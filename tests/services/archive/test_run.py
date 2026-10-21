@@ -15,6 +15,7 @@ import pytest
 from osprey.services.archive import run as archive_run
 from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.services.archive.run import ArchiveDestinationError, run_pass
+from osprey_connectors.safety_file import atomic_replace
 
 DAY1 = datetime(2026, 9, 24, 14, 22, 33, tzinfo=UTC)
 LATER = datetime(2026, 9, 24, 18, 0, 0, tzinfo=UTC)
@@ -145,6 +146,25 @@ def test_dot_named_files_in_the_audit_tree_are_not_copied(trees):
     assert (dest / "2026-09-24/audit/sidecar/auth_sidecar.jsonl").read_text() == "{}\n"
     named = [r["source"] for r in _lines(dest) if "source" in r]
     assert not [s for s in named if Path(s).name.startswith(".")]
+
+
+@pytest.mark.parametrize("name", [".revoked-sessions.json", "sessions.json", "sessions-8080.json"])
+def test_every_temporary_a_whole_file_replace_can_leave_is_excluded(tmp_path, monkeypatch, name):
+    """A file replaced whole leaves only ``.<name>.<random>.tmp`` behind, never copied."""
+    temporaries: list[str] = []
+    real_replace = os.replace
+
+    def spy(src, dst):
+        temporaries.append(Path(src).name)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+    atomic_replace(tmp_path / name, b"{}", mode=0o600)
+
+    excludes = archive_run._Includes(archive_run.SOURCE_EXCLUDES["audit"])
+    (temporary,) = temporaries
+    assert excludes.matches(temporary)
+    assert excludes.matches(f"sidecar/{temporary}")
 
 
 def test_a_dot_named_ledger_is_still_copied(trees):

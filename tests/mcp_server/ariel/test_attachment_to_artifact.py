@@ -197,9 +197,9 @@ async def test_view_off_is_refused_naming_the_key(keyset_harness, store):  # noq
     ],
 )
 def test_artifact_filename_is_the_stem_with_the_rendition_extension(filename, mime, expected):
-    from osprey.mcp_server.ariel.tools.attachment import _artifact_filename
+    from osprey.services.ariel_search.attachments.artifacts import artifact_filename
 
-    assert _artifact_filename(filename, mime) == expected
+    assert artifact_filename(filename, mime) == expected
 
 
 def test_registered_gated_and_offered_to_the_main_agent():

@@ -9,10 +9,13 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `quick_check.sh` | Fast pre-commit validation | < 30s | Before every commit |
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
+| `gate.sh` | The merge gate: every CI step that needs no secret or Docker; `full [--base <ref>]`, or `fast [--base <ref>] <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
-| `scenario_plots.py` | Redraw the pictures the control-assistant demo scenarios attach to logbook entries | ~5 s | After changing a scenario or machine definition a picture is derived from |
+| `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
+| `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
+| `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
 
 ## Scripts
 
@@ -79,6 +82,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 - Finds commented-out code
 - Checks for hardcoded secrets
 - Validates that a changelog fragment was added (runs `changelog_fragments.py check`)
+- Validates that a changed plugin tree carries a version bump (runs `plugin_version.py check`)
 - Checks type hints
 - Validates TODO/FIXME comments have issue links
 - Runs code formatters and linters
@@ -175,7 +179,7 @@ and deletes the fragment files.
 
 **Usage**:
 ```bash
-# What the `lint` CI job and premerge_check.sh run
+# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
 uv run python scripts/changelog_fragments.py check --base origin/main
 
 # The release fold — run once while cutting a release
@@ -194,6 +198,42 @@ a release.
   shallow to find a common ancestor
 
 See `changelog.d/README.md` for the fragment format and the list of types.
+
+---
+
+### plugin_version.py
+
+**Purpose**: Keep the CalVer version shared by the two plugin manifests
+(`plugins/osprey/.claude-plugin/plugin.json` and
+`plugins/osprey/.codex-plugin/plugin.json`) in step, and advanced whenever the
+plugin tree changes.
+
+**What it does**: `show` prints the shared version and refuses when the two
+manifests disagree. `bump` advances `YYYY.M.N` in both (`--set` writes a given
+version). `check --base <ref>` compares the branch against what it merges into:
+when `plugins/`, `.claude-plugin/` or `.agents/plugins/` changed since the merge
+base, the head version must differ from every version the base tip carries. A
+plain branch name such as `main` is read as `origin/main` first, as
+`changelog_fragments.py check` reads it.
+
+**Usage**:
+```bash
+uv run python scripts/plugin_version.py show
+uv run python scripts/plugin_version.py bump
+
+# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
+uv run python scripts/plugin_version.py check --base origin/main
+```
+
+**When to use**: `bump` after touching the plugin tree; CI and
+`./scripts/premerge_check.sh` run `check` for you.
+
+**Exit codes** (`check`):
+- `0`: The plugin tree is untouched, new, or carries a new version
+- `1`: The plugin tree changed without a version bump, or the manifests cannot
+  be read or disagree
+- `2`: Environment problem — the base ref was not found, or the clone is too
+  shallow to find a common ancestor
 
 ---
 
@@ -217,6 +257,60 @@ name can reject a real tool, but a recorded name is never one the build lacks.
 ```bash
 uv run python scripts/cli_tool_inventory.py --write   # after bumping the pin
 uv run python scripts/cli_tool_inventory.py --check   # what the static-checks CI job runs
+```
+
+---
+
+### bpm_polarity_picture.py
+
+**Purpose**: Redraw the picture the example facility's bpm-polarity scenario
+attaches to its logbook entry, so it stays in step with the model it shows.
+
+---
+
+**What it does**: Reads the example facility's simulator view: `scenarios.json`
+(the scenario's polarity faults), `variables.json` (the model's deck, settings
+and wiring), `seeds.json` (each monitor's absolute noise) and
+`decks/<model>.json`. It draws one panel per monitor of the lattice segment
+holding the reversed monitor, the reading against a kick of the corrector
+upstream of it, and writes
+`src/osprey/templates/facilities/example/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
+Without `--simulator` it renders the view in-process first. A fixed noise seed
+makes a re-run write the same bytes on one host and the same picture on any.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/bpm_polarity_picture.py
+uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
+```
+
+---
+
+### va/capture_nominals.py
+
+**Purpose**: Write `tests/facility/golden/nominal_va.json`, the served nominals
+`tests/va/e2e/test_substrate_parity.py` holds the live VA container to.
+
+---
+
+**What it does**: Stages the project the live-container suite serves, applies
+the `still` scenario on its fresh state directory and asserts no captured
+address moves, boots the VA image (`osprey-va-full:latest`, built by
+`scripts/va/build_and_boot_check.sh`, or the one `OSPREY_VA_E2E_IMAGE` names)
+and reads every served address over Channel Access until two snapshots agree.
+A bool or enum is written as its label, a string as its text. The suite's
+synthetic string channel and every waveform are left out. `--check` recaptures
+and prints every header key and address that differs, exiting 1 on any.
+Needs Docker.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/va/capture_nominals.py --out tests/facility/golden/nominal_va.json
+uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nominal_va.json
 ```
 
 ---

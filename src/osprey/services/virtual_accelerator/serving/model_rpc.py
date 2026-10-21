@@ -51,10 +51,7 @@ RPC_TIMEOUT_S = 30.0
 """How long the server waits for the run loop before answering :data:`ERR_TIMEOUT`."""
 
 ERR_NOT_READY = "the server is still starting"
-"""The refusal for a call that arrives before the server can run a job.
-
-The serving runner's ``NOT_READY`` is this string: a PVA put in the same
-window is refused with it too."""
+"""The refusal for a call that arrives before the server can run a job."""
 
 ERR_TIMEOUT = f"the model did not answer within {RPC_TIMEOUT_S:g} s"
 """The reply to a call the run loop did not complete within :data:`RPC_TIMEOUT_S`."""

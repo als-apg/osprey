@@ -37,7 +37,8 @@ and the image's size is reported so a provenance change's size delta is on the
 record.
 
 The ``test_whoami_*`` tests cover the entrypoint's control-identity step, with
-this tree's ``control_identity`` module bind-mounted where compose stages it:
+this tree's ``control_identity`` script and its catalog closure staged into
+one directory and bound read-only where compose binds it:
 an applied identity is what ``whoami`` prints and the only thing on stdout; a
 person identity under ``--user`` refuses to start; an ``osprey-*`` identity
 under ``--user`` starts with a warning; a root start without the module dies,
@@ -87,16 +88,22 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
+from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
 from osprey.cli.main import cli
-from osprey.deployment import control_identity
-from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+from osprey.cli.templates.manager import TemplateManager
+from osprey.deployment.control_identity import (
+    CONTROL_IDENTITY_CONTAINER_DIR,
+    CONTROL_IDENTITY_CONTAINER_PATH,
+)
 from osprey.port_layout import default_port
-from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from osprey_connectors.workspace import container_image_context
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests.e2e._telemetry_sender import sender_env_file_args
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
@@ -286,42 +293,50 @@ def _identity_env(name: str) -> list[str]:
     ]
 
 
-def _identity_module_mount() -> list[str]:
-    """Bind this tree's module read-only where compose stages it.
+@pytest.fixture(scope="module")
+def identity_mount(tmp_path_factory) -> list[str]:
+    """Stage this tree's identity script with its catalog closure, and bind it read-only.
 
-    The image installs OSPREY from PyPI by default, so the module under test is
-    the host copy, mounted exactly the way a deployment mounts its staged copy.
+    The image installs OSPREY from PyPI by default, so the files under test are
+    this tree's, staged into one directory and bound the way a deployment binds
+    its staged directory: the script's sibling import resolves from that
+    directory alone.
     """
-    source = Path(control_identity.__file__).resolve()
-    return ["-v", f"{source}:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"]
+    staged = tmp_path_factory.mktemp("control-identity")
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    for name, source in files.items():
+        (staged / name).write_bytes(source.read_bytes())
+    return ["-v", f"{staged}:{CONTROL_IDENTITY_CONTAINER_DIR}:ro"]
 
 
 def _streams(proc: subprocess.CompletedProcess) -> str:
     return f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
 
 
-def test_whoami_prints_the_applied_identity(built_image):
+def test_whoami_prints_the_applied_identity(built_image, identity_mount):
     tag = built_image[0]
-    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    run = _docker_run_with(tag, [*_identity_env("alice"), *identity_mount], "whoami")
     assert run.returncode == 0, _streams(run)
     assert run.stdout.strip() == "alice", _streams(run)
     assert "control identity: uid 1000 is 'alice'" in run.stderr, _streams(run)
 
 
-def test_whoami_stdout_carries_only_the_name(built_image):
+def test_whoami_stdout_carries_only_the_name(built_image, identity_mount):
     """Every entrypoint diagnostic, the module's own output included, is on stderr."""
     tag = built_image[0]
-    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    run = _docker_run_with(tag, [*_identity_env("alice"), *identity_mount], "whoami")
     assert run.returncode == 0, _streams(run)
     assert run.stdout == "alice\n", _streams(run)
     assert "[osprey-entrypoint]" in run.stderr, _streams(run)
 
 
-def test_whoami_person_identity_under_user_refuses_to_start(built_image):
+def test_whoami_person_identity_under_user_refuses_to_start(built_image, identity_mount):
     tag = built_image[0]
     run = _docker_run_with(
         tag,
-        ["--user", "1000:1000", *_identity_env("alice"), *_identity_module_mount()],
+        ["--user", "1000:1000", *_identity_env("alice"), *identity_mount],
         "whoami",
     )
     assert run.returncode != 0, _streams(run)
@@ -329,11 +344,11 @@ def test_whoami_person_identity_under_user_refuses_to_start(built_image):
     assert "needs a root start" in run.stderr, _streams(run)
 
 
-def test_whoami_service_identity_under_user_starts_with_a_warning(built_image):
+def test_whoami_service_identity_under_user_starts_with_a_warning(built_image, identity_mount):
     tag = built_image[0]
     run = _docker_run_with(
         tag,
-        ["--user", "1000:1000", *_identity_env("osprey-dispatch-1"), *_identity_module_mount()],
+        ["--user", "1000:1000", *_identity_env("osprey-dispatch-1"), *identity_mount],
         "sh",
         "-c",
         'whoami; printf "%s\\n" "$OSPREY_CONTROL_IDENTITY_SKIPPED"',
@@ -610,16 +625,19 @@ def _post_chat(
 @pytest.mark.requires_als_apg
 def test_generated_image_serves_agent_over_http(built_image):
     """Boot the image's CMD and drive one real LLM turn through osprey web."""
-    tag, _repo, _project_name, _out_dir = built_image
+    tag, repo, _project_name, _out_dir = built_image
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
-    # Mirror the production run contract (`docker run --env-file .env`): pass
-    # the raw provider secret, never a pre-resolved token. The full osprey web
-    # stack resolves ${ALS_APG_API_KEY} from config at runtime and stands up
-    # an internal proxy that authenticates upstream with it — injecting a
-    # pre-resolved ANTHROPIC_AUTH_TOKEN would bypass that and leave config
-    # resolution (and the proxy) without the key.
+    # Mirror the production run contract (`docker run --env-file .env
+    # --env-file .env.telemetry-sender.<host identity>`): pass the raw provider
+    # secret, never a pre-resolved token. The full osprey web stack resolves
+    # ${ALS_APG_API_KEY} from config at runtime and stands up an internal proxy
+    # that authenticates upstream with it — injecting a pre-resolved
+    # ANTHROPIC_AUTH_TOKEN would bypass that and leave config resolution (and
+    # the proxy) without the key. The sender file is the login the image's
+    # gateway telemetry pre-flight requires; no gateway runs here.
     api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
-    env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
+    env_args = ["-e", f"ALS_APG_API_KEY={api_key}", *sender_env_file_args(repo, config)]
 
     # The endpoint override rides the same contract. It is deliberately absent
     # from the image (build-time rendering never bakes the builder's

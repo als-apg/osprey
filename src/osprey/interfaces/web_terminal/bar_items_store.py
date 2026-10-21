@@ -1,8 +1,9 @@
 """The per-user bar layout on disk.
 
 One JSON document — ``{version, rev, header[], status[], header_visible,
-status_visible}`` —
-holding how one operator arranged their header and status bar. It is the
+status_visible, rail_docs_visible, rail_feedback_visible}`` —
+holding how one operator arranged their header and status bar, and which of
+the rail's two hideable utility controls they keep. It is the
 persistence half of the bar-items contract; the browser's normalizer
 (``static/js/bar-layout.js``) owns the rendering half, and this module is
 written to agree with it exactly.
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "LAYOUT_FILENAME",
+    "RAIL_FLAGS",
     "BarLayoutConflict",
     "BarLayoutError",
     "BarLayoutInvalid",
@@ -70,6 +72,10 @@ __all__ = [
     "save_layout",
     "validate_option",
 ]
+
+#: The rail utility controls an operator may hide, as the document's flags.
+#: Optional on read and write: a document saved before they existed shows both.
+RAIL_FLAGS: tuple[str, ...] = ("rail_docs_visible", "rail_feedback_visible")
 
 #: The document's name inside the store directory. One file, so a save is a
 #: single ``os.replace`` and needs no ordering between writes.
@@ -298,6 +304,8 @@ def _empty_layout(vocabulary: BarVocabulary) -> dict[str, Any]:
     for host in vocabulary.hosts:
         layout[host] = []
         layout[f"{host}_visible"] = True
+    for flag in RAIL_FLAGS:
+        layout[flag] = True
     return layout
 
 
@@ -313,7 +321,7 @@ def _copy_layout(document: Mapping[str, Any]) -> dict[str, Any]:
 def _read_envelope(raw: Any, vocabulary: BarVocabulary) -> dict[str, Any] | None:
     """A document's structure as this build reads it, or ``None`` if it cannot.
 
-    Checks the schema version, the revision, both item lists and the two
+    Checks the schema version, the revision, both item lists and the
     visibility flags; each entry only has to *look* like an item. Item types are the
     browser's to judge — see :func:`load_layout`.
     """
@@ -342,6 +350,11 @@ def _read_envelope(raw: Any, vocabulary: BarVocabulary) -> dict[str, Any] | None
         if not isinstance(visible, bool):
             return None
         document[f"{host}_visible"] = visible
+    for flag in RAIL_FLAGS:
+        visible = raw.get(flag, True)
+        if not isinstance(visible, bool):
+            return None
+        document[flag] = visible
     return document
 
 
@@ -382,6 +395,11 @@ def _validate(layout: Mapping[str, Any], vocabulary: BarVocabulary) -> dict[str,
                 "malformed", f"{host}_visible must be true or false, not {visible!r}"
             )
         document[f"{host}_visible"] = visible
+    for flag in RAIL_FLAGS:
+        visible = layout.get(flag, True)
+        if not isinstance(visible, bool):
+            raise BarLayoutInvalid("malformed", f"{flag} must be true or false, not {visible!r}")
+        document[flag] = visible
     return document
 
 

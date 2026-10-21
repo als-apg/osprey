@@ -53,7 +53,7 @@ def _no_artifact_server_autolaunch(monkeypatch):
     """
     from osprey.infrastructure import server_launcher
 
-    monkeypatch.setattr(server_launcher, "ensure_artifact_server", lambda *a, **k: None)
+    monkeypatch.setattr(server_launcher, "ensure_web_server", lambda *a, **k: None)
 
 
 def _save(

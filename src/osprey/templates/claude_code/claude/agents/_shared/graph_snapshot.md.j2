@@ -1,8 +1,8 @@
 {#- The seed-time schema snapshot, shared by every agent that queries the
     knowledge graph (facility-knowledge-graph, and the channel finder in its
     graph paradigm). The managed region between the markers is REWRITTEN IN
-    THE RENDER by whichever verb seeds or re-verifies the store (`osprey up`'s
-    staging step, or `osprey knowledge seed-graph`): prompt_snapshot
+    THE RENDER by `osprey up`'s staging step, which seeds or re-verifies the
+    store: prompt_snapshot
     .bake_snapshot() replaces marker-to-marker with three captures — the
     store's schema, its class vocabulary (every class's altLabel), and the
     including agent's own curated examples with each parameter marked as
@@ -15,8 +15,7 @@
 <!-- osprey:graph-snapshot begin -->
 
 No snapshot has been captured yet. The store is seeded at deploy time, and
-whichever verb touches it (`osprey up`, `osprey knowledge seed-graph`) fills
-this section in from the live store. Until then, start with
+`osprey up` fills this section in from the live store. Until then, start with
 `example_queries()` and `get_schema()`, and read class synonyms with
 `MATCH (c:Class) WHERE c.altLabel IS NOT NULL RETURN c.uri, c.altLabel`,
 before writing any Cypher.

@@ -775,10 +775,8 @@ def _reap_web_server(pid: int) -> None:
             break
         time.sleep(0.2)
     print(f"WARNING: web terminal PID {pid} survived `osprey web stop`; killing it")
-    try:
+    with suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 @dataclass(frozen=True)
@@ -888,10 +886,8 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             _reap_web_server(server_pid)
         _keep_session_record(config_dir)
         shutil.rmtree(config_dir, ignore_errors=True)
-        try:
+        with suppress(OSError, ValueError):
             proc.terminate()
-        except (OSError, ValueError):
-            pass
 
 
 def _capture_agentic(

@@ -3,37 +3,43 @@
 Tests the runtime utilities for control system operations in generated Python code.
 """
 
+import threading
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import (
+from osprey.runtime import (
+    _write_channel_async,
+    cleanup_runtime,
+    read_channel,
+    read_channels,
+    record_writes,
+    values_match,
+    write_channel,
+    write_channels,
+)
+from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey.connectors.control_system.limits_validator import (
+from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
-from osprey.errors import (
+from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelReadFailedError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime import (
-    _write_channel_async,
-    cleanup_runtime,
-    read_channel,
-    write_channel,
-    write_channels,
-)
 
 
-class MockConnector(ControlSystemConnector):
+class RecordingConnector(ControlSystemConnector):
     """Mock control system connector for testing.
 
     A real ``ControlSystemConnector`` subclass so the runtime exercises the same
@@ -119,10 +125,10 @@ def clear_runtime_state():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channel_success():
     """Test write_channel with successful write."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -136,7 +142,7 @@ def test_write_channel_success():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channel_failure():
     """A write the control system could not deliver raises ChannelWriteFailedError."""
-    mock_connector = MockConnector(
+    mock_connector = RecordingConnector(
         canned_result=ChannelWriteResult(
             channel_address="TEST:PV",
             value_written=42.0,
@@ -146,7 +152,7 @@ def test_write_channel_failure():
     )
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -168,7 +174,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_mismatch_raises(self):
         """A MISMATCH outcome raises with both the sent and observed values."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -179,7 +185,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -196,7 +202,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_multi_channel_mismatch_raises(self):
         """The multi-channel path enforces the same contract as the single path."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV1",
                 value_written=1.0,
@@ -206,7 +212,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -218,7 +224,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_unconfirmed_raises(self):
         """A confirming re-read that itself failed (UNCONFIRMED) still raises."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -228,7 +234,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -240,7 +246,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_refused_write_raises_blocked(self):
         """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -251,7 +257,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -264,7 +270,7 @@ class TestRuntimeWriteConfirmation:
     def test_confirmed_with_alarm_returns(self):
         """CONFIRMED returns even in an alarm state -- alarm severity is reported,
         never raised on."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -276,7 +282,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -285,7 +291,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_unrequested_returns(self):
         """confirm=False means nothing was checked (UNREQUESTED): the write returns."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -294,7 +300,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -304,10 +310,10 @@ class TestRuntimeWriteConfirmation:
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_read_channel_success():
     """Test read_channel with successful read."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -321,10 +327,10 @@ def test_read_channel_success():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channels_bulk():
     """Test write_channels bulk operation."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -342,10 +348,10 @@ async def test_cleanup_runtime():
     """Test cleanup_runtime properly releases resources."""
     import osprey.runtime as runtime
 
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -362,10 +368,10 @@ async def test_cleanup_runtime():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_connector_reuse():
     """Test that connector is created once and reused."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -383,11 +389,11 @@ def test_connector_reuse():
 @pytest.mark.usefixtures("clear_runtime_state")
 async def test_connector_recreated_after_cleanup():
     """Test that connector is recreated after cleanup."""
-    mock_connector1 = MockConnector()
-    mock_connector2 = MockConnector()
+    mock_connector1 = RecordingConnector()
+    mock_connector2 = RecordingConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.side_effect = [mock_connector1, mock_connector2]
 
@@ -421,10 +427,10 @@ class TestRuntimeLimitsValidation:
                 channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
-        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as mock_get_connector:
             mock_get_connector.return_value = mock_connector
@@ -460,12 +466,12 @@ class TestRuntimeStepCheckReader:
                     channel_address="OTHER:PV", min_value=0.0, max_value=100.0, writable=True
                 ),
             },
-            {"allow_unlisted_channels": False},
+            {"mode": "exclusive"},
         )
 
     @staticmethod
     def _connector(reads):
-        class ReadingConnector(MockConnector):
+        class ReadingConnector(RecordingConnector):
             def _current_value_reader(self):
                 def read_current(channel_address):
                     reads.append(channel_address)
@@ -535,10 +541,10 @@ class TestRuntimeStepCheckReader:
 
         assert runtime._limits_validator is None
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -559,13 +565,13 @@ class TestRuntimeStepCheckReader:
                 channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
-        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -580,8 +586,8 @@ class TestRuntimeStepCheckReader:
 # ========================================================
 
 
-class PerChannelConnector(MockConnector):
-    """MockConnector whose outcome is chosen per channel address."""
+class PerChannelConnector(RecordingConnector):
+    """RecordingConnector whose outcome is chosen per channel address."""
 
     def __init__(self, outcomes: dict[str, WriteOutcome]):
         super().__init__()
@@ -612,9 +618,59 @@ def _record_observer():
     return events
 
 
-def _patched_factory(connector):
+class BatchReadConnector(RecordingConnector):
+    """RecordingConnector whose batch read serves a canned per-address table.
+
+    An address absent from ``table`` is omitted from the result, the way every
+    connector drops a channel whose read raised; an address mapped to ``None``
+    comes back present with ``value=None``, the way the EPICS-family connectors
+    report a read timeout.
+    """
+
+    def __init__(self, table: dict[str, Any]):
+        super().__init__()
+        self.table = table
+        self.batch_calls: list[tuple[list[str], float | None]] = []
+
+    async def read_multiple_channels(
+        self, channel_addresses: list[str], timeout: float | None = None
+    ) -> dict[str, ChannelValue]:
+        self.batch_calls.append((list(channel_addresses), timeout))
+        return {
+            address: ChannelValue(value=self.table[address], timestamp=datetime.now())
+            for address in channel_addresses
+            if address in self.table
+        }
+
+
+class CausedReadConnector(BatchReadConnector):
+    """BatchReadConnector whose single read raises per address.
+
+    ``raises`` maps an address to the exception its ``read_channel`` raises;
+    ``reread`` maps an address to the value its ``read_channel`` returns. The
+    batch read omits every address in ``raises``, as real connectors do.
+    """
+
+    def __init__(
+        self,
+        table: dict[str, Any],
+        raises: dict[str, BaseException],
+        reread: dict[str, Any] | None = None,
+    ):
+        super().__init__(table)
+        self.raises = raises
+        self.reread = reread or {}
+
+    async def read_channel(self, channel_address: str, **kwargs):
+        self.read_calls.append((channel_address, kwargs))
+        if channel_address in self.raises:
+            raise self.raises[channel_address]
+        return ChannelValue(value=self.reread.get(channel_address), timestamp=datetime.now())
+
+
+def _patched_factory(connector: ControlSystemConnector):
     return patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         return_value=connector,
     )
 
@@ -622,7 +678,7 @@ def _patched_factory(connector):
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_observer_attempt_then_landed_on_confirmed():
     events = _record_observer()
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channel("TEST:PV", 1.0)
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -674,10 +730,10 @@ def test_write_observer_not_called_when_limits_net_refuses():
                 channel_address="TEST:PV", min_value=0.0, max_value=10.0, writable=True
             )
         },
-        {"allow_unlisted_pvs": False},
+        {"mode": "exclusive"},
     )
     events = _record_observer()
-    connector = MockConnector()
+    connector = RecordingConnector()
     with _patched_factory(connector):
         with pytest.raises(ChannelLimitsViolationError):
             write_channel("TEST:PV", 99.0)
@@ -705,7 +761,7 @@ def test_write_observer_not_called_when_target_pin_refuses():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_observer_attempt_fires_before_the_connector_write():
     seen_writes_at_attempt: list[int] = []
-    connector = MockConnector()
+    connector = RecordingConnector()
     import osprey.runtime as runtime
 
     def observer(_address: str, phase: str) -> None:
@@ -761,7 +817,7 @@ def test_write_observer_multi_channel_raises_first_failure():
 def test_write_observer_single_item_write_channels_notifies_once():
     """The one-item path delegates to the single-channel path: no double notify."""
     events = _record_observer()
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channels({"TEST:PV": 1.0})
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -777,7 +833,7 @@ def test_write_observer_registration_is_idempotent():
 
     runtime._register_write_observer(observer)
     runtime._register_write_observer(observer)
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channel("TEST:PV", 1.0)
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -791,7 +847,7 @@ def test_write_observer_raising_observer_logs_warning_and_never_blocks():
 
     runtime._register_write_observer(broken)
     events = _record_observer()
-    connector = MockConnector()
+    connector = RecordingConnector()
     with patch.object(runtime.logger, "warning") as warn:
         with _patched_factory(connector):
             write_channel("TEST:PV", 1.0)
@@ -815,8 +871,429 @@ def test_write_observer_raising_observer_does_not_mask_write_failure():
             write_channel("TEST:PV", 1.0)
 
 
-def test_write_observer_api_is_private():
+def test_the_private_observer_registration_is_not_public():
+    """Writes are observed publicly only through the scoped ``record_writes``."""
     import osprey.runtime as runtime
 
     assert "_register_write_observer" not in runtime.__all__
-    assert not any("observer" in name for name in runtime.__all__)
+    assert "_unregister_write_observer" not in runtime.__all__
+    assert "record_writes" in runtime.__all__
+
+
+# ========================================================
+# record_writes (public scoped record of this process's writes)
+# ========================================================
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+class TestRecordWrites:
+    """``record_writes`` yields the (address, phase) records of the writes made while it is open."""
+
+    def test_it_yields_the_attempt_and_the_outcome_of_each_write_made_while_open(self):
+        connector = PerChannelConnector(
+            {"A:PV": WriteOutcome.CONFIRMED, "B:PV": WriteOutcome.UNREQUESTED}
+        )
+        with _patched_factory(connector), record_writes() as records:
+            write_channel("A:PV", 1.0)
+            write_channels({"A:PV": 2.0, "B:PV": 3.0})
+        assert records == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("A:PV", "attempt"),
+            ("B:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "sent"),
+        ]
+
+    def test_a_write_sent_unverified_records_sent_and_still_raises(self):
+        with _patched_factory(PerChannelConnector({"A:PV": WriteOutcome.MISMATCH})):
+            with record_writes() as records, pytest.raises(ChannelWriteFailedError):
+                write_channel("A:PV", 1.0)
+        assert records == [("A:PV", "attempt"), ("A:PV", "sent")]
+
+    def test_a_write_the_connector_refuses_records_its_attempt_and_no_outcome(self):
+        connector = PerChannelConnector(
+            {"A:PV": WriteOutcome.REFUSED, "B:PV": WriteOutcome.REFUSED}
+        )
+        with _patched_factory(connector), record_writes() as records:
+            with pytest.raises(ChannelWriteBlockedError):
+                write_channel("A:PV", 1.0)
+            with pytest.raises(ChannelWriteBlockedError):
+                write_channels({"A:PV": 1.0, "B:PV": 2.0})
+        assert records == [("A:PV", "attempt"), ("A:PV", "attempt"), ("B:PV", "attempt")]
+        assert not any(phase in ("sent", "landed") for _address, phase in records)
+
+    def test_a_write_the_limits_net_refuses_records_nothing(self):
+        import osprey.runtime as runtime
+
+        runtime._limits_validator = LimitsValidator(
+            {
+                "A:PV": ChannelLimitsConfig(
+                    channel_address="A:PV", min_value=0.0, max_value=10.0, writable=True
+                )
+            },
+            {"mode": "exclusive"},
+        )
+        connector = RecordingConnector()
+        with _patched_factory(connector), record_writes() as records:
+            with pytest.raises(ChannelLimitsViolationError):
+                write_channel("A:PV", 99.0)
+        assert records == []
+        assert connector.write_calls == []
+
+    def test_nothing_is_recorded_once_the_block_has_closed(self):
+        import osprey.runtime as runtime
+
+        observers = list(runtime._write_observers)
+        with _patched_factory(RecordingConnector()):
+            with record_writes() as records:
+                write_channel("A:PV", 1.0)
+            write_channel("B:PV", 2.0)
+        assert records == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert runtime._write_observers == observers
+
+    def test_a_block_left_by_an_exception_stops_recording_too(self):
+        import osprey.runtime as runtime
+
+        observers = list(runtime._write_observers)
+        with pytest.raises(RuntimeError, match="body"), record_writes():
+            raise RuntimeError("body")
+        assert runtime._write_observers == observers
+
+    def test_nested_blocks_each_record_the_writes_made_while_they_are_open(self):
+        with _patched_factory(RecordingConnector()):
+            with record_writes() as outer:
+                write_channel("A:PV", 1.0)
+                with record_writes() as inner:
+                    write_channel("B:PV", 2.0)
+                write_channel("C:PV", 3.0)
+        assert inner == [("B:PV", "attempt"), ("B:PV", "landed")]
+        assert outer == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "attempt"),
+            ("B:PV", "landed"),
+            ("C:PV", "attempt"),
+            ("C:PV", "landed"),
+        ]
+
+    def test_overlapping_blocks_keep_their_own_records(self):
+        """Two blocks that open and close out of order each record only their own window."""
+        first_block, second_block = record_writes(), record_writes()
+        with _patched_factory(RecordingConnector()):
+            first = first_block.__enter__()
+            second = second_block.__enter__()
+            write_channel("A:PV", 1.0)
+            first_block.__exit__(None, None, None)
+            write_channel("B:PV", 2.0)
+            second_block.__exit__(None, None, None)
+        assert first == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert second == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "attempt"),
+            ("B:PV", "landed"),
+        ]
+
+    def test_concurrent_blocks_on_two_threads_each_get_their_own_records(self):
+        """A block records every write of the process, from any thread, into its own list."""
+        opened = threading.Barrier(2)
+        written = threading.Event()
+        lists: dict[str, list[tuple[str, str]]] = {}
+
+        def hold(name: str) -> None:
+            with record_writes() as records:
+                lists[name] = records
+                opened.wait(timeout=10)
+                assert written.wait(timeout=10)
+
+        with _patched_factory(RecordingConnector()):
+            helper = threading.Thread(target=hold, args=("helper",))
+            helper.start()
+            with record_writes() as mine:
+                opened.wait(timeout=10)
+                write_channel("A:PV", 1.0)
+                written.set()
+            helper.join(timeout=10)
+        assert not helper.is_alive()
+        assert mine == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert lists["helper"] == mine
+        assert lists["helper"] is not mine
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+class TestReadChannels:
+    """``read_channels`` — contract C-READ."""
+
+    def test_read_channels_returns_values_in_request_order(self):
+        connector = BatchReadConnector({"A": 1.0, "B": 2.0, "C": 3.0})
+        with _patched_factory(connector):
+            assert read_channels(["C", "A", "B"]) == [3.0, 1.0, 2.0]
+
+    def test_read_channels_issues_one_batch_call_and_no_single_reads(self):
+        connector = BatchReadConnector({"A": 1.0, "B": 2.0, "C": 3.0})
+        with _patched_factory(connector):
+            read_channels(["A", "B", "C"])
+        assert len(connector.batch_calls) == 1
+        assert connector.batch_calls[0][0] == ["A", "B", "C"]
+        assert connector.read_calls == []
+
+    def test_read_channels_accepts_any_sequence(self):
+        connector = BatchReadConnector({"A": 1.0, "B": 2.0})
+        with _patched_factory(connector):
+            assert read_channels(("B", "A")) == [2.0, 1.0]
+
+    def test_read_channels_passes_timeout_through(self):
+        connector = BatchReadConnector({"A": 1.0})
+        with _patched_factory(connector):
+            read_channels(["A"], timeout=2.5)
+        assert connector.batch_calls[0][1] == 2.5
+
+    def test_read_channels_duplicate_addresses_read_once_returned_each_time(self):
+        connector = BatchReadConnector({"A": 1.0, "B": 2.0})
+        with _patched_factory(connector):
+            assert read_channels(["A", "B", "A"]) == [1.0, 2.0, 1.0]
+        assert connector.batch_calls[0][0] == ["A", "B"]
+
+    def test_read_channels_empty_request_returns_empty_list(self):
+        connector = BatchReadConnector({})
+        with _patched_factory(connector):
+            assert read_channels([]) == []
+        assert connector.batch_calls == []
+
+    def test_read_channels_rejects_a_bare_string(self):
+        connector = BatchReadConnector({"ABC": 1.0})
+        with _patched_factory(connector), pytest.raises(TypeError):
+            read_channels("ABC")
+        assert connector.batch_calls == []
+
+    def test_read_channels_missing_address_raises_naming_it(self):
+        connector = BatchReadConnector({"A": 1.0, "C": 3.0})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["A", "B", "C"])
+        assert exc_info.value.addresses == ["B"]
+        assert "B" in str(exc_info.value)
+
+    def test_read_channels_none_value_counts_as_failed(self):
+        connector = BatchReadConnector({"A": 1.0, "B": None, "C": 3.0})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["A", "B", "C"])
+        assert exc_info.value.addresses == ["B"]
+
+    def test_read_channels_names_every_failed_address_in_request_order(self):
+        # "D" is missing, "B" timed out (None); both are named, in request order.
+        connector = BatchReadConnector({"A": 1.0, "B": None, "C": 3.0})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["D", "A", "B", "C"])
+        assert exc_info.value.addresses == ["D", "B"]
+        message = str(exc_info.value)
+        assert "D" in message and "B" in message
+
+    def test_read_channels_failed_duplicate_named_once(self):
+        connector = BatchReadConnector({"A": 1.0})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["X", "A", "X"])
+        assert exc_info.value.addresses == ["X"]
+
+    def test_read_channels_falsy_values_are_not_failures(self):
+        connector = BatchReadConnector({"A": 0, "B": 0.0, "C": False, "D": ""})
+        with _patched_factory(connector):
+            assert read_channels(["A", "B", "C", "D"]) == [0, 0.0, False, ""]
+
+    def test_read_channels_shares_the_cached_connector_with_read_channel(self):
+        connector = BatchReadConnector({"A": 1.0})
+        with _patched_factory(connector) as factory:
+            read_channel("A")
+            read_channels(["A"])
+        assert factory.call_count == 1
+        assert connector.read_calls[0][0] == "A"
+        assert len(connector.batch_calls) == 1
+
+    def test_read_channels_connector_exception_propagates(self):
+        class Exploding(BatchReadConnector):
+            async def read_multiple_channels(self, channel_addresses, timeout=None):
+                raise ConnectionError(f"link down reading {channel_addresses} ({timeout=})")
+
+        with _patched_factory(Exploding({})), pytest.raises(ConnectionError):
+            read_channels(["A"])
+
+    def test_read_channels_failure_carries_the_single_read_cause(self):
+        timeout = TimeoutError("B did not answer")
+        connector = CausedReadConnector({"A": 1.0, "C": 3.0}, raises={"B": timeout})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["A", "B", "C"])
+        assert exc_info.value.addresses == ["B"]
+        assert exc_info.value.causes == {"B": timeout}
+        assert exc_info.value.__cause__ is timeout
+
+    def test_read_channels_rereads_only_the_failed_channels_with_the_timeout(self):
+        connector = CausedReadConnector(
+            {"A": 1.0}, raises={"B": TimeoutError("B"), "C": PermissionError("C")}
+        )
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError):
+            read_channels(["A", "B", "C"], timeout=2.5)
+        assert sorted(address for address, _ in connector.read_calls) == ["B", "C"]
+        assert all(kwargs == {"timeout": 2.5} for _, kwargs in connector.read_calls)
+
+    def test_read_channels_chains_the_first_failed_channel_in_request_order(self):
+        denied = PermissionError("D denied")
+        connector = CausedReadConnector({"A": 1.0}, raises={"B": TimeoutError("B"), "D": denied})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["D", "A", "B"])
+        assert exc_info.value.addresses == ["D", "B"]
+        assert set(exc_info.value.causes) == {"D", "B"}
+        assert exc_info.value.__cause__ is denied
+
+    def test_read_channels_reread_without_a_raise_records_no_cause(self):
+        # "B" comes back present with None from both reads: a failure with no
+        # exception to report.
+        connector = CausedReadConnector({"A": 1.0, "B": None}, raises={}, reread={"B": None})
+        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
+            read_channels(["A", "B"])
+        assert exc_info.value.addresses == ["B"]
+        assert exc_info.value.causes == {}
+        assert exc_info.value.__cause__ is None
+
+    def test_read_channels_is_not_target_pinned(self):
+        """Reads are not pinned: a moved target does not refuse a read."""
+        import osprey.runtime as runtime
+
+        connector = BatchReadConnector({"A": 1.0})
+        with (
+            _patched_factory(connector),
+            patch.object(
+                runtime,
+                "_assert_target_pin",
+                side_effect=AssertionError("reads must not check the pin"),
+            ),
+        ):
+            assert read_channels(["A"]) == [1.0]
+
+    def test_read_channels_exported(self):
+        import osprey.runtime as runtime
+
+        assert "read_channels" in runtime.__all__
+
+
+class TestChannelReadFailedError:
+    def test_read_channels_error_is_exported_from_both_spellings(self):
+        from osprey_connectors import errors as connector_errors
+        from osprey_connectors import errors as osprey_errors
+
+        assert osprey_errors.ChannelReadFailedError is connector_errors.ChannelReadFailedError
+
+    def test_read_channels_error_keeps_addresses_as_a_list(self):
+        err = ChannelReadFailedError(("A", "B"))
+        assert err.addresses == ["A", "B"]
+        assert "A" in str(err) and "B" in str(err)
+
+    def test_read_channels_error_custom_message(self):
+        err = ChannelReadFailedError(["A"], "custom text")
+        assert err.addresses == ["A"]
+        assert str(err) == "custom text"
+
+    def test_read_channels_error_causes_default_to_empty(self):
+        assert ChannelReadFailedError(["A"]).causes == {}
+
+    def test_read_channels_error_causes_are_kept_and_named_in_the_message(self):
+        cause = TimeoutError("slow")
+        err = ChannelReadFailedError(["A", "B"], causes={"A": cause})
+        assert err.causes == {"A": cause}
+        assert "A" in str(err) and "B" in str(err)
+        assert "TimeoutError" in str(err)
+
+
+class TestValuesMatchReexport:
+    def test_values_match_is_the_connector_rule(self):
+        from osprey_connectors.control_system.base import values_match as connector_rule
+
+        assert values_match is connector_rule
+
+    def test_values_match_exported(self):
+        import osprey.runtime as runtime
+
+        assert "values_match" in runtime.__all__
+
+    def test_values_match_uses_connector_tolerance(self):
+        assert values_match(1.0, 1.0 + 1e-9)
+        assert not values_match(1.0, 1.01)
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+class TestChannelLimits:
+    """``channel_limits`` reports the sandbox validator's entry for one address."""
+
+    @staticmethod
+    def _validator(tmp_path) -> LimitsValidator:
+        import json
+
+        db_path = tmp_path / "channel_limits.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "_comment": "two-entry fixture",
+                    "MAG:QF:SP": {
+                        "min_value": -5.0,
+                        "max_value": 5.0,
+                        "max_step": 0.5,
+                        "writable": True,
+                    },
+                    "MAG:QD:SP": {"min_value": 0.0, "max_value": 10.0, "writable": True},
+                }
+            )
+        )
+        limits_db, raw_db = LimitsValidator._load_limits_database(str(db_path))
+        assert len(limits_db) == 2
+        return LimitsValidator(limits_db, {"mode": "exclusive"}, raw_db=raw_db)
+
+    def test_channel_limits_listed_address_returns_its_config(self, tmp_path):
+        import osprey.runtime as runtime
+        from osprey.runtime import channel_limits
+
+        runtime._limits_validator = self._validator(tmp_path)
+
+        cfg = channel_limits("MAG:QF:SP")
+        assert isinstance(cfg, ChannelLimitsConfig)
+        assert cfg.min_value == -5.0
+        assert cfg.max_value == 5.0
+        assert cfg.max_step == 0.5
+
+        other = channel_limits("MAG:QD:SP")
+        assert isinstance(other, ChannelLimitsConfig)
+        assert (other.min_value, other.max_value, other.max_step) == (0.0, 10.0, None)
+
+    def test_channel_limits_returns_a_copy_the_caller_cannot_weaken(self, tmp_path):
+        import osprey.runtime as runtime
+        from osprey.runtime import channel_limits
+
+        validator = self._validator(tmp_path)
+        runtime._limits_validator = validator
+
+        cfg = channel_limits("MAG:QF:SP")
+        assert cfg is not None
+        cfg.max_step = None
+        cfg.max_value = 1e9
+
+        held = validator.limits["MAG:QF:SP"]
+        assert (held.max_value, held.max_step) == (5.0, 0.5)
+        assert channel_limits("MAG:QF:SP").max_step == 0.5
+
+    def test_channel_limits_unlisted_address_returns_none(self, tmp_path):
+        import osprey.runtime as runtime
+        from osprey.runtime import channel_limits
+
+        runtime._limits_validator = self._validator(tmp_path)
+
+        assert channel_limits("MAG:UNKNOWN:SP") is None
+
+    def test_channel_limits_without_validator_returns_none(self):
+        import osprey.runtime as runtime
+        from osprey.runtime import channel_limits
+
+        assert runtime._limits_validator is None
+        assert channel_limits("MAG:QF:SP") is None
+
+    def test_channel_limits_exported(self):
+        import osprey.runtime as runtime
+
+        assert "channel_limits" in runtime.__all__

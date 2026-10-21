@@ -1,0 +1,1 @@
+The lattice dashboard's header switches between the build's models and marks each unserved one `not served`. A figure the selected model cannot draw says so in its panel (`not available for a single-pass model`), and a banner says when no lattice model is served or the build has no simulator view.

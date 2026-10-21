@@ -237,7 +237,7 @@ class TestChromiumAutoInstall:
 
 
 def test_plotly_script_src_uses_vendored_file_when_present(tmp_path, monkeypatch):
-    """A checkout that tracks the vendored bundle gets a file:// URI to it."""
+    """A checkout where ``osprey vendor fetch`` wrote the bundle gets a file:// URI to it."""
     bundle = tmp_path / "plotly-3.3.1.min.js"
     bundle.write_text("/* plotly */")
     monkeypatch.setattr(converter_mod, "_plotly_vendor_path", lambda: bundle)

@@ -45,7 +45,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.audit import posture
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("protected_write_audit")
 

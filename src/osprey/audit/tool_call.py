@@ -7,8 +7,8 @@ tool call — reads included — with the full arguments, the full result, the
 control target it ran against, the approval answer that let it through, and the
 conversation and tool-use ids that join it to the default records and to the
 agent harness's own telemetry. It lands in
-``var/audit/<identity>/tool_call.jsonl`` and is sent to the telemetry store as
-one log line (:mod:`osprey.audit.otlp`).
+``var/audit/<identity>/tool_call.jsonl``, which the telemetry gateway reads
+into the store with every other ledger file.
 
 It holds values by design and does not use the envelope. A payload over
 ``audit.tool_call.max_inline_bytes`` is not dropped: its bytes are saved as an
@@ -29,6 +29,8 @@ import mimetypes
 import os
 import uuid
 from typing import Any
+
+from osprey.audit.envelope import terminal_session
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +270,10 @@ def build_record(
     """One full record, in its documented key order.
 
     A payload that was stored as an artifact appears as ``arguments_ref`` /
-    ``result_ref`` in place of ``arguments`` / ``result``.
+    ``result_ref`` in place of ``arguments`` / ``result``. Every identifier
+    and ``duration_ms`` come before the payloads, so a line cut short by a
+    reader's size cap still says who, what and how long. A *session* of
+    ``None`` becomes :func:`~osprey.audit.envelope.terminal_session`.
     """
     record: dict[str, Any] = {
         "ts": ts,
@@ -276,9 +281,10 @@ def build_record(
         "actor": actor,
         "posture": posture,
         "posture_source": posture_source,
-        "session": session,
+        "session": session if session is not None else terminal_session(),
         "session_id": session_id,
         "tool_use_id": tool_use_id,
+        "duration_ms": duration_ms,
         "server": server,
         "subject": subject,
         "decision": decision,
@@ -298,5 +304,4 @@ def build_record(
     record["error"] = error
     record["is_error"] = is_error
     record["facts"] = facts
-    record["duration_ms"] = duration_ms
     return record

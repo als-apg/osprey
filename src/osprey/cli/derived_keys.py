@@ -6,7 +6,7 @@ of keys are NOT the operator's to state — the framework template
 (``templates/project/config.yml.j2``) writes them at build time from the
 project layout, the port layout, ``providers.yml``, or a profile FIELD
 (``project_name:``, ``provider:``, ``model:``, ``channel_finder_mode:``, ``default_panel:``,
-``panel_presets:``). Those are the *derived* keys.
+``panel_presets:``, ``hooks:``). Those are the *derived* keys.
 
 A ``config:`` entry for one of them is a second home for one fact, and the
 losing copy is the silent one: the render overwrites it, so the profile says

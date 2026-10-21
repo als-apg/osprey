@@ -67,10 +67,10 @@ from osprey.registry.mcp import (
     TOOL_PREFIX_ENV,
     resolve_servers,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
-from osprey.utils.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from osprey_connectors import posture_store
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
+from osprey_connectors.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 def _base_ctx(**overrides):
@@ -141,12 +141,25 @@ class TestMarkerSpellings:
             "OSPREY_AUDIT_WRITER",
             "OSPREY_POSTURE_SOURCE",
             "OSPREY_POSTURE_SESSION",
+            "OSPREY_TERMINAL_SESSION",
             "OSPREY_AGENT_DATA_ROOT",
             "OSPREY_LAUNCH_POSTURE",
             "OSPREY_CONTROL_OWNER",
             "OSPREY_CONTROL_CONTEXT_TREE",
             "OSPREY_CONTROL_CONTEXT_DIR",
         )
+
+    def test_the_terminal_session_marker_is_the_envelope_spelling(self):
+        """The ledger writers fall back to it for the record's ``session``, and
+        the same value is the OTLP ``terminal.session``; a pin could file one
+        launch's records under another's session. Pinned against its owner.
+        """
+        from osprey.audit import envelope
+        from osprey.registry import mcp
+
+        assert mcp.TERMINAL_SESSION_ENV == envelope.TERMINAL_SESSION_ENV
+        assert mcp.TERMINAL_SESSION_ENV == "OSPREY_TERMINAL_SESSION"
+        assert mcp.TERMINAL_SESSION_ENV in NON_PINNABLE_AUDIT_MARKERS
 
     def test_the_owner_marker_is_the_posture_store_spelling(self):
         """The owner decides WHOSE narrowing a write is judged against, so a spec

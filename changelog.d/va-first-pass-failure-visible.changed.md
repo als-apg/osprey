@@ -1,0 +1,1 @@
+The virtual accelerator prints its ready line only after its first publishing pass has published every served channel, and exits non-zero without it when that pass fails. The model RPC's `status` reply carries `last_failed_pass`: `null`, or the `error` and `uptime_s` of the latest publishing pass that failed.

@@ -1,6 +1,6 @@
 """What an attached render is told about the services its host deploys.
 
-A web-terminal persona is an attached project: it scaffolds no services, so
+A web-terminal render is an attached project: it scaffolds no services, so
 the injectors that write ``services.<name>`` blocks never run for it — yet its
 in-container clients resolve their endpoints from exactly those blocks, and
 bottom out in a compiled-in default (or refuse at first use) when a block is
@@ -37,7 +37,7 @@ HOST = {
         "qmd": {"port": 18180, "interval": 30},
         "graphdb": {"port_host": 17687, "heap_max_size": "1G"},
         "postgresql": {"port_host": 15432, "username": "ariel", "database_name": "ariel"},
-        "openobserve": {"port": 15080, "retention_days": 14},
+        "telemetry_gateway": {"port": 18151, "memory": "512m"},
         "bluesky": {"port": 18090, "tiled_port": 18091},
         "virtual_accelerator": {"port": 15064},
     },
@@ -71,7 +71,7 @@ ALL_ON = {
     "ariel": {"database": {}, "search_modules": {"hybrid": {"enabled": True}}},
     "claude_code": {
         "servers": {"bluesky": {"enabled": True}},
-        "telemetry": {"enabled": True, "backend": "openobserve"},
+        "telemetry": {"enabled": True, "backend": "gateway"},
     },
     "control_system": {
         "type": "virtual_accelerator",
@@ -93,7 +93,7 @@ def test_every_live_consumer_is_told_its_hosts_fact():
         "services.postgresql.port_host": 15432,
         "services.postgresql.username": "ariel",
         "services.postgresql.database_name": "ariel",
-        "services.openobserve.port": 15080,
+        "services.telemetry_gateway.port": 18151,
         "services.bluesky.port": 18090,
         "web.panels.bluesky.url": "${BLUESKY_WEB_URL:-http://localhost:18095}",
         "web.panels.bluesky.path": "/bluesky/",
@@ -108,7 +108,7 @@ def test_every_live_consumer_is_told_its_hosts_fact():
 
 def test_a_two_lane_host_projects_both_lanes_port_and_target():
     """``bluesky.second_lane`` renders a second bridge and stamps ``target`` on
-    both lane blocks; a persona told only lane 1's port would be a single-lane
+    both lane blocks; a render told only lane 1's port would be a single-lane
     render whose session, switched to the other machine, is refused rather
     than routed. Port AND target: the lane resolver picks the active lane by
     matching each lane's declared target against the session's."""
@@ -131,7 +131,7 @@ def test_a_two_lane_host_projects_both_lanes_port_and_target():
 
 
 def test_a_single_lane_host_projects_no_lane_target():
-    """``target`` is written only on a two-lane deploy; a single-lane persona
+    """``target`` is written only on a two-lane deploy; a single-lane render
     stays byte-for-byte the pre-lane render, which is that resolver's
     single-lane answer."""
     projected = project_attached_overrides(HOST, ALL_ON)
@@ -139,7 +139,7 @@ def test_a_single_lane_host_projects_no_lane_target():
     assert not any("bluesky_va" in key or "bluesky_live" in key for key in projected)
 
 
-def test_a_persona_with_the_bluesky_server_off_is_told_no_lane():
+def test_a_render_with_the_bluesky_server_off_is_told_no_lane():
     host = copy.deepcopy(HOST)
     host["services"]["bluesky_va"] = {"port": 18190, "target": "va"}
     off = copy.deepcopy(ALL_ON)
@@ -167,7 +167,10 @@ def test_a_consumer_switched_off_is_told_nothing():
             "servers": {"graph": {"enabled": False}, "bluesky": {"enabled": False}},
             "telemetry": {"enabled": False},
         },
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
     }
     projected = project_attached_overrides(HOST, off)
     assert set(projected) == {
@@ -215,7 +218,7 @@ def test_the_build_entry_point_is_the_registrys_projection():
 def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
     """The attached render and the deploying render must name each fact under
     one spelling, or a client following the deploying spelling reads nothing
-    in a persona. Pinned against the deploy preflight's own remedy table."""
+    in a render. Pinned against the deploy preflight's own remedy table."""
     from osprey.deployment.host_ports import _SERVICE_REMEDY_KEYS
 
     projected = {p.key for c in REACH_CONTRACTS.values() for p in c.projected}
@@ -226,8 +229,10 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "bluesky-web",
             "event-dispatcher",
             "mongodb",
+            "telemetry_store",
+            "history",
         ):
-            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path
+            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a store only host-side services query, a page only nginx dials
         assert key in projected, (
             f"{compose_name}: {key} is a published port no attached render is told"
         )
@@ -264,9 +269,9 @@ def test_a_spelling_that_contradicts_the_projection_is_refused(config):
     ids=["dotted", "nested-under-prefix"],
 )
 def test_a_spelling_that_agrees_is_the_same_fact(config):
-    """A persona profile inherits the hosting profile's ``config:`` dotted
+    """A render profile inherits the hosting profile's ``config:`` dotted
     keys, so a host that moved its bridge port there spells it in every
-    persona's merged config — as the host's own value. Refusing that would
+    render's merged config — as the host's own value. Refusing that would
     refuse every moved port; the spelling and the projection agree."""
     assert reach_override_errors(config, {"services.bluesky.port": 18090}) == []
 
@@ -309,7 +314,7 @@ def test_resolve_bridge_url_reads_the_config_when_the_env_is_empty(monkeypatch, 
     variable reaches the server EMPTY and must count as no override."""
     import yaml
 
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump({"services": {"bluesky": {"port": 18090}}}), encoding="utf-8"

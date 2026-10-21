@@ -33,6 +33,7 @@ stays covered by the container tests in ``test_apply_seed.py``.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -54,6 +55,25 @@ from tests.services.ariel_search.fake_providers import make_fake_embedding_provi
 
 # Minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
+
+
+def _patch_held_entries(monkeypatch, count: int) -> None:
+    """Make the logbook report ``count`` entries already held."""
+
+    async def _count(_config_dict):
+        return count
+
+    monkeypatch.setattr(ops, "logbook_entry_count", _count)
+
+
+def _forbid_enhance(monkeypatch, message: str) -> None:
+    """Fail the test if the quickstart starts a separate enhancement pass."""
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError(message)
+
+    monkeypatch.setattr(ops, "run_enhance", _never)
+
 
 # The table run_reembed derives for the model used throughout this module.
 _MODEL = "nomic-embed-text"
@@ -901,83 +921,131 @@ class TestRunQuickstart:
 
         assert "  Skipped: 3 entries that could not be read" in messages
 
-    async def test_no_source_configured_skips_ingestion_entirely(self, monkeypatch, fake_pool):
+    async def test_no_source_and_an_empty_logbook_skips_ingestion_entirely(
+        self, monkeypatch, fake_pool
+    ):
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
         _patch_adapter(monkeypatch, AssertionError("adapter must not be built"))
         _forbid_service(monkeypatch, "service must not be created")
+        _patch_held_entries(monkeypatch, 0)
+        _forbid_enhance(monkeypatch, "an empty logbook has nothing to enhance")
 
         messages: list[str] = []
         result = await ops.run_quickstart(dict(_DB), source=None, progress=messages.append)
 
         assert result.count == 0
+        assert result.enhanced_count == 0
         assert result.migrations_applied == 0
         assert any("Skipping data ingestion" in m for m in messages)
         assert "  Tables: already up to date" in messages
         assert fake_pool.closed
 
-    async def test_a_demo_narrative_is_seeded_then_enhanced_instead_of_ingested(
+    async def test_no_source_enhances_the_entries_the_logbook_already_holds(
         self, monkeypatch, fake_pool
     ):
-        """No ingestion source and an ``ariel.demo_narrative``: the narrative goes in
-        the way a deploy writes it, then the enhancement pass adds what it lacks."""
-        import osprey.simulation.apply as apply_mod
-
+        """No ingestion source: nothing is ingested, and the enhancement pass runs
+        over every entry the logbook holds -- what a deploy seeded without one."""
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
         _patch_adapter(monkeypatch, AssertionError("adapter must not be built"))
+        _forbid_service(monkeypatch, "service must not be created")
+        _patch_held_entries(monkeypatch, 3)
         calls: dict = {}
-
-        monkeypatch.setattr(apply_mod, "demo_narrative_logbook", lambda config: ["E1", "E2", "E3"])
-
-        async def _seed(config, logbook, anchor):
-            calls["seeded"] = (config["demo_narrative"], list(logbook), anchor.tzinfo)
-            return len(logbook)
 
         async def _enhance(_config, module, force, limit, _progress=None, **_kwargs):
             calls["enhance"] = (module, force, limit)
             return ops.EnhanceResult(entries_processed=3, module_names=["text_embedding"])
 
-        monkeypatch.setattr(apply_mod, "seed_narrative_if_empty", _seed)
         monkeypatch.setattr(ops, "run_enhance", _enhance)
 
         messages: list[str] = []
-        result = await ops.run_quickstart(
-            {**_DB, "demo_narrative": "data/logbook_seed"}, source=None, progress=messages.append
-        )
+        result = await ops.run_quickstart(dict(_DB), source=None, progress=messages.append)
 
-        assert calls["seeded"][:2] == ("data/logbook_seed", ["E1", "E2", "E3"])
-        assert calls["seeded"][2] is not None
         assert calls["enhance"] == (None, False, 3)
-        assert (result.count, result.enhanced_count) == (3, 3)
-        assert "  Entries: 3 seeded" in messages
+        assert (result.count, result.enhanced_count) == (0, 3)
+        assert "Enhancing the 3 entries the logbook holds" in messages
 
-    async def test_an_explicit_source_wins_over_the_demo_narrative(
+    async def test_an_explicit_source_is_ingested_without_a_held_entries_pass(
         self, monkeypatch, fake_pool, mock_repository
     ):
-        import osprey.simulation.apply as apply_mod
-
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
         _patch_adapter(monkeypatch, _Adapter([{"entry_id": "E1"}]))
         _patch_enhancers(monkeypatch, [])
         _patch_service(monkeypatch, _StubService(mock_repository, mock_repository.pool))
+        _forbid_enhance(monkeypatch, "an ingestion run enhances inline, entry by entry")
 
-        async def _never(*_args, **_kwargs):
-            raise AssertionError("the narrative must not be seeded over an explicit source")
-
-        monkeypatch.setattr(apply_mod, "seed_narrative_if_empty", _never)
-
-        result = await ops.run_quickstart(
-            {**_DB, "demo_narrative": "data/logbook_seed"}, source="file:///entries.json"
-        )
+        result = await ops.run_quickstart(dict(_DB), source="file:///entries.json")
 
         assert result.count == 1
+
+    async def test_the_narrative_osprey_up_seeds_gets_embeddings_from_the_quickstart(
+        self, tmp_path, monkeypatch, fake_pool
+    ):
+        """The deploy writes the active scenarios' narrative as bare rows; the
+        quickstart that follows embeds every one of them."""
+        import yaml
+
+        from osprey.simulation.apply import apply_scenarios, seed_active_logbook
+        from tests._simulator_view import facility_scenarios, write_scenarios_view
+
+        scenarios = (
+            Path(__file__).resolve().parents[3]
+            / "src/osprey/templates/facilities/example/scenarios"
+        )
+        write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
+        config = {"ariel": dict(_DB)}
+        (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+
+        async def _no_seed(_ariel_config, _entries, _pictures):
+            return 0, False
+
+        monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
+        apply_scenarios(tmp_path, ["rf-thermal"], seed_archive=False)
+
+        logbook: list[dict] = []
+        embedded: list[str] = []
+
+        async def _count(_config_dict):
+            return len(logbook)
+
+        async def _seed(_config_dict, entries, _progress=None, *, pictures=None):  # noqa: ARG001 - stands in for seed_logbook_entries
+            logbook.extend(entries)
+            return len(entries)
+
+        async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync
+            return None
+
+        async def _enhance(_config, _module, _force, limit, _progress=None, **_kwargs):
+            embedded.extend(entry["entry_id"] for entry in logbook[:limit])
+            return ops.EnhanceResult(
+                entries_processed=len(embedded), module_names=["text_embedding"]
+            )
+
+        monkeypatch.setattr(ops, "logbook_entry_count", _count)
+        monkeypatch.setattr(ops, "seed_logbook_entries", _seed)
+        monkeypatch.setattr(ops, "run_qmd_resync", _resync)
+        monkeypatch.setattr(ops, "run_enhance", _enhance)
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _forbid_service(monkeypatch, "service must not be created")
+
+        seeded = seed_active_logbook(config, tmp_path, config["ariel"])
+        result = await ops.run_quickstart(dict(_DB), source=None, project_dir=tmp_path)
+
+        # nominal's 29 ambient entries plus rf-thermal's three-entry incident arc.
+        assert seeded == 32
+        assert result.count == 0
+        assert result.enhanced_count == seeded
+        assert embedded == [entry["entry_id"] for entry in logbook]
+        assert {"DEMO-026", "DEMO-027", "DEMO-028"} <= set(embedded)
 
     async def test_applied_migrations_are_reported_as_created(self, monkeypatch, fake_pool):
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=["core_schema", "text_embedding"])
         _forbid_service(monkeypatch, "service must not be created")
+        _patch_held_entries(monkeypatch, 0)
 
         messages: list[str] = []
         result = await ops.run_quickstart(dict(_DB), source=None, progress=messages.append)
@@ -1049,6 +1117,7 @@ class TestRunQuickstart:
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
         _forbid_service(monkeypatch, "service must not be created")
+        _patch_held_entries(monkeypatch, 0)
 
         messages: list[str] = []
         result = await ops.run_quickstart(
@@ -1065,6 +1134,7 @@ class TestRunQuickstart:
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=["core_schema"])
         _forbid_service(monkeypatch, "service must not be created")
+        _patch_held_entries(monkeypatch, 0)
 
         result = await ops.run_quickstart(dict(_DB), source=None)
 

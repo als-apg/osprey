@@ -22,7 +22,7 @@ import os
 import pytest
 
 from osprey.deployment.web_terminals import env_production
-from osprey.utils.dotenv import ENV_USERS_BANNER, parse_dotenv_file
+from osprey_connectors.dotenv import ENV_USERS_BANNER, parse_dotenv_file
 
 _CC_CONFIG = {
     "facility": {},
@@ -178,10 +178,38 @@ def test_the_preflight_report_carries_the_drift_refusal(tmp_path):
 
 
 # A provider switch renames the secret: the render now writes a variable the
-# file never carried, and stops writing one it did.
-_SWITCHED_CONFIG = {**_CC_CONFIG, "claude_code": {"provider": "anthropic"}}
+# file never carried, and stops writing one it did. The terminals run the
+# default tier's project, so its rendered config.yml names the provider the
+# credential is required for.
+_SWITCHED_CONFIG = {
+    **_CC_CONFIG,
+    "claude_code": {"provider": "anthropic"},
+    "modules": {
+        "web_terminals": {
+            "enabled": True,
+            "image_source": "local",
+            "default_tier": "assistant",
+            "renders": {
+                "assistant": {
+                    "kind": "tier",
+                    "project": "demo-assistant",
+                    "project_path": "tier",
+                }
+            },
+        }
+    },
+}
 
 
+@pytest.fixture
+def switched_render(tmp_path):
+    """Render the default tier's project, whose agent runs on ``anthropic``."""
+    project = tmp_path / "tier"
+    project.mkdir()
+    (project / "config.yml").write_text("claude_code:\n  provider: anthropic\n", encoding="utf-8")
+
+
+@pytest.mark.usefixtures("switched_render")
 def test_provider_switch_rerenders_an_unedited_render(tmp_path):
     """The file OSPREY wrote for the old provider is still OSPREY's: the old
     provider's key is one its own render put there, not a hand edit, so the
@@ -198,6 +226,7 @@ def test_provider_switch_rerenders_an_unedited_render(tmp_path):
     assert "CBORG_API_KEY" not in present
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_authored_file_missing_the_new_providers_secret_refuses(tmp_path):
     """A file without the credential the terminals authenticate with is every
     terminal opening on a login prompt, whoever wrote it. An authored file is
@@ -220,6 +249,7 @@ def test_authored_file_missing_the_new_providers_secret_refuses(tmp_path):
     assert (tmp_path / ".env.users").read_text(encoding="utf-8") == authored
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_edited_render_missing_the_new_providers_secret_refuses(tmp_path):
     """Once the operator has edited the render, the old key could be theirs:
     the file is authored, and the missing credential refuses the deploy."""
@@ -234,6 +264,7 @@ def test_edited_render_missing_the_new_providers_secret_refuses(tmp_path):
         env_production.ensure_env_production(_SWITCHED_CONFIG, tmp_path)
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_extra_line_beside_the_old_providers_key_keeps_the_file_authored(tmp_path):
     """Only a provider secret is an earlier render's line. Any other variable the
     render would not write is the operator's, so the file stays theirs and the
@@ -248,6 +279,7 @@ def test_extra_line_beside_the_old_providers_key_keeps_the_file_authored(tmp_pat
     assert (tmp_path / ".env.users").read_text(encoding="utf-8") == legacy
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_leftover_key_of_an_unknown_provider_keeps_the_file_authored(tmp_path):
     """A custom provider removed from every config is no longer known, so its
     leftover key cannot be told from an operator's line: the safe answer is
@@ -261,6 +293,7 @@ def test_leftover_key_of_an_unknown_provider_keeps_the_file_authored(tmp_path):
     assert drift.missing_vars == ("ANTHROPIC_API_KEY",)
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_custom_provider_key_from_a_config_counts_as_a_render_line(tmp_path):
     """A provider the config's ``api.providers`` declares is known: switching
     away from it to a built-in leaves a key the earlier render wrote."""
@@ -279,6 +312,7 @@ def test_custom_provider_key_from_a_config_counts_as_a_render_line(tmp_path):
     assert "SITE_GW_API_KEY" not in present
 
 
+@pytest.mark.usefixtures("switched_render")
 def test_health_reports_the_missing_credential(tmp_path):
     """``osprey health`` asks the same function, so it no longer reports a file
     without the terminals' credential as agreeing with .env."""

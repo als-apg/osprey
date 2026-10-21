@@ -387,7 +387,7 @@ def _writes_enabled(lane_target: str | None) -> bool:
     posture must not arm hardware.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
@@ -431,7 +431,7 @@ def _any_lane_writes_enabled() -> bool:
     Same broad except clause, and the same reason, as :func:`_writes_enabled`.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         # `discover_lanes`, not `resolve_lane_situation`: the rendered set is
@@ -472,7 +472,7 @@ def _session_narrowed(lane_target: str | None) -> bool:
         if lane_target is not None:
             targets: list[str] = [lane_target]
         else:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             section = get_config_value("control_system", {})
             targets = [lane.target for lane in discover_lanes(baseline_target(section))]
@@ -498,7 +498,7 @@ def _writes_enabled_key(lane_target: str | None) -> str:
     deployment-wide key IS the whole posture that deployment has.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         return target_writes_enabled_key(section, lane_target or baseline_target(section))
@@ -1085,8 +1085,8 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
 async def queue_status() -> str:
     """Whether this deployment can execute plans at all. Reaches NO hardware.
 
-    Ask this BEFORE composing a plan you intend to run. A deployment wired to
-    a mock connector can list plans, author them, validate them and fill the
+    Ask this BEFORE composing a plan you intend to run. A browse-only
+    deployment can list plans, author them, validate them and fill the
     draft, but it cannot execute — and the queue refuses to hold items it
     could never run, so ``queue_add`` fails there rather than at start time.
     Knowing that up front is the difference between telling the human "this
@@ -1255,10 +1255,10 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
 
     Returns:
         JSON ``{"run_id", "revision", "item", "lane", "armed"}`` — ``run_id``
-        is OSPREY's id for the eventual run (use it with get_run /
-        get_run_data once it executes), and ``item.item_uid`` is the queue
-        handle for this item. ``armed`` is the bridge's word on what this add
-        did: true, the queue was armed or already draining and the plan is on
+        is OSPREY's id for the eventual run (use it with get_run for its
+        status and get_run_data for its rows once it executes), and
+        ``item.item_uid`` is the queue handle for this item. ``armed`` is the
+        bridge's word on what this add did: true, the queue was armed or already draining and the plan is on
         its way with no further action of yours; false, the item waits for a
         start. ``lane`` is the plan lane the item was queued on, and on a
         deployment with two lanes it is what ``queue_start(lane=...)`` must be

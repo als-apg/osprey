@@ -2,7 +2,7 @@
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
-  Facility-customizable: tool description, system name examples (e.g., "SR" for Storage Ring)
+  Facility-customizable: tool description, system name examples
 """
 
 import json
@@ -21,7 +21,7 @@ def list_families(system: str) -> str:
     """List all device families in a system with their descriptions.
 
     Args:
-        system: System name (e.g., "SR" for Storage Ring).
+        system: System name, as returned by list_systems().
 
     Returns:
         JSON with list of families and total count.

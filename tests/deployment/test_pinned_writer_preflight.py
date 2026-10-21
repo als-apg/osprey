@@ -53,18 +53,12 @@ def _repo(tmp_path: Path, *pinned: str) -> Path:
         "DISPATCH_WORKER_TOKEN",
         "BLUESKY_LAUNCH_TOKEN",
         "BLUESKY_TILED_API_KEY",
-        "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
         "MONGO_ROOT_PASSWORD",
     ],
 )
 def test_every_minted_token_is_in_the_census(name):
     assert name in _deploy_written_env_vars()
-
-
-def test_the_non_secret_service_defaults_are_in_the_census():
-    """Not a secret, but still written by the deploy — the pin is as unsatisfiable."""
-    assert "ZO_ROOT_USER_EMAIL" in _deploy_written_env_vars()
 
 
 def test_the_control_socket_keypair_is_in_the_census():
@@ -78,8 +72,6 @@ def test_the_census_covers_every_registered_writer():
     census = _deploy_written_env_vars()
     for names in container_lifecycle._SERVICE_TOKEN_VARS.values():
         assert set(names) <= census
-    for pairs in container_lifecycle._SERVICE_DEFAULT_VARS.values():
-        assert {var for var, _default in pairs} <= census
     # The --reuse-stores adopter restores exactly these into `.env`.
     assert set(container_lifecycle._VOLUME_INITIALIZED_VARS) <= census
 
@@ -104,13 +96,13 @@ def test_a_pin_on_a_minted_token_refuses(tmp_path, caplog):
 
 
 def test_the_remedy_names_every_offender(tmp_path, caplog):
-    repo = _repo(tmp_path, "ARIEL_DB_PASSWORD", "ZO_ROOT_USER_EMAIL", "FACILITY_UPSTREAM_URL")
+    repo = _repo(tmp_path, "ARIEL_DB_PASSWORD", "MONGO_ROOT_PASSWORD", "FACILITY_UPSTREAM_URL")
 
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
         _preflight_pinned_writers(repo)
 
     assert "unpin ARIEL_DB_PASSWORD; it is machine-minted." in str(excinfo.value)
-    assert "unpin ZO_ROOT_USER_EMAIL; it is machine-minted." in str(excinfo.value)
+    assert "unpin MONGO_ROOT_PASSWORD; it is machine-minted." in str(excinfo.value)
     assert "FACILITY_UPSTREAM_URL" not in str(excinfo.value)
 
 

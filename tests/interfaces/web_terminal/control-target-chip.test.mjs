@@ -25,8 +25,8 @@
  *   current; the 5 s poll is the fallback behind it;
  * - a switch is done when every live controls server reports the generation
  *   the POST answered with — not when the record's terminus turns up;
- * - the full state matrix reaches the DOM as data attributes and words: four
- *   kinds (live / stand-in / virtual accelerator / simulated) × three states
+ * - the full state matrix reaches the DOM as data attributes and words: three
+ *   kinds (live / stand-in / virtual accelerator) × three states
  *   (writes / sandbox / read-only). Not one colour is decided here — the
  *   stylesheet owns the map, so the attributes ARE the contract;
  * - `sandbox` and `read-only` stay separate words: one is the operator's own
@@ -61,7 +61,7 @@ let chipModule;
 /* ---- roster fixtures ---------------------------------------------------- */
 
 /**
- * The four machine kinds, in the shape the route publishes them. `kind` is the
+ * The three machine kinds, in the shape the route publishes them. `kind` is the
  * PLAIN-LANGUAGE word the route mints from `real_machine` and the label's
  * shape; the chip maps it onto the CSS value, which is what these tests read.
  */
@@ -88,14 +88,6 @@ const KINDS = {
     short_label: 'VIRTUAL',
     kind: 'virtual accelerator',
     endpoint: '127.0.0.1:10064',
-    real_machine: false,
-  },
-  simulated: {
-    target: 'live',
-    label: 'live machine (simulated)',
-    short_label: 'SIMULATED',
-    kind: 'simulated',
-    endpoint: 'mock',
     real_machine: false,
   },
 };
@@ -445,10 +437,10 @@ describe('mount', () => {
 
 describe('state matrix', () => {
   /** @type {Record<string, string>} */
-  const KIND_ATTR = { live: 'live', standin: 'standin', va: 'va', simulated: 'simulated' };
+  const KIND_ATTR = { live: 'live', standin: 'standin', va: 'va' };
   /** The consequence word each kind renders when no display_name is configured. */
   /** @type {Record<string, string>} */
-  const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator', simulated: 'Demo' };
+  const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator' };
   /** @type {Record<string, string>} */
   const PHRASES = { writes: 'writes on', sandbox: 'writes off', 'read-only': 'writes locked' };
 
@@ -504,6 +496,25 @@ describe('state matrix', () => {
       })
     );
     expect(chipEl()?.dataset.targetKind).toBe('live');
+  });
+
+  test('a machine that is not real is the simulator whatever its label', async () => {
+    await boot(
+      viewOf({
+        targets: [
+          rowOf({
+            target: 'other',
+            label: 'some machine nobody named',
+            short_label: 'VIRTUAL',
+            kind: undefined,
+            real_machine: false,
+            active: true,
+          }),
+        ],
+      })
+    );
+    expect(chipEl()?.dataset.targetKind).toBe('va');
+    expect(shortText()).toBe('Simulator');
   });
 
   test("the deployment's configured display_name wins over the kind default", async () => {
@@ -1085,7 +1096,7 @@ describe('popover API', () => {
 describe('activeKind', () => {
   /** The CSS values the chip keys on, one per machine kind. */
   /** @type {Record<string, string>} */
-  const ATTR = { live: 'live', standin: 'standin', va: 'va', simulated: 'simulated' };
+  const ATTR = { live: 'live', standin: 'standin', va: 'va' };
 
   test('answers null before anything has been read', () => {
     expect(chipModule.activeKind()).toBeNull();

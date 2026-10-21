@@ -27,9 +27,23 @@ class SyncStatus(Enum):
     LOCAL_ONLY = "local_only"
 
 
+@dataclass(frozen=True)
+class EntryAttachment:
+    """One file submitted with a new logbook entry."""
+
+    filename: str
+    mime_type: str | None
+    data: bytes
+
+
 @dataclass
 class FacilityEntryCreateRequest:
-    """Request to create a logbook entry through a facility adapter."""
+    """Request to create a logbook entry through a facility adapter.
+
+    ``attachment_paths`` lists the entry's files as readable local paths. It is
+    filled only for an adapter that declares ``supports_attachments``, and the
+    paths exist only while that adapter's ``create_entry`` runs.
+    """
 
     subject: str
     details: str
@@ -45,13 +59,19 @@ class FacilityEntryCreateRequest:
 
 @dataclass
 class FacilityEntryCreateResult:
-    """Result from creating a logbook entry through a facility adapter."""
+    """Result from creating a logbook entry through a facility adapter.
+
+    ``attachment_count`` counts the files submitted with the entry;
+    ``attachments_published`` says whether they reached the facility logbook
+    rather than ARIEL alone.
+    """
 
     entry_id: str
     source_system: str
     sync_status: SyncStatus
     message: str
     attachment_count: int = 0
+    attachments_published: bool = False
 
 
 class AttachmentInfo(TypedDict):
@@ -66,18 +86,9 @@ class AttachmentInfo(TypedDict):
     filename: NotRequired[str | None]  # Display filename
     thumbnail_url: NotRequired[str | None]  # Thumbnail URL (JLab)
     caption: NotRequired[str | None]  # Caption (JLab)
-
-
-class AttachmentFileRecord(TypedDict):
-    """Row from the attachment_files table."""
-
-    attachment_id: str
-    entry_id: str
-    filename: str
-    mime_type: str | None
-    data: NotRequired[bytes]  # Omitted in metadata-only queries
-    size_bytes: int
-    created_at: datetime
+    # ARIEL's own copy of a file also published to the facility logbook; the
+    # facility's attachment list replaces it once it is read back.
+    published: NotRequired[bool]
 
 
 class EnhancedLogbookEntry(TypedDict):
@@ -468,7 +479,7 @@ def parse_time_bound(value: str | float, *, end: bool) -> datetime:
     Raises:
         ValueError: If `value` is none of the above.
     """
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     if isinstance(value, bool):
         raise ValueError(f"not a date, a time or epoch seconds: {value!r}")

@@ -1,9 +1,13 @@
-"""Unit tests for typed exceptions in osprey.errors."""
+"""Unit tests for typed exceptions in osprey_connectors.errors."""
 
 import pytest
 
-from osprey.connectors.control_system import WriteOutcome
-from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
+)
 
 
 class TestChannelWriteBlockedError:
@@ -12,7 +16,7 @@ class TestChannelWriteBlockedError:
         assert err.channel_address == "RING:MAG:PS:SP"
         assert err.reason == "WRITES_DISABLED"
         assert str(err) == (
-            "Write to 'RING:MAG:PS:SP' refused by reference monitor (WRITES_DISABLED)"
+            "Write to 'RING:MAG:PS:SP' refused by the reference monitor (WRITES_DISABLED)"
         )
 
     def test_custom_message(self):
@@ -32,12 +36,40 @@ class TestChannelWriteBlockedError:
             "VALIDATION_ERROR",
             "CONTROL_SYSTEM_REFUSED",
             "RAW_CLIENT_WRITE",
+            "CHANNEL_NOT_FOUND",
         )
 
     def test_unknown_reason_permitted(self):
         # Constructor does not validate against _VALID_REASONS (permissive by design).
         err = ChannelWriteBlockedError("chan", "SOMETHING_ELSE")
         assert err.reason == "SOMETHING_ELSE"
+        assert str(err) == "Write to 'chan' refused (SOMETHING_ELSE)"
+
+    def test_every_reason_has_a_refuser_entry(self):
+        assert tuple(ChannelWriteBlockedError._REFUSERS) == ChannelWriteBlockedError._VALID_REASONS
+
+    def test_unknown_reason_names_no_refuser(self):
+        assert ChannelWriteBlockedError.refuser("SOMETHING_ELSE") is None
+        assert ChannelWriteBlockedError.refuser(None) is None
+
+
+class TestChannelNotFoundError:
+    def test_message_names_the_address(self):
+        err = ChannelNotFoundError("NO:SUCH:CHANNEL")
+        assert str(err) == "NO:SUCH:CHANNEL is not a channel of this facility"
+
+    def test_carries_the_address(self):
+        assert ChannelNotFoundError("NO:SUCH:CHANNEL").channel_address == "NO:SUCH:CHANNEL"
+
+    def test_reason(self):
+        assert ChannelNotFoundError.reason == "CHANNEL_NOT_FOUND"
+
+    def test_is_a_lookup_error(self):
+        assert isinstance(ChannelNotFoundError("X"), LookupError)
+
+    def test_a_bare_blocked_write_names_no_refuser(self):
+        err = ChannelWriteBlockedError("X", "CHANNEL_NOT_FOUND")
+        assert str(err) == "X is not a channel of this facility"
 
 
 class TestChannelWriteFailedError:

@@ -1,9 +1,11 @@
-"""Tests for OpenObserve/OTEL telemetry env-block generation.
+"""Tests for the OTEL telemetry env block Claude Code is launched with.
 
 Covers the pure ``_build_telemetry_env`` helper (on/off gating, endpoint
-resolution + fail-loud, OpenObserve Basic-auth header, content gates,
-protocol/resource passthrough), its integration into ``resolve()``, and the
-conflict-detection exemption for telemetry vars.
+resolution + fail-loud, the gateway sender login, the collector bearer token,
+content gates, protocol/resource passthrough), its integration into
+``resolve()`` and ``load_provider_spec()``, and the conflict-detection
+exemption for telemetry vars. The gateway's terminal-session attribute and the
+launch sites are covered in ``test_telemetry_gateway_emit.py``.
 """
 
 from __future__ import annotations
@@ -21,15 +23,30 @@ from osprey.agent_runner.provider_env import (
 from osprey.build.claude_code_telemetry import (
     _TELEMETRY_CONTENT_GATES,
     TELEMETRY_ENV_VARS,
+    TELEMETRY_LOGIN_ENV,
     ObservabilityCredentialError,
     TelemetryConfigError,
     _build_telemetry_env,
     _gate_is_on,
-    _openobserve_host_override,
-    _running_in_container,
     telemetry_auth_token_env,
 )
-from osprey.port_layout import default_port
+from osprey.deployment.telemetry_config import (
+    GATEWAY_HOST_ENV,
+    GATEWAY_PORT_ENV,
+    gateway_port,
+)
+
+GATEWAY = "http://127.0.0.1:10051"
+LOGIN = "operator:s3cr3t"
+_GW_CFG = {"enabled": True, "backend": "gateway"}
+
+
+def _gw_env(cfg: dict | None = None, **kwargs) -> dict[str, str]:
+    """The block a gateway sender with a login and a resolved address gets."""
+    kwargs.setdefault("gateway_url", GATEWAY)
+    kwargs.setdefault("telemetry_login", LOGIN)
+    return _build_telemetry_env({**_GW_CFG, **(cfg or {})}, **kwargs)
+
 
 # ── on / off gating ──────────────────────────────────────────────
 
@@ -181,58 +198,29 @@ def test_content_gate_true_is_on():
     assert env["OTEL_LOG_USER_PROMPTS"] == "1"
 
 
-# ── endpoint context + fail-loud (Task 2.3) ──────────────────────
+# ── endpoint resolution + fail-loud ──────────────────────────────
 
 
 def test_endpoint_verbatim_wins():
+    env = _build_telemetry_env({"enabled": True, "endpoint": "http://explicit:9999/api/x"})
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://explicit:9999/api/x"
+
+
+def test_backend_generic_uses_the_endpoint_verbatim():
     env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "endpoint": "http://explicit:9999/api/x",
-            "openobserve": {"user": "u", "password": "p"},
-        }
+        {"enabled": True, "backend": "generic", "endpoint": "http://explicit:9999/api/x"}
     )
     assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://explicit:9999/api/x"
 
 
-def test_openobserve_default_endpoint_localhost():
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-        },
-        in_container=False,
-    )
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
+def test_gateway_endpoint_is_the_address_the_launch_resolved():
+    """The gateway names no endpoint of its own; one base URL serves every signal."""
+    env = _gw_env()
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == GATEWAY
+    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in env
 
 
-def test_openobserve_default_endpoint_container_host():
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-        },
-        in_container=True,
-    )
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
-
-
-def test_openobserve_org_path_honored():
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p", "org": "als"},
-        },
-        in_container=False,
-    )
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/als"
-
-
-def test_enabled_no_endpoint_non_openobserve_raises():
+def test_enabled_no_endpoint_unknown_backend_raises():
     with pytest.raises(ValueError):
         _build_telemetry_env({"enabled": True, "backend": "jaeger"})
 
@@ -244,143 +232,50 @@ def test_enabled_no_endpoint_no_backend_raises():
 
 def test_unresolved_var_in_endpoint_fails_loud():
     with pytest.raises(ValueError):
-        _build_telemetry_env({"enabled": True, "endpoint": "http://${OO_HOST}:5080/api/default"})
+        _build_telemetry_env({"enabled": True, "endpoint": "http://${OO_HOST}:4318/v1"})
 
 
-def test_endpoint_context_and_failloud():
-    """Named validation gate: container host, localhost, org path, ${ fail-loud."""
-    base = {
-        "enabled": True,
-        "backend": "openobserve",
-        "openobserve": {"user": "u", "password": "p", "org": "als"},
-    }
-    in_container = _build_telemetry_env(base, in_container=True)
-    assert in_container["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/als"
-
-    on_host = _build_telemetry_env(base, in_container=False)
-    assert on_host["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/als"
-
-    with pytest.raises(ValueError):
-        _build_telemetry_env({"enabled": True, "endpoint": "http://${X}:5080"})
+def test_unresolved_var_in_the_gateway_address_fails_loud():
+    with pytest.raises(TelemetryConfigError, match="unresolved"):
+        _gw_env(gateway_url="http://${GATEWAY_HOST}:4318")
 
 
-# ── OpenObserve Basic-auth header (Task 2.2) ─────────────────────
+# ── gateway sender login (HTTP Basic) ────────────────────────────
 
 
-def test_basic_auth_header():
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "root@example.com", "password": "s3cr3t"},
-        },
-        in_container=False,
-    )
-    headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
+def test_gateway_basic_auth_header():
+    headers = _gw_env()["OTEL_EXPORTER_OTLP_HEADERS"]
     assert headers.startswith("Authorization=Basic ")
     token = headers.split("Authorization=Basic ", 1)[1]
-    assert base64.b64decode(token).decode() == "root@example.com:s3cr3t"
+    assert base64.b64decode(token).decode() == LOGIN
 
 
-def test_basic_auth_missing_creds_raises():
-    with pytest.raises(ValueError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}}
-        )
+@pytest.mark.parametrize("login", [None, "", "   "], ids=["absent", "empty", "blank"])
+def test_gateway_missing_login_raises(login):
+    with pytest.raises(ObservabilityCredentialError):
+        _gw_env(telemetry_login=login)
 
 
-def test_basic_auth_blank_creds_raises():
-    with pytest.raises(ValueError):
-        _build_telemetry_env(
-            {
-                "enabled": True,
-                "backend": "openobserve",
-                "openobserve": {"user": "", "password": ""},
-            }
-        )
+def test_gateway_login_deferred_at_build_time_omits_header(recwarn):
+    """A build never carries the login, so its absence there is the correct state.
 
-
-def test_basic_auth_no_openobserve_block_raises():
-    with pytest.raises(ValueError):
-        _build_telemetry_env({"enabled": True, "backend": "openobserve"})
-
-
-@pytest.mark.parametrize(
-    "creds",
-    [
-        {"user": "${ZO_ROOT_USER_EMAIL}", "password": "p"},
-        {"user": "u", "password": "${ZO_ROOT_USER_PASSWORD}"},
-    ],
-)
-def test_creds_failloud_on_unresolved_var(creds):
-    """An unresolved ${VAR} in a credential fails loud at resolve() time.
-
-    The config loader leaves the literal ``${VAR}`` when the env var is unset;
-    base64-encoding it would silently 401 against OpenObserve at runtime.
+    The header is omitted rather than encoded from nothing; telemetry itself
+    stays configured, and nothing warns.
     """
-    with pytest.raises(ValueError):
-        _build_telemetry_env({"enabled": True, "backend": "openobserve", "openobserve": creds})
-
-
-@pytest.mark.parametrize(
-    "creds",
-    [
-        {"user": "${ZO_ROOT_USER_EMAIL}", "password": "p"},
-        {"user": "u", "password": "${ZO_ROOT_USER_PASSWORD}"},
-    ],
-)
-def test_creds_deferred_at_build_time_omit_header(creds, recwarn):
-    """``defer_unresolved_creds`` downgrades the hard failure to a warning.
-
-    A build renders a project whose telemetry credentials are supplied by the
-    *deployment* (the worker re-resolves them against its own .env at
-    agent-spawn — see dispatch_api). Aborting the build there would force every
-    such project to hand the builder production secrets. The header is omitted
-    rather than encoded from a placeholder, so nothing bogus is baked.
-    """
-    env = _build_telemetry_env(
-        {"enabled": True, "backend": "openobserve", "openobserve": creds},
-        defer_unresolved_creds=True,
-    )
-
+    env = _gw_env(telemetry_login=None, defer_unresolved_creds=True)
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
-    # Telemetry itself stays configured — only the auth header is deferred.
     assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert any("unresolved" in str(w.message) for w in recwarn)
+    assert len(recwarn) == 0
 
 
-def test_creds_deferred_flag_does_not_excuse_missing_creds():
-    """Deferral covers an unresolved ${VAR}, not an absent credential.
-
-    A blank/missing credential is a config error at every stage — there is no
-    later resolution step that could fill it in.
-    """
-    with pytest.raises(ValueError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}},
-            defer_unresolved_creds=True,
-        )
-
-
-def test_creds_default_still_fails_loud_for_runtime():
-    """The default is unchanged: spawn-time callers must still fail loud.
-
-    The dispatch worker re-resolves at agent-spawn with the deployment's own
-    .env; there is no later stage, so an unresolved cred there is terminal for
-    telemetry and must not be papered over.
-    """
-    with pytest.raises(ValueError):
-        _build_telemetry_env(
-            {
-                "enabled": True,
-                "backend": "openobserve",
-                "openobserve": {"user": "${ZO_ROOT_USER_EMAIL}", "password": "p"},
-            }
-        )
+def test_gateway_login_deferral_does_not_excuse_a_malformed_login():
+    """Deferral covers an absent login, not one that is present and wrong."""
+    with pytest.raises(ObservabilityCredentialError):
+        _gw_env(telemetry_login="no-colon", defer_unresolved_creds=True)
 
 
 def test_no_headers_when_none_configured():
-    """Non-openobserve backend with no headers emits no HEADERS var."""
+    """A collector with no auth emits no HEADERS var."""
     env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318"})
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
 
@@ -468,11 +363,10 @@ def test_token_with_a_comma_is_refused_without_echoing_it():
     assert "OTLP_TOKEN" in str(excinfo.value)
 
 
-def test_auth_on_the_openobserve_backend_is_refused():
-    """The bundled store authenticates with its own account; two sources is a fault."""
-    cfg = {**_OO_CFG, "auth": {"token_env": "OTLP_TOKEN"}}
+def test_auth_on_the_gateway_backend_is_refused():
+    """Each gateway sender authenticates with its own login; two sources is a fault."""
     with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth"):
-        _build_telemetry_env(cfg, auth_token="x")
+        _gw_env({"auth": {"token_env": "OTLP_TOKEN"}}, auth_token="x")
 
 
 @pytest.mark.parametrize(
@@ -535,100 +429,27 @@ def test_telemetry_vars_not_in_managed_set():
 
 def test_telemetry_env_vars_covers_all_emitted_keys():
     """Every key the helper can emit is declared in TELEMETRY_ENV_VARS."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-            "resource_attributes": "service.name=osprey",
-            "content_max_length": 262144,
-        },
-        in_container=False,
+    env = _gw_env(
+        {"resource_attributes": "service.name=osprey", "content_max_length": 262144},
+        terminal_session="chat-1",
     )
     env.update(_build_telemetry_env(_COLLECTOR_CFG, auth_token="t"))
     assert set(env).issubset(TELEMETRY_ENV_VARS)
 
 
-# ── resolve() integration (Task 1.2) ─────────────────────────────
+# ── resolve() integration ────────────────────────────────────────
 
 
-def test_resolve_env_block(monkeypatch):
+def test_resolve_env_block():
     """resolve() with a provider + enabled telemetry folds telemetry into env_block."""
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     spec = ClaudeCodeModelResolver.resolve(
-        {
-            "provider": "anthropic",
-            "telemetry": {
-                "enabled": True,
-                "backend": "openobserve",
-                "openobserve": {"user": "u", "password": "p"},
-            },
-        }
+        {"provider": "anthropic", "telemetry": dict(_GW_CFG)},
+        environ={TELEMETRY_LOGIN_ENV: LOGIN},
+        gateway_url=GATEWAY,
     )
     assert spec is not None
     assert spec.env_block["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
-
-
-def test_resolve_container_endpoint(monkeypatch):
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: True)
-    spec = ClaudeCodeModelResolver.resolve(
-        {
-            "provider": "anthropic",
-            "telemetry": {
-                "enabled": True,
-                "backend": "openobserve",
-                "openobserve": {"user": "u", "password": "p"},
-            },
-        }
-    )
-    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
-
-
-class TestContainerDetection:
-    """The marker files this module treats as "I am in a container".
-
-    Mirrors ``tests/health/test_derive.py``'s coverage of the twin helper in
-    ``osprey.health.derive``: the two are deliberate copies (health must not
-    import the build layer), so each needs its own guard or one drifts silently.
-    """
-
-    def test_docker_marker_detected(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-        monkeypatch.setattr("os.path.exists", lambda p: p == "/.dockerenv")
-        assert _running_in_container() is True
-
-    def test_podman_marker_detected(self, monkeypatch):
-        # Podman writes /run/.containerenv and no /.dockerenv, so a Docker-only
-        # probe read every podman deployment as a host and derived the
-        # localhost OpenObserve default from inside the container.
-        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-        monkeypatch.setattr("os.path.exists", lambda p: p == "/run/.containerenv")
-        assert _running_in_container() is True
-
-    def test_no_marker_is_a_host(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-        monkeypatch.setattr("os.path.exists", lambda p: False)
-        assert _running_in_container() is False
-
-    def test_operator_override_alone_is_enough(self, monkeypatch):
-        monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setenv("OSPREY_IN_CONTAINER", "1")
-        assert _running_in_container() is True
-
-    def test_the_two_copies_probe_the_same_markers(self, monkeypatch):
-        """The health twin and this one must answer identically, marker for marker.
-
-        They are copies by design, which is exactly the arrangement that drifts:
-        this asserts agreement on every case rather than trusting two docstrings
-        to stay in sync.
-        """
-        from osprey.health.derive import _in_container
-
-        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-        for present in ("/.dockerenv", "/run/.containerenv", "/nothing"):
-            monkeypatch.setattr("os.path.exists", lambda p, hit=present: p == hit)
-            assert _running_in_container() == _in_container(), present
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == GATEWAY
 
 
 def test_resolve_no_telemetry_leaves_env_block_clean():
@@ -638,9 +459,8 @@ def test_resolve_no_telemetry_leaves_env_block_clean():
     assert not any(k in spec.env_block for k in TELEMETRY_ENV_VARS)
 
 
-def test_resolve_telemetry_vars_not_added_to_managed_set(monkeypatch):
+def test_resolve_telemetry_vars_not_added_to_managed_set():
     """Injecting telemetry must never mutate MANAGED_ENV_VARS."""
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     ClaudeCodeModelResolver.resolve(
         {"provider": "anthropic", "telemetry": {"enabled": True, "endpoint": "http://c:4318"}}
     )
@@ -675,177 +495,186 @@ def test_no_conflict_on_preexisting_otel():
     assert conflicts["ANTHROPIC_MODEL"] == ("stale-model", "claude-opus-4-6")
 
 
-# ── OpenObserve host override (deploy-topology aware, F1) ─────────
+# ── load_provider_spec(): the gateway address from where the launch runs ──
 
 
-_OO_CFG = {
-    "enabled": True,
-    "backend": "openobserve",
-    "openobserve": {"user": "u", "password": "p"},
-}
-
-
-def test_openobserve_traces_share_the_base_endpoint():
-    """One base endpoint serves every signal.
-
-    The OTLP exporter appends ``/v1/traces`` to the base endpoint, which is
-    OpenObserve's traces route, so no per-signal endpoint is emitted.
-    """
-    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_port=15080)
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
-    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in env
-
-
-def test_host_override_wins_over_derivation():
-    """An explicit host beats both the localhost and container-DNS derivation."""
-    # Not in a container -> would derive localhost; override wins.
-    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_host="openobserve")
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
-    # In a container -> would derive "openobserve"; override still wins.
-    env2 = _build_telemetry_env(_OO_CFG, in_container=True, openobserve_host="oo-host")
-    assert env2["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://oo-host:5080/api/default"
-
-
-def test_host_override_none_falls_through_to_derivation():
-    """No override + not in a container -> localhost (the host-network guard)."""
-    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_host=None)
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
-
-
-def test_resolved_port_is_the_endpoints_port():
-    """The endpoint dials the port handed in — never a literal.
-
-    The store is reached on the port it PUBLISHES from the host and from a
-    host-networked container, and a project moves that port freely; the 5080
-    the image listens on is right only inside the store's own compose network.
-    """
-    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_port=15080)
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
-    env2 = _build_telemetry_env(
-        _OO_CFG, in_container=True, openobserve_host="127.0.0.1", openobserve_port=15080
-    )
-    assert env2["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:15080/api/default"
-
-
-def test_no_port_falls_back_to_the_listen_port():
-    """Omitted, the port is the one the image listens on (5080)."""
-    from osprey.build.claude_code_telemetry import OPENOBSERVE_LISTEN_PORT
-
-    env = _build_telemetry_env(_OO_CFG, in_container=True, openobserve_port=None)
-    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
-        f"http://openobserve:{OPENOBSERVE_LISTEN_PORT}/api/default"
-    )
-
-
-def test_published_port_reads_the_services_block():
-    """``openobserve_published_port`` follows ``services.openobserve.port``.
-
-    With no key it is the layout's ``openobserve`` slot, not the port the image
-    listens on: the published port and the listen port are different numbers,
-    and only the published one can be dialled from off the store's network.
-    """
-    from osprey.build.claude_code_telemetry import openobserve_published_port
-
-    assert openobserve_published_port({"services": {"openobserve": {"port": 15080}}}) == 15080
-    assert openobserve_published_port({"services": {"openobserve": {"port": "15080"}}}) == 15080
-    assert openobserve_published_port({"services": {}}) == default_port("openobserve")
-    assert openobserve_published_port({}) == default_port("openobserve")
-    assert openobserve_published_port(None) == default_port("openobserve")
-    with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
-        openobserve_published_port({"services": {"openobserve": {"port": "five"}}})
-
-
-def test_both_resolvers_follow_the_port_base(monkeypatch):
-    """A moved base moves the store, with no ``services.openobserve.port`` key.
-
-    The number is the layout's: base 20000 + the openobserve offset. Both the
-    build-time reader and the runtime one derive it from the config in hand, so
-    a second deployment on the host dials its own store rather than the first
-    one's.
-    """
-    from osprey.build.claude_code_telemetry import (
-        OPENOBSERVE_PORT_ENV_VAR,
-        openobserve_published_port,
-        resolve_openobserve_port,
-    )
-
-    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
-    moved = {"deployment": {"port_base": 20000}}
-    assert openobserve_published_port(moved) == 20050
-    assert resolve_openobserve_port(moved) == 20050
-    # An explicit port still wins over the block it sits in.
-    pinned = {"deployment": {"port_base": 20000}, "services": {"openobserve": {"port": 15080}}}
-    assert openobserve_published_port(pinned) == 15080
-    assert resolve_openobserve_port(pinned) == 15080
-
-
-def test_port_override_helper(monkeypatch):
-    """``OSPREY_OTEL_OPENOBSERVE_PORT`` is the port half of the host override."""
-    from osprey.build.claude_code_telemetry import (
-        OPENOBSERVE_PORT_ENV_VAR,
-        _openobserve_port_override,
-        resolve_openobserve_port,
-    )
-
-    published = {"services": {"openobserve": {"port": 15080}}}
-    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
-    assert _openobserve_port_override() is None
-    assert resolve_openobserve_port(published) == 15080
-    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "")
-    assert _openobserve_port_override() is None
-    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "5080")
-    assert _openobserve_port_override() == 5080
-    # The bridge case: the compose author declared the listen port, and it
-    # wins over the published port the config names.
-    assert resolve_openobserve_port(published) == 5080
-    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "x")
-    with pytest.raises(TelemetryConfigError, match=OPENOBSERVE_PORT_ENV_VAR):
-        _openobserve_port_override()
-
-
-def test_load_provider_spec_dials_the_published_port(tmp_path, monkeypatch):
-    """The runtime launch path threads ``services.openobserve.port`` through."""
+def _write_gateway_project(tmp_path, extra: dict | None = None) -> None:
     import yaml
 
-    from osprey.agent_runner.provider_env import load_provider_spec
-    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_ENV_VAR
-
-    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
-    monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump(
+            {"claude_code": {"provider": "anthropic", "telemetry": dict(_GW_CFG)}, **(extra or {})}
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.fixture
+def _host_launch(monkeypatch):
+    """A launch on the host: a login, and no rendered gateway address."""
+    monkeypatch.delenv(GATEWAY_HOST_ENV, raising=False)
+    monkeypatch.delenv(GATEWAY_PORT_ENV, raising=False)
+    monkeypatch.setenv(TELEMETRY_LOGIN_ENV, LOGIN)
+
+
+@pytest.mark.usefixtures("_host_launch")
+def test_a_host_launch_dials_the_published_gateway_port(tmp_path):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _write_gateway_project(tmp_path, {"services": {"telemetry_gateway": {"port": 15051}}})
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:15051"
+
+
+@pytest.mark.usefixtures("_host_launch")
+def test_a_host_launch_follows_the_port_base(tmp_path):
+    """A moved base moves the gateway, with no ``services.telemetry_gateway.port`` key."""
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    moved = {"deployment": {"port_base": 20000}}
+    _write_gateway_project(tmp_path, moved)
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
+        f"http://127.0.0.1:{gateway_port(moved)}"
+    )
+    assert gateway_port(moved) != gateway_port({})
+
+
+@pytest.mark.usefixtures("_host_launch")
+def test_a_host_launch_on_a_concrete_bind_address_dials_that_address(tmp_path):
+    """A port published on one address is not reachable on loopback."""
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _write_gateway_project(
+        tmp_path,
+        {
+            "deployment": {"bind_address": "10.0.0.5"},
+            "services": {"telemetry_gateway": {"port": 15051}},
+        },
+    )
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://10.0.0.5:15051"
+
+
+@pytest.mark.usefixtures("_host_launch")
+def test_a_rendered_container_dials_the_host_its_environment_names(tmp_path, monkeypatch):
+    """A bridge container names the service; its port defaults to the listen port."""
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _write_gateway_project(tmp_path, {"services": {"telemetry_gateway": {"port": 15051}}})
+    monkeypatch.setenv(GATEWAY_HOST_ENV, "telemetry_gateway")
+    spec = load_provider_spec(tmp_path)
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://telemetry_gateway:4318"
+    monkeypatch.setenv(GATEWAY_PORT_ENV, "15051")
+    spec = load_provider_spec(tmp_path)
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://telemetry_gateway:15051"
+
+
+@pytest.mark.usefixtures("_host_launch")
+def test_a_malformed_gateway_port_in_the_environment_is_loud(tmp_path, monkeypatch):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _write_gateway_project(tmp_path)
+    monkeypatch.setenv(GATEWAY_HOST_ENV, "telemetry_gateway")
+    monkeypatch.setenv(GATEWAY_PORT_ENV, "x")
+    with pytest.raises(TelemetryConfigError, match=GATEWAY_PORT_ENV):
+        load_provider_spec(tmp_path)
+
+
+def test_a_host_launch_without_a_login_is_refused(tmp_path, monkeypatch):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    monkeypatch.delenv(GATEWAY_HOST_ENV, raising=False)
+    monkeypatch.delenv(TELEMETRY_LOGIN_ENV, raising=False)
+    _write_gateway_project(tmp_path)
+    with pytest.raises(ObservabilityCredentialError) as caught:
+        load_provider_spec(tmp_path)
+    assert caught.value.unresolved_vars == (TELEMETRY_LOGIN_ENV,)
+
+
+# ── load_provider_spec(): the login a host launch sends under ────
+
+_BUILT_LOGIN = "builder:filed-by-the-build"
+
+
+def _built_repo(root, monkeypatch) -> object:
+    """A built repo whose render records ``builder`` and whose root files its login.
+
+    Returns the render. The launch environment carries no login of its own.
+    """
+    import yaml
+
+    from osprey.deployment.telemetry_credentials import sender_file
+
+    monkeypatch.delenv(GATEWAY_HOST_ENV, raising=False)
+    monkeypatch.delenv(GATEWAY_PORT_ENV, raising=False)
+    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+    monkeypatch.delenv(TELEMETRY_LOGIN_ENV, raising=False)
+    (root / "profile.yml").write_text("project_name: p\n", encoding="utf-8")
+    render = root / "build"
+    render.mkdir()
+    (render / "config.yml").write_text(
+        yaml.safe_dump(
             {
-                "claude_code": {"provider": "anthropic", "telemetry": _OO_CFG},
-                "services": {"openobserve": {"port": 15080}},
+                "claude_code": {"provider": "anthropic", "telemetry": dict(_GW_CFG)},
+                "deployment": {"host_identity": "builder"},
             }
         ),
         encoding="utf-8",
     )
-    spec = load_provider_spec(tmp_path)
+    (root / sender_file("builder")).write_text(
+        f"{TELEMETRY_LOGIN_ENV}={_BUILT_LOGIN}\n", encoding="utf-8"
+    )
+    return render
+
+
+def _basic(login: str) -> str:
+    return "Authorization=Basic " + base64.b64encode(login.encode()).decode()
+
+
+def test_a_host_launch_sends_under_the_login_the_build_filed(tmp_path, monkeypatch):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    render = _built_repo(tmp_path, monkeypatch)
+    spec = load_provider_spec(render, env_dir=tmp_path)
     assert spec is not None
-    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == _basic(_BUILT_LOGIN)
 
 
-def test_host_override_helper_empty_string_is_none(monkeypatch):
-    monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
-    assert _openobserve_host_override() is None
-    monkeypatch.setenv("OSPREY_OTEL_OPENOBSERVE_HOST", "")
-    assert _openobserve_host_override() is None
-    monkeypatch.setenv("OSPREY_OTEL_OPENOBSERVE_HOST", "openobserve")
-    assert _openobserve_host_override() == "openobserve"
+def test_the_agent_runner_on_the_host_sends_under_the_built_login(tmp_path, monkeypatch):
+    """The runner's own environment, with nothing exported before it, authenticates."""
+    from osprey.agent_runner.primitives import sdk_env
+
+    render = _built_repo(tmp_path, monkeypatch)
+    assert sdk_env(render)["OTEL_EXPORTER_OTLP_HEADERS"] == _basic(_BUILT_LOGIN)
 
 
-def test_resolve_consults_host_override(monkeypatch):
-    """resolve() threads OSPREY_OTEL_OPENOBSERVE_HOST into the endpoint even
-    when not detected as in-container (the podman-bridge fix)."""
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
-    monkeypatch.setattr(resolver, "_openobserve_host_override", lambda: "openobserve")
-    spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic", "telemetry": _OO_CFG})
-    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
+def test_a_rendered_container_sends_under_its_own_login_only(tmp_path, monkeypatch):
+    """A container's login is the one its compose file set; the repo's files are not read."""
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    render = _built_repo(tmp_path, monkeypatch)
+    monkeypatch.setenv(GATEWAY_HOST_ENV, "telemetry_gateway")
+    with pytest.raises(ObservabilityCredentialError):
+        load_provider_spec(render, env_dir=tmp_path)
+    monkeypatch.setenv(TELEMETRY_LOGIN_ENV, LOGIN)
+    spec = load_provider_spec(render, env_dir=tmp_path)
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == _basic(LOGIN)
 
 
-# ── content-gate truthiness + off-host advisory (F5) ─────────────
+def test_a_build_time_resolution_carries_no_login(tmp_path, monkeypatch):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    render = _built_repo(tmp_path, monkeypatch)
+    spec = load_provider_spec(render, env_dir=tmp_path, defer_unresolved_telemetry_creds=True)
+    assert spec is not None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
+
+
+# ── content-gate truthiness + off-host advisory ──────────────────
 
 
 @pytest.mark.parametrize("env_var,cfg_key", CONTENT_GATES)
@@ -854,27 +683,13 @@ def test_resolve_consults_host_override(monkeypatch):
 )
 def test_falsey_gate_values_suppress(env_var, cfg_key, falsey):
     """bool False AND false-y strings (incl. ${VAR:-false} -> "false") zero the gate."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-            cfg_key: falsey,
-        }
-    )
+    env = _gw_env({cfg_key: falsey})
     assert env[env_var] == "0"
 
 
 @pytest.mark.parametrize("truthy", [True, "true", "True", "1", "yes"])
 def test_truthy_gate_values_stay_on(truthy):
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-            "log_user_prompts": truthy,
-        }
-    )
+    env = _gw_env({"log_user_prompts": truthy})
     assert env["OTEL_LOG_USER_PROMPTS"] == "1"
 
 
@@ -887,21 +702,19 @@ def test_gate_is_on_helper():
     assert _gate_is_on("true") is True
 
 
-def test_warns_on_content_capture_non_openobserve():
-    """Full content capture to a non-openobserve backend leaves the host -> warn."""
+def test_warns_on_content_capture_to_a_collector_of_its_own():
+    """Full content capture to a collector outside the deployment leaves the host -> warn."""
     with pytest.warns(UserWarning, match="leave the host"):
         _build_telemetry_env({"enabled": True, "endpoint": "http://collector:4318"})
 
 
-def test_no_warning_for_openobserve_backend(recwarn):
-    _build_telemetry_env(
-        {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u", "password": "p"}}
-    )
+def test_no_warning_for_the_gateway_backend(recwarn):
+    _gw_env()
     assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
 
 
 def test_no_warning_when_all_content_off(recwarn):
-    """A non-openobserve backend with every content gate off must not warn."""
+    """A collector of its own with every content gate off must not warn."""
     _build_telemetry_env(
         {
             "enabled": True,
@@ -916,7 +729,7 @@ def test_no_warning_when_all_content_off(recwarn):
     assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
 
 
-# ── telemetry-specific error type (F4) ───────────────────────────
+# ── telemetry-specific error type ────────────────────────────────
 
 
 def test_telemetry_misconfig_raises_telemetry_config_error():
@@ -924,9 +737,7 @@ def test_telemetry_misconfig_raises_telemetry_config_error():
     caller can single out a telemetry misconfig without catching every ValueError."""
     assert issubclass(TelemetryConfigError, ValueError)
     with pytest.raises(TelemetryConfigError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}}
-        )
+        _gw_env(telemetry_login=None)
     with pytest.raises(TelemetryConfigError):
         _build_telemetry_env({"enabled": True})
 
@@ -945,164 +756,110 @@ def test_credential_error_subclass_chain():
     assert issubclass(ObservabilityCredentialError, ValueError)
 
 
-@pytest.mark.parametrize(
-    "openobserve",
-    [
-        {"user": "u"},
-        {"password": "p"},
-        {},
-        {"user": "", "password": ""},
-    ],
-    ids=["password-absent", "user-absent", "block-empty", "both-blank"],
-)
-def test_missing_or_blank_credential_raises_the_credential_type(openobserve):
-    """A credential the operator has to supply reports itself as a credential fault."""
-    with pytest.raises(ObservabilityCredentialError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
-        )
-
-
-@pytest.mark.parametrize(
-    "openobserve",
-    [
-        {"user": "${STORE_USER}", "password": "p"},
-        {"user": "u", "password": "${STORE_PASSWORD}"},
-    ],
-    ids=["user-unresolved", "password-unresolved"],
-)
-def test_unresolved_credential_var_raises_the_credential_type(openobserve):
-    """An unresolved ${VAR} credential is the same kind of fault as a blank one.
-
-    Both are fixed by putting a value in the deployment's secret store, so both
-    carry the type whose remedy says so.
-    """
-    with pytest.raises(ObservabilityCredentialError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
-        )
-
-
-@pytest.mark.parametrize(
-    ("openobserve", "expected"),
-    [
-        ({"user": "u", "password": "${STORE_PASSWORD}"}, ("STORE_PASSWORD",)),
-        ({"user": "${STORE_USER}", "password": "p"}, ("STORE_USER",)),
-        # A default the config author wrote is not part of the variable's name.
-        ({"user": "u", "password": "${STORE_PASSWORD:-fallback}"}, ("STORE_PASSWORD",)),
-        # Two references in one value: both are named, so a caller deciding
-        # whether it can supply them itself sees the whole set.
-        ({"user": "u", "password": "${A_TOKEN}-${B_TOKEN}"}, ("A_TOKEN", "B_TOKEN")),
-    ],
-    ids=["password", "user", "with-default", "two-references"],
-)
-def test_the_refusal_names_the_variables_it_could_not_resolve(openobserve, expected):
+@pytest.mark.parametrize("login", [None, "", "  "], ids=["absent", "empty", "blank"])
+def test_a_missing_login_names_the_login_variable(login):
     """The names travel on the exception, not only inside its sentence.
 
-    A caller has to decide whether the absent value is one its own deploy
-    issues later — that decision is about a variable name, and recovering names
-    by parsing prose makes it hostage to the wording of a human-facing message.
+    A caller deciding what the operator must supply decides about a variable
+    name; recovering it by parsing prose would make it hostage to the wording.
     """
     with pytest.raises(ObservabilityCredentialError) as caught:
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
-        )
-
-    assert caught.value.unresolved_vars == expected
+        _gw_env(telemetry_login=login)
+    assert caught.value.unresolved_vars == (TELEMETRY_LOGIN_ENV,)
+    assert TELEMETRY_LOGIN_ENV in str(caught.value)
 
 
-@pytest.mark.parametrize(
-    "openobserve",
-    [{"user": "u"}, {"user": "u", "password": ""}],
-    ids=["absent", "blank"],
-)
-def test_a_missing_credential_names_no_variable(openobserve):
-    """There is nothing to name, and nothing any later step could fill in — so a
-    caller reading the names cannot mistake this for a value that is merely early."""
+def test_a_missing_login_names_the_host_and_the_container_remedy():
+    """A host launch is fixed by `osprey build`; a container by its env file.
+
+    The refusal is what an operator running the image by hand reads, so it
+    names the sender file a container is handed and how ``docker run`` hands
+    it, and names files and variables only.
+    """
     with pytest.raises(ObservabilityCredentialError) as caught:
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
-        )
-
-    assert caught.value.unresolved_vars == ()
-
-
-def test_deferred_credential_still_raises_the_credential_type_when_absent():
-    """Deferral covers an unresolved ${VAR}; an absent credential keeps its type."""
-    with pytest.raises(ObservabilityCredentialError):
-        _build_telemetry_env(
-            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}},
-            defer_unresolved_creds=True,
-        )
+        _gw_env(telemetry_login=None)
+    message = str(caught.value)
+    assert message.startswith(f"{TELEMETRY_LOGIN_ENV} is unset or blank")
+    assert "`osprey build`" in message
+    assert ".env.telemetry-sender.<identity>" in message
+    assert "--env-file" in message
 
 
 @pytest.mark.parametrize(
-    "telemetry",
-    [
-        {"enabled": True, "backend": "jaeger"},
-        {"enabled": True},
-        {"enabled": True, "endpoint": "http://${COLLECTOR_HOST}:4318"},
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "protocol": "grpc",
-            "openobserve": {"user": "u", "password": "p"},
-        },
-    ],
-    ids=["no-endpoint-other-backend", "no-endpoint-no-backend", "unresolved-var", "grpc-derived"],
+    "login",
+    ["no-colon", ":hunter2x", "identity:", "alice:pa,ss", "alice:pa\nss"],
+    ids=["no-colon", "no-identity", "no-password", "comma", "newline"],
 )
-def test_endpoint_faults_keep_the_general_telemetry_type(telemetry):
+def test_a_malformed_login_names_no_variable_and_never_echoes_the_value(login):
+    """A login that is set but wrong is not fixed by setting a variable."""
+    with pytest.raises(ObservabilityCredentialError) as caught:
+        _gw_env(telemetry_login=login)
+    assert caught.value.unresolved_vars == ()
+    if ":" in login and login.split(":", 1)[1]:
+        assert login.split(":", 1)[1] not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("telemetry", "kwargs"),
+    [
+        ({"enabled": True, "backend": "jaeger"}, {}),
+        ({"enabled": True}, {}),
+        ({"enabled": True, "endpoint": "http://${COLLECTOR_HOST}:4318"}, {}),
+        (
+            {"enabled": True, "backend": "gateway", "protocol": "grpc"},
+            {"gateway_url": GATEWAY, "telemetry_login": LOGIN},
+        ),
+        ({"enabled": True, "backend": "gateway"}, {"telemetry_login": LOGIN}),
+    ],
+    ids=[
+        "unknown-backend",
+        "no-endpoint-no-backend",
+        "unresolved-var",
+        "grpc-to-gateway",
+        "no-gateway-address",
+    ],
+)
+def test_endpoint_faults_keep_the_general_telemetry_type(telemetry, kwargs):
     """An endpoint fault is not a credential fault, and must not borrow its type.
 
     A handler that offers a credential remedy would send the operator to the
     secret store for a problem that lives in the endpoint config.
     """
     with pytest.raises(TelemetryConfigError) as caught:
-        _build_telemetry_env(telemetry)
+        _build_telemetry_env(telemetry, **kwargs)
     assert not isinstance(caught.value, ObservabilityCredentialError)
 
 
 def test_existing_broad_handlers_still_catch_a_credential_fault():
     """The callers that catch TelemetryConfigError or ValueError keep working."""
-    cfg = {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}}
     with pytest.raises(TelemetryConfigError):
-        _build_telemetry_env(cfg)
+        _gw_env(telemetry_login=None)
     with pytest.raises(ValueError):
-        _build_telemetry_env(cfg)
+        _gw_env(telemetry_login=None)
 
 
-def test_deferred_var_credential_warns_not_raises_through_resolve(monkeypatch, recwarn):
+def test_a_deferred_login_is_omitted_not_raised_through_resolve(recwarn):
     """Pins the build-time catch site's reachability contract through resolve().
 
-    ``build_cmd.py``'s render call sets ``defer_unresolved_telemetry_creds=True``
-    around ``load_provider_spec()`` and catches ``ValueError``. An unresolved
-    ``${VAR}`` credential must warn rather than raise all the way through
-    ``resolve()`` — not just at the ``_build_telemetry_env``/
-    ``_openobserve_auth_header`` leaf — or the comment at that catch site goes
-    stale silently. A missing/blank credential is a separate arm (see
-    ``test_deferred_credential_still_raises_the_credential_type_when_absent``)
-    and keeps raising even when deferred.
+    ``build_cmd.py``'s render sets ``defer_unresolved_telemetry_creds=True``
+    around ``load_provider_spec()``. An absent login must omit the header all
+    the way through ``resolve()`` — not just at the ``_build_telemetry_env``
+    leaf — because a build never carries a sender's login.
     """
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     spec = ClaudeCodeModelResolver.resolve(
-        {
-            "provider": "anthropic",
-            "telemetry": {
-                "enabled": True,
-                "backend": "openobserve",
-                "openobserve": {"user": "${STORE_USER}", "password": "p"},
-            },
-        },
+        {"provider": "anthropic", "telemetry": dict(_GW_CFG)},
         defer_unresolved_telemetry_creds=True,
+        environ={},
+        gateway_url=GATEWAY,
     )
     assert spec is not None
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
     assert spec.env_block["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert any("unresolved" in str(w.message) for w in recwarn)
+    assert len(recwarn) == 0
 
 
 class TestTelemetryPortIsATelemetryInput:
-    """A malformed ``services.openobserve.port`` is a telemetry fault, and a
+    """A malformed ``services.telemetry_gateway.port`` is a telemetry fault, and a
     caller that asked for no telemetry must not see it: the dispatch worker's
     degrade-and-retry re-resolves with ``include_telemetry=False`` precisely
     to keep the provider's auth when telemetry is misconfigured."""
@@ -1116,16 +873,21 @@ class TestTelemetryPortIsATelemetryInput:
         "  provider: anthropic\n"
         "  telemetry:\n"
         "    enabled: true\n"
-        "    backend: openobserve\n"
+        "    backend: gateway\n"
         "services:\n"
-        "  openobserve:\n"
+        "  telemetry_gateway:\n"
         "    port: not-a-port\n"
     )
 
-    def test_without_telemetry_the_port_is_never_resolved(self, tmp_path, monkeypatch):
+    @pytest.fixture(autouse=True)
+    def _host_launch(self, monkeypatch):
+        monkeypatch.delenv(GATEWAY_HOST_ENV, raising=False)
+        monkeypatch.setenv(TELEMETRY_LOGIN_ENV, LOGIN)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+    def test_without_telemetry_the_port_is_never_resolved(self, tmp_path):
         from osprey.agent_runner.provider_env import load_provider_spec
 
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         (tmp_path / "config.yml").write_text(self._CONFIG)
 
         spec = load_provider_spec(tmp_path, include_telemetry=False)
@@ -1133,16 +895,12 @@ class TestTelemetryPortIsATelemetryInput:
         assert spec.provider == "anthropic"
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in spec.env_block
 
-    def test_with_telemetry_the_port_fault_is_loud(self, tmp_path, monkeypatch):
-        import pytest
-
+    def test_with_telemetry_the_port_fault_is_loud(self, tmp_path):
         from osprey.agent_runner.provider_env import load_provider_spec
-        from osprey.build.claude_code_telemetry import TelemetryConfigError
 
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         (tmp_path / "config.yml").write_text(self._CONFIG)
 
-        with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
+        with pytest.raises(TelemetryConfigError, match="services.telemetry_gateway.port"):
             load_provider_spec(tmp_path, include_telemetry=True)
 
 
@@ -1157,25 +915,18 @@ _SIGNAL_KEYS = {*_EXPORTERS.values(), "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"}
 
 
 def _signals_cfg(signals) -> dict:
-    """An enabled openobserve block with inline credentials and ``signals``."""
-    return {
-        "enabled": True,
-        "backend": "openobserve",
-        "openobserve": {"user": "u", "password": "p"},
-        "signals": signals,
-    }
+    """An enabled gateway block with ``signals``."""
+    return {**_GW_CFG, "signals": signals}
 
 
 def _signals_env(signals) -> dict[str, str]:
-    return _build_telemetry_env(_signals_cfg(signals), in_container=False)
+    return _gw_env(_signals_cfg(signals))
 
 
 def test_absent_signals_export_all_three():
     """Unset, ``None`` and the full list give the same block: every signal on."""
-    absent = _build_telemetry_env(
-        {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u", "password": "p"}},
-        in_container=False,
-    )
+    absent = _gw_env()
+
     assert _signals_env(None) == absent
     assert _signals_env(["metrics", "logs", "traces"]) == absent
     for exporter in _EXPORTERS.values():
@@ -1234,16 +985,15 @@ def test_signals_are_inert_while_telemetry_is_off():
     assert _build_telemetry_env({"enabled": False, "signals": []}) == {}
 
 
-def test_build_refuses_empty_signals(tmp_path, monkeypatch):
+def test_build_refuses_empty_signals(tmp_path):
     """The build's own spec load stops on an empty list."""
     import yaml
 
     from osprey.agent_runner.provider_env import load_provider_spec
 
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump(
-            {"claude_code": {"provider": "anthropic", "telemetry": {**_OO_CFG, "signals": []}}}
+            {"claude_code": {"provider": "anthropic", "telemetry": {**_GW_CFG, "signals": []}}}
         ),
         encoding="utf-8",
     )
@@ -1253,18 +1003,19 @@ def test_build_refuses_empty_signals(tmp_path, monkeypatch):
         )
 
 
-def _resolve_with_signals(monkeypatch, signals) -> ClaudeCodeModelSpec:
-    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+def _resolve_with_signals(signals) -> ClaudeCodeModelSpec:
     spec = ClaudeCodeModelResolver.resolve(
-        {"provider": "anthropic", "telemetry": _signals_cfg(signals)}
+        {"provider": "anthropic", "telemetry": _signals_cfg(signals)},
+        environ={TELEMETRY_LOGIN_ENV: LOGIN},
+        gateway_url=GATEWAY,
     )
     assert spec is not None
     return spec
 
 
-def test_a_left_out_signal_overrides_a_shell_export(monkeypatch):
+def test_a_left_out_signal_overrides_a_shell_export():
     """A stale shell export of a left-out signal is overwritten at launch."""
-    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    spec = _resolve_with_signals(["metrics", "logs"])
     environ = {"OTEL_TRACES_EXPORTER": "otlp", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1"}
     resolver.inject_provider_env(environ, spec)
     assert environ["OTEL_TRACES_EXPORTER"] == "none"
@@ -1272,9 +1023,9 @@ def test_a_left_out_signal_overrides_a_shell_export(monkeypatch):
     assert spec.detect_env_conflicts({"OTEL_TRACES_EXPORTER": "otlp"}) == {}
 
 
-def test_a_left_out_signal_overrides_the_project_env_file(tmp_path, monkeypatch):
+def test_a_left_out_signal_overrides_the_project_env_file(tmp_path):
     """A ``.env`` line for a left-out signal is overwritten at launch."""
-    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    spec = _resolve_with_signals(["metrics", "logs"])
     (tmp_path / ".env").write_text("OTEL_TRACES_EXPORTER=otlp\n", encoding="utf-8")
     environ: dict[str, str] = {}
     resolver.inject_provider_env(environ, spec, project_dir=tmp_path)

@@ -53,8 +53,7 @@ on safely:
   reported.
 
 **3. How it is written.** :func:`write_json_atomic` replaces a file rather
-than rewriting it — temp file in the same directory, then ``os.replace`` — so
-no reader ever sees half of one and two writers never interleave into one.
+than rewriting it, whole through ``safety_file.atomic_replace``, so no reader ever sees half of one and two writers never interleave into one.
 Every file in this directory is written through it, the record
 (:func:`write_record`) and the per-server reports and requests alike.
 Serialising the read-modify-write around a write is the owner's job, not this
@@ -99,7 +98,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -109,6 +107,7 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.types import CONTROL_TARGETS
 
 logger = logging.getLogger("osprey_connectors.control_context")
@@ -285,6 +284,26 @@ class ControlContext:
             "posture": dict(self.posture),
             "last_switch": None if self.last_switch is None else dict(self.last_switch),
         }
+
+
+def claimed(record: ControlContext, baseline: str) -> ControlContext:
+    """*record* as a process claiming it holds it, given the deployment's *baseline*.
+
+    A record nobody has switched follows the deployment's baseline; every
+    applied switch mints ``generation + 1``, so generation 0 is a claim and
+    never a switch. An unswitched record on another target moves to
+    *baseline* and keeps its generation, owner, posture narrowings (they only
+    ever refuse) and last switch terminus. A switched record, or one already
+    on *baseline*, is returned as it is.
+    """
+    if record.generation != 0 or record.target == baseline:
+        return record
+    logger.warning(
+        "control context: unswitched record on %r follows the deployment's baseline %r",
+        record.target,
+        baseline,
+    )
+    return replace(record, target=baseline)
 
 
 # -- path resolution --------------------------------------------------------
@@ -504,9 +523,8 @@ def invalidate_cache() -> None:
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     """Write *payload* to *path* as JSON, replacing any existing file. Rule 3.
 
-    The temp file shares the target's directory — ``os.replace`` is atomic
-    only within one filesystem — and is removed if the dump fails, so a failed
-    write leaves neither half a file nor litter beside it.
+    The file is replaced whole through ``safety_file.atomic_replace``, so a
+    failed write leaves neither half a file nor litter beside it.
 
     Every file in :func:`state_dir` is written this way, the record and the
     per-server reports and requests alike: they are read by processes that
@@ -516,11 +534,10 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     The mode is load-bearing, not a preference: those readers run under other
     uids — a dispatch worker at uid 1000 reading what the host account wrote —
     and reach the file through the setgid group of the state directory, so the
-    file is set to 0640 on the descriptor itself. ``os.fchmod`` is not masked
-    by the umask the way ``mkstemp``'s own 0600 or an ``os.open`` mode request
-    is: under umask 077 a record only the owner can read makes every owned
-    lane write refuse ``control_context_unavailable``, while CI at umask 022
-    stays green and never sees it. Every directory this writer creates — the
+    file is given 0640 whatever the umask: under umask 077 a record only the
+    owner can read makes every owned lane write refuse
+    ``control_context_unavailable``, while CI at umask 022 stays green and never
+    sees it. Every directory this writer creates — the
     levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
     than merely widened, because a directory left at the umask 0755 would let
     ``other`` list the identity names.
@@ -546,18 +563,9 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         created = []
     for level in created:
         os.chmod(level, 0o2770)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            os.fchmod(fd, 0o640)
-            json.dump(payload, handle, indent=2)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    atomic_replace(
+        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
+    )
 
 
 def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
@@ -1060,7 +1068,6 @@ def sweep_dead(
     prefix: str,
     suffix: str,
     keep: str | None = None,
-    salvage: Callable[[Path], None] | None = None,
     is_alive: Callable[[object], bool] = is_process_alive,
 ) -> list[Path]:
     """Unlink every ``prefix<pid>suffix`` file in *directory* whose PID is gone.
@@ -1077,9 +1084,6 @@ def sweep_dead(
         keep: A filename to leave alone without probing it. This is how a
             process spares its own file: asking whether oneself is alive is a
             way to get it wrong.
-        salvage: Called with each doomed file before it is unlinked, for a
-            caller that needs what it said — the child PIDs a dead server left
-            running are read here and nowhere else.
         is_alive: The liveness predicate.
 
     Returns:
@@ -1097,8 +1101,6 @@ def sweep_dead(
         pid = _pid_from_filename(entry.name, prefix, suffix)
         if pid is not None and is_alive(pid):
             continue
-        if salvage is not None:
-            salvage(entry)
         try:
             entry.unlink(missing_ok=True)
         except OSError as exc:  # pragma: no cover - unwritable state dir

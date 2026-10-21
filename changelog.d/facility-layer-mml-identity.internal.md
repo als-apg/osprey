@@ -1,0 +1,1 @@
+The mml importer names each imported device by its export `CommonNames` entry at the slot's position, writes one record for every slot naming the same device, and writes an address several devices bind once, naming each in `endpoint_of`.

@@ -34,6 +34,21 @@ print("notified")
 """
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
+@pytest.fixture
+def deployment(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the sandbox in a deployment repo: a readwrite run holds its target's lock there."""
+    from osprey.mcp_server.python_executor import executor
+
+    (tmp_path / "profile.yml").write_text("name: probe\n", encoding="utf-8")
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+
+
 def _folder(tmp_path):
     folder = tmp_path / "exec"
     folder.mkdir()
@@ -108,6 +123,7 @@ def test_read_written_channels_keeps_first_attempt_order_without_repeats(tmp_pat
     assert _read_written_channels(tmp_path) == ["SR:MAG:2", "SR:MAG:1"]
 
 
+@pytest.mark.usefixtures("deployment")
 async def test_writes_ledger_fills_written_channels(tmp_path):
     """A readwrite run's attempts reach ``written_channels``; other phases do not."""
     folder = _folder(tmp_path)
@@ -149,6 +165,7 @@ async def test_writes_ledger_readonly_run_records_nothing(tmp_path):
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.usefixtures("deployment")
 async def test_writes_ledger_survives_a_timeout(tmp_path):
     """A run killed at its timeout still reports the attempts it made."""
     folder = _folder(tmp_path)

@@ -1,17 +1,20 @@
 """Two genuinely different connector-host targets on one machine, with no EPICS.
 
 A deployment's ``live`` target resolves to whatever non-simulated connector its
-config names, so pointing ``control_system.type`` at the mock connector's
-dotted path gives a real, servable ``live``. ``va`` always resolves to the
+config names, so pointing ``control_system.type`` at the in-process
+simulator's dotted path gives a real, servable ``live``. ``va`` always resolves to the
 ``virtual_accelerator`` type, which is a registry name rather than a path — so
 the children are launched with a scratch directory on their ``PYTHONPATH``
-holding a ``sitecustomize`` that registers a mock variant under that name
+holding a ``sitecustomize`` that registers a fixture variant under that name
 before the child's own ``register_builtin_connectors()`` runs (which never
 replaces an existing registration). The result is two genuinely different
 targets, each with its own connector block and probe channel, neither of which
 touches Channel Access.
 
-That variant serves two channels with behaviour the tests need and a mock
+Both blocks serve one simulator view, built once per process by
+:func:`served_view` and holding every address a child here reads or writes.
+
+That variant answers two channels with behaviour the tests need and a mock
 cannot give them: :data:`REFUSE_CHANNEL` raises, and :data:`SLOW_CHANNEL`
 blocks for far longer than any drain deadline. It also runs the EPICS gateway
 selection — the same rule, reading the same per-type write posture, installing
@@ -27,8 +30,12 @@ the directory.
 """
 
 import asyncio
+import atexit
 import contextlib
+import functools
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -40,14 +47,15 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import EPICS
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The mock connector by dotted path: what lets a test *serve* ``live`` from a
+#: The in-process simulator by dotted path: what lets a test *serve* ``live`` from a
 #: real child on a machine with no Channel Access, which is what nearly every
 #: test here does — hence this module's default.
-SERVED_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+SERVED_LIVE_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 #: A Channel Access type, for the tests that need ``live`` to read as a real
 #: machine rather than be served by one. Nothing is spawned from it.
 CA_LIVE_TYPE = EPICS
@@ -55,6 +63,12 @@ LIVE_PROBE = "SR:BEAM:CURRENT"
 VA_PROBE = "VA:BEAM:CURRENT"
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
+
+#: The setpoints a child here writes: one on the live target, one on the simulator.
+SERVED_SETPOINTS = ("SR:CORR:1:SP", "VA:CORR:1:SP")
+#: The addresses a child here only reads, the fixture's two behaviour channels
+#: among them.
+SERVED_READINGS = (LIVE_PROBE, VA_PROBE, REFUSE_CHANNEL, SLOW_CHANNEL)
 
 #: Tight enough that a hang fails the test rather than the run.
 SPAWN_TIMEOUT_S = 30.0
@@ -99,7 +113,7 @@ import asyncio
 import os
 
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
@@ -108,7 +122,7 @@ DEAD_WRITE_PORT = "5555"
 WRITE_ROLE = "write_access"
 
 
-class FixtureConnector(MockConnector):
+class FixtureConnector(VAInProcessConnector):
     #: The role connect() actually installed, or None when it configured no
     #: gateway at all.
     _gateway_role = None
@@ -154,6 +168,21 @@ class FixtureConnector(MockConnector):
                 error_message="the read-only gateway refused the write",
             )
         return await super().write_channel(channel_address, value, timeout=timeout, **kwargs)
+
+
+class VirtualAcceleratorFixtureConnector(FixtureConnector):
+    """The fixture as the virtual accelerator: unset gateway ports are filled.
+
+    The real virtual-accelerator connector fills an unset gateway port from
+    ``services.virtual_accelerator.port`` in the project config the child
+    reads; this does the same through the same helper, so a child here reports
+    the port the parent's derivation expects.
+    """
+
+    async def connect(self, config):
+        from osprey_connectors.control_system.va_connector import fill_gateway_ports
+
+        await super().connect(fill_gateway_ports(config))
 '''
 
 SITECUSTOMIZE = '''\
@@ -166,14 +195,40 @@ connect() — with no EPICS anywhere.
 """
 
 try:
-    from switch_fixture_connectors import FixtureConnector
+    from switch_fixture_connectors import VirtualAcceleratorFixtureConnector
 
     from osprey_connectors.factory import ConnectorFactory
 
-    ConnectorFactory.register_control_system("virtual_accelerator", FixtureConnector)
+    ConnectorFactory.register_control_system(
+        "virtual_accelerator", VirtualAcceleratorFixtureConnector
+    )
 except Exception:  # a child that cannot register it fails loudly in the test
     pass
 '''
+
+
+@functools.cache
+def served_view() -> Path:
+    """The simulator view every target block here serves, built once per process.
+
+    The children read the view from their ``connect()`` settings, so one view
+    on disk serves every manager this process builds; it is removed when the
+    process exits.
+    """
+    root = Path(tempfile.mkdtemp(prefix="switch_served_"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    return served_tree(root, SERVED_SETPOINTS, SERVED_READINGS)
+
+
+def _served_block(**settings):
+    """A target's connector block serving :func:`served_view`.
+
+    Without the ``serving`` leaf: the deployment's own type is a dotted class,
+    so its ``va`` is the served venue, which the sitecustomize fixture answers.
+    """
+    block = in_process_config(served_view(), **settings)
+    del block["serving"]
+    return block
 
 
 def raw_config(
@@ -185,8 +240,8 @@ def raw_config(
     live_type=SERVED_LIVE_TYPE,
 ):
     """A config with a servable block for each target."""
-    live_block = {"response_delay_ms": 1, "noise_level": 0.0}
-    va_block = {"response_delay_ms": 1, "noise_level": 0.0}
+    live_block = _served_block(response_delay_ms=1)
+    va_block = _served_block(response_delay_ms=1)
     if live_probe:
         live_block["probe_channel"] = live_probe
     if va_probe:
@@ -234,13 +289,8 @@ def gateway_config(
     gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
     if read_gateway:
         gateways["read_only"] = {"address": GATEWAY_HOST, "port": read_port}
-    live_block = {
-        "response_delay_ms": 1,
-        "noise_level": 0.0,
-        "probe_channel": LIVE_PROBE,
-        "gateways": gateways,
-    }
-    va_block = {"response_delay_ms": 1, "noise_level": 0.0, "probe_channel": VA_PROBE}
+    live_block = _served_block(response_delay_ms=1, probe_channel=LIVE_PROBE, gateways=gateways)
+    va_block = _served_block(response_delay_ms=1, probe_channel=VA_PROBE)
     if va_gateways:
         va_block["gateways"] = {
             "read_only": {"address": GATEWAY_HOST, "port": VA_READ_GATEWAY_PORT},

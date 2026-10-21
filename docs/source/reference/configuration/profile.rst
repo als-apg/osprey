@@ -30,7 +30,7 @@ Profile YAML reference
      - *required*
      - The deployment's name on a host. It names the compose project, its
        volumes (``<project_name>_<volume>``), the ``:local`` images, the web
-       containers and the persona renders (``<project_name>-<persona>``).
+       containers and the tier and app renders (``<project_name>-<name>``).
        ``osprey init`` writes it from the folder name, normalized to a valid
        compose project name; after that it is a tracked value, and the folder
        the repository is checked out into plays no part. It must already be a
@@ -67,17 +67,11 @@ Profile YAML reference
        ``in_context``, ``graph``). ``graph`` searches the deployment's graph
        store instead of a channel database, so it needs a ``services.graphdb``
        block (see :ref:`profile-graph-mode`).
-   * - ``tier``
-     - int
-     - derived
-     - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
-       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
-     - Control-system connector (``mock``, ``virtual_accelerator``, ``epics``,
-       …). Shorthand for ``config: {control_system.type: ...}``, so it can be
+     - Control-system connector (``virtual_accelerator``, ``epics``, …).
+       Shorthand for ``config: {control_system.type: ...}``, so it can be
        set from the command line as ``--set connector=epics``. Setting both
        spellings on one command line is an error rather than a silent
        last-one-wins; a custom connector is still addressed by its dotted
@@ -219,14 +213,16 @@ the framework reads and what it falls back to when no line spells it.
      # itself. Only a literal `true` arms writes, at either level.
      control_system.writes_enabled: true
      # Limits checking. This pair is the deployment's, and every type
-     # inherits it ...
+     # inherits it: `exclusive` = only channels in the limits file can be
+     # written, `optional` = channels in the file are held to their limits and
+     # every other channel is written with no limits ...
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: exclusive
      # ... while a per-type block replaces it whole for one type, and does not
      # fall back to the keys above. Both settings have to be stated: one alone
      # is refused by `osprey build` and `osprey validate`.
      control_system.connector.virtual_accelerator.limits_checking.enabled: true
-     control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+     control_system.connector.virtual_accelerator.limits_checking.mode: optional
 
      # Archiver: where history is read from. Required alongside a control
      # system.
@@ -242,12 +238,12 @@ the framework reads and what it falls back to when no line spells it.
      approval.default_policy: always
 
 That is the shape ``osprey init --preset control-assistant`` writes, with the
-timezone changed. Pointing the same deployment at a real machine
+timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 two things the preset ships are scoped to the simulated baseline: the
 ``va_archiver:`` block records a machine the deployment would no longer be
 baselined on, and any profile-level ``control_system.connector.<type>.writes_enabled:
-true`` has to agree with the read-only personas that inherit it. ``osprey
+true`` has to agree with the read-only tier that inherits it. ``osprey
 build`` refuses each in turn rather than rendering it. See
 :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
@@ -271,12 +267,12 @@ build`` refuses each in turn rather than rendering it. See
           mypkg.MoatConnector:
             limits_checking:
               enabled: true
-              allow_unlisted_channels: false
+              mode: exclusive
 
    **That entry replaces the whole rendered connector section.** ``connector``
    is the last key of the dotted prefix, and a leaf is assigned verbatim — so
    the mapping has to carry every connector block the deployment needs, not only
-   the custom type's. Copy the ``mock``, ``virtual_accelerator`` and ``epics``
+   the custom type's. Copy the ``virtual_accelerator`` and ``epics``
    blocks, with their gateways, ports and probe channels, out of the
    ``control_system.connector.*`` keys this profile already spells under
    ``config:``, or from a prior render's ``config.yml``.
@@ -388,8 +384,8 @@ Three rules follow from the catalog being the one home for these facts:
 - A catalog that no longer matches the one OSPREY ships is reported as a note,
   never a refusal — the comparison is with the catalog this OSPREY release
   ships, not with the hash recorded under ``provenance:``.
-  ``osprey profile expand --providers`` refreshes the entries OSPREY ships and
-  keeps the ones you added.
+  ``osprey init --revalidate`` refreshes the entries OSPREY ships and keeps the
+  ones you added.
 
 .. _profile-posture-floor:
 
@@ -400,7 +396,7 @@ Six config keys have no safe unstated answer, so ``osprey build`` refuses a
 deployment that leaves one of them silent rather than letting a reader's
 fallback decide. The refusal names the dotted key and ``profile.yml``. The gate
 reads the *rendered* config, so a key a preset's ``config:`` block spelled, an
-injector wrote, or a persona inherited counts as stated.
+injector wrote, or a tier inherited counts as stated.
 
 .. list-table::
    :header-rows: 1
@@ -425,14 +421,14 @@ injector wrote, or a persona inherited counts as stated.
    * - ``hooks.debug``
      - always
 
-A standalone that switches the controls server off — the ARIEL and
-channel-finder presets do — is asked for neither control-system key: it has no
+A render that switches the controls server off — every bundled app
+does — is asked for neither control-system key: it has no
 control system to state a type for.
 
 .. _profile-preset-drift:
 
-Preset drift, and ``osprey profile expand``
-===========================================
+Preset drift
+============
 
 A profile ``osprey init`` wrote records the preset it came from under
 ``provenance:``. ``osprey validate`` compares the two and splits what it finds:
@@ -458,16 +454,14 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
 
 .. code-block:: bash
 
-   osprey profile expand                          # preset from provenance:
-   osprey profile expand --from control-assistant # or name it
-   osprey profile expand --providers              # refresh providers.yml too
+   osprey init --revalidate                            # preset from provenance:
+   osprey init --revalidate --preset control-assistant # or name it
 
-``expand`` writes every key the preset documents and the profile lacks into the
+It writes every key the preset documents and the profile lacks into the
 profile's own ``config:`` block, each under the comment the preset documents it
-with, and drops that retired key. It only adds — nothing
-already in the file is touched — so running it twice leaves the profile exactly
-as the first run left it. See :ref:`cli-profile-expand` for the two classes of
-key it deliberately leaves out and for what it prints.
+with, drops that retired key, and refreshes ``providers.yml``. It only adds —
+nothing already in the file is touched — and your deployment's own selections
+are left for you and named in the output.
 
 .. _profile-mcp-servers:
 
@@ -686,7 +680,7 @@ move anything".
 
    The permission lists under ``config:`` — ``deny``, ``ask`` and their
    ``remove_*`` companions — **union** with the ones they inherit. A child
-   profile or a persona delta can add to an inherited permission list; to
+   profile or a tier can add to an inherited permission list; to
    take an entry out it has to say so, with ``remove_deny`` / ``remove_ask``
    (which match by substring) or with ``exclude: config:`` naming the exact
    entry (see :ref:`profile-exclude`).
@@ -702,14 +696,14 @@ move anything".
 
    The bundled ``control-assistant`` preset is built exactly this way: its
    base denies the agent's own deployment-editing tool, and the ``admin``
-   persona is the single delta that removes that deny. Writing the floor is
-   not only a convention. A web terminal served without a login by a persona
+   tier is the single delta that removes that deny. Writing the floor is
+   not only a convention. A web terminal served without a login by a tier
    that can edit the deployment is refused by ``osprey validate``, ``osprey
    build`` and ``osprey up`` alike, wherever the deployment has a login page
    at all — with ``auth.method`` at ``token`` (the default) or ``none`` there
    is no wall to be exempt from, and the same exposure is reported as an
    advisory instead. On a profile that
-   wrote no floor at all, where every persona holds everything, the only
+   wrote no floor at all, where every tier holds everything, the only
    remedy that refusal can offer is to write one. See
    :doc:`/how-to/web-terminal/multi-user/tiers`.
 
@@ -855,10 +849,6 @@ the deployment into the event dispatcher and its workers.
        ``DISPATCH_MAX_TURNS``; the budget about the work rather than the clock.
        A trigger may state its own ``max_turns:`` under ``action:``; one that
        names none gets this.
-   * - ``facility_name``
-     - ``""``
-     - Display name the dispatcher dashboard shows. Unset shows the
-       deployment's ``facility.name``.
    * - ``channel_strip_prefix``
      - ``""``
      - Leading prefix trimmed off a channel address before the dashboard shows
@@ -873,6 +863,12 @@ the deployment into the event dispatcher and its workers.
      - ``[]``
      - Host environment variable names passed through to both halves, in the
        order you write them. Names only, never values.
+   * - ``tier``
+     - *(unset)*
+     - The tier the dispatch workers run at: a file in ``tiers/``. Unset runs
+       the deployment's own render. A tier that lifts a base deny or turns on
+       an approval surface is refused, since a dispatched run has no approver,
+       so the bundled ``admin`` tier is refused.
 
 .. _profile-graph-mode:
 
@@ -882,9 +878,9 @@ Graph-mode channel finding
 ``channel_finder_mode: graph`` points the channel finder at the deployment's
 graph store: the agent searches the facility knowledge graph for channels
 instead of reading a channel database. The store *is* the database, so the
-profile ships no channel-database inputs and pins no ``tier`` — what it does
-need is a ``services.graphdb`` block, and the paradigm works with either shape
-that block comes in.
+profile ships no channel-database inputs. What it does need is a
+``services.graphdb`` block, and the paradigm works with either shape that block
+comes in.
 
 A deployment that runs its own store already has one.
 ``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
@@ -896,14 +892,13 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 
    name: control-room
    provider: anthropic
-   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+   channel_finder_mode: graph
    data: data
    config:
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community
-     services.graphdb.ttl_path: ./data/demo_machine.ttl
      # ... the JVM and query-bound keys the preset also ships
-     deployed_services: [postgresql, openobserve, qmd, graphdb]
+     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]
 
 The mode reads the same ``services.graphdb`` block when the store is one the
 facility already runs and this deployment only connects to. The keys that
@@ -920,7 +915,7 @@ taking away:
      services.graphdb.uri: bolt://graph.facility.org:7687
      services.graphdb.username: neo4j
      # DEVIATION: graphdb is the facility's store, so deployed_services drops it
-     deployed_services: [postgresql, openobserve, qmd]
+     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd]
 
 Those are structural differences from the preset — two added keys and a dropped
 list member — which is why the marker comments are there. Without them
@@ -939,8 +934,7 @@ is refused by name: an empty block reads as "a store at the defaults" wherever
 the block is resolved, and a null one is what every resolver downstream trips
 over. Neither removes anything, because nothing injects a store to subtract.
 
-A profile that renders no ``services.graphdb`` block at all — the
-channel-finder-standalone preset ships none — is refused at build time, naming
+A profile that renders no ``services.graphdb`` block at all is refused at build time, naming
 the missing block, rather than rendering a channel finder with nothing to read.
 An attached project (``deploy_services: false``) is refused the same way unless
 it names an external store, because it renders ``services: {}`` whatever its
@@ -949,8 +943,8 @@ answers, see :doc:`/how-to/use-channel-finder`; for the corpus behind them,
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The qmd sidecar behind hybrid logbook search is guarded the same way. The
-``control-assistant`` and ``ariel-standalone`` presets switch
-``ariel.search_modules.hybrid`` on and deploy the ``services.qmd`` sidecar that
+``control-assistant`` preset switches
+``ariel.search_modules.hybrid`` on and deploys the ``services.qmd`` sidecar that
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
 with *no qmd sidecar is configured*. ``osprey build`` refuses that instead of
@@ -965,28 +959,17 @@ An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,
 the graph store's bolt port, the Postgres the logbook lives in, the telemetry
 store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment's own render into each persona built beside it, so
-a service moved on the hosting profile moves every persona with it, and the
-shipped ``control-assistant-*`` presets pin none of them. A persona profile
-that spells one of these keys with a *different* value is refused — the two
-copies would dial different places, and the build names both. (A persona
-inherits the hosting profile's ``config:`` keys, so a port moved there is
-spelled in every persona as the host's own value, and agrees.) The rest of a
-deployed service's block — its image, its JVM sizing, the directory its
-compose fragment lives in — is dropped from the persona, with one exception:
-a key that names a file in the render's own ``data/`` tree, such as the graph
-store's ``ttl_path`` and ``index_path``, stays, because the persona stages
-that tree too and its build derives the search index from it. A persona
-built *alone* (``osprey init --preset control-assistant-logbook`` in a
-repo with no hosting deployment) is told what its own preset deploys at the
-shipped defaults instead, and there its ``config:`` is where a host that
-differs is named:
-
-.. code-block:: yaml
-
-   config:
-     services.qmd.port: 9180        # the sidecar of the deployment this build shares a host with
-     # or: ariel.search_modules.hybrid.enabled: false
+from the hosting deployment's own render into each tier and app built beside
+it, so a service moved on the hosting profile moves every render with it, and
+the bundled tier and app files pin none of them. A tier or app that spells one
+of these keys with a *different* value is refused — the two copies would dial
+different places, and the build names both. (A tier inherits the hosting
+profile's ``config:`` keys, so a port moved there is spelled in every tier as
+the host's own value, and agrees.) The rest of a deployed service's block — its
+image, its JVM sizing, the directory its compose fragment lives in — is dropped
+from the render, with one exception: a key that names a file in the render's
+own ``data/`` tree, such as the graph store's ``ttl_path``, stays, because the
+render stages that tree too and its build derives the search index from it.
 
 The same facts are checked again at run time: the ``reach`` category of
 ``osprey health`` (and of the system-health tab, inside each user's container)
@@ -1036,15 +1019,42 @@ by ``osprey up`` and served from the lattice the build renders (see
        that key in ``config:``. A value that collides with ``port``,
        ``live_standin`` or another port the profile spends is refused.
 
+Where the simulator runs
+------------------------
+
+This block deploys the simulator's container. Where the deployment's own
+connector reaches the simulator is a pair of ``config:`` keys, not keys of this
+block (see :ref:`va-two-venues`):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 12 48
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``control_system.connector.virtual_accelerator.serving``
+     - ``served``
+     - ``served`` reaches the container over Channel Access and PVAccess;
+       ``in_process`` runs the same simulator inside the process that asks,
+       with no network and no container. A ``control_system`` section that
+       states no ``type`` gets the simulator in process, and this key is not
+       read. ``in_process`` is refused on a deployment whose own type is not
+       ``virtual_accelerator``.
+   * - ``control_system.connector.virtual_accelerator.response_delay_ms``
+     - ``10``
+     - Milliseconds the simulator in process waits before it answers. Read in
+       process only.
+
 The live stand-in
 -----------------
 
 ``live_standin`` deploys a second simulator container on its own Channel Access
 port and gives the deployment a third control target, ``standin``, dialled
 through its own ``control_system.connector.live_standin`` block. Both containers
-run one image over the same lattice and the same active scenarios; what differs
-is a small fixed offset on the stand-in's BPM readouts, which is what lets you
-tell the two apart by reading them.
+run one image over the same simulator view and the same active scenarios. The
+two machines are told apart by a write to the sandbox not showing on the
+stand-in and by the model RPC status naming its instance.
 
 The stand-in is a machine of its own, **not** a rewrite of ``live``. The build
 never writes a key under ``control_system.connector.epics``, so ``live`` means
@@ -1070,29 +1080,25 @@ A profile that spells any of the seven in its own ``config:`` block is refused b
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in ``config:`` reads as
 the endpoint the ``standin`` target dials while every session on it is somewhere
-else. The refusal is scoped to those leaves — a persona's own
+else. The refusal is scoped to those leaves — a tier's own
 ``control_system.connector.live_standin.writes_enabled`` says something the build
 has no opinion about, and is yours to write.
 
 **What the block does not decide.** Write posture, limits checking and the
 operator acknowledgment are the profile's, on a stand-in deployment exactly as on
 any other: they describe how the *deployment* is run, not where one of its
-targets lives. In particular, a switch to ``standin`` (like one to ``live``)
-requires the strict limits posture, so a profile that stands a stand-in up
-normally writes the pair itself:
+targets lives. The limits pair is the deployment's, and the stand-in inherits
+it:
 
 .. code-block:: yaml
 
    config:
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: optional
 
-That pair is the deployment's, and the stand-in inherits it: the build writes no
-``limits_checking`` block under ``control_system.connector.live_standin``, and a
-profile should not either, since a permissive block there would make
-``control_target_set standin`` refuse the very rehearsal the stand-in exists
-for. A simulator beside it is where a per-type block belongs — see
-:ref:`limits-checking-config`.
+The build writes no ``limits_checking`` block under
+``control_system.connector.live_standin``. See :ref:`limits-checking-config`
+for the two modes and the per-type block.
 
 ``control_system.target_switch.live_gateway_acknowledged`` stays the live
 machine's alone — the stand-in's equivalent is the ``live_standin`` line itself.
@@ -1102,9 +1108,6 @@ machine's alone — the stand-in's equivalent is the ``live_standin`` line itsel
 - a stand-in port that collides with ``virtual_accelerator.port``, with another
   port this profile spends, or with a hand-authored virtual-accelerator gateway
   port — the simulator and its stand-in are two endpoints, never one;
-- a stand-in on a build with no built-in lattice behind it, because the shipped
-  readout perturbation needs a model to displace and the IOC treats a
-  perturbation it cannot apply as fatal at boot;
 - ``control_system.type: live_standin`` on a profile that sets no
   ``virtual_accelerator.live_standin`` — a baseline naming a machine the
   deployment does not stand up;
@@ -1239,12 +1242,15 @@ store and then reads something else beside it.
 .. warning::
 
    ``osprey build`` **refuses** a profile that pairs a ``virtual_accelerator``
-   control system with the mock archiver, or with no ``archiver.type`` at all
-   (which resolves to the mock): a simulated machine whose history is
-   synthesized at read time reports a past that never happened, and nothing can
-   catch it. The error names the fix — declare this block and select
-   ``mongodb_archiver``, point the archiver at a store you run yourself, or set
-   the control system to ``mock`` for an honestly storeless project. See
+   control system served from its container with the mock archiver, or with no
+   ``archiver.type`` at all (which resolves to the mock): a simulated machine
+   whose history is synthesized at read time reports a past that never
+   happened, and nothing can catch it. The error names the fix — declare this
+   block and select ``mongodb_archiver``, or point the archiver at a store you
+   run yourself. A project meant to be honestly storeless serves the simulator
+   in process instead
+   (``control_system.connector.virtual_accelerator.serving: in_process``), which
+   has no recorder and so may keep the mock archiver. See
    :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
 
@@ -1417,7 +1423,7 @@ bluesky
 
 The ``bluesky:`` section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly eight keys; a misspelled or unknown key **fails the
+store. It accepts exactly twelve keys; a misspelled or unknown key **fails the
 build** and prints the valid set:
 
 .. list-table::
@@ -1442,10 +1448,6 @@ build** and prints the valid set:
        :doc:`/how-to/bluesky/write-plans`.
    * - ``excluded_plans``
      - Plans to remove from the catalog entirely, e.g. ``[orm]``.
-   * - ``devices_file``
-     - The file listing the devices plans may drive or record
-       (default ``data/bluesky_devices.yml``) — see
-       :doc:`/how-to/bluesky/write-plans`.
    * - ``device_page_size``
      - How many devices the bridge lists at once (default 500). A larger set
        is served a page at a time and can be narrowed by an exact name
@@ -1458,9 +1460,15 @@ build** and prints the valid set:
        into a successful one.
    * - ``settle_tolerance``
      - How close the readback must come to the demand to count as settled, as
-       an absolute difference (default ``1e-9``). The default is a float-noise
-       bound, right for a setpoint a controller echoes back exactly and far
-       too strict for a magnet or a gap.
+       an absolute difference (default ``1e-9``). This is the floor for every
+       device on every lane, never a ceiling. A setpoint's own ``tolerance``
+       in the facility file applies on every lane whenever it is wider. A
+       setpoint without one settles, on a lane that serves the simulator,
+       within its readback's motion band, ``|drift.amplitude|`` + 6 × the
+       noise sigma (a ``relative`` sigma taken at the seed's ``nominal``), and
+       on a live or stand-in lane within this floor; the build warns once per
+       such lane with the count. The default is a float-noise bound, right for
+       a readback that a controller echoes back exactly.
    * - ``live_max_runs``
      - How many runs' live data the bridge keeps in memory, oldest dropped
        first (default 50). This is what decides how long a finished run stays
@@ -1469,6 +1477,16 @@ build** and prints the valid set:
      - How many rows of one run the bridge stores (default 10000). Rows past
        the cap are still counted, so a long run reports its true length over a
        truncated buffer.
+   * - ``external``
+     - An externally-run RE Manager this deployment's bridge fronts, as a
+       block of ``zmq_control_addr`` (required, the manager's 0MQ control
+       socket as the bridge container dials it), ``zmq_public_key_env`` (the
+       ``.env`` variable holding the manager's CURVE public key, treated as a
+       secret), ``insecure_plaintext``, ``tiled_uri`` and
+       ``tiled_api_key_env`` (the facility's Tiled, read by the bridge), and
+       ``parameter_schemas``. No queueserver, Redis or Tiled container is
+       rendered for the lane; exclusive with ``second_lane`` and
+       ``tiled_enabled``.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

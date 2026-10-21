@@ -57,38 +57,63 @@ Control Target:
 
     A notebook kernel is the one process that outlives a switch, so it is the
     one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
-    stamp from the deployment's record before every cell. This module follows
-    that — the connector is rebuilt when the stamp moves, and a cell the kernel
-    could route nowhere at all is refused by :func:`_get_connector` on its first
-    control-system call.
+    stamp from the deployment's record before every cell. Every kernel takes its
+    connector from a :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so
+    each stamp is served by a connector-host child of its own: a moved stamp
+    stops the child in hand and selects a fresh one, and the kernel never holds
+    a control-system client itself. A cell the kernel could route nowhere at all is refused by
+    :func:`_get_connector` on its first control-system call.
 """
 
 import asyncio
 import atexit
+import contextlib
+import dataclasses
 import json
 import os
+import threading
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from osprey.utils.logger import get_logger
+from osprey.runtime.guarded_run import (
+    GUARDED_RUN_DIR,
+    LOCK_FILE_NAME,
+    guarded_run_dir,
+)
+from osprey_connectors.control_system.base import values_match
+from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
     from osprey_connectors.control_context import ControlContext
+    from osprey_connectors.control_system.base import ControlSystemConnector
+    from osprey_connectors.control_system.limits_validator import (
+        ChannelLimitsConfig,
+        LimitsValidator,
+    )
+    from osprey_connectors.settle import Landing
 
 logger = get_logger("runtime")
 
 __all__ = [
     "write_channel",
     "read_channel",
+    "read_channels",
     "write_channels",
+    "settle",
+    "channel_limits",
+    "record_writes",
+    "values_match",
     "cleanup_runtime",
     "ControlTargetChangedError",
     "SwitchInProgressError",
+    "GUARDED_RUN_DIR",
+    "LOCK_FILE_NAME",
+    "guarded_run_dir",
 ]
 
 #: The target stamp this process was launched with. The same two literals are
@@ -162,6 +187,20 @@ _runtime_connector: Any | None = None
 #: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
 _connector_stamp: tuple[str | None, int | None] | None = None
 _connector_lock = asyncio.Lock()
+#: Whether this process takes its connector from a connector-host pool. Set only
+#: by :func:`_route_connector_through_pool`.
+_pool_routing = False
+#: The pool an opted-in process draws its connector from, built on first need.
+_connector_pool: Any | None = None
+#: Bound on a connector-host child starting and answering its init frame, read
+#: when the pool is built; ``None`` keeps the pool's own default.
+_pool_start_timeout_s: float | None = None
+#: The launch pin the pooled connector above was taken under. A child selects
+#: its gateway on the posture it was spawned with, so a moved pin respawns it.
+_connector_launch_pin: str | None = None
+#: The one event loop every pool call of this process runs on, and its guard.
+_pool_loop: asyncio.AbstractEventLoop | None = None
+_pool_loop_guard = threading.Lock()
 #: The in-flight marker this cell holds, or ``None``. Removed by
 #: ``post_run_cell``, which is why the claim below re-checks the file rather
 #: than trusting this name across cells.
@@ -171,8 +210,18 @@ _cell_marker: "Path | None" = None
 #: no wrapper — so every other process validates at the connector alone.
 _limits_validator: "LimitsValidator | None" = None
 #: Callables told about every write this process makes, as ``fn(address, phase)``.
-#: Registered only through :func:`_register_write_observer`.
+#: Registered only through :func:`_register_write_observer` and removed through
+#: :func:`_unregister_write_observer`.
 _write_observers: "list[Callable[[str, str], None]]" = []
+
+#: Seconds a written setpoint's readback has to settle when :func:`settle` is
+#: given no ``timeout_s``.
+SETTLE_TIMEOUT_S = 5.0
+
+#: The last facility file :func:`settle` parsed: its path, its ``st_mtime_ns``
+#: and its channel records by ``id``; read and replaced under :data:`_facility_lock`.
+_facility_parsed: "tuple[Path, int, dict[str, Mapping[str, Any]]] | None" = None
+_facility_lock = threading.Lock()
 
 
 def _stamped_target() -> str | None:
@@ -194,6 +243,85 @@ def _stamped_generation() -> int | None:
         return int(raw)
     except ValueError:
         return None
+
+
+def _control_system_section() -> dict[str, Any]:
+    """The deployment's ``control_system`` section, as loaded; empty when absent."""
+    from osprey_connectors.config import get_config_value
+
+    section = get_config_value("control_system", {})
+    return section if isinstance(section, dict) else {}
+
+
+def _route_connector_through_pool() -> None:
+    """Take this process's connector from a connector-host pool.
+
+    For a process whose stamp moves under it: one connector-host child serves
+    each stamp, so a switch never re-points a client library that is already
+    bound to the old target in this address space, and the process itself
+    holds no control-system client on any deployment.
+
+    The pooled connector is driven from one event loop for the life of the
+    process, and :data:`_limits_validator` is never set where this is called,
+    so the connector's own ``_current_value_reader`` is never asked of the
+    pooled handle: the child's reference monitor checks every write itself.
+    """
+    global _pool_routing
+
+    _pool_routing = True
+
+
+def _pool_mode() -> bool:
+    """Whether this process's connector comes from the pool: every process routed through it."""
+    return _pool_routing
+
+
+def _pool_event_loop() -> asyncio.AbstractEventLoop:
+    """The daemon loop every pool call of this process runs on, started once."""
+    global _pool_loop
+
+    with _pool_loop_guard:
+        if _pool_loop is None:
+            loop = asyncio.new_event_loop()
+            threading.Thread(
+                target=loop.run_forever, name="osprey-runtime-connector-loop", daemon=True
+            ).start()
+            _pool_loop = loop
+        return _pool_loop
+
+
+async def _pooled_connector_locked(target: str | None) -> Any:
+    """The pool's connector for *target*, building the pool on first need.
+
+    An unstamped cell is served the deployment's baseline target, the machine
+    it would read with no switch made: ``va`` on a deployment serving the
+    simulator in process. The lock must be held already.
+    """
+    global _connector_pool
+
+    from osprey_connectors.types import baseline_target
+
+    section = _control_system_section()
+    if _connector_pool is None:
+        from osprey_connectors.ipc.pool import ConnectorHostPool
+        from osprey_connectors.workspace import resolve_config_path
+
+        options: dict[str, Any] = (
+            {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
+        )
+        _connector_pool = ConnectorHostPool(
+            section, config_file=str(resolve_config_path()), **options
+        )
+    key = target if target is not None else baseline_target(section)
+    logger.debug("Taking the connector for target %s from the connector-host pool", key)
+    return await _connector_pool.connector(key)
+
+
+def _launch_pin() -> str | None:
+    """The launch posture pin in this process's environment, or ``None``."""
+    from osprey_connectors import posture_store
+
+    return os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR)
 
 
 def _target_connector_config() -> dict[str, Any] | None:
@@ -303,11 +431,9 @@ def _claim_cell() -> None:
             "launch_posture": os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR),
             "started_at": datetime.now().astimezone().isoformat(),
         }
-        # Temp file beside it and a rename, as the executor's marker is written:
-        # a reader must never meet half of one.
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(marker), encoding="utf-8")
-        os.replace(tmp, path)
+        # A reader must never meet half a marker, so it is replaced whole
+        # through atomic_replace.
+        atomic_replace(path, json.dumps(marker).encode("utf-8"), mode=0o640, sync="best_effort")
         _cell_marker = path
     except Exception:  # an unclaimed cell is not worth the cell
         logger.warning("Could not claim this cell against a target switch", exc_info=True)
@@ -327,10 +453,14 @@ async def _get_connector():
     A sandbox reaches the build once and reuses it for its whole life. A
     notebook kernel does not: it is re-stamped from the deployment's record
     before every cell, so a stamp that no longer matches the connector in hand
-    means the ground moved between cells, and the connector is disconnected and
-    rebuilt rather than re-pointed. The disconnect goes through
-    :func:`_disconnect_locked` because ``_connector_lock`` is already held here
-    and is not reentrant.
+    means the ground moved between cells, and the connector is disconnected
+    rather than re-pointed. In a process routed through the connector-host pool
+    (:func:`_route_connector_through_pool`) that stops the stamp's child, and
+    the next connector is a fresh child's; the launch pin is part of the
+    comparison there, because a child selects its gateway on the posture it was
+    spawned with. Only an unrouted process rebuilds its connector in process. The
+    disconnect goes through :func:`_disconnect_locked` because
+    ``_connector_lock`` is already held here and is not reentrant.
 
     Returns:
         ControlSystemConnector instance
@@ -340,19 +470,30 @@ async def _get_connector():
             control-target switch is in flight. Nothing is built, and the
             connector this process already holds is left alone.
     """
-    global _runtime_connector, _connector_stamp
+    global _runtime_connector, _connector_stamp, _connector_launch_pin
 
     _assert_not_refused()
     _claim_cell()
 
     async with _connector_lock:
+        pooled = _pool_mode()
         stamp = (_stamped_target(), _stamped_generation())
-        if _runtime_connector is not None and stamp != _connector_stamp:
-            logger.debug("Control target moved to %s; rebuilding the connector", stamp)
+        launch_pin = _launch_pin() if pooled else None
+        if _runtime_connector is not None and (
+            stamp != _connector_stamp or launch_pin != _connector_launch_pin
+        ):
+            logger.debug("Control target moved to %s; replacing the connector", stamp)
             await _disconnect_locked()
 
+        if pooled:
+            if _runtime_connector is None:
+                _runtime_connector = await _pooled_connector_locked(stamp[0])
+                _connector_stamp = stamp
+                _connector_launch_pin = launch_pin
+            return _runtime_connector
+
         if _runtime_connector is None:
-            from osprey.connectors.factory import ConnectorFactory
+            from osprey_connectors.factory import ConnectorFactory
 
             config = _target_connector_config()
             if config is None:
@@ -408,7 +549,9 @@ def _assert_target_pin() -> None:
     switch that lands in the window between the check and the write itself is
     not caught. That window is not a routing hole: this process's connector was
     bound to its target's gateways at ``connect()`` time and does not follow a
-    switch, so the write still goes where the stamp says. What the pin bounds is
+    switch — in a sandbox, which builds it once, and in a notebook kernel, whose
+    connector is a connector-host child of its own for each stamp — so the write
+    still goes where the stamp says. What the pin bounds is
     how long a superseded process keeps writing there — the switch lifecycle's
     drain, not this check, is what makes that window closed rather than merely
     small.
@@ -474,6 +617,51 @@ def _register_write_observer(fn: "Callable[[str, str], None]") -> None:
         _write_observers.append(fn)
 
 
+def _unregister_write_observer(fn: "Callable[[str, str], None]") -> None:
+    """Stop telling ``fn`` about writes; a callable not registered is a no-op."""
+    with contextlib.suppress(ValueError):
+        _write_observers.remove(fn)
+
+
+@contextlib.contextmanager
+def record_writes() -> "Iterator[list[tuple[str, str]]]":
+    """Record the writes this process makes while the block is open.
+
+    Yields a list that grows by one ``(address, phase)`` record each time a
+    write made through :func:`write_channel` or :func:`write_channels`, on any
+    thread, reaches a phase:
+
+    * ``"attempt"``: the target pin and the limits net passed; the connector
+      call comes next.
+    * ``"landed"``: the value reached the control system and a re-read
+      verified it.
+    * ``"sent"``: the value reached the control system, unverified.
+
+    A write refused before the connector call records nothing. A write that
+    reached no control system (the connector refused it, or the transport
+    failed) records its ``attempt`` and no second phase. A multi-channel write
+    reports every channel's ``attempt`` before the connector call. When the
+    connector returns its results, every channel's outcome is reported before
+    the write raises for any of them. When the connector itself raises partway
+    (a limits violation, a transport error), no outcome is reported: an
+    ``attempt`` with no later phase then means the outcome is unknown, and the
+    value may have gone out.
+
+    Each block records into its own list, so nested and concurrent blocks
+    never share records, and nothing is recorded once the block has closed.
+    """
+    records: list[tuple[str, str]] = []
+
+    def record(address: str, phase: str) -> None:
+        records.append((address, phase))
+
+    _register_write_observer(record)
+    try:
+        yield records
+    finally:
+        _unregister_write_observer(record)
+
+
 def _notify_write(address: str, phase: str) -> None:
     """Tell every registered observer about one channel's phase."""
     for observer in list(_write_observers):
@@ -495,7 +683,7 @@ def _phase_for_outcome(outcome: Any) -> str | None:
     ``unconfirmed``, ``failed`` and ``unrequested`` all put the value on the
     wire without verifying it held (``sent``); ``refused`` sent nothing.
     """
-    from osprey.connectors.control_system import WriteOutcome
+    from osprey_connectors.control_system import WriteOutcome
 
     if outcome is None or outcome == WriteOutcome.REFUSED:
         return None
@@ -547,7 +735,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    from osprey.errors import ChannelWriteFailedError
+    from osprey_connectors.errors import ChannelWriteFailedError
 
     _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
     try:
@@ -578,6 +766,53 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
     return channel_value.value
 
 
+async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None) -> list[Any]:
+    """Internal async implementation for reading several channels in one call."""
+    from osprey_connectors.errors import ChannelReadFailedError
+
+    # Each distinct address is asked for once; a repeated one is answered from
+    # the same reading.
+    distinct = list(dict.fromkeys(addresses))
+    if not distinct:
+        return []
+
+    connector = await _get_connector()
+    result = await connector.read_multiple_channels(distinct, timeout=timeout)
+
+    # A connector drops a channel whose read raised, and the EPICS family
+    # reports a read timeout as a present ``None`` — both are a failed read.
+    failed = [
+        address for address in distinct if address not in result or result[address].value is None
+    ]
+    if failed:
+        causes = await _read_failure_causes(connector, failed, timeout)
+        first_cause = next((causes[address] for address in failed if address in causes), None)
+        raise ChannelReadFailedError(failed, causes=causes) from first_cause
+    return [result[address].value for address in addresses]
+
+
+async def _read_failure_causes(
+    connector: "ControlSystemConnector", failed: list[str], timeout: float | None
+) -> dict[str, BaseException]:
+    """Re-read each failed channel on its own and collect the exception it raises.
+
+    A batch read keeps only which channels failed, not why. The single read
+    raises the connector's own exception, which is what a caller branches on.
+    The re-read only explains the failure: a channel that answers this time is
+    still reported as failed, since the batch it belongs to did not read it.
+    """
+    kwargs = {} if timeout is None else {"timeout": timeout}
+    results = await asyncio.gather(
+        *(connector.read_channel(address, **kwargs) for address in failed),
+        return_exceptions=True,
+    )
+    return {
+        address: outcome
+        for address, outcome in zip(failed, results, strict=True)
+        if isinstance(outcome, BaseException)
+    }
+
+
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
     """Internal async implementation for writing multiple channels."""
     if len(channel_values) == 1:
@@ -588,7 +823,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # through _write_channel_async.
         _assert_target_pin()
 
-        from osprey.connectors.control_system import raise_for_write_result
+        from osprey_connectors.control_system import raise_for_write_result
 
         connector = await _get_connector()
 
@@ -624,6 +859,9 @@ def _run_async(coro) -> Any:
     which is a ``RuntimeError`` too — must propagate unchanged from either
     branch, never be mistaken for that signal and retried.
     """
+    if _pool_mode():
+        return _run_on_pool_loop(coro)
+
     try:
         # Try to get running loop (e.g., in Jupyter with nest_asyncio)
         asyncio.get_running_loop()
@@ -637,6 +875,30 @@ def _run_async(coro) -> Any:
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(asyncio.run, coro)
         return future.result()
+
+
+def _run_on_pool_loop(coro) -> Any:
+    """Run *coro* on the pool's loop and wait for it, from any thread or loop.
+
+    The pool is bound to the first loop it is used on, so every call of a
+    pooled process goes to that one loop. The coroutine's value or exception
+    comes back unchanged.
+
+    Raises:
+        RuntimeError: If called from the pool's own loop, which would wait on
+            itself; the coroutine is closed unrun.
+    """
+    loop = _pool_event_loop()
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        coro.close()
+        raise RuntimeError(
+            "The runtime's synchronous API cannot be called from its own connector loop"
+        )
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 # ========================================================
@@ -685,6 +947,116 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
     _run_async(_write_channel_async(channel_address, value, **kwargs))
 
 
+def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) -> None:
+    """Wait until each written setpoint's readback is within its stated bound.
+
+    Synchronous function - no 'await' needed. Call it after
+    :func:`write_channel`. Each setpoint's readback (its ``pair`` in the
+    render's facility file, else the setpoint itself) is read through the
+    same connector until it is within the setpoint's ``tolerance`` of the
+    demand; on the simulator a setpoint that states none settles within its
+    readback's motion band. A setpoint with neither is not waited on.
+
+    Args:
+        demands: Setpoint address to the value written, in the channel's unit.
+        timeout_s: Seconds the readbacks have to settle; :data:`SETTLE_TIMEOUT_S`
+            when omitted.
+
+    Raises:
+        FileNotFoundError: No deployment config is found, or the render has no
+            facility file; nothing was read.
+        ValueError: An address is no setpoint in the facility file; nothing was read.
+        SettleTimeoutError: A readback was not within its bound in time
+            (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
+        SettleReadError: A readback could not be read, or answered no value
+            (:class:`osprey_connectors.settle.SettleReadError`, a
+            ``ChannelReadFailedError``); names the readback.
+
+    Examples:
+        >>> from osprey.runtime import settle, write_channel
+        >>> write_channel("MAGNET:H01", 5.0)
+        >>> settle({"MAGNET:H01": 5.0})
+    """
+    landings = _landings(demands)
+    if landings:
+        wait = SETTLE_TIMEOUT_S if timeout_s is None else timeout_s
+        _run_async(_settle_async(landings, wait))
+
+
+async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
+    """Internal async implementation of :func:`settle`."""
+    import osprey_connectors.settle as settle_step
+
+    connector = await _get_connector()
+    await settle_step.settle(connector, landings, timeout_s=timeout_s)
+
+
+def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
+    """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.settle import Landing, settle_bound
+    from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.types import is_simulated, resolve_control_system_type
+
+    path, channels = _facility_channels()
+    simulated: bool | None = None
+    landings: list[Landing] = []
+    for address, demand in demands.items():
+        channel = channels.get(address)
+        if channel is None or channel.get("role") != "setpoint":
+            raise ValueError(f"{address} is no setpoint in {path}")
+        readback = str(channel.get("pair") or address)
+        if simulated is None:
+            section = _target_connector_config() or _control_system_section()
+            simulated = is_simulated(resolve_control_system_type(section))
+        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        bound = settle_bound(
+            channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
+        )
+        if bound is not None:
+            landings.append(Landing(address, readback, float(demand), bound))
+    return landings
+
+
+def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
+    """The render's facility file and its channel records by ``id``.
+
+    Parsed once per path and modification time.
+
+    Raises:
+        FileNotFoundError: No deployment config is found, or the render has no facility file.
+        ValueError: The facility file holds no ``channels`` list.
+    """
+    global _facility_parsed
+
+    from osprey.channel_roster.sources import facility_file_path
+    from osprey_connectors.config import get_full_configuration
+
+    config = get_full_configuration()
+    path = facility_file_path(config)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{path} does not exist; run `osprey build` to render the facility file"
+        ) from None
+    with _facility_lock:
+        parsed = _facility_parsed
+    if parsed is not None and parsed[0] == path and parsed[1] == mtime_ns:
+        return path, parsed[2]
+    document = json.loads(path.read_text(encoding="utf-8"))
+    records = document.get("channels") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise ValueError(f"{path} holds no 'channels' list")
+    channels: dict[str, Mapping[str, Any]] = {
+        str(record["id"]): record
+        for record in records
+        if isinstance(record, dict) and "id" in record
+    }
+    with _facility_lock:
+        _facility_parsed = (path, mtime_ns, channels)
+    return path, channels
+
+
 def read_channel(channel_address: str, **kwargs) -> Any:
     """Read value from control system channel.
 
@@ -705,9 +1077,16 @@ def read_channel(channel_address: str, **kwargs) -> Any:
         metadata as ``enum_label`` / ``enum_labels``, which the channel_read
         tool reports and which this value-only helper does not return.
 
+        ``None`` when the connector reports the reading without a value. The
+        EPICS-family connectors answer a read timeout that way instead of
+        raising, so on those connectors ``None`` here means the channel did
+        not answer. :func:`read_channels` treats the same ``None`` as a failed
+        read and raises ``ChannelReadFailedError``.
+
     Raises:
         RuntimeError: If read operation fails
-        TimeoutError: If operation times out
+        TimeoutError: If operation times out on a connector that raises for
+            a timeout
 
     Examples:
         >>> from osprey.runtime import read_channel
@@ -715,6 +1094,67 @@ def read_channel(channel_address: str, **kwargs) -> Any:
         >>> print(f"Current: {current}")
     """
     return _run_async(_read_channel_async(channel_address, **kwargs))
+
+
+def read_channels(addresses: "Sequence[str]", *, timeout: float | None = None) -> list[Any]:
+    """Read several channels in one connector call.
+
+    Synchronous function - no 'await' needed. The whole batch goes to the
+    connector's ``read_multiple_channels`` at once, over the same connector
+    ``read_channel`` uses.
+
+    Args:
+        addresses: Channel addresses to read, in the grammar the deployment's
+            control system uses. A repeated address is read once and its value
+            returned at every position it was asked for.
+        timeout: Operation timeout in seconds, passed to the connector
+
+    Returns:
+        One value per address, in the order the addresses were given.
+
+    Raises:
+        TypeError: If ``addresses`` is a single string rather than a sequence
+            of addresses
+        ChannelReadFailedError: If any channel could not be read — the
+            connector left it out of its result, or reported its value as
+            ``None``. ``addresses`` on the error names every failed channel;
+            no values are returned for the rest.
+
+    Examples:
+        >>> from osprey.runtime import read_channels
+        >>> h01, h02 = read_channels(["MAGNET:H01", "MAGNET:H02"])
+    """
+    if isinstance(addresses, str):
+        raise TypeError("read_channels takes a sequence of addresses, not a single string")
+    values: list[Any] = _run_async(_read_channels_async(list(addresses), timeout))
+    return values
+
+
+def channel_limits(address: str) -> "ChannelLimitsConfig | None":
+    """Return the configured limits for one channel, or ``None``.
+
+    Reads the limits database of the validator the executor sandbox's prelude
+    injected as ``_limits_validator``. That prelude is its only writer, so an
+    in-process caller that ran no prelude — a notebook kernel, a test, a
+    library imported outside the sandbox — always gets ``None`` here, even
+    though its connector may still enforce limits of its own.
+
+    Args:
+        address: Channel address, spelled as it appears in the limits database.
+
+    Returns:
+        A copy of the channel's ``ChannelLimitsConfig`` (``min_value``,
+        ``max_value``, ``max_step``, ``writable``) when a validator is injected
+        and lists the address; ``None`` when no validator is injected or the
+        address has no entry. Editing the copy leaves the limits the runtime
+        enforces unchanged.
+    """
+    if _limits_validator is None:
+        return None
+    config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
+    if config is None:
+        return None
+    return dataclasses.replace(config)
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
@@ -762,7 +1202,7 @@ async def _disconnect_locked() -> None:
     not reentrant, so a rebuild that called ``cleanup_runtime`` would wait on a
     lock it is holding itself.
     """
-    global _runtime_connector, _connector_stamp
+    global _runtime_connector, _connector_stamp, _connector_launch_pin
 
     if _runtime_connector is None:
         return
@@ -778,6 +1218,7 @@ async def _disconnect_locked() -> None:
     finally:
         _runtime_connector = None
         _connector_stamp = None
+        _connector_launch_pin = None
 
 
 async def cleanup_runtime() -> None:
@@ -788,19 +1229,49 @@ async def cleanup_runtime() -> None:
 
     This is particularly useful for long-running notebook sessions to
     ensure connections don't become stale.
+
+    A connector-host pool, when this process holds one, is closed on its own
+    loop — whichever loop this is awaited on — and dropped, so a later call
+    builds a fresh one.
     """
+    loop = _pool_loop
+    if _connector_pool is not None and loop is not None:
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            await _close_pool()
+        else:
+            await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(_close_pool(), loop))
+        return
     async with _connector_lock:
         await _disconnect_locked()
+
+
+async def _close_pool() -> None:
+    """Disconnect the pooled connector, close the pool and drop it, on its loop."""
+    global _connector_pool
+
+    async with _connector_lock:
+        await _disconnect_locked()
+        pool, _connector_pool = _connector_pool, None
+        if pool is None:
+            return
+        try:
+            await pool.close()
+            logger.debug("Connector-host pool closed")
+        except Exception as e:
+            logger.warning(f"Error during connector-host pool cleanup: {e}")
 
 
 # Register cleanup on module exit
 def _cleanup_on_exit() -> None:
     """Synchronous cleanup for atexit handler."""
-    if _runtime_connector is not None:
-        try:
+    if _runtime_connector is not None or _connector_pool is not None:
+        # Best effort cleanup
+        with contextlib.suppress(Exception):
             asyncio.run(cleanup_runtime())
-        except Exception:
-            pass  # Best effort cleanup
 
 
 atexit.register(_cleanup_on_exit)

@@ -25,7 +25,7 @@ up in ``ps``.
 regardless of what a control-system library decides to print, the child
 duplicates its stdout to a private file descriptor at startup and then points
 file descriptor 1 at stderr. A stray ``print()`` — from this module, from
-pyepics, from anything imported below — lands on stderr and cannot desynchronise
+libca, from anything imported below — lands on stderr and cannot desynchronise
 the stream. Frames are written to the private descriptor with :func:`os.write`.
 
 The init frame
@@ -64,6 +64,25 @@ contribute to what this child talks to: the endpoint is derived by
 is only meaningful because anything left in the environment afterwards was put
 there by ``connect()`` itself.
 
+Start marks
+-----------
+A supervisor may hand the child the write end of a pipe and name its
+descriptor in :data:`START_MARKS_FD_ENV`. The child then writes one line per
+start phase it completes, ``"<name> <time.monotonic()>\n"``, in the order of
+:data:`START_PHASES`, and closes the descriptor before it serves:
+
+* ``main`` — the interpreter is up and this module, with everything it
+  imports, is loaded;
+* ``init`` — the init frame has been read;
+* ``imports`` — every built-in connector and archiver module is imported;
+* ``connected`` — the connector is built: its own module imported and its
+  ``connect()`` returned.
+
+The time between two marks is the time the later phase took. The marks are
+diagnostics beside the frame channel, never part of it: a child handed no
+descriptor writes none, and a supervisor that reads none learns nothing less
+from the frames.
+
 The post-connect report
 -----------------------
 The **first frame the child sends** is the result frame answering ``init``. It
@@ -78,6 +97,7 @@ asserts its own derivation against::
       "_epics_configured": bool,
       # diagnostics, alongside the five verification fields above
       "connector_type": str,     # what `target` resolved to
+      "transport":      str | None,  # the wire the built connector speaks
       "target":         str,
       "writes_enabled": bool,    # the posture the gateway selection was made
       "readonly_run":   bool,    # on, and the run mode (see below)
@@ -103,7 +123,7 @@ the reason.
 
 **A connector that configures no CA environment reports all five as
 null/false**, and that is a well-formed report rather than a degraded one: the
-mock connector talks to no gateway, so ``selected_role``, ``mode``, ``host``
+simulator served in process talks to no gateway, so ``selected_role``, ``mode``, ``host``
 and ``port`` are ``None`` and ``_epics_configured`` is ``False``. There is
 nothing for the parent to verify because there is no endpoint to get wrong.
 
@@ -145,12 +165,14 @@ The child exits:
 - with 0 when stdin reaches **EOF** — the parent closed the pipe or died;
 - with 0 after a ``disconnect`` request, once outstanding work has finished and
   the acknowledgement has been written;
-- with :data:`EXIT_ORPHANED` when the **watchdog** thread sees
-  ``os.getppid() == 1``, meaning it has been reparented to init because its
-  parent died without closing the pipe. A polling thread is used rather than a
-  signal: ``PR_SET_PDEATHSIG`` does not exist on macOS and there is no
-  ``/proc`` to watch, and a thread polling ``getppid()`` behaves identically on
-  both platforms;
+- with :data:`EXIT_ORPHANED` when the **watchdog** thread finds it
+  reparented: the parent PID differs from the one recorded at start (init or a
+  subreaper), because its parent died without closing the pipe. This holds
+  because the child is spawned directly by its supervisor, with no wrapper
+  process between them; the recorded parent is the supervisor itself. A
+  polling thread is used rather than a signal: ``PR_SET_PDEATHSIG`` does not
+  exist on macOS and there is no ``/proc`` to watch, and a thread polling
+  ``getppid()`` behaves identically on both platforms;
 - with :data:`EXIT_INIT_FAILED` when the first frame is not a usable ``init``
   or the connector fails to connect. Either way a typed error frame naming the
   failure is written first, so the parent learns why rather than seeing only a
@@ -168,6 +190,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import stat
 import sys
 import threading
 import time
@@ -183,6 +206,8 @@ __all__ = [
     "EXIT_ORPHANED",
     "INIT_METHOD",
     "PROXY_METHODS",
+    "START_MARKS_FD_ENV",
+    "START_PHASES",
     "main",
     "scrub_epics_env",
 ]
@@ -194,11 +219,51 @@ EXIT_OK = 0
 #: describing the failure is always written before exiting with this code.
 EXIT_INIT_FAILED = 2
 
-#: The watchdog found the process reparented to init: the parent is gone.
+#: The watchdog found the process reparented: the parent PID differs from the
+#: one recorded at start (init or a subreaper), so the parent is gone.
 EXIT_ORPHANED = 3
 
 #: Method name of the configuration frame, which must arrive first.
 INIT_METHOD = "init"
+
+#: Names the inherited descriptor a child writes its start marks to.
+START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
+
+#: The start marks a child writes, in the order it reaches them.
+START_PHASES = ("main", "init", "imports", "connected")
+
+
+class _StartMarks:
+    """Writes this child's start marks to the descriptor its supervisor passed.
+
+    The variable naming the descriptor is removed from the environment as it
+    is read, so nothing this child starts inherits a number that means
+    something else there. A descriptor that is not a pipe is never written to.
+    """
+
+    def __init__(self) -> None:
+        self._fd: int | None = None
+        raw = os.environ.pop(START_MARKS_FD_ENV, None)
+        if raw is None or not raw.isdigit():
+            return
+        with contextlib.suppress(OSError):
+            if stat.S_ISFIFO(os.fstat(int(raw)).st_mode):
+                self._fd = int(raw)
+
+    def mark(self, phase: str) -> None:
+        if self._fd is None:
+            return
+        try:
+            os.write(self._fd, f"{phase} {time.monotonic():.6f}\n".encode())
+        except OSError:
+            self._fd = None
+
+    def close(self) -> None:
+        if self._fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self._fd)
+            self._fd = None
+
 
 #: Connector methods forwarded verbatim. ``spawn_probe`` is served separately
 #: because it is this module's own method, not the connector's.
@@ -255,7 +320,7 @@ def _claim_frame_channel() -> int:
     Returns:
         A private duplicate of the original stdout, which is from here on the
         only way to reach the parent's read pipe. File descriptor 1 becomes a
-        duplicate of stderr, so anything that prints — this module, pyepics,
+        duplicate of stderr, so anything that prints — this module, libca,
         rich, a library's import-time banner — is diagnostics rather than
         stream corruption.
     """
@@ -272,13 +337,33 @@ def _write_frame(fd: int, payload: bytes) -> None:
         view = view[os.write(fd, view) :]
 
 
-def _start_watchdog(interval: float = WATCHDOG_INTERVAL_S) -> threading.Thread:
-    """Start the daemon thread that exits when this process is orphaned."""
+def _parent_changed(parent_pid: int) -> bool:
+    """Whether this process's parent is no longer *parent_pid*.
+
+    A parent of init counts as changed even when it is the one recorded: a
+    supervisor that died before the record was taken has already handed the
+    child to init, and a supervisor is never init itself.
+    """
+    parent = os.getppid()
+    return parent != parent_pid or parent == 1
+
+
+def _start_watchdog(interval: float = WATCHDOG_INTERVAL_S, *, parent_pid: int) -> threading.Thread:
+    """Start the daemon thread that exits when this process is orphaned.
+
+    Args:
+        interval: Seconds between polls.
+        parent_pid: The parent PID recorded at start.
+    """
 
     def _poll() -> None:
         while True:
-            if os.getppid() == 1:
-                logger.warning("connector host: parent is gone (getppid() == 1); exiting")
+            if _parent_changed(parent_pid):
+                logger.warning(
+                    "connector host: parent %s is gone (now reparented to %s); exiting",
+                    parent_pid,
+                    os.getppid(),
+                )
                 _exit_now(EXIT_ORPHANED)
             time.sleep(interval)
 
@@ -496,6 +581,7 @@ def _post_connect_report(
         "port": port,
         "_epics_configured": bool(getattr(connector, "_epics_configured", False)),
         "connector_type": connector_type,
+        "transport": getattr(connector, "transport", None),
         "target": target,
         "writes_enabled": writes_enabled,
         "readonly_run": readonly_run,
@@ -511,12 +597,16 @@ def _post_connect_report(
 # --------------------------------------------------------------------------
 
 
-async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+async def _build_connector(
+    payload: dict[str, Any], marks: _StartMarks | None = None
+) -> tuple[Any, dict[str, Any]]:
     """Apply the init payload and bring up the connector it describes.
 
     Args:
         payload: The ``init`` frame's kwargs, as documented in the module
             docstring.
+        marks: Where the ``imports`` and ``connected`` start marks are written,
+            or ``None`` to write none.
 
     Returns:
         The live connector and its post-connect report.
@@ -547,11 +637,22 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
 
     connector_type = types.resolve_target(section, target)
     register_builtin_connectors()
+    if marks is not None:
+        marks.mark("imports")
 
-    # The section is passed whole with only its type replaced: writes_enabled and
-    # the limits block, per-channel confirm included, travel with it, and the
-    # connector sub-block is already keyed by the resolved type.
-    config = {**section, "type": connector_type}
+    # The section is passed whole: writes_enabled and the limits block,
+    # per-channel confirm included, travel with it, and the connector sub-block
+    # is already keyed by the resolved type. Its type is restated only when the
+    # target's type differs from the section's own resolved type, because the
+    # serving leaf is read under the section's own spelling (no stated type is
+    # the simulator in process; a stated virtual_accelerator without the leaf is
+    # the served one), so restating a type the section already resolves to
+    # would build the other venue.
+    config = (
+        section
+        if types.resolve_control_system_type(section) == connector_type
+        else {**section, "type": connector_type}
+    )
     # The target the parent pointed this child at — already validated by
     # resolve_target above, which refuses anything that is not one of the three
     # literals — is what indexes the per-target narrowing the reference monitor
@@ -559,6 +660,8 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
     connector = await ConnectorFactory.create_control_system_connector(
         config, control_target=target
     )
+    if marks is not None:
+        marks.mark("connected")
 
     report = _post_connect_report(connector, connector_type, str(target), section)
     logger.warning(
@@ -738,7 +841,7 @@ async def _stdin_frames() -> _FrameStream:
     return _FrameStream(reader)
 
 
-async def _run(channel_fd: int) -> int:
+async def _run(channel_fd: int, marks: _StartMarks) -> int:
     """Read the init frame, report, then serve until told otherwise."""
     stream = await _stdin_frames()
     writer = _FrameWriter(channel_fd)
@@ -747,6 +850,7 @@ async def _run(channel_fd: int) -> int:
     if init is None:
         logger.warning("connector host: stdin closed before the init frame; exiting")
         return EXIT_OK
+    marks.mark("init")
     if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
         request_id = getattr(init, "request_id", "init")
         await writer.send(
@@ -761,11 +865,15 @@ async def _run(channel_fd: int) -> int:
         return EXIT_INIT_FAILED
 
     try:
-        connector, report = await _build_connector(init.kwargs)
+        connector, report = await _build_connector(init.kwargs, marks)
     except Exception as exc:
         logger.warning("connector host: connect failed: %r", exc)
         await writer.send(_error_frame(init.request_id, exc))
         return EXIT_INIT_FAILED
+    finally:
+        # Nothing the child serves, and nothing it starts while serving, holds
+        # the supervisor's pipe open.
+        marks.close()
 
     await writer.send(frames.encode_result(init.request_id, report))
     return await _serve(connector, stream, writer)
@@ -773,6 +881,9 @@ async def _run(channel_fd: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``python -m osprey_connectors.ipc.host``."""
+    parent = os.getppid()
+    marks = _StartMarks()
+    marks.mark("main")
     del argv  # the launch contract carries no arguments; config arrives on the wire
     removed = scrub_epics_env()
     channel_fd = _claim_frame_channel()
@@ -783,9 +894,9 @@ def main(argv: list[str] | None = None) -> int:
     if removed:
         logger.warning("connector host: scrubbed inherited %s", ", ".join(sorted(removed)))
 
-    _start_watchdog()
+    _start_watchdog(WATCHDOG_INTERVAL_S, parent_pid=parent)
     try:
-        return asyncio.run(_run(channel_fd))
+        return asyncio.run(_run(channel_fd, marks))
     except KeyboardInterrupt:  # pragma: no cover - parent-initiated
         return EXIT_OK
 

@@ -19,11 +19,16 @@ from the host namespace.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import jinja2
 import pytest
 import yaml
 
+from osprey.deployment import telemetry_config
+from osprey.deployment.compose_generator import _host_dial_address
+from osprey.port_layout import layout_ports, resolve_port_base
 from tests.deployment.test_compose_generator import _render_service_template
 
 #: (template, config key of the consumer, the compose service whose env is read)
@@ -188,3 +193,89 @@ def test_the_host_dial_address_follows_the_published_interface(
 
     config: dict[str, Any] = {} if deployment is None else {"deployment": deployment}
     assert _host_dial_address(config) == address
+
+
+def _gateway_env(config: dict[str, Any], *, on_host: bool) -> dict[str, str]:
+    """Render the ``telemetry_gateway`` macro for *config* as an ``environment:`` map."""
+    templates = Path(telemetry_config.__file__).resolve().parents[1] / "templates"
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(templates)))
+    rendered = env.from_string(
+        '{% import "services/_store_dial.j2" as dial %}'
+        "services:\n  consumer:\n    environment:\n      PLACEHOLDER: x"
+        "{{- dial.telemetry_gateway(deployed_services, on_host, host_address, services,"
+        " osprey_ports) }}\n"
+    ).render(
+        deployed_services=config.get("deployed_services"),
+        on_host=on_host,
+        host_address=_host_dial_address(config),
+        services=config.get("services") or {},
+        osprey_ports=layout_ports(resolve_port_base(config)),
+    )
+    environment = yaml.safe_load(rendered)["services"]["consumer"]["environment"]
+    environment.pop("PLACEHOLDER")
+    return environment
+
+
+GATEWAY_CONFIGS = {
+    "defaults": {"deployed_services": ["telemetry_store", "telemetry_gateway"]},
+    "pinned-interface": {
+        "deployed_services": ["telemetry_gateway"],
+        "deployment": {"bind_address": "10.0.0.5"},
+    },
+    "wildcard-moved-port": {
+        "deployed_services": ["telemetry_gateway"],
+        "deployment": {"bind_address": "0.0.0.0", "port_base": 20000},
+        "services": {"telemetry_gateway": {"port": 4400}},
+    },
+    "moved-block": {
+        "deployed_services": ["telemetry_gateway"],
+        "deployment": {"port_base": 20000},
+        "services": {"telemetry_gateway": {}},
+    },
+}
+
+
+class TestTelemetryGatewayDial:
+    """The macro and ``telemetry_config.gateway_address`` are one rule, spelled twice."""
+
+    @pytest.mark.parametrize("name", sorted(GATEWAY_CONFIGS))
+    @pytest.mark.parametrize("on_host", [False, True])
+    def test_the_macro_states_the_helpers_address(self, name: str, on_host: bool) -> None:
+        config = GATEWAY_CONFIGS[name]
+        host, port = telemetry_config.gateway_address(config, bridge=not on_host)
+        assert _gateway_env(config, on_host=on_host) == {
+            "OSPREY_OTEL_GATEWAY_HOST": host,
+            "OSPREY_OTEL_GATEWAY_PORT": str(port),
+        }
+
+    def test_a_bridge_consumer_dials_the_service_name_on_the_listen_port(self) -> None:
+        assert _gateway_env(GATEWAY_CONFIGS["pinned-interface"], on_host=False) == {
+            "OSPREY_OTEL_GATEWAY_HOST": "telemetry_gateway",
+            "OSPREY_OTEL_GATEWAY_PORT": "4318",
+        }
+
+    def test_a_host_consumer_dials_the_pinned_interface_on_the_published_port(self) -> None:
+        assert _gateway_env(GATEWAY_CONFIGS["pinned-interface"], on_host=True) == {
+            "OSPREY_OTEL_GATEWAY_HOST": "10.0.0.5",
+            "OSPREY_OTEL_GATEWAY_PORT": "10051",
+        }
+
+    def test_a_wildcard_bind_is_dialled_on_loopback(self) -> None:
+        assert _gateway_env(GATEWAY_CONFIGS["wildcard-moved-port"], on_host=True) == {
+            "OSPREY_OTEL_GATEWAY_HOST": "127.0.0.1",
+            "OSPREY_OTEL_GATEWAY_PORT": "4400",
+        }
+
+    @pytest.mark.parametrize("on_host", [False, True])
+    def test_nothing_is_stated_for_a_gateway_this_deployment_does_not_run(
+        self, on_host: bool
+    ) -> None:
+        assert _gateway_env({"deployed_services": ["telemetry_store"]}, on_host=on_host) == {}
+
+    def test_the_rendered_pair_is_what_the_emitter_resolves(self) -> None:
+        """What a container is handed is what ``runtime_gateway_url`` dials."""
+        config = GATEWAY_CONFIGS["pinned-interface"]
+        for on_host in (False, True):
+            assert telemetry_config.runtime_gateway_url(
+                config, _gateway_env(config, on_host=on_host)
+            ) == telemetry_config.gateway_url(config, bridge=not on_host)

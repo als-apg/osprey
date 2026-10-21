@@ -18,6 +18,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -224,7 +225,7 @@ def rag_config_env(e2e_config_file):
     os.environ["CONFIG_FILE"] = e2e_config_file
 
     # Clear config cache to force reload with new CONFIG_FILE
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     config_module._default_config = None
     config_module._default_configurable = None
@@ -310,13 +311,12 @@ async def seeded_ariel_db(
     logger.info("Cleaning up test entries")
     async with e2e_migrated_pool.connection() as conn:
         # Clean up embeddings first (foreign key)
-        try:
+        # Table may not exist
+        with contextlib.suppress(Exception):
             await conn.execute("""
                 DELETE FROM text_embeddings_nomic_embed_text
                 WHERE entry_id LIKE 'E%'
             """)
-        except Exception:
-            pass  # Table may not exist
 
         # Clean up entries
         await conn.execute("""
@@ -607,13 +607,12 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     yield entry
 
     async with seeded_ariel_db["pool"].connection() as conn:
-        try:
+        # Table may not exist
+        with contextlib.suppress(Exception):
             await conn.execute(
                 "DELETE FROM text_embeddings_nomic_embed_text WHERE entry_id = %s",
                 [VOCAB_ENTRY_ID],
             )
-        except Exception:
-            pass  # Table may not exist
         await conn.execute(
             "DELETE FROM enhanced_entries WHERE entry_id = %s",
             [VOCAB_ENTRY_ID],
@@ -633,7 +632,7 @@ def vocabulary_mcp_context(vocabulary_project_dir: Path, monkeypatch):
         reset_ariel_context,
     )
     from osprey.registry import initialize_registry, reset_registry
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(vocabulary_project_dir)
@@ -716,7 +715,7 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
         initialize_ariel_context,
         reset_ariel_context,
     )
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     _write_vocabulary_project(
         tmp_path,

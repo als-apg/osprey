@@ -157,6 +157,26 @@ def test_load_reads_back_what_save_wrote(tmp_path: Path) -> None:
     assert saved["status_visible"] is False
 
 
+def test_a_document_saved_before_the_rail_flags_shows_both_rail_controls(
+    tmp_path: Path,
+) -> None:
+    bar_items_store.layout_path(tmp_path).write_text(json.dumps(document(rev=3)))
+
+    result = load(tmp_path)
+
+    assert result["rev"] == 3
+    assert result["rail_docs_visible"] is True
+    assert result["rail_feedback_visible"] is True
+
+
+def test_a_hidden_rail_control_survives_the_round_trip(tmp_path: Path) -> None:
+    saved = save(tmp_path, document(rail_docs_visible=False))
+
+    assert saved["rail_docs_visible"] is False
+    assert saved["rail_feedback_visible"] is True
+    assert load(tmp_path) == saved
+
+
 def test_load_falls_back_to_the_default_for_an_unreadable_schema_version(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -180,6 +200,8 @@ def test_load_falls_back_to_the_default_for_an_unreadable_schema_version(
         ("status", None),
         ("header_visible", "yes"),
         ("status_visible", "yes"),
+        ("rail_docs_visible", "yes"),
+        ("rail_feedback_visible", 1),
         ("rev", -1),
         ("rev", 1.5),
         ("rev", "3"),
@@ -229,6 +251,8 @@ def test_load_falls_back_to_an_empty_document_when_the_default_is_itself_broken(
         "status": [],
         "header_visible": True,
         "status_visible": True,
+        "rail_docs_visible": True,
+        "rail_feedback_visible": True,
     }
 
 
@@ -346,6 +370,8 @@ def test_save_accepts_a_number_option_at_its_bounds(tmp_path: Path) -> None:
         ("header_visible", "yes", "malformed"),
         # ``0`` is falsy but not a boolean; the flag must be one.
         ("status_visible", 0, "malformed"),
+        ("rail_docs_visible", "no", "malformed"),
+        ("rail_feedback_visible", 0, "malformed"),
     ],
 )
 def test_save_refuses_a_document_this_build_cannot_read(

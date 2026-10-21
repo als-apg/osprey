@@ -32,8 +32,8 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 | Custom providers (`models/providers/*.py`) | Provider registry still exists             | EVALUATE  |
 | Custom prompt builders (`*prompts*/*.py`)  | Customization layer likely still needed    | EVALUATE  |
 | `services/channel_finder/` full copies     | Framework-native now — likely redundant    | EVALUATE  |
-| `data/channel_databases/*.json`            | Same format                                | SALVAGE   |
-| `data/channel_limits.json`                 | Same format                                | SALVAGE   |
+| Channel database JSON files                | Channels are `data/facility/` records now  | TRANSFORM |
+| `data/channel_limits.json`                 | Limits are `limits.yaml` records now       | TRANSFORM |
 | `data/benchmarks/**`, `data/raw/*.csv`     | Same format                                | SALVAGE   |
 | `data/tools/*.py`, machine-state JSON      | Utility data                               | SALVAGE   |
 | Custom `.claude/rules/`, `.claude/skills/` | Content still valid                        | SALVAGE   |

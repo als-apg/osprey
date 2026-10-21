@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly six
+byte-for-byte what it rendered before this feature, with exactly eleven
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -40,7 +40,7 @@ exceptions:
      (the ``?token=`` exchange trades the magic link for one), so the setting
      that governs how long it lives is not an authentication feature this
      posture opted out of; it is the posture's own cookie. It rides in the
-     environment because the persona's ``config.yml`` is baked into the image
+     environment because the render's ``config.yml`` is baked into the image
      at build time, and an operator who edits ``auth.session_lifetime`` and
      re-renders would otherwise see nothing change. The value emitted here is
      the default an absent ``auth:`` block already resolved to, so nothing
@@ -77,6 +77,30 @@ exceptions:
      every write. It is a perimeter rule that renders the same under every
      method, carries no account, role or claim, and names only the host
      ``deploy.fqdn`` already sets.
+  7. **the simulator log emitter and bind** — ``OSPREY_SIMULATOR_LOG_DIR`` and
+     the ``./var/simulator`` bind on every per-user container whenever a
+     simulated target is configured. The composite running in the terminal
+     appends its model logs there; nothing about it depends on a login.
+  8. **the guarded-run emitter and bind** — ``OSPREY_GUARDED_RUN_DIR`` and
+     the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock
+     there, shared with every other container that runs the agent; nothing
+     about it depends on a login.
+  9. **the render badge** — every user card names the render it runs, here
+     the default tier every roster states. It names the image's project
+     tier, carries no account, role or claim, and renders the same under
+     every method.
+  10. **the terminal-starting page** — ``error_page 502`` in every proxying
+      location, sending nginx's OWN 502 (nothing listening behind the terminal
+      yet) to one named location that answers with a self-reloading 503 page.
+      A terminal's app listens tens of seconds after its container starts, and
+      a browser left open across a restart meets that gap as a bare 502 that
+      reads as a broken deployment. It renders the same under every method,
+      reaches no status the app itself returns (``proxy_intercept_errors`` stays
+      off), and carries no account, role or claim.
+  11. **no new privileges** — ``security_opt: ["no-new-privileges:true"]`` on
+      nginx and every per-user container, so no process in them gains a
+      privilege through a setuid binary. It renders the same under every
+      method and carries no account, role or claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -191,7 +215,7 @@ from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
-from .test_golden_render import EXAMPLE_CONFIG, _rendered_repo_id
+from .test_golden_render import EXAMPLE_CONFIG, FACILITY_NAME, _rendered_repo_id
 
 _BASELINE_DIR = Path(__file__).parent / "golden" / "pre_audit_roles"
 
@@ -419,15 +443,15 @@ _LAYOUT_PORTS = frozenset(
 _ALLOWED_COMPOSE_LINES = Counter(
     {
         "      - OSPREY_AUDIT_IDENTITY=alice": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice": 1,
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit/alice": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice": 1,
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit/alice": 1,
         "      - OSPREY_AUDIT_IDENTITY=bob": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob": 1,
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit/bob": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob": 1,
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit/bob": 1,
         # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
         # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
         # travels to every per-user container, under `token` as under every
-        # other method, because every method mints that cookie and the persona's
+        # other method, because every method mints that cookie and the render's
         # `config.yml` is baked into the image at build time — so a deploy-time
         # edit of `auth.session_lifetime` is visible to a running container only
         # as environment. Count 2 = alice + bob. The value is the default an
@@ -445,10 +469,28 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # exactly where nothing else is watching either. The identity in the
         # path is the roster name, the same one OSPREY_AUDIT_IDENTITY above
         # already spells, so no account, role or claim reaches this render.
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob": 1,
-        "      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
+        "      - ./var/agent_data/control_target/alice:/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - ./var/agent_data/control_target/bob:/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
+        # The simulator's model logs — the SEVENTH exception to SC6. The
+        # reference roster's deployment runs the mock, so every terminal runs
+        # the composite in process and appends its model logs to the one host
+        # directory `osprey sim status` names. Like the audit pair it carries
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator": 2,
+        "      - ./var/simulator:/app/dls_controls-assistant/var/simulator": 2,
+        # The guarded-run directory — the EIGHTH exception to SC6. Every
+        # terminal runs the agent, and a guarded run started in any of them
+        # takes the one per-target lock the deployment shares, so
+        # the bind is unconditional. It carries no account, role or claim.
+        # Count 2 = alice + bob.
+        "      - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run": 2,
+        "      - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run": 2,
+        # No new privileges — the ELEVENTH exception to SC6. nginx and every
+        # terminal run with it whatever the method, and it carries no account,
+        # role or claim. Count 3 = nginx + alice + bob.
+        '    security_opt: ["no-new-privileges:true"]': 3,
     }
 )
 
@@ -460,8 +502,19 @@ _REPLACED_COMPOSE_LINES = frozenset(
     {
         "      # This user's refusal audit log (`var/audit/<user>/` on the host), bound",
         "      # so the record survives a recreate and is readable from the host.",
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit",
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit",
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit",
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit",
+    }
+)
+
+#: The retired telemetry store's two carrier lines. The store is gone, and a
+#: terminal now reaches the telemetry gateway through its own login file and,
+#: only where the gateway is deployed, the gateway address — so these two lines
+#: are deleted from the `token` render, not replaced. Nothing else may go.
+_RETIRED_COMPOSE_LINES = frozenset(
+    {
+        "      - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1",
+        "      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}",
     }
 )
 
@@ -500,6 +553,19 @@ _REWORDED_NGINX_LINES = frozenset(
 #: may be replaced in the `token` render.
 _REPLACED_NGINX_LINES = frozenset({"    server_name _;"})
 
+#: The terminal-starting page's one response line, as the template spells it.
+_STARTING_PAGE_RETURN = (
+    '        return 503 \'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    '<meta http-equiv="refresh" content="5"><title>Terminal starting</title>'
+    "<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;"
+    "place-items:center;font:16px/1.5 system-ui,sans-serif;background:Canvas;"
+    "color:CanvasText}main{max-width:32rem;padding:1rem 1.5rem}p{opacity:.75}</style>"
+    "</head><body><main><h1>This terminal is not answering yet</h1><p>It is most likely "
+    "still starting, which takes up to a minute after a deploy or restart. This page "
+    "reloads itself every 5 seconds.</p></main></body></html>';"
+)
+
 #: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
@@ -524,6 +590,18 @@ _ALLOWED_NGINX_LINES = Counter(
         "    access_log /dev/stdout osprey_sanitized;": 1,
         "    return 301 http://dls-deploy.dls.example.org:<port>$request_uri;": 1,
         "}": 1,
+        # The terminal-starting page — the TENTH exception to SC6. Each of
+        # the two proxying locations sends nginx's own 502 to one named
+        # location, which answers with a self-reloading 503. difflib pairs the
+        # named location's closing brace with the baseline's, so it counts as
+        # an indented `}` here.
+        "        error_page 502 = @osprey_terminal_starting;": 2,
+        "    location @osprey_terminal_starting {": 1,
+        "        default_type text/html;": 1,
+        "        add_header Retry-After 5 always;": 1,
+        '        add_header Cache-Control "no-store" always;': 1,
+        _STARTING_PAGE_RETURN: 1,
+        "    }": 1,
     }
 )
 
@@ -573,6 +651,9 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
             '            <span class="landing-card-token-hint">entered via a login link'
             " — <code>osprey users login-url bob</code></span>"
         ): 1,
+        # The render badge — exception 9: one per user card, naming the
+        # default tier EXAMPLE_CONFIG's roster runs.
+        '            <span class="landing-card-sublabel">assistant</span>': 2,
     }
 )
 
@@ -595,14 +676,14 @@ def _token_render() -> dict[str, str]:
     `_auth_tls_context` supplies. The explicit spelling is
     :func:`_explicit_token_render`, and the two are pinned equal below.
     """
-    return render_web_terminals(EXAMPLE_CONFIG)
+    return render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
 
 
 def _explicit_token_render() -> dict[str, str]:
     """The same posture written out: ``auth: {method: token}``, roles off."""
     explicit = copy.deepcopy(EXAMPLE_CONFIG)
     explicit["modules"]["web_terminals"]["auth"] = {"method": "token"}
-    return render_web_terminals(explicit)
+    return render_web_terminals(explicit, facility_name=FACILITY_NAME)
 
 
 def _is_comment(line: str) -> bool:
@@ -684,8 +765,8 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     # The identity-addressed target is the feature's marker; the baseline may
     # carry the interim root-of-`var/audit` bind it replaces (see the module
     # docstring), so the bare `/var/audit/` substring is not the test.
-    assert "/app/dls-assistant/var/audit/alice" not in compose
-    assert "/app/dls-assistant/var/audit/bob" not in compose
+    assert "/app/dls_controls-assistant/var/audit/alice" not in compose
+    assert "/app/dls_controls-assistant/var/audit/bob" not in compose
     assert "OSPREY_CONTROL_CONTEXT_DIR" not in compose
     assert "/var/agent_data/control_target/alice" not in compose
     for line in _REPLACED_COMPOSE_LINES:
@@ -695,6 +776,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     for line in _REWORDED_COMPOSE_LINES:
         assert line in compose, (
             f"the frozen baseline lacks the pre-layout comment it is said to carry: {line!r}"
+        )
+    for line in _RETIRED_COMPOSE_LINES:
+        assert line in compose, (
+            f"the frozen baseline lacks the retired store line it is said to carry: {line!r}"
         )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
@@ -840,7 +925,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
         replaceable = (
-            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES
+            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES | _RETIRED_COMPOSE_LINES
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"
@@ -870,7 +955,8 @@ def test_landing_page_adds_exactly_the_token_login_badge() -> None:
 
     What the pin becomes is the same guarantee one step weaker and stated
     exactly: today's `token` landing page is the frozen one PLUS the badge's
-    style rules and the two spans per user card, and nothing at all besides.
+    style rules and the two spans per user card, and the render badge
+    (exception 9), and nothing at all besides.
     Anything else that appears on this page — a role, a login form, a claim —
     still fails here, which is what SC6 was ever protecting.
     """

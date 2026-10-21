@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
 safety_layer: 2
 ---
 
@@ -41,6 +41,12 @@ stdin ──► Parse JSON
                  approval section
                           │
                           ▼
+  not a mapping, or enabled
+  not true/false?  ──YES──► DENY (names the fix)
+     │
+    NO
+     │
+     ▼
   enabled: false?  ──YES──► EXIT (allow)
      │
     NO
@@ -61,6 +67,8 @@ Per-tool policies from `approval.tools` in config.yml:
 - **always**: every call requires approval
 - **selective**: content-aware (execute checks write patterns + exec mode)
 - **enabled: false**: global toggle disables all approval
+- **enabled** other than true/false (or an `approval` that is not a mapping):
+  every call is denied with the fix
 - **default_policy**: fail-closed default for unmapped tools
 
 Creates a pre-execution notebook artifact for code review whenever
@@ -109,6 +117,7 @@ blocks; the control target still comes only from the record. A single-lane
 deployment has nothing to address and renders exactly what it always did.
 """
 
+import contextlib
 import hashlib
 import io
 import json
@@ -117,6 +126,7 @@ import re
 import sys
 import time
 import tokenize
+from pathlib import Path
 from typing import TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -127,6 +137,7 @@ from osprey_hook_log import (
     AUDIT_DECISION_REFUSED,
     emit_audit,
     get_hook_input,
+    get_project_dir,
     is_write_call,
     is_write_tool,
     load_hook_config,
@@ -152,6 +163,14 @@ try:
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
 
+# The shared, stdlib-only file helper the stamps are written through, a sibling
+# script like the reader above. Guarded the same way: without it no stamp is
+# written, which every caller already treats as "no stamp".
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - render without the helper
+    _safety_file = None
+
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
 #: The harness kills the hook a fixed number of seconds after it launches it,
@@ -170,7 +189,7 @@ _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
     r"\bwrite_channel\s*\(",
     r"\bwrite_channels\s*\(",
-    # EPICS (PyEPICS)
+    # EPICS Channel Access (aioca, pyepics)
     r"\bcaput\s*\(",
     r"epics\.caput\(",
     r"\.put\s*\(",
@@ -247,7 +266,9 @@ except ImportError:
         return any(re.search(p, code) for p in patterns)
 
 
-def build_approval_output(reason_detail: str, hook_input=None, read_record=None) -> dict:
+def build_approval_output(
+    reason_detail: str, hook_input=None, read_record=None, updated_input=None
+) -> dict:
     """The ask envelope, with the target identity line above every detail.
 
     Every ask this hook emits goes out through here, which is why the identity
@@ -266,23 +287,48 @@ def build_approval_output(reason_detail: str, hook_input=None, read_record=None)
     destination of a switch — is handed the same reader, so one prompt describes
     one read of the record rather than two reads a switch could land between.
     Left unset, this resolves its own, exactly as before.
+
+    *updated_input*, when given, is the whole input the approved call runs
+    with, sent as ``updatedInput`` beside the ask; left unset, the call runs
+    with the input the agent sent.
+
+    The ask stamp is not written here: :func:`_emit_ask` writes it once the
+    envelope has reached the harness, from the binding this hook computed.
     """
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
     _record_ask(hook_input)
-    _stamp_ask(hook_input)
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": (
-                "\u26a0\ufe0f  OSPREY APPROVAL REQUIRED\n\n"
-                f"{_target_line(hook_input, record=record)}\n\n"
-                f"{reason_detail}\n\n"
-                "Review the operation above and approve to proceed."
-            ),
-        }
+    specific: dict = {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "ask",
+        "permissionDecisionReason": (
+            "\u26a0\ufe0f  OSPREY APPROVAL REQUIRED\n\n"
+            f"{_target_line(hook_input, record=record)}\n\n"
+            f"{reason_detail}\n\n"
+            "Review the operation above and approve to proceed."
+        ),
     }
+    if updated_input is not None:
+        specific["updatedInput"] = dict(updated_input)
+    return {"hookSpecificOutput": specific}
+
+
+#: The prefix of the input fields the approval prompt binds a call to.
+APPROVED_FIELD_PREFIX = "approved_"
+
+
+def _emit_ask(output, hook_input, approved=None) -> None:
+    """Send the ask envelope, then leave its stamp.
+
+    The stamp is written only after the envelope is flushed to the harness, so
+    a stamp carrying ``approved_*`` fields exists only for an ask the harness
+    received. *approved* is the binding this hook computed for the call; an
+    ``approved_*`` key the agent sent and the hook did not set never reaches
+    the stamp.
+    """
+    json.dump(output, sys.stdout)
+    sys.stdout.flush()
+    _stamp_ask(hook_input, approved=approved)
 
 
 def _record_ask(hook_input):
@@ -298,7 +344,8 @@ def _record_ask(hook_input):
     Which policy did so is a debug fact and stays on the debug line; the ledger
     answers who was asked to approve what.
     """
-    try:
+    # the audit trail must never cost the prompt
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -306,8 +353,6 @@ def _record_ask(hook_input):
             subject=(hook_input or {}).get("tool_name", ""),
             reason="approval_required",
         )
-    except Exception:
-        pass  # the audit trail must never cost the prompt
 
 
 def _read_record_once(hook_input=None):
@@ -761,18 +806,21 @@ def _approval_stamps_in(directory, prefix) -> list[str]:
 
 
 def _write_stamp(path, payload) -> None:
-    """Put *payload* at *path* atomically.
+    """Put *payload* at *path*, replaced whole through the ``osprey_safety_file`` helper.
 
     Another process reads these the moment they land, so one lands whole: a
     reader sees the stamp that was there before or this one, never half of
-    either. Raises on an unwritable disk, which every caller swallows into "no
-    stamp" — the one failure mode that costs a comparison rather than making a
-    wrong one.
+    either. Mode 0640, as every file in the control-state directory: the
+    python executor reads it, possibly as another uid through the directory's
+    group. Raises on an unwritable disk or a missing helper, which every caller
+    swallows into "no stamp" — the one failure mode that costs a comparison
+    rather than making a wrong one.
     """
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
-    os.replace(tmp, path)
+    if _safety_file is None:
+        raise OSError("osprey_safety_file is not installed beside the hooks")
+    _safety_file.atomic_replace(
+        Path(path), json.dumps(payload).encode("utf-8"), mode=0o640, sync="best_effort"
+    )
 
 
 def _prune_approval_stamps(directory, prefix, ttl_s: float = WRITE_APPROVAL_TTL_S) -> None:
@@ -876,13 +924,18 @@ def _approval_state_dir(hook_input):
         return None
 
 
-def _stamp_ask(hook_input) -> None:
+def _stamp_ask(hook_input, approved=None) -> None:
     """Leave the stamp that lets this ask's answer be recorded. Never raises.
 
     Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
     it. It names the approver — the dispatch policy in a headless dispatch run,
     a human otherwise — and the permission mode the prompt was shown under. A
     missing stamp costs only the outcome record, never the prompt.
+
+    *approved* holds the ``approved_*`` fields this hook computed for the
+    call; the python executor reads them back before it starts a read-write
+    run, and refuses a call whose own fields differ or that carries
+    one the stamp does not hold.
     """
     try:
         if not isinstance(hook_input, dict):
@@ -905,6 +958,9 @@ def _stamp_ask(hook_input) -> None:
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
+        for key, value in (approved or {}).items():
+            if key.startswith(APPROVED_FIELD_PREFIX):
+                payload[key] = value
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
     except Exception:
         return
@@ -950,10 +1006,8 @@ def _record_executed(hook_input) -> None:
             detail=_outcome_detail(stamp),
             tool_use_id=tool_use_id,
         )
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass
     except Exception:
         return
 
@@ -987,10 +1041,8 @@ def _close_unanswered_asks(hook_input) -> None:
                 detail=_outcome_detail(stamp),
                 tool_use_id=stamp.get("tool_use_id"),
             )
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
     except Exception:
         return
 
@@ -2785,6 +2837,19 @@ _RAW_CLIENT_WRITE_REASON = (
 )
 _RAW_CLIENT_WRITE_AUDIT_REASON = "raw_client_write"
 
+#: The deny text for an approval switch that is not true or false, and for an
+#: ``approval`` section that is not a mapping. The hook is deployed standalone,
+#: so it restates the build's sentence (``build_posture_check``) literally.
+_APPROVAL_CONFIG_INVALID_REASON = (
+    "approval.enabled is {value!r}, not true or false; "
+    "set approval.enabled to true or false in profile.yml and rebuild"
+)
+_APPROVAL_SECTION_INVALID_REASON = (
+    "approval is {value!r}, not a mapping; "
+    "set approval.enabled to true or false in profile.yml and rebuild"
+)
+_APPROVAL_CONFIG_INVALID_AUDIT_REASON = "approval_config_invalid"
+
 
 def _code_tokens(code):
     """The source as space-joined code tokens, or ``None`` if it does not tokenize.
@@ -2824,11 +2889,11 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
     log or audit zone costs a record, never the decision.
     """
     detail = f"spelling={spelling}"
-    try:
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
         log_hook("approval", hook_input, status="deny", detail=f"raw_client_write {detail}")
-    except Exception:
-        pass  # logging must never cost the deny
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         emit_audit(
             "approval",
             hook_input,
@@ -2837,8 +2902,6 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
             reason=_RAW_CLIENT_WRITE_AUDIT_REASON,
             detail=detail,
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -2848,6 +2911,310 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
     }
     json.dump(output, sys.stdout)
     sys.exit(0)
+
+
+def _deny_approval_config_invalid(hook_input, tool_name, reason):
+    """Emit the deny for an approval section no reader can trust and exit 0. Does not return.
+
+    A refusal, not an answer to an ask, so it is filed as ``refused``. Both
+    filesystem touches are wrapped and happen before the exit: an unwritable
+    log or audit zone costs a record, never the decision.
+    """
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
+        log_hook(
+            "approval", hook_input, status="deny", detail=_APPROVAL_CONFIG_INVALID_AUDIT_REASON
+        )
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=_APPROVAL_CONFIG_INVALID_AUDIT_REASON,
+            detail=reason,
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Guarded runs: the target's run lock
+# ---------------------------------------------------------------------------
+# A readwrite `execute` / `execute_file` and every `pyaml_measure` run under the
+# control target's run lock. The prompt binds the call to its target
+# (`approved_target`); the run alone refuses a held target.
+
+#: The tool argument that carries the approved target.
+_APPROVED_TARGET_KEY = "approved_target"
+
+#: The most setpoint addresses an approval prompt lists. A measurement stepping
+#: more is refused: no approval is asked for a list the prompt cannot show in
+#: full.
+_PROMPT_MAX_LISTED = 500
+
+
+class _MeasureRefused(Exception):
+    """The measurement is refused before any human is asked.
+
+    Attributes:
+        reason: The deny text the agent sees.
+        audit_reason: The reason filed on the audit trail.
+    """
+
+    def __init__(self, reason: str, audit_reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.audit_reason = audit_reason
+
+
+def _prompt_text(value) -> str:
+    """*value*, a string from the agent's input or the build's block, as one line of printable ASCII.
+
+    JSON-quoted, so every control and format character is escaped and two
+    different strings never render alike.
+    """
+    return json.dumps(value)
+
+
+def _guarded_run_target(hook_input, read_record) -> str:
+    """The control target a guarded run of this call is on.
+
+    The recorded target, from the same read the prompt's ``Target:`` line is
+    rendered from; with no usable record, the deployment's baseline target.
+    """
+    record = read_record()
+    target = _target_state.selected_target(record) if _target_state is not None else None
+    if not isinstance(target, str):
+        return _baseline_target(load_osprey_config(hook_input))
+    return target
+
+
+def _guarded_run_binding(hook_input, read_record) -> dict[str, str]:
+    """The input binding for a call that runs under the target's run lock.
+
+    The binding names the target the call is approved for. The prompt never
+    opens the target's run directory: the run alone refuses a held target,
+    naming its holder.
+
+    Returns:
+        The ``approved_target`` value the call's input carries.
+    """
+    return {_APPROVED_TARGET_KEY: _guarded_run_target(hook_input, read_record)}
+
+
+def _deny_measure(hook_input, tool_name, refusal):
+    """Emit a measurement refusal as a deny and exit 0. Does not return.
+
+    Filed as ``refused``, like every refusal this hook makes before asking;
+    an unwritable log or audit zone costs the record, never the decision.
+    """
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
+        log_hook("approval", hook_input, status="deny", detail=refusal.audit_reason)
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=refusal.audit_reason,
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": refusal.reason,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _guarded_call(hook_input, tool_input, read_record):
+    """The rewritten input and binding of a readwrite call.
+
+    A readonly call takes no run lock, so it keeps its input as the agent sent
+    it (``None``) and has no binding (``None``). A readwrite call's input is the
+    agent's with every approved field replaced by the binding; the binding
+    alone is what the ask stamp records.
+    """
+    if tool_input.get("execution_mode") != "readwrite":
+        return None, None
+    binding = _guarded_run_binding(hook_input, read_record)
+    return _bound_input(tool_input, binding), binding
+
+
+def _bound_input(tool_input, binding) -> dict:
+    """*tool_input* with every approved field the agent sent replaced by *binding*."""
+    kept = {
+        key: value
+        for key, value in tool_input.items()
+        if not str(key).startswith(APPROVED_FIELD_PREFIX)
+    }
+    return {**kept, **binding}
+
+
+# -- pyaml_measure ------------------------------------------------------------
+#
+# A measurement runs on the pyAML view the build recorded in the render. The
+# prompt shows the view's path and digest and every stepping argument, and the
+# approved call carries the digest; the sandbox script refuses a view whose bytes
+# differ from it. The hook describes a measurement from the block the build
+# wrote and judges no model or kind: a call the block does not map goes to the
+# tool, which refuses it. The names below are the view writer's paths
+# (`osprey.facility.views.pyaml`), restated because this hook is deployed
+# standalone; tests/hooks/test_approval_hook.py pins them.
+
+#: The view's directory under the render, and each model's configuration in it.
+_PYAML_VIEW_ROOT = ("data", "pyaml")
+_PYAML_CONFIGURATION_FILE = "configuration.yaml"
+
+#: The stepped role the view's RF plant stands for; its setpoints are the block's ``rf``.
+_PYAML_RF = "rf"
+
+#: The stepped roles whose setpoints ``correctors`` may name.
+_PYAML_CORRECTOR_ROLES = ("hcor", "vcor")
+
+#: The kinds that take ``by``, and the request values an omitted argument
+#: takes; ``by`` ``group`` steps once from the present setting, so an omitted
+#: modulation is unipolar there.
+_PYAML_BY_KINDS = ("trm", "crm")
+_PYAML_DEFAULT_MODULATION = "bipolar"
+_PYAML_DEFAULT_BY = "magnet"
+_PYAML_GROUP = "group"
+_PYAML_GROUP_MODULATION = "unipolar"
+
+#: The tool argument that carries the approved view digest.
+_APPROVED_VIEW_KEY = "approved_view_sha256"
+
+#: Audit reason of a measurement refused for its view.
+_PYAML_VIEW_AUDIT_REASON = "pyaml_view_refused"
+
+
+def _pyaml_view_path(hook_input, model) -> tuple[str, str]:
+    """``(relative, absolute)`` path of *model*'s pyAML configuration in the render."""
+    relative = "/".join((*_PYAML_VIEW_ROOT, str(model), _PYAML_CONFIGURATION_FILE))
+    return relative, os.path.join(get_project_dir(hook_input), *relative.split("/"))
+
+
+def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None:
+    """The prompt lines of a measurement and the view digest its call is bound to.
+
+    Returns:
+        ``None`` when the block maps no view for the call's model or no
+        stepped roles for its kind; the tool refuses such a call.
+
+    Raises:
+        _MeasureRefused: The view's bytes differ from the digest the
+            build recorded, or the call steps more setpoints than a prompt
+            lists.
+    """
+    measurement = load_hook_config().get("measurement") or {}
+    models = sorted(measurement)
+    model = tool_input.get("model")
+    if model is None and len(models) == 1:
+        model = models[0]
+    if not isinstance(model, str) or model not in measurement:
+        return None
+    block = measurement[model] or {}
+    kind = tool_input.get("kind")
+    stepped = (block.get("kinds") or {}).get(kind) if isinstance(kind, str) else None
+    if not isinstance(stepped, dict):
+        return None
+    relative, path = _pyaml_view_path(hook_input, model)
+    root = os.path.realpath(os.path.join(get_project_dir(hook_input), *_PYAML_VIEW_ROOT))
+    recorded = block.get("view_sha256")
+    try:
+        if os.path.commonpath([os.path.realpath(path), root]) != root:
+            raise ValueError(f"{path} is outside {root}")
+        with open(path, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+    except (OSError, ValueError):
+        raise _MeasureRefused(
+            f"pyaml_measure: the pyAML view of {model} cannot be read: {relative}",
+            _PYAML_VIEW_AUDIT_REASON,
+        ) from None
+    if not isinstance(recorded, str) or digest != recorded:
+        raise _MeasureRefused(
+            f"pyaml_measure: the pyAML view of {model} differs from the one the build "
+            f"recorded: {relative}",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
+
+    groups = block.get("groups") or {}
+    correctors = tool_input.get("correctors")
+    setpoints: list[str] = []
+    for role in sorted(stepped):
+        if role == _PYAML_RF:
+            rf = [str(address) for address in block.get(_PYAML_RF) or []]
+            if not rf:
+                raise _MeasureRefused(
+                    f"pyaml_measure: {kind} steps the RF frequency and the pyAML view of "
+                    f"{model} names no RF setpoint: {relative}",
+                    _PYAML_VIEW_AUDIT_REASON,
+                )
+            setpoints.extend(rf)
+        elif correctors and role in _PYAML_CORRECTOR_ROLES:
+            named = (str(address) for address in correctors)
+            setpoints.extend(address for address in named if address not in setpoints)
+        else:
+            setpoints.extend(str(address) for address in groups.get(role) or [])
+    if len(setpoints) > _PROMPT_MAX_LISTED:
+        raise _MeasureRefused(
+            f"pyaml_measure: {kind} on {model} steps {len(setpoints)} setpoints, "
+            "more than an approval prompt lists",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
+    by = (tool_input.get("by") or _PYAML_DEFAULT_BY) if kind in _PYAML_BY_KINDS else None
+    modulation = tool_input.get("modulation") or (
+        _PYAML_GROUP_MODULATION if by == _PYAML_GROUP else _PYAML_DEFAULT_MODULATION
+    )
+    lines = [
+        f"Model: {model}",
+        f"Kind: {kind}",
+        f"Modulation: {_prompt_text(modulation)}",
+    ]
+    if by is not None:
+        lines.append(f"By: {_prompt_text(by)}")
+        if by == _PYAML_GROUP:
+            for role, array in sorted(stepped.items()):
+                if role == _PYAML_RF:
+                    continue
+                count = len(groups.get(role) or [])
+                lines.append(f"  group {array} steps {count} setpoints as one knob")
+    lines.append(f"pyAML view: {relative}")
+    lines.append(f"  sha256 {digest}")
+    lines.append(f"Setpoints stepped: {len(setpoints)}")
+    lines.extend(f"  {_prompt_text(address)}" for address in setpoints)
+    return lines, digest
+
+
+def _measure_call(hook_input, tool_name, tool_input, read_record):
+    """The prompt lines, rewritten input and binding of a measurement, or a deny.
+
+    A measurement always runs under the target's run lock: its binding is
+    ``approved_target`` plus ``approved_view_sha256``, each set over any value
+    the agent supplied. ``None`` when the block does not map the call.
+    """
+    try:
+        described = _pyaml_measure_lines(tool_input, hook_input)
+    except _MeasureRefused as refusal:
+        _deny_measure(hook_input, tool_name, refusal)
+    if described is None:
+        return None
+    lines, digest = described
+    binding = {**_guarded_run_binding(hook_input, read_record), _APPROVED_VIEW_KEY: digest}
+    return lines, _bound_input(tool_input, binding), binding
 
 
 def main():
@@ -2940,8 +3307,21 @@ def main():
         if spelling is not None:
             _deny_raw_client_write(hook_input, tool_name, spelling)
 
-    # Global toggle — disabled means allow everything
-    if not approval_config.get("enabled", True):
+    # The switch is read only as a bool: a section that is not a mapping, or a
+    # stated switch that is not true or false, allows nothing and asks nobody.
+    if not isinstance(approval_config, dict):
+        _deny_approval_config_invalid(
+            hook_input, tool_name, _APPROVAL_SECTION_INVALID_REASON.format(value=approval_config)
+        )
+    if "enabled" in approval_config and not isinstance(approval_config["enabled"], bool):
+        _deny_approval_config_invalid(
+            hook_input,
+            tool_name,
+            _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
+        )
+
+    # Global toggle — false means allow everything
+    if approval_config.get("enabled", True) is False:
         log_hook("approval", hook_input, status="allow", detail="enabled=false")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
@@ -2969,6 +3349,8 @@ def main():
             # rest on the regex recognising the spelling of the write.
             needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
+                read_record = _record_reader(hook_input)
+                updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
@@ -2978,7 +3360,11 @@ def main():
                         reason_parts.append(f"\nReview notebook: {gallery_link}")
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_selective")
-                json.dump(build_approval_output(reason, hook_input), sys.stdout)
+                _emit_ask(
+                    build_approval_output(reason, hook_input, read_record, updated_input),
+                    hook_input,
+                    binding,
+                )
                 sys.exit(0)
 
             # Selective execute without write indicators — allow
@@ -2991,7 +3377,7 @@ def main():
             channel_list = _channel_write_summary(tool_input)
             reason = f"Channel write: {channel_list or 'unknown'}"
             log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
-            json.dump(build_approval_output(reason, hook_input), sys.stdout)
+            _emit_ask(build_approval_output(reason, hook_input), hook_input)
             sys.exit(0)
 
         # Other tools under selective: treat as always (conservative)
@@ -3007,38 +3393,45 @@ def main():
     # rendered from the same read. It resolves nothing until something asks, so a
     # prompt with no target-aware describer costs exactly what it always did.
     read_record = _record_reader(hook_input)
+    updated_input = None
+    binding = None
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
         if code.strip():
             gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
+    elif short_name == "execute_file":
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
+    elif short_name == "pyaml_measure":
+        measured = _measure_call(hook_input, tool_name, tool_input, read_record)
+        if measured is None:
+            log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
+            json.dump(build_allow_output(), sys.stdout)
+            sys.exit(0)
+        measure_lines, updated_input, binding = measured
+        reason_parts.extend(measure_lines)
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
     elif short_name in _QUEUE_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _QUEUE_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
     elif short_name in _TARGET_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
     elif short_name in _CALL_DESCRIBERS:
-        try:
+        with contextlib.suppress(Exception):
             reason_parts.extend(
                 _CALL_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
-        except Exception:
-            pass
 
     reason = "\n".join(reason_parts)
     log_hook(
@@ -3047,7 +3440,11 @@ def main():
         status="ask",
         detail=f"policy={policy} tool={short_name}",
     )
-    json.dump(build_approval_output(reason, hook_input, read_record), sys.stdout)
+    _emit_ask(
+        build_approval_output(reason, hook_input, read_record, updated_input),
+        hook_input,
+        binding,
+    )
     sys.exit(0)
 
 

@@ -1,0 +1,1 @@
+The archive recorder records the `channels` of the simulator view's `addresses.json`, mounted read-only from `build/data/simulator`; its compose service no longer reads `VA_CHANNELS_FILE`. A build that configures the recorder stops with `view-unsupported` on a channel address the archive cannot store as a field name (one containing `.`, starting with `$`, or holding a NUL byte).

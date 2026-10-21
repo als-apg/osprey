@@ -44,7 +44,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     enhanced_entry_from_row,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -684,11 +684,22 @@ class ARIELRepository:
     async def upsert_entry(self, entry: EnhancedLogbookEntry) -> None:
         """Insert or update an entry.
 
+        An empty incoming attachment list keeps the stored list. A non-empty one
+        replaces it, and the stored rows of the published stand-ins it no longer
+        carries are deleted in the same transaction (see
+        :meth:`_delete_replaced_stand_ins`).
+
         Args:
             entry: The entry to upsert
         """
+        incoming = entry.get("attachments") or []
         try:
-            async with self.pool.connection() as conn:
+            async with self.pool.connection() as conn, conn.transaction():
+                previous = (
+                    await self._lock_stored_attachments(conn, entry["entry_id"])
+                    if incoming
+                    else None
+                )
                 await conn.execute(
                     """
                     INSERT INTO enhanced_entries (
@@ -704,12 +715,11 @@ class ARIELRepository:
                         raw_text = EXCLUDED.raw_text,
                         -- Preserve existing attachments when the incoming upsert
                         -- carries none. A background re-ingestion poll re-fetches an
-                        -- already-published entry from the upstream logbook, which has
-                        -- no attachments (the adapter write contract carries no
-                        -- uploads), so a blind overwrite would erase ARIEL-native
-                        -- web-uploaded attachments and orphan their stored blobs. A
-                        -- non-empty incoming list still replaces (upstream wins when it
-                        -- actually has data).
+                        -- already-published entry from the upstream logbook, which
+                        -- lists none of the files ARIEL alone holds, so a blind
+                        -- overwrite would erase ARIEL-native web-uploaded attachments
+                        -- and orphan their stored blobs. A non-empty incoming list
+                        -- still replaces (upstream wins when it actually has data).
                         attachments = CASE
                             WHEN EXCLUDED.attachments = '[]'::jsonb
                             THEN enhanced_entries.attachments
@@ -728,11 +738,73 @@ class ARIELRepository:
                         json.dumps(entry.get("enhancement_status", {})),
                     ],
                 )
+                if previous:
+                    replaced = await self._delete_replaced_stand_ins(
+                        conn, entry["entry_id"], previous, incoming
+                    )
+                    if replaced and (await self.schema_facts()).has_copy_state:
+                        await conn.execute(
+                            """
+                            UPDATE enhanced_entries
+                            SET attachment_captions = attachment_captions - %(ids)s::text[]
+                            WHERE entry_id = %(entry_id)s AND attachment_captions ?| %(ids)s
+                            """,
+                            {"entry_id": entry["entry_id"], "ids": replaced},
+                        )
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to upsert entry {entry['entry_id']}: {e}",
                 query=f"UPSERT entry_id={entry['entry_id']}",
             ) from e
+
+    @staticmethod
+    async def _lock_stored_attachments(conn: "AsyncConnection", entry_id: str) -> Any:
+        """Lock an entry's row and return its stored attachment list (None when absent).
+
+        Taken as the first statement of an upsert's transaction, so the entry row
+        lock still comes before any ``attachment_files`` row.
+        """
+        result = await conn.execute(
+            "SELECT attachments FROM enhanced_entries WHERE entry_id = %(entry_id)s FOR UPDATE",
+            {"entry_id": entry_id},
+        )
+        row = await result.fetchone()
+        if row is None:
+            return None
+        return row[0]
+
+    @staticmethod
+    async def _delete_replaced_stand_ins(
+        conn: "AsyncConnection", entry_id: str, previous: Any, current: Any
+    ) -> list[str]:
+        """Delete the rows of the published stand-ins a write replaced.
+
+        A published stand-in is ARIEL's copy of a file the facility logbook also
+        holds. Once the facility's own attachment list is stored, the copy is
+        an orphan, so its row goes in the transaction that holds the entry lock.
+
+        Args:
+            conn: Connection holding the entry lock.
+            entry_id: The entry.
+            previous: The stored attachment list before the write.
+            current: The stored attachment list after it.
+
+        Returns:
+            The deleted attachment ids.
+        """
+        from osprey.services.ariel_search.attachments import replaced_stand_in_ids
+
+        replaced = replaced_stand_in_ids(previous, current)
+        if not replaced:
+            return []
+        await conn.execute(
+            """
+            DELETE FROM attachment_files
+            WHERE entry_id = %(entry_id)s AND attachment_id = ANY(%(ids)s)
+            """,
+            {"entry_id": entry_id, "ids": replaced},
+        )
+        return replaced
 
     async def upsert_entry_returning(
         self,
@@ -742,13 +814,14 @@ class ARIELRepository:
     ) -> dict[str, Any]:
         """Insert or update an entry and return its stored picture columns.
 
-        The upsert is the first statement of its transaction, so it takes the
-        entry row lock before any ``attachment_files`` row is touched; the row
-        stays locked until the caller's transaction ends. An empty incoming
-        attachment list keeps the stored list. A non-empty one replaces it, and
-        every stored native item (url exactly ``/api/attachments/<id>``) whose
-        url the incoming list does not carry is appended after it, in stored
-        order, so a re-ingest never drops a web upload.
+        The transaction takes the entry row lock before any ``attachment_files``
+        row is touched; the row stays locked until the caller's transaction
+        ends. An empty incoming attachment list keeps the stored list. A
+        non-empty one replaces it, and every stored native item (url exactly
+        ``/api/attachments/<id>``) whose url the incoming list does not carry is
+        appended after it, in stored order, so a re-ingest never drops a web
+        upload. A published stand-in is the exception: the facility's list
+        replaces it, and its row and caption are deleted.
 
         Args:
             entry: The entry to upsert.
@@ -771,8 +844,13 @@ class ARIELRepository:
             "metadata": json.dumps(entry.get("metadata", {})),
             "enhancement_status": json.dumps(entry.get("enhancement_status", {})),
         }
+        incoming = entry.get("attachments") or []
+        replaced: list[str] = []
         try:
             async with self._connection(conn) as c, c.transaction():
+                previous = (
+                    await self._lock_stored_attachments(c, entry["entry_id"]) if incoming else None
+                )
                 async with c.cursor(row_factory=dict_row) as cur:
                     await cur.execute(
                         """
@@ -801,6 +879,7 @@ class ARIELRepository:
                                         WITH ORDINALITY AS prev(item, pos)
                                     WHERE jsonb_typeof(prev.item) = 'object'
                                     AND prev.item->>'url' ~ '^/api/attachments/[^/?#]+$'
+                                    AND prev.item->'published' IS DISTINCT FROM 'true'::jsonb
                                     AND NOT EXISTS (
                                         SELECT 1
                                         FROM jsonb_array_elements(EXCLUDED.attachments)
@@ -816,6 +895,21 @@ class ARIELRepository:
                         params,
                     )
                     row = await cur.fetchone()
+                if previous and row is not None:
+                    replaced = await self._delete_replaced_stand_ins(
+                        c, entry["entry_id"], previous, row["attachments"]
+                    )
+                    captions = row["attachment_captions"]
+                    if replaced and isinstance(captions, Mapping):
+                        captions = {k: v for k, v in captions.items() if k not in replaced}
+                        await c.execute(
+                            """
+                            UPDATE enhanced_entries SET attachment_captions = %(captions)s
+                            WHERE entry_id = %(entry_id)s
+                            """,
+                            {"entry_id": entry["entry_id"], "captions": json.dumps(captions)},
+                        )
+                        row["attachment_captions"] = captions
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to upsert entry {entry['entry_id']}: {e}",

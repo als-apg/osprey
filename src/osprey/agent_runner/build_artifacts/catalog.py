@@ -11,7 +11,12 @@ metadata.  The catalog enables:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,9 @@ class BuildArtifact:
             than a single rendered file.  Directory artifacts are never
             Jinja-rendered at build time — their ``.j2`` files are rendered
             later, by ``osprey up``.
+        requires: The canonical names of the sibling rows this file imports
+            or reads beside itself.  A build that ships this row ships those
+            rows with it.
     """
 
     canonical_name: str
@@ -41,13 +49,39 @@ class BuildArtifact:
     description: str
     template_root: str = "claude_code"
     is_directory: bool = False
+    requires: tuple[str, ...] = ()
 
 
-#: The one output path several artifacts render, one per persona. Which of them
+@dataclass(frozen=True)
+class LoneScript:
+    """A packaged module copied out as one file and run by path, outside any build tree.
+
+    The rows it requires are its closure: they are staged into one directory
+    beside it, so its sibling imports resolve from that directory alone.
+
+    Attributes:
+        name: Stable identifier, e.g. ``"control-identity"``.
+        module: The dotted module whose source file is the script.
+        requires: The canonical names of the rows the script imports or reads
+            beside itself.
+    """
+
+    name: str
+    module: str
+    requires: tuple[str, ...]
+
+
+#: The lone-file scripts the deployment stages, each with its helper rows.
+LONE_SCRIPTS: tuple[LoneScript, ...] = (
+    LoneScript("control-identity", "osprey.deployment.control_identity", ("hooks/safety-file",)),
+)
+
+
+#: The one output path several artifacts render, one per render. Which of them
 #: a deployment renders is the profile's ``claude_md_template:``.
 INSTRUCTIONS_OUTPUT = "CLAUDE.md"
 
-#: The persona a deployment renders when its profile names none.
+#: The render a deployment renders when its profile names none.
 DEFAULT_CLAUDE_MD_TEMPLATE = "CLAUDE.md.j2"
 
 
@@ -59,25 +93,25 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="claude-md",
             template_path="CLAUDE.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (control-system persona)",
+            description="CLAUDE.md project instructions (control-system render)",
         ),
         BuildArtifact(
-            canonical_name="claude-md-ariel",
-            template_path="CLAUDE.ariel.md.j2",
+            canonical_name="claude-md-logbook",
+            template_path="CLAUDE.logbook.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (ARIEL logbook research persona)",
+            description="CLAUDE.md project instructions (logbook research app)",
         ),
         BuildArtifact(
             canonical_name="claude-md-knowledge",
             template_path="CLAUDE.knowledge.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (facility knowledge persona)",
+            description="CLAUDE.md project instructions (facility knowledge app)",
         ),
         BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (channel-finder assistant persona)",
+            description="CLAUDE.md project instructions (channel-finder app)",
         ),
         BuildArtifact(
             canonical_name="mcp-json",
@@ -207,48 +241,62 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
+            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
             template_path="claude/hooks/osprey_writes_check.py",
             output_path=".claude/hooks/osprey_writes_check.py",
             description="Control-system write detection hook",
+            requires=("hooks/hook-log", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/error-guidance",
             template_path="claude/hooks/osprey_error_guidance.py",
             output_path=".claude/hooks/osprey_error_guidance.py",
             description="Error-guidance injection hook",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/limits",
             template_path="claude/hooks/osprey_limits.py",
             output_path=".claude/hooks/osprey_limits.py",
             description="Channel limits validation hook",
+            requires=("hooks/hook-log", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/notebook-update",
             template_path="claude/hooks/osprey_notebook_update.py",
             output_path=".claude/hooks/osprey_notebook_update.py",
             description="Notebook artifact update hook",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/cf-feedback-capture",
             template_path="claude/hooks/osprey_cf_feedback_capture.py",
             output_path=".claude/hooks/osprey_cf_feedback_capture.py",
             description="Channel finder feedback capture hook",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/hook-log",
             template_path="claude/hooks/osprey_hook_log.py",
             output_path=".claude/hooks/osprey_hook_log.py",
             description="Shared hook logging utility",
+            requires=("hooks/hook-config",),
         ),
         BuildArtifact(
             canonical_name="hooks/target-state",
             template_path="claude/hooks/osprey_target_state.py",
             output_path=".claude/hooks/osprey_target_state.py",
             description="Shared control-system target-state reader",
+            requires=("hooks/hook-log",),
+        ),
+        BuildArtifact(
+            canonical_name="hooks/safety-file",
+            template_path="claude/hooks/osprey_safety_file.py",
+            output_path=".claude/hooks/osprey_safety_file.py",
+            description="Shared atomic file-replace helper",
         ),
         BuildArtifact(
             canonical_name="hooks/hook-config",
@@ -265,36 +313,42 @@ def _get_default_artifacts() -> list[BuildArtifact]:
                 "reachable: Write is held to Claude memory files, NotebookEdit to the "
                 "agent-data artifacts and notebooks trees"
             ),
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
             description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/config-drift",
             template_path="claude/hooks/osprey_config_drift.py",
             output_path=".claude/hooks/osprey_config_drift.py",
             description="SessionStart hook that warns when config.yml drifted from generated artifacts",
+            requires=("hooks/hook-config",),
         ),
         BuildArtifact(
             canonical_name="hooks/panels-context",
             template_path="claude/hooks/osprey_panels_context.py",
             output_path=".claude/hooks/osprey_panels_context.py",
             description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
+            requires=("hooks/safety-file",),
         ),
         BuildArtifact(
             canonical_name="hooks/workspace-delta",
             template_path="claude/hooks/osprey_workspace_delta.py",
             output_path=".claude/hooks/osprey_workspace_delta.py",
             description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
+            requires=("hooks/safety-file",),
         ),
         BuildArtifact(
             canonical_name="hooks/control-context",
             template_path="claude/hooks/osprey_control_context.py",
             output_path=".claude/hooks/osprey_control_context.py",
             description="Puts the active control target and each target's write state in front of the agent at session start and whenever it moved since its last turn",
+            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
         ),
         BuildArtifact(
             canonical_name="hooks/turn-state",
@@ -363,6 +417,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/skills/bluesky-plans/SKILL.md",
             description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
         ),
+        BuildArtifact(
+            canonical_name="skills/pyaml-tools",
+            template_path="claude/skills/pyaml-tools/SKILL.md.j2",
+            output_path=".claude/skills/pyaml-tools/SKILL.md",
+            description="Measure through pyaml_measure, read the model through model_response_matrix, read through pyAML; renders only when the build wrote a pyAML view",
+        ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
             canonical_name="output-styles/control-operator",
@@ -396,14 +456,6 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="mongodb",
             output_path="services/mongodb",
             description="MongoDB compose template (archiver store)",
-            template_root="services",
-            is_directory=True,
-        ),
-        BuildArtifact(
-            canonical_name="services/openobserve",
-            template_path="openobserve",
-            output_path="services/openobserve",
-            description="OpenObserve telemetry backend compose template",
             template_root="services",
             is_directory=True,
         ),
@@ -472,6 +524,22 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/telemetry_gateway",
+            template_path="telemetry_gateway",
+            output_path="services/telemetry_gateway",
+            description="Telemetry gateway compose template + Collector config",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/history",
+            template_path="history",
+            output_path="services/history",
+            description="History page (across-users agent record) compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
@@ -484,6 +552,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/telemetry_store",
+            template_path="telemetry_store",
+            output_path="services/telemetry_store",
+            description="Telemetry store (ClickHouse) compose template + server config",
             template_root="services",
             is_directory=True,
         ),
@@ -515,7 +591,7 @@ class BuildArtifactCatalog:
         artifact = catalog.get("agents/channel-finder")
         for name in catalog.all_names():
             print(name)
-        BuildArtifactCatalog.default(claude_md_template="CLAUDE.ariel.md.j2")
+        BuildArtifactCatalog.default(claude_md_template="CLAUDE.logbook.md.j2")
     """
 
     def __init__(
@@ -523,16 +599,18 @@ class BuildArtifactCatalog:
         artifacts: list[BuildArtifact],
         *,
         claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE,
+        lone_scripts: Iterable[LoneScript] = (),
     ) -> None:
         self._by_name: dict[str, BuildArtifact] = {a.canonical_name: a for a in artifacts}
+        self._lone_scripts: dict[str, LoneScript] = {s.name: s for s in lone_scripts}
         self._claude_md_template = claude_md_template
         # An output path has exactly one artifact, except CLAUDE.md, which has one
-        # per persona and resolves to the persona the catalog was built for.
+        # per render and resolves to the render the catalog was built for.
         self._by_output: dict[str, BuildArtifact] = {}
-        personas: list[BuildArtifact] = []
+        renders: list[BuildArtifact] = []
         for a in artifacts:
             if a.output_path == INSTRUCTIONS_OUTPUT:
-                personas.append(a)
+                renders.append(a)
                 continue
             existing = self._by_output.get(a.output_path)
             if existing is not None:
@@ -541,15 +619,42 @@ class BuildArtifactCatalog:
                     f"both render '{a.output_path}'; an output path has one artifact"
                 )
             self._by_output[a.output_path] = a
-        if personas:
-            chosen = next((a for a in personas if a.template_path == claude_md_template), None)
+        if renders:
+            chosen = next((a for a in renders if a.template_path == claude_md_template), None)
             if chosen is None:
-                known = ", ".join(sorted(a.template_path for a in personas))
+                known = ", ".join(sorted(a.template_path for a in renders))
                 raise ValueError(
                     f"claude_md_template '{claude_md_template}' is not a bundled "
-                    f"CLAUDE.md persona; name one of: {known}"
+                    f"CLAUDE.md render; name one of: {known}"
                 )
             self._by_output[INSTRUCTIONS_OUTPUT] = chosen
+        for a in artifacts:
+            unknown = [name for name in a.requires if name not in self._by_name]
+            if unknown:
+                raise ValueError(
+                    f"Build artifact '{a.canonical_name}' requires "
+                    f"{', '.join(repr(name) for name in unknown)}, which no build artifact is named"
+                )
+        for script in self._lone_scripts.values():
+            unknown = [name for name in script.requires if name not in self._by_name]
+            if unknown:
+                raise ValueError(
+                    f"Lone script '{script.name}' requires "
+                    f"{', '.join(repr(name) for name in unknown)}, which no build artifact is named"
+                )
+            # A closure file is copied verbatim beside the script, so a template
+            # anywhere in it would ship unrendered.
+            templates = sorted(
+                name
+                for name in self.closure(script.requires)
+                if self._by_name[name].template_path.endswith(".j2")
+            )
+            if templates:
+                raise ValueError(
+                    f"Lone script '{script.name}' requires "
+                    f"{', '.join(repr(name) for name in templates)} through its closure, "
+                    f"which is a template; a lone script's closure is copied verbatim"
+                )
 
     @classmethod
     def default(
@@ -558,14 +663,18 @@ class BuildArtifactCatalog:
         """Create a catalog populated with the default artifact list.
 
         Args:
-            claude_md_template: The persona template ``CLAUDE.md`` resolves to,
+            claude_md_template: The render template ``CLAUDE.md`` resolves to,
                 as the profile's ``claude_md_template:`` names it.
         """
-        return cls(_get_default_artifacts(), claude_md_template=claude_md_template)
+        return cls(
+            _get_default_artifacts(),
+            claude_md_template=claude_md_template,
+            lone_scripts=LONE_SCRIPTS,
+        )
 
     @property
     def claude_md_template(self) -> str:
-        """The persona this catalog resolves ``CLAUDE.md`` to."""
+        """The render this catalog resolves ``CLAUDE.md`` to."""
         return self._claude_md_template
 
     def get(self, name: str) -> BuildArtifact | None:
@@ -575,9 +684,64 @@ class BuildArtifactCatalog:
     def get_by_output(self, output_path: str) -> BuildArtifact | None:
         """Look up an artifact by its output path (relative to project root).
 
-        For ``CLAUDE.md`` the answer is the persona this catalog was built for.
+        For ``CLAUDE.md`` the answer is the render this catalog was built for.
         """
         return self._by_output.get(output_path)
+
+    def closure(self, names: Iterable[str]) -> frozenset[str]:
+        """*names* plus every row they require, transitively.
+
+        Args:
+            names: Canonical names; a name no row carries is kept and followed
+                no further.
+        """
+        seen: set[str] = set()
+        pending = list(names)
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            artifact = self._by_name.get(name)
+            if artifact is not None:
+                pending.extend(artifact.requires)
+        return frozenset(seen)
+
+    def files_beside(self, name: str, templates_dir: Path) -> dict[str, Path]:
+        """The files that make up lone script *name*, keyed by the file name each is staged as.
+
+        The script's own source file, located without importing its module, plus
+        the template file of every row in its closure.
+
+        Args:
+            name: The lone script's name.
+            templates_dir: The bundled templates directory; each row's
+                ``template_root`` and ``template_path`` are resolved below it.
+
+        Raises:
+            KeyError: If no lone script is named *name*.
+        """
+        import importlib.util
+        from pathlib import Path
+
+        script = self._lone_scripts[name]
+        spec = importlib.util.find_spec(script.module)
+        if spec is None or spec.origin is None:
+            raise KeyError(
+                f"Lone script '{name}' names module {script.module!r}, which has no file"
+            )
+        origin = Path(spec.origin)
+        files = {origin.name: origin}
+        for row_name in sorted(self.closure(script.requires)):
+            row = self._by_name[row_name]
+            files[Path(row.output_path).name] = (
+                templates_dir / row.template_root / row.template_path
+            )
+        return files
+
+    def helpers(self) -> frozenset[str]:
+        """The rows some other row requires: they ship as a closure, never selected."""
+        return frozenset(name for a in self._by_name.values() for name in a.requires)
 
     def all_artifacts(self) -> list[BuildArtifact]:
         """Return all artifacts in registration order."""

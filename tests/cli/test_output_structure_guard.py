@@ -327,6 +327,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "inside output.machine_mode(), so every human line is on stderr and this "
         "is the one document on stdout, the same class as audit_cmd's report.",
     ),
+    "cli/init_cmd.py": (
+        1,
+        "--revalidate's unified diff, byte parity like scaffold_cmd's diff seams",
+    ),
     "cli/query_cmd.py": (
         2,
         "The two machine seams: the --json document, and the agent-text "
@@ -342,6 +346,25 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "or applying it. The matching no-differences branches print through the "
         "console with markup, so the theming lives on the human path and the raw "
         "path carries diff bytes only.",
+    ),
+    "cli/facility_cmd.py": (
+        7,
+        "Three classes, all already blessed elsewhere. One is the --print-exporter "
+        "byte render: `osprey facility import mml --print-exporter` prints the "
+        "layer's mml_export.m for a caller redirecting it into a file, the same "
+        "class as users_cmd's byte render. The other two are the import's "
+        "authored-present stop: its `import mml: authored-present: <n> files` "
+        "line and one `rm <path>` line per file, on stderr, which the mml "
+        "recipes apply as printed -- the bare-line shape every facility stop "
+        "prints through its ClickException.show, so this stop reads like the "
+        "importer's own mapping stops beside it. The last two are the same class, "
+        "the import's stale-scenario list: its header line and one `  rm <path>` line per "
+        "file, on stderr, which the mml recipes apply as printed. The third is "
+        "`osprey facility show`: its --json document on stdout, read by a caller "
+        "piping it into a JSON parser, the same class as query_cmd's document; "
+        "and its `facility show: no record <id>` / `facility show: <id> names a "
+        "<kind> and a <kind>` stop, one bare line on stderr like the import's "
+        "stops beside it.",
     ),
 }
 

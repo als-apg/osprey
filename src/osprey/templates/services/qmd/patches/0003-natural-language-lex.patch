@@ -1,7 +1,7 @@
 qmd 2.5.3: read a natural-language lex query as an OR of its content words
 
 A lex query is parsed as keywords: every word, ANDed, each as a prefix
-("w"*). A question ("how is the storage ring RF frequency tuned") then
+("w"*). A question ("how is the master oscillator frequency tuned") then
 asks for a document holding all of its words, function words included,
 and the prefixes of "a", "the", "is" match nearly every row, so the
 query is both slow and usually empty. A query that contains a stopword
@@ -32,7 +32,7 @@ index da76ad6..51afee3 100644
 + * Build an FTS5 query for a plain natural-language question, or return null
 + * when the query is not one.
 + *
-+ * A question such as "how is the storage ring RF frequency tuned" read as
++ * A question such as "how is the master oscillator frequency tuned" read as
 + * keywords asks for every word, each as a prefix: no document holds them all,
 + * and the prefixes of short function words ("a"*, "the"*) match nearly every
 + * row, which makes the query both slow and empty. Read as a question, its

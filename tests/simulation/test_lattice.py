@@ -1,10 +1,8 @@
-"""Ground-truth locks for the hand-ported ALS-U AR lattice.
+"""Ground-truth locks for the example facility's committed SR deck.
 
-These tests assert measured values against the deterministic outputs of
-:func:`osprey.simulation.lattice.superperiod` and
-:func:`osprey.simulation.lattice.build_ring`. They are fully offline: no
-network, no MATLAB, no soft-IOC. pyAT (``import at``) is the only physics
-dependency.
+These tests assert measured values against the deck as it is committed. They
+are fully offline: no network, no MATLAB, no soft-IOC. pyAT (``import at``) is
+the only physics dependency.
 """
 
 from collections import Counter
@@ -12,7 +10,7 @@ from collections import Counter
 import at
 import pytest
 
-from osprey.simulation.lattice import build_ring, superperiod
+from tests.simulation._sr_deck import load_sr_deck, load_sr_deck_4d
 
 
 def _type_census(elements):
@@ -20,40 +18,18 @@ def _type_census(elements):
     return dict(Counter(type(e).__name__ for e in elements))
 
 
-def _summed_length(elements):
-    return sum(float(getattr(e, "Length", 0.0)) for e in elements)
+def test_deck_ground_truth():
+    """The deck's global metadata, type census, cavity, and markers."""
+    deck = load_sr_deck()
 
+    assert isinstance(deck, at.Lattice)
+    assert len(deck) == 802
+    assert deck.circumference == pytest.approx(182.1219508800, abs=1e-6)
+    assert deck.energy == 2.0e9
+    assert deck.periodicity == 1
+    assert deck.is_6d is True
 
-def test_superperiod_census_and_length():
-    """superperiod('01C') element count, type census, and summed length."""
-    sup = superperiod("01C")
-
-    assert len(sup) == 51
-
-    census = _type_census(sup)
-    assert census == {
-        "Monitor": 6,
-        "Quadrupole": 6,
-        "Sextupole": 8,
-        "Dipole": 3,
-        "Drift": 28,
-    }
-
-    assert _summed_length(sup) == pytest.approx(10.37682924, abs=1e-6)
-
-
-def test_assemble_full_ring_ground_truth():
-    """build_ring() global metadata, type census, cavity, and markers."""
-    ring = build_ring()
-
-    assert isinstance(ring, at.Lattice)
-    assert len(ring) == 802
-    assert ring.circumference == pytest.approx(182.1219508800, abs=1e-6)
-    assert ring.energy == 2.0e9
-    assert ring.periodicity == 1
-    assert ring.is_6d is True
-
-    census = _type_census(ring)
+    census = _type_census(deck)
     assert census == {
         "Marker": 13,
         "Drift": 368,
@@ -65,25 +41,24 @@ def test_assemble_full_ring_ground_truth():
         "RFCavity": 1,
     }
 
-    cavities = [e for e in ring if type(e).__name__ == "RFCavity"]
+    cavities = [e for e in deck if type(e).__name__ == "RFCavity"]
     assert len(cavities) == 1
     cavity = cavities[0]
     assert cavity.Frequency == pytest.approx(500416928.281479, rel=1e-6)
     assert cavity.HarmNumber == 304
 
-    markers = {e.FamName for e in ring if type(e).__name__ == "Marker"}
+    markers = {e.FamName for e in deck if type(e).__name__ == "Marker"}
     expected_markers = {f"SECT{i}" for i in range(1, 13)} | {"INJ"}
     assert markers == expected_markers
 
 
-def test_4d_ring_is_linearly_stable():
-    """Linear stability (SC4) of the 4D ring.
+def test_4d_deck_is_linearly_stable():
+    """Linear stability of the 4D deck.
 
-    Tunes and chromaticity are checked against MATLAB in ``test_fidelity.py``,
-    and the circumference to 1e-6 in ``test_assemble_full_ring_ground_truth``.
+    Tunes and chromaticity are checked in ``test_fidelity.py``, and the
+    circumference to 1e-6 in ``test_deck_ground_truth``.
     """
-    r = build_ring().deepcopy()
-    r.disable_6d()
+    r = load_sr_deck_4d()
     assert r.is_6d is False
 
     m44, _ = at.find_m44(r, dp=0.0)

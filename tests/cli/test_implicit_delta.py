@@ -1,7 +1,7 @@
-"""A ``personas/<name>.yml`` file resolves as a delta over the profile it lives under.
+"""A ``tiers/<name>.yml`` file resolves as a delta over the profile it lives under.
 
-Living in ``personas/`` beside a ``profile.yml`` IS the inheritance (FR-10): the
-file carries only what makes it that persona, and the build merges it over the
+Living in ``tiers/`` beside a ``profile.yml`` IS the inheritance (FR-10): the
+file carries only what makes it that render, and the build merges it over the
 host profile rather than reading it standalone. Nothing in the file says so —
 the classification is made from its location — so the resolver is the only place
 that knows, and everything downstream depends on it getting the merge and the
@@ -12,7 +12,8 @@ The anchor is the half that is easy to get wrong. Every profile-relative path �
 against the profile ROOT, never the delta's own parent. That is what makes one
 facility data tree serve the whole stack.
 
-``exclude:`` is the delta's subtractive half, and its SPELLING is the contract.
+A tier only adds by name, so ``exclude:`` belongs to a root profile, where it
+subtracts from the ``extends`` base it merges over — and its SPELLING is the contract.
 A bare entry (``channel-finder``) unselects a built-in library artifact; a
 qualified one (``agents/channel-finder``) omits the profile's own file of that
 name. The two namespaces are disjoint — ``validate_artifacts`` rejects any
@@ -30,7 +31,8 @@ import pytest
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The top-level ``agents:``/``skills:`` lists select BUILT-IN library artifacts
 # and nothing else — ``validate_artifacts`` rejects any other name — so the
@@ -42,7 +44,6 @@ name: Facility
 data: data
 provider: anthropic
 model: claude-sonnet-5
-tier: 1
 channel_finder_mode: in_context
 skills: [diagnose, session-report]
 agents: [channel-finder, data-visualizer]
@@ -67,18 +68,23 @@ def host(tmp_path: Path) -> Path:
     return root
 
 
-def _persona(host: Path, name: str, body: str) -> Path:
-    return _write(host / "personas" / f"{name}.yml", body)
+def _render(host: Path, name: str, body: str) -> Path:
+    return _write(host / TIERS_DIRNAME / f"{name}.yml", body)
+
+
+def _excluding(host: Path, name: str, body: str) -> Path:
+    """A root profile beside the host that extends it, so its ``exclude:`` has a base."""
+    return _write(host / f"{name}.yml", "extends: ./profile.yml\n" + body)
 
 
 # ── The implicit merge ───────────────────────────────────────────────────────
 
 
 def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
-    """The whole point: a persona restates nothing, and still gets everything."""
-    persona = _persona(host, "reader", "name: Reader\n")
+    """The whole point: a render restates nothing, and still gets everything."""
+    render = _render(host, "reader", "name: Reader\n")
 
-    profile = load_profile(persona)
+    profile = load_profile(render)
 
     assert profile.name == "Reader"
     # The root records no preset, so the bundle it inherits is the framework
@@ -87,38 +93,37 @@ def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
     assert profile.provider == "anthropic"
     assert profile.model == "claude-sonnet-5"
     assert profile.channel_finder_mode == "in_context"
-    assert profile.tier == 1
 
 
 def test_delta_wins_over_the_root_key_by_key(host: Path) -> None:
-    """A key the delta names is the persona's; the rest still come from the root."""
-    persona = _persona(host, "writer", "name: Writer\ntier: 3\n")
+    """A key the delta names is the render's; the rest still come from the root."""
+    render = _render(host, "writer", "name: Writer\nmodel: claude-opus-5-5\n")
 
-    profile = load_profile(persona)
+    profile = load_profile(render)
 
-    assert profile.tier == 3
+    assert profile.model == "claude-opus-5-5"
     assert profile.provider == "anthropic"
 
 
-def test_root_edits_reach_the_persona(host: Path) -> None:
-    """One edit to the host retints the stack — no hand-mirroring into personas.
+def test_root_edits_reach_the_render(host: Path) -> None:
+    """One edit to the host retints the stack — no hand-mirroring into renders.
 
-    The emission side pins that no persona file carries a competing value; this
+    The emission side pins that no tier file carries a competing value; this
     is the other half, that the merge then applies the host's.
     """
-    persona = _persona(host, "reader", "name: Reader\n")
-    assert load_profile(persona).provider == "anthropic"
+    render = _render(host, "reader", "name: Reader\n")
+    assert load_profile(render).provider == "anthropic"
 
     _write(host / "profile.yml", _HOST.replace("provider: anthropic", "provider: cborg"))
 
-    assert load_profile(persona).provider == "cborg"
+    assert load_profile(render).provider == "cborg"
 
 
 def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None:
-    """The root's own inheritance is part of what a persona inherits.
+    """The root's own inheritance is part of what a render inherits.
 
     A delta merges over the root's RESOLVED content, so a value the root only
-    has by way of its ``extends`` base still reaches the persona.
+    has by way of its ``extends`` base still reaches the render.
     """
     root = tmp_path / "facility"
     (root / "data").mkdir(parents=True)
@@ -127,9 +132,9 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
         root / "profile.yml",
         "extends: ./base.yml\nname: Facility\ndata: data\nprovider: cborg\n",
     )
-    persona = _persona(root, "reader", "name: Reader\n")
+    render = _render(root, "reader", "name: Reader\n")
 
-    profile = load_profile(persona)
+    profile = load_profile(render)
 
     assert profile.model == "claude-opus-5"
     assert profile.provider == "cborg"
@@ -138,60 +143,60 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
 def test_dotted_config_keys_merge_per_key(host: Path) -> None:
     """``config:`` is a mapping, so a delta adds and overrides keys, not the block.
 
-    A persona that sets one dotted key must not silently drop the rest of the
+    A render that sets one dotted key must not silently drop the rest of the
     facility's configuration.
     """
-    persona = _persona(host, "reader", "name: Reader\nconfig:\n  a.b: 99\n  a.d: 4\n")
+    render = _render(host, "reader", "name: Reader\nconfig:\n  a.b: 99\n  a.d: 4\n")
 
-    config = load_profile(persona).config
+    config = load_profile(render).config
 
     assert config["a.b"] == 99  # overridden
     assert config["a.c"] == 2  # inherited, not dropped
     assert config["a.d"] == 4  # added
 
 
-def test_two_personas_under_one_root_resolve_independently(host: Path) -> None:
+def test_two_renders_under_one_root_resolve_independently(host: Path) -> None:
     """Resolving one delta must not mutate the root the next one merges over."""
-    reader = _persona(host, "reader", "name: Reader\ntier: 1\n")
-    writer = _persona(host, "writer", "name: Writer\ntier: 3\n")
+    reader = _render(host, "reader", "name: Reader\nmodel: claude-haiku-4-5\n")
+    writer = _render(host, "writer", "name: Writer\nmodel: claude-opus-5-5\n")
 
-    assert load_profile(reader).tier == 1
-    assert load_profile(writer).tier == 3
-    assert load_profile(reader).tier == 1
+    assert load_profile(reader).model == "claude-haiku-4-5"
+    assert load_profile(writer).model == "claude-opus-5-5"
+    assert load_profile(reader).model == "claude-haiku-4-5"
 
 
 # ── Anchoring at the profile root ────────────────────────────────────────────
 
 
-def test_relative_paths_anchor_at_the_root_not_at_personas(host: Path) -> None:
-    """``data: data`` on the root means the root's tree, read from a persona too.
+def test_relative_paths_anchor_at_the_root_not_at_renders(host: Path) -> None:
+    """``data: data`` on the root means the root's tree, read from a render too.
 
     Anchored at the delta's own parent it would resolve to
-    ``personas/data`` — absent — and every persona would build without the
+    ``tiers/data`` — absent — and every render would build without the
     facility's channel database.
     """
-    persona = _persona(host, "reader", "name: Reader\n")
+    render = _render(host, "reader", "name: Reader\n")
 
-    loaded = load_profile_document(persona)
+    loaded = load_profile_document(render)
 
     assert loaded.profile_dir == host
     assert loaded.profile.resolved_data_root(loaded.profile_dir) == (host / "data").resolve()
 
 
-def test_persona_and_root_read_the_same_data_tree(host: Path) -> None:
+def test_render_and_root_read_the_same_data_tree(host: Path) -> None:
     """One facility tree for the whole stack — the shared-tree promise."""
-    persona = _persona(host, "reader", "name: Reader\n")
+    render = _render(host, "reader", "name: Reader\n")
 
-    persona_loaded = load_profile_document(persona)
+    render_loaded = load_profile_document(render)
     root_loaded = load_profile_document(host / "profile.yml")
 
-    assert persona_loaded.profile.resolved_data_root(
-        persona_loaded.profile_dir
+    assert render_loaded.profile.resolved_data_root(
+        render_loaded.profile_dir
     ) == root_loaded.profile.resolved_data_root(root_loaded.profile_dir)
 
 
 def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> None:
-    """Only ``personas/`` files re-anchor; every other file is unaffected."""
+    """Only layer files re-anchor; every other file is unaffected."""
     root = tmp_path / "plain"
     _write(root / "data" / "channels.json", "{}\n")
     profile_path = _write(root / "profile.yml", "name: Plain\ndata: data\n")
@@ -199,7 +204,7 @@ def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> No
     loaded = load_profile_document(profile_path)
 
     assert loaded.profile_dir == root
-    assert loaded.is_persona_delta is False
+    assert loaded.is_layer is False
 
 
 def test_a_bare_file_outside_any_profile_still_loads(tmp_path: Path) -> None:
@@ -209,17 +214,17 @@ def test_a_bare_file_outside_any_profile_still_loads(tmp_path: Path) -> None:
 
     loaded = load_profile_document(profile_path)
 
-    assert loaded.is_persona_delta is False
+    assert loaded.is_layer is False
     assert loaded.profile_dir == tmp_path
 
 
-def test_a_personas_file_with_no_root_profile_errors(tmp_path: Path) -> None:
+def test_a_renders_file_with_no_root_profile_errors(tmp_path: Path) -> None:
     """An orphan delta names a base that is not there, so it cannot be built.
 
     Building it standalone would quietly produce a project missing everything
     the delta expected to inherit, which is worse than refusing.
     """
-    stray = _write(tmp_path / "elsewhere" / "personas" / "reader.yml", "name: Reader\n")
+    stray = _write(tmp_path / "elsewhere" / TIERS_DIRNAME / "reader.yml", "name: Reader\n")
 
     with pytest.raises(BuildProfileError) as exc:
         load_profile_document(stray)
@@ -230,39 +235,39 @@ def test_a_personas_file_with_no_root_profile_errors(tmp_path: Path) -> None:
 # ── Rejections ───────────────────────────────────────────────────────────────
 
 
-def test_extends_inside_personas_is_rejected(host: Path) -> None:
+def test_extends_inside_renders_is_rejected(host: Path) -> None:
     """A delta already has a base; a second one would be ambiguous.
 
-    Silently honouring it would resolve the persona against something other
+    Silently honouring it would resolve the render against something other
     than the profile it lives under — the one thing its location promises.
     """
-    persona = _persona(host, "reader", "extends: ../profile.yml\nname: Reader\n")
+    render = _render(host, "reader", "extends: ../profile.yml\nname: Reader\n")
 
     with pytest.raises(BuildProfileError) as exc:
-        load_profile(persona)
+        load_profile(render)
 
     message = str(exc.value)
     assert "extends" in message
-    assert str(persona) in message
-    assert str(host / "profile.yml") in message  # says where to edit instead
+    assert f"{TIERS_DIRNAME}/reader.yml" in message
+    assert "legal only in the deployment's profile.yml" in message  # says where to edit instead
 
 
-def test_extends_naming_a_preset_inside_personas_is_rejected_too(host: Path) -> None:
+def test_extends_naming_a_preset_inside_renders_is_rejected_too(host: Path) -> None:
     """Not just path-shaped bases — a preset name is rejected on the same ground."""
-    persona = _persona(host, "reader", "extends: hello-world\nname: Reader\n")
+    render = _render(host, "reader", "extends: hello-world\nname: Reader\n")
 
     with pytest.raises(BuildProfileError, match="extends"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_delta_whose_root_is_a_yaml_list_errors(tmp_path: Path) -> None:
     """An unusable root is named, not silently treated as an empty base."""
     root = tmp_path / "facility"
     _write(root / "profile.yml", "- not\n- a mapping\n")
-    persona = _persona(root, "reader", "name: Reader\n")
+    render = _render(root, "reader", "name: Reader\n")
 
     with pytest.raises(BuildProfileError, match="must be a YAML mapping"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_missing_profile_file_errors(tmp_path: Path) -> None:
@@ -274,22 +279,20 @@ def test_a_missing_profile_file_errors(tmp_path: Path) -> None:
 
 
 def test_delta_exclude_subtracts_from_the_merged_result(host: Path) -> None:
-    """``exclude:`` removes what the ROOT contributed — that is its whole job.
+    """``exclude:`` removes what the BASE contributed — that is its whole job.
 
-    Regression guard for the resolver's central foot-gun: resolving the delta
-    through the ``extends`` machinery before merging consumes its ``exclude:``
-    against the delta's own layer, where the entry is not present, so the
-    exclusion silently vanishes and the persona keeps a skill it disowned.
+    Applied to the excluding file's own layer, where the entry is not present,
+    the exclusion would silently vanish and the profile keep a skill it disowned.
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  skills: [session-report]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills: [session-report]\n")
 
-    profile = load_profile(persona)
+    profile = load_profile(render)
 
     assert profile.skills == ["diagnose"]
 
 
 def test_delta_exclude_across_several_fields(host: Path) -> None:
-    persona = _persona(
+    render = _excluding(
         host,
         "reader",
         "name: Reader\nexclude:\n"
@@ -297,7 +300,7 @@ def test_delta_exclude_across_several_fields(host: Path) -> None:
         "  agents: [channel-finder, data-visualizer]\n",
     )
 
-    profile = load_profile(persona)
+    profile = load_profile(render)
 
     assert profile.skills == []
     assert profile.agents == []
@@ -305,15 +308,15 @@ def test_delta_exclude_across_several_fields(host: Path) -> None:
 
 def test_exclude_is_consumed_and_never_reaches_the_model(host: Path) -> None:
     """``exclude`` is a resolution directive, not profile content."""
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  skills: [session-report]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills: [session-report]\n")
 
-    assert not hasattr(load_profile(persona), "exclude")
+    assert not hasattr(load_profile(render), "exclude")
 
 
 def test_excluding_an_absent_entry_is_a_silent_noop(host: Path) -> None:
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  skills: [never-there]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills: [never-there]\n")
 
-    assert load_profile(persona).skills == ["diagnose", "session-report"]
+    assert load_profile(render).skills == ["diagnose", "session-report"]
 
 
 # ── exclude: convention-artifact records ─────────────────────────────────────
@@ -328,11 +331,11 @@ def test_excluding_a_shadow_keeps_the_built_in_selected(host: Path) -> None:
     would make the agent vanish altogether — the opposite of restoring it.
     """
     _write(host / "agents" / "channel-finder.md", "facility override\n")
-    persona = _persona(
+    render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
 
-    loaded = load_profile_document(persona)
+    loaded = load_profile_document(render)
 
     assert loaded.excluded_artifacts == frozenset({"agents/channel-finder"})
     assert "channel-finder" in loaded.profile.agents
@@ -344,9 +347,9 @@ def test_the_bare_spelling_unselects_the_built_in_without_omitting_a_file(host: 
     ``validate_artifacts`` rejects any ``agents:`` entry the library does not
     carry, so a bare entry can only mean "stop selecting the built-in one".
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
-    loaded = load_profile_document(persona)
+    loaded = load_profile_document(render)
 
     assert loaded.profile.agents == ["data-visualizer"]
     assert loaded.excluded_artifacts == frozenset()
@@ -354,8 +357,8 @@ def test_the_bare_spelling_unselects_the_built_in_without_omitting_a_file(host: 
 
 def test_the_two_spellings_are_not_interchangeable(host: Path) -> None:
     """Pinned directly: the split is the contract, not an implementation detail."""
-    bare = _persona(host, "bare", "name: R\nexclude:\n  agents: [channel-finder]\n")
-    qualified = _persona(host, "qual", "name: R\nexclude:\n  agents: [agents/channel-finder]\n")
+    bare = _excluding(host, "bare", "name: R\nexclude:\n  agents: [channel-finder]\n")
+    qualified = _excluding(host, "qual", "name: R\nexclude:\n  agents: [agents/channel-finder]\n")
 
     bare_loaded = load_profile_document(bare)
     qualified_loaded = load_profile_document(qualified)
@@ -367,9 +370,9 @@ def test_the_two_spellings_are_not_interchangeable(host: Path) -> None:
 def test_a_bare_non_library_name_records_a_file_omission(host: Path) -> None:
     """It cannot be a built-in selection, so the profile's own file is what it means."""
     _write(host / "agents" / "orbit-writer.md", "facility agent\n")
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [orbit-writer]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [orbit-writer]\n")
 
-    assert load_profile_document(persona).excluded_artifacts == frozenset({"agents/orbit-writer"})
+    assert load_profile_document(render).excluded_artifacts == frozenset({"agents/orbit-writer"})
 
 
 def test_a_mismatched_category_prefix_is_rejected(host: Path) -> None:
@@ -378,10 +381,10 @@ def test_a_mismatched_category_prefix_is_rejected(host: Path) -> None:
     Guessing either way excludes the wrong file or nothing at all, both of
     which look like the exclusion worked.
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [skills/diagnose]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [skills/diagnose]\n")
 
     with pytest.raises(BuildProfileError, match="skills"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_qualified_prefix_under_a_non_convention_field_is_rejected_too(host: Path) -> None:
@@ -390,34 +393,36 @@ def test_a_qualified_prefix_under_a_non_convention_field_is_rejected_too(host: P
     Passing it through as a literal hook name would match nothing and read as a
     successful exclusion.
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  hooks: [agents/channel-finder]\n")
+    render = _excluding(
+        host, "reader", "name: Reader\nexclude:\n  hooks: [agents/channel-finder]\n"
+    )
 
     with pytest.raises(BuildProfileError, match="agents"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_convention_dir_with_no_list_field_can_be_excluded(host: Path) -> None:
     """``commands/`` has no profile list, so exclusion is the only way to drop one."""
     _write(host / "commands" / "scan.md", "slash command\n")
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  commands: [scan]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  commands: [scan]\n")
 
-    assert load_profile_document(persona).excluded_artifacts == frozenset({"commands/scan"})
+    assert load_profile_document(render).excluded_artifacts == frozenset({"commands/scan"})
 
 
 def test_the_hyphenated_directory_is_reachable_by_its_field_spelling(host: Path) -> None:
     """A profile writes ``output_styles``; the directory is ``output-styles/``."""
     _write(host / "output-styles" / "terse.md", "style\n")
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  output_styles: [terse]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  output_styles: [terse]\n")
 
-    assert load_profile_document(persona).excluded_artifacts == frozenset({"output-styles/terse"})
+    assert load_profile_document(render).excluded_artifacts == frozenset({"output-styles/terse"})
 
 
 def test_an_underscored_directory_is_not_rewritten(host: Path) -> None:
     """``mcp_servers/`` really does carry an underscore — it must survive intact."""
     (host / "mcp_servers" / "facility").mkdir(parents=True)
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
 
-    assert load_profile_document(persona).excluded_artifacts == frozenset({"mcp_servers/facility"})
+    assert load_profile_document(render).excluded_artifacts == frozenset({"mcp_servers/facility"})
 
 
 def test_a_dict_shaped_declaration_is_dropped_with_its_files(host: Path) -> None:
@@ -429,46 +434,46 @@ def test_a_dict_shaped_declaration_is_dropped_with_its_files(host: Path) -> None
         host / "profile.yml",
         _HOST + "mcp_servers:\n  facility:\n    command: run-it\n  other:\n    command: keep-me\n",
     )
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
 
-    loaded = load_profile_document(persona)
+    loaded = load_profile_document(render)
 
     assert sorted(loaded.profile.mcp_servers) == ["other"]
     assert loaded.excluded_artifacts == frozenset({"mcp_servers/facility"})
 
 
 def test_a_field_that_is_neither_list_nor_convention_dir_is_rejected(host: Path) -> None:
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  provider: [anthropic]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  provider: [anthropic]\n")
 
     with pytest.raises(BuildProfileError, match="unknown or non-list field"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_non_list_exclude_value_is_rejected(host: Path) -> None:
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  skills: not-a-list\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills: not-a-list\n")
 
     with pytest.raises(BuildProfileError, match="must be a list"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_a_non_string_exclude_entry_is_rejected(host: Path) -> None:
     """A mapping where a name belongs used to surface as a bare ``TypeError``."""
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  skills:\n    - a: 1\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  skills:\n    - a: 1\n")
 
     with pytest.raises(BuildProfileError, match="exclude.skills"):
-        load_profile(persona)
+        load_profile(render)
 
 
 def test_an_exclusion_matching_nothing_is_warned_about(host: Path, caplog) -> None:
     """A misspelled shadow exclusion is otherwise a silent no-op.
 
     A warning rather than an error: a root may exclude something only some of
-    its personas carry.
+    its renders carry.
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [agents/typo-here]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [agents/typo-here]\n")
 
     with caplog.at_level("WARNING"):
-        load_profile_document(persona)
+        load_profile_document(render)
 
     assert "typo-here" in caplog.text
 
@@ -480,10 +485,10 @@ def test_the_hash_path_does_not_repeat_the_warning(host: Path, caplog) -> None:
     side every build prints each stale exclusion twice — and a warning that
     always repeats is one people stop reading.
     """
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [agents/typo-here]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [agents/typo-here]\n")
 
     with caplog.at_level("WARNING"):
-        compute_profile_hash(persona)
+        compute_profile_hash(render)
 
     assert "typo-here" not in caplog.text
 
@@ -491,12 +496,12 @@ def test_the_hash_path_does_not_repeat_the_warning(host: Path, caplog) -> None:
 def test_a_matching_exclusion_is_not_warned_about(host: Path, caplog) -> None:
     """The warning must not cry wolf on the case it exists to contrast with."""
     _write(host / "agents" / "channel-finder.md", "facility override\n")
-    persona = _persona(
+    render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
 
     with caplog.at_level("WARNING"):
-        load_profile_document(persona)
+        load_profile_document(render)
 
     assert "channel-finder" not in caplog.text
 
@@ -511,10 +516,10 @@ def test_a_bare_exclusion_of_a_shadowed_name_is_warned_about(host: Path, caplog)
     Without this the author's intent fails in complete silence.
     """
     _write(host / "agents" / "channel-finder.md", "facility override\n")
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
-        load_profile_document(persona)
+        load_profile_document(render)
 
     assert "channel-finder" in caplog.text
     # The remedy, not just the diagnosis: the qualified spelling is what the
@@ -524,10 +529,10 @@ def test_a_bare_exclusion_of_a_shadowed_name_is_warned_about(host: Path, caplog)
 
 def test_a_bare_exclusion_of_an_unshadowed_name_is_not_warned_about(host: Path, caplog) -> None:
     """Unselecting a built-in the profile does NOT shadow is the ordinary case."""
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
-        load_profile_document(persona)
+        load_profile_document(render)
 
     assert "channel-finder" not in caplog.text
 
@@ -535,21 +540,21 @@ def test_a_bare_exclusion_of_an_unshadowed_name_is_not_warned_about(host: Path, 
 def test_the_shadow_warning_is_suppressed_on_the_hash_path(host: Path, caplog) -> None:
     """Same reason as every other exclusion diagnostic: a build loads AND hashes."""
     _write(host / "agents" / "channel-finder.md", "facility override\n")
-    persona = _persona(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
+    render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
-        compute_profile_hash(persona)
+        compute_profile_hash(render)
 
     assert "channel-finder" not in caplog.text
 
 
-def test_a_root_exclusion_reaches_its_personas(host: Path) -> None:
-    """The root's own exclusions are part of what a persona inherits."""
+def test_a_root_exclusion_reaches_its_renders(host: Path) -> None:
+    """The root's own exclusions are part of what a render inherits."""
     _write(host / "agents" / "orbit-writer.md", "facility agent\n")
     _write(host / "profile.yml", _HOST + "exclude:\n  agents: [agents/orbit-writer]\n")
-    persona = _persona(host, "reader", "name: Reader\n")
+    render = _render(host, "reader", "name: Reader\n")
 
-    assert load_profile_document(persona).excluded_artifacts == frozenset({"agents/orbit-writer"})
+    assert load_profile_document(render).excluded_artifacts == frozenset({"agents/orbit-writer"})
 
 
 def test_a_profile_that_excludes_nothing_records_nothing(host: Path) -> None:
@@ -561,34 +566,34 @@ def test_a_profile_that_excludes_nothing_records_nothing(host: Path) -> None:
 
 
 def test_a_root_edit_the_loader_sees_also_moves_the_hash(host: Path) -> None:
-    """Behavioral pin on the shared resolver: whatever changes what a persona
+    """Behavioral pin on the shared resolver: whatever changes what a render
     BUILDS must change what its staleness advisory compares.
 
     Asserting the two agree on a merged dict would only pin that they call the
     same function today; this pins the consequence, which is what the advisory
     actually promises.
     """
-    persona = _persona(host, "reader", "name: Reader\n")
-    before_provider = load_profile_document(persona).profile.provider
-    before_hash = compute_profile_hash(persona)
+    render = _render(host, "reader", "name: Reader\n")
+    before_provider = load_profile_document(render).profile.provider
+    before_hash = compute_profile_hash(render)
 
     _write(host / "profile.yml", _HOST.replace("provider: anthropic", "provider: cborg"))
 
-    assert load_profile_document(persona).profile.provider != before_provider
-    assert compute_profile_hash(persona) != before_hash
+    assert load_profile_document(render).profile.provider != before_provider
+    assert compute_profile_hash(render) != before_hash
 
 
 def test_a_convention_only_exclusion_moves_the_hash(host: Path) -> None:
-    """Two personas differing only by an exclusion build different projects.
+    """Two renders differing only by an exclusion build different projects.
 
     ``commands:`` has no list to subtract from, so the exclusion lives entirely
     in the derived record — invisible to a hash over the resolved YAML. Without
-    folding that record, neither persona would ever report itself stale against
+    folding that record, neither render would ever report itself stale against
     the other.
     """
     _write(host / "commands" / "scan.md", "slash command\n")
-    plain = _persona(host, "plain", "name: Reader\n")
-    excluding = _persona(host, "excl", "name: Reader\nexclude:\n  commands: [scan]\n")
+    plain = _excluding(host, "plain", "name: Reader\n")
+    excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  commands: [scan]\n")
 
     assert compute_profile_hash(excluding) != compute_profile_hash(plain)
 
@@ -605,8 +610,8 @@ def test_a_shadowed_bare_exclusion_still_moves_the_hash(host: Path) -> None:
     a project that silently stops matching its source is not.
     """
     _write(host / "agents" / "channel-finder.md", "facility override\n")
-    plain = _persona(host, "plain", "name: Reader\n")
-    excluding = _persona(host, "excl", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
+    plain = _excluding(host, "plain", "name: Reader\n")
+    excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     assert compute_profile_hash(excluding) != compute_profile_hash(plain)
 
@@ -617,7 +622,7 @@ def test_a_profile_without_exclusions_hashes_as_it_did_before(host: Path) -> Non
     The empty record folds nothing, so bundled presets and ordinary profiles
     keep the hashes their manifests were stamped with.
     """
-    plain = _persona(host, "plain", "name: Reader\n")
-    same = _persona(host, "same", "name: Reader\n")
+    plain = _render(host, "plain", "name: Reader\n")
+    same = _render(host, "same", "name: Reader\n")
 
     assert compute_profile_hash(plain) == compute_profile_hash(same)

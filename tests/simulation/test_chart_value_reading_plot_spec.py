@@ -4,18 +4,23 @@ The tier-2 benchmark in ``tests/e2e/tier2/test_chart_value_reading.py`` grades a
 agent's reading of a plot against ``DIP_DEPTH_MA``. These tests pin the
 picture to that constant without a deploy: the spec parses, the drop at the
 loss instant is the constant, the dip ends on a refill so the sawtooth never
-jumps inside it, and nothing on the picture or in the entry texts states a
-magnitude.
+jumps inside it, nothing on the picture or in the entry texts states a
+magnitude, and the two facility scenario files build with the preset's facility
+and read back as the archive steps and the attached plot.
 """
 
 from __future__ import annotations
 
-import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
+from osprey.facility.scenarios import scenario_logbook
+from osprey_connectors.simulation.logbook import PlotSpec, parse_plot_spec
+from tests._preset_data import packaged_facility_dir
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -33,9 +38,11 @@ def test_axis_is_non_increasing_and_ends_at_zero() -> None:
     assert len(hours) == len(_values())
 
 
-def test_spec_parses_with_the_bundle_loader() -> None:
-    from osprey.simulation.machine import parse_plot_spec
+def _scenario(name: str) -> dict:
+    return yaml.safe_load((fixture.SCENARIOS_DIR / f"{name}.yaml").read_text("utf-8"))
 
+
+def test_spec_parses_with_the_scenario_loader() -> None:
     spec = parse_plot_spec(fixture.build_plot_spec(), "beam-loss fixture")
     assert spec.filename == "dcct_decay_run.png"
     assert spec.ylim == (0.0, 600.0)
@@ -109,19 +116,13 @@ def test_picture_text_states_no_number() -> None:
 
 
 def test_entry_texts_state_no_current_in_milliamps() -> None:
-    entries = json.loads(
-        (fixture.FIXTURE_DIR / fixture.LOGBOOK_BUNDLE / "logbook.json").read_text("utf-8")
-    )
-    for entry in entries:
+    for entry in _scenario(fixture.LOGBOOK_SCENARIO)["logbook"]:
         text = f"{entry['title']}\n{entry['text']}"
         assert not re.search(r"\d+(\.\d+)?\s?mA", text), entry["entry_id"]
 
 
-def test_recent_bundle_steps_match_the_constant() -> None:
-    scenario = json.loads(
-        (fixture.FIXTURE_DIR / fixture.RECENT_BUNDLE / "scenario.json").read_text("utf-8")
-    )
-    (channel,) = scenario["archiver"]
+def test_recent_scenario_steps_match_the_constant() -> None:
+    (channel,) = _scenario(fixture.RECENT_SCENARIO)["archiver"]
     assert channel["channel"] == fixture.DCCT_CHANNEL
     down, up = channel["events"]
     assert down["shape"] == up["shape"] == "step"
@@ -130,25 +131,35 @@ def test_recent_bundle_steps_match_the_constant() -> None:
     assert up["to"] == pytest.approx(fixture.BASELINE_MA)
 
 
-def test_installed_bundles_load_as_narratives(tmp_path: Path) -> None:
-    from osprey.simulation.machine import PlotSpec, load_narratives
+def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> None:
+    from osprey.facility.build import build_facility
 
-    scenarios = tmp_path / "scenarios"
-    fixture.install_bundles(scenarios)
-    assert (scenarios / fixture.LOGBOOK_BUNDLE / "plots" / "dcct_decay_run.json").is_file()
-    narratives = load_narratives(scenarios)
-    entries = {e.entry_id: e for e in narratives[fixture.LOGBOOK_BUNDLE]}
+    facility = tmp_path / "facility"
+    shutil.copytree(packaged_facility_dir("control_assistant"), facility)
+    fixture.install_scenarios(facility / "scenarios")
+    assert (facility / "scenarios" / fixture.LOGBOOK_SCENARIO / fixture.SPEC_PATH).is_file()
+
+    document = build_facility(facility, project_name="chart-value-reading")
+    scenarios = {str(s["name"]): s for s in document["scenarios"]}
+    recent = scenarios[fixture.RECENT_SCENARIO]
+    assert [entry["channel"] for entry in recent["archiver"]] == [fixture.DCCT_CHANNEL]
+    # The recent scenario is telemetry only: it narrates nothing.
+    assert scenario_logbook(recent) == ()
+
+    logged = scenarios[fixture.LOGBOOK_SCENARIO]
+    entries = {
+        e.entry_id: e
+        for e in scenario_logbook(logged, facility / "scenarios" / fixture.LOGBOOK_SCENARIO)
+    }
     target = entries[fixture.TARGET_ENTRY_ID]
     assert len(target.attachments) == 1 and isinstance(target.attachments[0], PlotSpec)
+    assert target.attachments[0] == parse_plot_spec(fixture.build_plot_spec())
     assert all(not e.attachments for k, e in entries.items() if k != fixture.TARGET_ENTRY_ID)
-    # The recent bundle is telemetry only: it contributes no narrative at all.
-    assert fixture.RECENT_BUNDLE not in narratives
 
 
 def test_spec_renders_to_a_png(tmp_path: Path) -> None:
     from datetime import UTC, datetime
 
-    from osprey.simulation.machine import parse_plot_spec
     from osprey.simulation.plots import render_plot_spec
 
     spec = parse_plot_spec(fixture.build_plot_spec(), "beam-loss fixture")

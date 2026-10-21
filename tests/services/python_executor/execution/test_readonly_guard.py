@@ -16,6 +16,7 @@ in the file runs the guard in a subprocess against whatever is installed.
 """
 
 import asyncio
+import ctypes
 import importlib
 import json
 import platform
@@ -36,6 +37,10 @@ from osprey.services.python_executor.execution.wrapper import (
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
+
+# Bound before any guard is installed, as a script can hold the loader class
+# from before the guard ran.
+cdll_before = ctypes.CDLL
 
 
 def _resolve_target(dotted):
@@ -667,13 +672,13 @@ def test_every_client_package_is_also_denied_at_import():
     readonly script can still reach. Deriving both from one table is what makes
     that impossible; this pins the derivation.
     """
-    from osprey.services.python_executor.analysis.safety_checks import (
-        _READONLY_DENIED_IMPORTS,
+    from osprey.services.python_executor.write_surface import (
+        _CLIENT_WRITE_TARGETS,
+        CLIENT_PACKAGES,
     )
-    from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
 
     packages = {dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS}
-    assert packages <= set(_READONLY_DENIED_IMPORTS)
+    assert packages <= set(CLIENT_PACKAGES)
     assert {"doocs4py", "aioca"} <= packages
 
 
@@ -685,14 +690,14 @@ def test_framework_write_targets_stay_importable():
     that only reads a catalog. Their write entry points are in the runtime
     guard instead.
     """
-    from osprey.services.python_executor.analysis.safety_checks import (
-        _READONLY_DENIED_IMPORTS,
+    from osprey.services.python_executor.write_surface import (
+        _FRAMEWORK_WRITE_TARGETS,
+        CLIENT_PACKAGES,
     )
-    from osprey.services.python_executor.write_surface import _FRAMEWORK_WRITE_TARGETS
 
     packages = {dotted.split(".")[0] for dotted, _attrs in _FRAMEWORK_WRITE_TARGETS}
     assert packages == {"ophyd_async", "bluesky"}
-    assert not packages & set(_READONLY_DENIED_IMPORTS)
+    assert not packages & set(CLIENT_PACKAGES)
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +737,9 @@ def test_framework_write_targets_stay_importable():
             lambda: __import__("ctypes").cdll.LoadLibrary("libca.so"), id="ctypes-LoadLibrary"
         ),
         pytest.param(lambda: __import__("ctypes").cdll.libca, id="ctypes-cdll-attribute"),
+        pytest.param(lambda: __import__("_ctypes").dlopen("libca.so"), id="_ctypes-dlopen"),
+        pytest.param(lambda: __import__("ctypes")._dlopen("libca.so"), id="ctypes-_dlopen"),
+        pytest.param(lambda: cdll_before("libca.so"), id="ctypes-CDLL-captured-before"),
     ],
 )
 def test_readonly_refuses_routes_out_of_python(call):
@@ -787,13 +795,13 @@ def test_guard_is_silent_when_optional_libraries_are_absent(capsys, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# pyepics loading libca for osprey.runtime
+# A user-installed pyepics loading libca
 #
 # A readonly run reads through ``osprey.runtime``, whose EPICS connector is
-# pyepics — and pyepics reaches Channel Access by loading ``libca`` through
-# ``ctypes``. The load pyepics makes for itself is the one shared-library load
-# a readonly run permits; the handle it gets back has its put entry points
-# refused, so the raw route through it is closed as every other spelling is.
+# aioca, and aioca reads through the ``libca`` handle ``epicscorelibs`` loads
+# at install, before the loader is gated. No load after it is needed, so none
+# is permitted: the load a user-installed pyepics makes for itself refuses
+# like any other.
 # ---------------------------------------------------------------------------
 
 
@@ -814,49 +822,205 @@ def _install_fake_pyepics_loader(monkeypatch):
     return ca
 
 
-def test_readonly_lets_pyepics_load_libca(monkeypatch):
+def test_readonly_refuses_the_load_pyepics_makes(monkeypatch):
     ca = _install_fake_pyepics_loader(monkeypatch)
     _run_guard("readonly")
-
-    handle = ca.initialize_libca()
-
-    assert handle is not None
-
-
-def test_readonly_refuses_the_put_symbols_on_the_handle_pyepics_loaded(monkeypatch):
-    ca = _install_fake_pyepics_loader(monkeypatch)
-    _run_guard("readonly")
-    handle = ca.initialize_libca()
-
-    for symbol in ("ca_array_put", "ca_array_put_callback"):
-        with pytest.raises(RuntimeError, match=_REFUSAL):
-            getattr(handle, symbol)(0, 1, object(), object())
-
-
-def test_readonly_refuses_an_impostor_initialize_libca(monkeypatch):
-    """The permit is for pyepics' own function, not for a function of that name."""
-    _install_fake_pyepics_loader(monkeypatch)
-    _run_guard("readonly")
-
-    def initialize_libca():
-        import ctypes
-
-        return ctypes.cdll.LoadLibrary(None)
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
-        initialize_libca()
+        ca.initialize_libca()
 
 
 def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
     """Having pyepics importable opens nothing for the user code's own loads."""
     _install_fake_pyepics_loader(monkeypatch)
     _run_guard("readonly")
-    import ctypes
+    import _ctypes
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
         ctypes.CDLL(None)
     with pytest.raises(RuntimeError, match=_REFUSAL):
         ctypes.cdll.LoadLibrary(None)
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        _ctypes.dlopen(None)
+
+
+# ---------------------------------------------------------------------------
+# The libca handle aioca reads through
+#
+# ``epicscorelibs.ca.cadef`` loads ``libca`` in its module body, and the guard
+# imports it at install, before the loader is gated. aioca reads through that
+# handle, so it stays loaded; its put symbols may not resolve, and no other
+# spelling of the loader may hand out a second handle that resolves them.
+# ``importlib`` reaches the handle past the static import check, which is why
+# each of these is refused at runtime.
+# ---------------------------------------------------------------------------
+
+
+def _guarded_libca():
+    pytest.importorskip("epicscorelibs.ca.cadef", reason="epicscorelibs is not installed")
+    _run_guard("readonly")
+    return importlib.import_module("epicscorelibs.ca.cadef").libca
+
+
+def _call_unless_raw(resolved):
+    """Call what a put lookup returned, but never the C function itself.
+
+    A raw ``ca_array_put`` called with these arguments crashes the test
+    process; a guard that let one through must fail the test instead.
+    """
+    import ctypes
+
+    assert not isinstance(resolved, ctypes._CFuncPtr), "a put symbol resolved to libca"
+    resolved(0, 1, None, None)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(lambda lib, symbol: getattr(lib, symbol), id="attribute"),
+        pytest.param(lambda lib, symbol: lib[symbol], id="item"),
+        pytest.param(lambda lib, symbol: lib[symbol.encode()], id="item-bytes"),
+        pytest.param(
+            lambda lib, symbol: __import__("ctypes").CDLL.__getitem__(lib, symbol),
+            id="class-getitem",
+        ),
+        pytest.param(
+            lambda _lib, symbol: __import__("ctypes").pythonapi[symbol], id="pythonapi-global"
+        ),
+    ],
+)
+@pytest.mark.parametrize("symbol", ["ca_array_put", "ca_array_put_callback", "ca_sg_array_put"])
+def test_readonly_refuses_the_put_symbols_on_the_cadef_libca_handle(spelling, symbol):
+    lib = _guarded_libca()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        _call_unless_raw(spelling(lib, symbol))
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        pytest.param(lambda lib: __import__("ctypes").cdll._dlltype(lib._name), id="cdll-dlltype"),
+        pytest.param(
+            lambda lib: __import__("ctypes").pydll._dlltype(lib._name), id="pydll-dlltype"
+        ),
+        pytest.param(lambda lib: type(lib)(lib._name), id="type-of-handle"),
+        pytest.param(lambda lib: __import__("ctypes").PyDLL(lib._name), id="PyDLL"),
+    ],
+)
+def test_readonly_refuses_every_spelling_of_the_loader_class(load):
+    lib = _guarded_libca()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        load(lib)
+
+
+def test_readonly_gates_the_loader_class_itself():
+    """The module attribute is the class, so it carries no closure to unwrap."""
+    import ctypes
+
+    lib = _guarded_libca()
+
+    assert isinstance(ctypes.CDLL, type)
+    assert type(lib) is ctypes.CDLL
+
+
+def test_the_refusing_loaders_keep_no_original_loader():
+    """No load is permitted, so no refusing loader holds an original to reach.
+
+    The rows come from the guard's own loader tables, so a row added there is
+    pinned here too; a row whose owner is absent on this interpreter is skipped.
+    """
+    import importlib.util
+
+    from osprey.runtime import raw_put_block
+
+    _run_guard("readonly")
+    loaders = {}
+    for dotted, attr in sorted(raw_put_block._CTYPES_LOADER_ROWS | raw_put_block._FFI_LOADER_ROWS):
+        if importlib.util.find_spec(dotted.split(".")[0]) is None:
+            continue
+        owner = raw_put_block._resolve(dotted)
+        if owner is None or not hasattr(owner, attr):
+            continue
+        loaders[f"{dotted}.{attr}"] = getattr(owner, attr)
+
+    assert "_ctypes.dlopen" in loaders, sorted(loaders)
+    for row, loader in loaders.items():
+        assert getattr(loader, "_osprey_loader_gate", False), row
+        cells = loader.__closure__ or ()
+        assert not [cell for cell in cells if callable(cell.cell_contents)], row
+
+
+def test_readonly_leaves_the_read_symbols_on_the_cadef_libca_handle():
+    import ctypes
+
+    lib = _guarded_libca()
+
+    assert callable(lib.ca_array_get_callback)
+    assert callable(lib["ca_create_channel"])
+    assert ctypes.pythonapi.Py_IsInitialized() == 1
+
+
+_AIOCA_READ_PROBE = """
+import asyncio
+import sys
+
+guard_path, marker = sys.argv[1], sys.argv[2]
+exec(compile(open(guard_path).read(), guard_path, "exec"), {})
+
+import aioca
+
+PV = "OSPREY:READONLY:PROBE:NO:SUCH:PV"
+failures = []
+
+
+async def read():
+    # Nobody serves this PV: a read that reached Channel Access times out.
+    try:
+        await aioca.caget(PV, timeout=0.3)
+    except aioca.CANothing:
+        return
+    except BaseException as exc:
+        failures.append("caget raised " + type(exc).__name__ + ": " + str(exc))
+        return
+    failures.append("caget of a PV nobody serves returned")
+
+
+async def write():
+    try:
+        await aioca.caput(PV, 1.0, timeout=0.3)
+    except RuntimeError as exc:
+        if marker not in str(exc):
+            failures.append("caput raised a RuntimeError that is not the refusal")
+        return
+    except BaseException as exc:
+        failures.append("caput raised " + type(exc).__name__ + ": " + str(exc))
+        return
+    failures.append("caput returned instead of refusing")
+
+
+asyncio.run(read())
+asyncio.run(write())
+print("FAILURES", failures)
+"""
+
+
+def test_readonly_aioca_caget_still_reads(tmp_path):
+    """Closing the handle's puts leaves aioca's read path through libca open.
+
+    A real interpreter, because aioca opens a Channel Access context that the
+    test process should not carry into the tests after this one.
+    """
+    pytest.importorskip("aioca", reason="aioca is not installed in this environment")
+    guard_path = tmp_path / "readonly_guard.py"
+    guard_path.write_text(ExecutionWrapper(execution_mode="readonly")._get_readonly_guard())
+
+    stdout = _run_probe(
+        tmp_path, "probe_aioca_read.py", _AIOCA_READ_PROBE, str(guard_path), READONLY_REFUSAL_MARKER
+    )
+
+    assert "FAILURES []" in stdout, stdout
 
 
 # The defining module both tests below use. It must stay OUT of the table: a
@@ -1257,7 +1421,7 @@ import sys
 assert "bluesky" not in sys.modules and "ophyd_async" not in sys.modules, (
     "the guard must not load an acquisition framework the script never imports"
 )
-assert {"epics", "aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
+assert {"aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
     "the client rows must be resolved before the script runs"
 )
 run_engine = importlib.import_module("bluesky.run_engine")
@@ -1476,10 +1640,10 @@ def test_two_guards_in_one_process_delegate_without_recursing(tmp_path, monkeypa
 
 def test_the_client_rows_are_resolved_before_the_script_runs():
     """The counterpart to the framework tests: the client half does not wait."""
-    for library in ("epics", "aioca", "p4p"):
+    for library in ("aioca", "p4p"):
         pytest.importorskip(library, reason=f"{library} is not installed in this environment")
 
     _run_guard("readonly")
 
     assert subprocess.run.__name__ == "_osprey_readonly_refuse"
-    assert {"epics", "aioca", "p4p.client.thread"} <= set(sys.modules)
+    assert {"aioca", "p4p.client.thread"} <= set(sys.modules)

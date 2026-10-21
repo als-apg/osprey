@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from osprey.interfaces.lattice_dashboard.workers.optics import build_figure, compute_optics
 
@@ -32,6 +33,15 @@ class TestComputeOptics:
         _, _, _, _, detuned = compute_optics(make_fodo(kf=1.1))
 
         assert design["tunes"] != detuned["tunes"]
+
+    def test_single_pass_starts_from_twiss_in(self, fodo_ring):
+        """A single-pass solve propagates the given entrance optics, with no tune."""
+        twiss_in = {"beta": [7.0, 3.0], "alpha": [0.0, 0.0]}
+        _, beta_x, beta_y, _, summary = compute_optics(fodo_ring, twiss_in)
+
+        assert beta_x[0] == pytest.approx(7.0)
+        assert beta_y[0] == pytest.approx(3.0)
+        assert set(summary) == {"beta_max"}
 
     def test_physical_values(self, fodo_ring):
         s_pos, beta_x, beta_y, eta_x, _ = compute_optics(fodo_ring)

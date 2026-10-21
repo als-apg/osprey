@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.version import get_running_version
 
 if TYPE_CHECKING:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
 # Version information. Derived from the git tag at build time and resolved at import
 # by osprey.version — see that module for the resolution chain. Bound eagerly rather
@@ -30,9 +30,9 @@ __all__ = ["__version__", "configure_logging"]
 
 # Framework is designed for on-demand imports to avoid circular dependencies
 
-#: Public name -> the submodule of this package that defines it. Entries are
-#: resolved on first attribute access, never at import.
-_LAZY_EXPORTS: dict[str, str] = {"configure_logging": ".utils.logger"}
+#: Public name -> the module that defines it. Entries are resolved on first
+#: attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {"configure_logging": "osprey_connectors.logger"}
 
 
 def __getattr__(name: str) -> Any:

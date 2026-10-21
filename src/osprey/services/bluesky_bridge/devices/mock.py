@@ -36,6 +36,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from bluesky.protocols import Location
 from ophyd_async.core import (
     AsyncStatus,
     StandardReadable,
@@ -53,9 +54,10 @@ class MockSettable(StandardReadable):
     """An in-process simulated setpoint: a soft position signal that "moves" instantly.
 
     ``readback`` is the hinted (primary) signal read into every document;
-    ``setpoint`` records the last commanded position. There is no velocity or
-    settle time to simulate — contract tests care that ``set()`` completes and
-    the readback reflects the new value, not motion realism.
+    ``setpoint`` is the last demand, and ``locate()`` reports both. There is
+    no velocity or settle time to simulate — contract tests care that
+    ``set()`` completes and the readback reflects the new value, not motion
+    realism.
     """
 
     def __init__(self, name: str = "", initial_value: float = 0.0) -> None:
@@ -69,6 +71,13 @@ class MockSettable(StandardReadable):
         """Move to ``value`` instantly: write the setpoint, then the readback."""
         await self.setpoint.set(value)
         self._set_readback(value)
+
+    async def locate(self) -> Location[float]:
+        """Return the last demand and the current readback."""
+        return Location(
+            setpoint=await self.setpoint.get_value(),
+            readback=await self.readback.get_value(),
+        )
 
 
 class MockReadable(StandardReadable):

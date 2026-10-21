@@ -44,14 +44,14 @@ export function updateSummaryStats(summary) {
   setStatValue('stat-energy', summary.energy_gev, v => v.toFixed(2));
   setStatValue('stat-circumference', summary.circumference_m, v => v.toFixed(1));
 
-  if (summary.tunes) {
-    setStatValue('stat-nux', summary.tunes[0], v => v.toFixed(4));
-    setStatValue('stat-nuy', summary.tunes[1], v => v.toFixed(4));
-  }
-  if (summary.chromaticity) {
-    setStatValue('stat-chrom-x', summary.chromaticity[0], v => v.toFixed(2));
-    setStatValue('stat-chrom-y', summary.chromaticity[1], v => v.toFixed(2));
-  }
+  // Tunes and chromaticity come from the optics figure of the inputs on
+  // screen; until it exists, or for a model with no tune, the chips say "—".
+  const tunes = summary.tunes || [];
+  const chromaticity = summary.chromaticity || [];
+  setStatValue('stat-nux', tunes[0], v => v.toFixed(4));
+  setStatValue('stat-nuy', tunes[1], v => v.toFixed(4));
+  setStatValue('stat-chrom-x', chromaticity[0], v => v.toFixed(2));
+  setStatValue('stat-chrom-y', chromaticity[1], v => v.toFixed(2));
 }
 
 // ── LED Status ──────────────────────────────────────────
@@ -77,9 +77,9 @@ export function showSpinner(name) {
   if (plotEl.querySelector('.figure-spinner')) return;
   const spinner = document.createElement('div');
   spinner.className = 'figure-spinner';
-  const ring = document.createElement('div');
-  ring.className = 'spinner-ring';
-  spinner.appendChild(ring);
+  const arc = document.createElement('div');
+  arc.className = 'spinner-arc';
+  spinner.appendChild(arc);
   plotEl.appendChild(spinner);
 }
 
@@ -94,8 +94,10 @@ export function hideSpinner(name) {
 // ── Figure Error ────────────────────────────────────────
 
 /**
+ * Show that a figure's computation failed; the error text is shown beneath
+ * the headline only when one is known.
  * @param {string} name
- * @param {string} error
+ * @param {string | null} error
  */
 export function showFigureError(name, error) {
   const plotEl = document.getElementById(`plot-${name}`);
@@ -120,10 +122,12 @@ export function showFigureError(name, error) {
   msgDiv.textContent = 'Computation failed';
   errorEl.appendChild(msgDiv);
 
-  const detailDiv = document.createElement('div');
-  detailDiv.className = 'figure-error-msg';
-  detailDiv.textContent = error.slice(0, 200);
-  errorEl.appendChild(detailDiv);
+  if (error) {
+    const detailDiv = document.createElement('div');
+    detailDiv.className = 'figure-error-msg';
+    detailDiv.textContent = error.slice(0, 200);
+    errorEl.appendChild(detailDiv);
+  }
 
   plotEl.appendChild(errorEl);
 }
@@ -137,7 +141,7 @@ export function updateFigureStatuses(figures) {
     } else {
       hideSpinner(name);
     }
-    if (info.status === 'error' && info.error) {
+    if (info.status === 'failed' && info.error) {
       showFigureError(name, info.error);
     }
   }
@@ -256,12 +260,13 @@ export function createRenderer(figureNames, callbacks) {
   function renderState(state) {
     if (!state) return;
 
-    // Lattice name
-    const latticeName = state.base_lattice || 'No lattice loaded';
-    const latticeShort = latticeName.split('/').pop() || latticeName;
+    const selection = state.selection || {};
+    const ready = selection.status === 'ready';
+
+    // The selected model's name
     const latticeNameEl = document.getElementById('lattice-name');
     if (latticeNameEl) {
-      latticeNameEl.textContent = latticeShort;
+      latticeNameEl.textContent = selection.model || 'No lattice loaded';
     }
 
     // Simple-mode status line (hidden in Expert via CSS): a plain-language
@@ -269,9 +274,13 @@ export function createRenderer(figureNames, callbacks) {
     // is correct the moment the mode is flipped to simple.
     const simpleStatusEl = document.getElementById('lattice-simple-status');
     if (simpleStatusEl) {
-      simpleStatusEl.textContent = state.base_lattice
-        ? `Showing lattice optics for ${latticeShort}`
-        : 'No lattice loaded yet';
+      if (ready) {
+        simpleStatusEl.textContent = `Showing lattice optics for ${selection.model}`;
+      } else if (selection.status === 'failed' && selection.model) {
+        simpleStatusEl.textContent = `${selection.model} did not load`;
+      } else {
+        simpleStatusEl.textContent = 'No lattice loaded yet';
+      }
     }
 
     // Summary stats
@@ -291,10 +300,9 @@ export function createRenderer(figureNames, callbacks) {
     }
 
     // Enable/disable buttons
-    const hasLattice = !!state.base_lattice;
-    setButtonDisabled('btn-refresh', !hasLattice);
-    setButtonDisabled('btn-verify', !hasLattice);
-    setButtonDisabled('btn-baseline', !hasLattice);
+    setButtonDisabled('btn-refresh', !ready);
+    setButtonDisabled('btn-verify', !ready || !selection.capabilities?.verify);
+    setButtonDisabled('btn-baseline', !ready);
   }
 
   /** @param {Record<string, any>} families */

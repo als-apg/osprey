@@ -21,9 +21,9 @@ from osprey.cli.templates.claude_code import (
     config_derived_context,
 )
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
 from osprey.registry.mcp import FRAMEWORK_SERVERS, resolve_agents, resolve_servers
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 INCLUDE = "claude_code/claude/agents/_shared/attachments.md.j2"
 AGENTS = {
@@ -32,7 +32,7 @@ AGENTS = {
 }
 SKILL = "claude_code/claude/skills/logbook-deep-research/SKILL.md.j2"
 CLAUDE_MD = "claude_code/CLAUDE.md.j2"
-CLAUDE_ARIEL = "claude_code/CLAUDE.ariel.md.j2"
+CLAUDE_ARIEL = "claude_code/CLAUDE.logbook.md.j2"
 # Every body that pulls in the shared include.
 INCLUDING = [*AGENTS.values(), SKILL, CLAUDE_ARIEL]
 # Every CLAUDE.md variant whose agents can reach mcp__ariel__.

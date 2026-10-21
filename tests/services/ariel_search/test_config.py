@@ -1216,6 +1216,23 @@ def _entry_text_config(entry_text: object) -> ARIELConfig:
     )
 
 
+class TestEmbeddedSearch:
+    """Tests for the ``ariel.embedded_search`` switch."""
+
+    _DB = {"database": {"uri": "postgresql://localhost:5432/ariel"}}
+
+    def test_off_when_absent(self) -> None:
+        assert ARIELConfig.from_dict(dict(self._DB)).embedded_search is False
+
+    def test_read_when_set(self) -> None:
+        assert ARIELConfig.from_dict({**self._DB, "embedded_search": True}).embedded_search
+
+    @pytest.mark.parametrize("value", ["true", 1, 0.0])
+    def test_a_value_that_is_not_a_boolean_is_refused_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.embedded_search"):
+            ARIELConfig.from_dict({**self._DB, "embedded_search": value})
+
+
 class TestEntryTextConfig:
     """Tests for the ``ariel.entry_text`` budgets."""
 

@@ -26,11 +26,11 @@ from osprey.mcp_server.python_executor.executor import execute_code
 @pytest.fixture(autouse=True)
 def _reset_all_config_caches(monkeypatch):
     """Reset ALL config caches before each test (see test_executor_adapter.py)."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
@@ -46,7 +46,11 @@ def _reset_all_config_caches(monkeypatch):
 
 def _write_subprocess_config(tmp_path):
     config = {
-        "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "limits_checking": {"enabled": False},
+        },
         "execution": {"execution_method": "subprocess"},
         "python_executor": {"execution_timeout_seconds": 300},
     }

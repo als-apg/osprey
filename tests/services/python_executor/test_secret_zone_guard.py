@@ -41,6 +41,12 @@ _SECRET_DETAIL = "Secret files and process environments cannot be opened by exec
 # --------------------------------------------------------------------------- #
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
 @pytest.fixture
 def layout(tmp_path: Path) -> dict[str, Path]:
     """A project holding the env chain, plus an unrelated directory beside it."""
@@ -236,11 +242,11 @@ def test_bare_wrapper_still_renders_and_runs(tmp_path):
 @pytest.fixture
 def reset_config_caches(monkeypatch):
     """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
@@ -263,7 +269,11 @@ def mock_project(tmp_path, monkeypatch, request) -> Path:
     (tmp_path / "config.yml").write_text(
         yaml.dump(
             {
-                "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "limits_checking": {"enabled": False},
+                },
                 "execution": {"execution_method": "subprocess"},
                 "python_executor": {"execution_timeout_seconds": 120},
             }

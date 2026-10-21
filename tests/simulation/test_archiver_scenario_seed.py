@@ -27,7 +27,6 @@ the config resolution carry their own weight without one.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -37,6 +36,7 @@ import yaml
 
 from osprey.simulation.apply import (
     DENSIFIED_FIELD,
+    _dense_documents,
     active_archiver_events,
     apply_scenarios,
     archiver_collection,
@@ -46,15 +46,18 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
     SeedKnobs,
+    build,
     seed_base,
 )
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
+from tests._simulator_view import write_scenarios_view, write_texture_view
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
@@ -73,11 +76,12 @@ SPIKE_WIDTH_S = 120.0
 # Four sigmas either side, matching the rewrite's own cut (see ``event_window``).
 SPIKE_REACH_S = 4 * SPIKE_WIDTH_S
 
-CHANNELS = [
-    {"address": PRESSURE, "record_type": "ai"},
-    {"address": TEMPERATURE, "record_type": "ai"},
-    {"address": FAULT, "record_type": "bi"},
-]
+#: The simulator view's channels, held still so only an event moves them.
+CHANNELS = {
+    PRESSURE: {"nominal": 1e-9},
+    TEMPERATURE: {"nominal": 25.0},
+    FAULT: {"value_type": "bool", "nominal": "FALSE"},
+}
 
 
 def _spike(offset: float, amplitude: float = 5e-9) -> dict:
@@ -135,8 +139,13 @@ def _machine() -> dict:
                 ],
             },
             "flagged": {
-                "description": "A flag channel raised for a while.",
-                "archiver": [{"channel": FAULT, "events": [_spike(SPIKE_OFFSET_S, amplitude=1.0)]}],
+                "description": "A flag channel raised two hours ago.",
+                "archiver": [
+                    {
+                        "channel": FAULT,
+                        "events": [{"shape": "step", "at_offset": SPIKE_OFFSET_S, "to": 1}],
+                    }
+                ],
             },
             "nightly": {
                 "description": "A disturbance that recurs at the same time every day.",
@@ -189,17 +198,28 @@ UNREACHABLE_STORE = {
 }
 
 
-def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
-    """Lay out a built project on disk: model, config, and its ``.env``."""
-    (root / "data" / "simulation").mkdir(parents=True, exist_ok=True)
-    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(_machine()))
+def _write_model(root: Path, machine: dict, channels: dict = CHANNELS) -> None:
+    """Write the simulator view: the channels and the machine's scenarios."""
+    write_texture_view(root, channels, machine["scenarios"])
+
+
+def _write_project(
+    root: Path,
+    store: dict | None,
+    *,
+    password: str | None,
+    channels: dict = CHANNELS,
+    machine: dict | None = None,
+) -> Path:
+    """Lay out a built project on disk: model, simulator view, config, and its ``.env``."""
+    _write_model(root, machine if machine is not None else _machine(), channels)
 
     config: dict = {
         "project_name": "rewrite-project",
         "project_root": str(root),
         "control_system": {
-            "type": "mock",
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
@@ -230,17 +250,6 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
     return root
 
 
-def _engine(root: Path):
-    """The project's engine, resolved exactly as the product resolves it."""
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-
-    config = yaml.safe_load((root / "config.yml").read_text())
-    return SimulationEngine.from_file(
-        root / "data" / "simulation" / "machine.json",
-        state_dir=resolve_state_dir(config, root),
-    )
-
-
 @pytest.fixture
 def project(tmp_path, mongo_store):
     """A built project wired to a freshly seeded archive.
@@ -248,9 +257,46 @@ def project(tmp_path, mongo_store):
     The process never chdirs into it: every path the code under test resolves
     has to come from ``project_dir``, not from where the caller happens to be.
     """
-    from pymongo import MongoClient
-
     root = _write_project(tmp_path / "proj", mongo_store, password=mongo_store["password"])
+    yield from _seeded(root, mongo_store)
+
+
+#: A channel whose address carries a field name, and a scenario moving it.
+DOTTED = "SR:VAC:IP07.RBV"
+DOTTED_CHANNELS = {**CHANNELS, DOTTED: {"nominal": 1e-9}}
+
+
+def _dotted_machine() -> dict:
+    machine = _machine()
+    machine["channels"][DOTTED] = {
+        "value": 1e-9,
+        "units": "Torr",
+        "noise": 0.0,
+        "description": "Ion pump pressure readback field",
+    }
+    machine["scenarios"]["dotted-burst"] = {
+        "description": "A vacuum burst on a field-name channel two hours ago.",
+        "archiver": [{"channel": DOTTED, "events": [_spike(SPIKE_OFFSET_S)]}],
+    }
+    return machine
+
+
+@pytest.fixture
+def dotted_project(tmp_path, mongo_store):
+    """A seeded project whose channel set holds one address carrying a field name."""
+    root = _write_project(
+        tmp_path / "proj",
+        mongo_store,
+        password=mongo_store["password"],
+        channels=DOTTED_CHANNELS,
+        machine=_dotted_machine(),
+    )
+    yield from _seeded(root, mongo_store)
+
+
+def _seeded(root: Path, mongo_store: dict):
+    """Seed a fresh archive for the project at ``root``; yield ``(root, collection)``."""
+    from pymongo import MongoClient
 
     client = MongoClient(
         host=mongo_store["host"],
@@ -261,12 +307,13 @@ def project(tmp_path, mongo_store):
     )
     collection = client[mongo_store["database"]][mongo_store["collection"]]
     collection.drop()
-    # Seeded through the same engine the rewrite will use. This is what a
+    # Seeded from the same archive composite the rewrite reads. This is what a
     # deployment does, and it is load-bearing rather than incidental: a base
-    # seeded procedurally for a channel the machine model describes would
-    # disagree with every later recompute, and the disagreement would look
-    # exactly like a scenario that failed to restore.
-    seed_base(collection, CHANNELS, KNOBS, t0=T0, chunk_size=256, engine=_engine(root))
+    # seeded from any other source would disagree with every later recompute,
+    # and the disagreement would look exactly like a scenario that failed to
+    # restore.
+    archive = build(root / "data" / "simulator", [], anchor_s=T0.timestamp())
+    seed_base(collection, archive, KNOBS, t0=T0, chunk_size=256)
     try:
         yield root, collection
     finally:
@@ -429,9 +476,8 @@ class TestStoreResolution:
         )
         config = yaml.safe_load((root / "config.yml").read_text())
         config["archiver"]["type"] = "mock_archiver"
-        machine = root / "data" / "simulation" / "machine.json"
 
-        assert preflight_archive_rewrite(root, config, machine, []) is None
+        assert preflight_archive_rewrite(root, config, []) is None
 
     def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
         """A bundled store gets the same six-keyword client the agent's connector builds."""
@@ -654,11 +700,11 @@ class TestPersistedAnchor:
         assert persisted_scenario_anchor(config, root) == later
 
     def test_a_single_name_state_file_is_not_read(self, tmp_path):
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.workspace import resolve_simulation_state_dir
 
         root = _write_project(tmp_path / "proj", None, password=None)
         config = yaml.safe_load((root / "config.yml").read_text())
-        state_dir = resolve_state_dir(config, root)
+        state_dir = resolve_simulation_state_dir(config, root)
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_dir / "active_scenario").write_text("anchor=2026-01-01T00:00:00+00:00\nburst\n")
 
@@ -668,24 +714,45 @@ class TestPersistedAnchor:
 class TestComposedEvents:
     def test_the_active_set_s_scripts_are_composed(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
-        machine = root / "data" / "simulation" / "machine.json"
 
-        assert active_archiver_events(machine, ["nominal"]) == {}
-        assert list(active_archiver_events(machine, ["burst"])) == [PRESSURE]
+        assert active_archiver_events(root, ["nominal"]) == {}
+        assert list(active_archiver_events(root, ["burst"])) == [PRESSURE]
+        assert active_archiver_events(root, ["twin-burst"]) == {
+            PRESSURE: [_spike(SPIKE_OFFSET_S), _spike(LATE_OFFSET_S)],
+            TEMPERATURE: [_spike(LATE_OFFSET_S, amplitude=3.0)],
+        }
+
+    def test_the_scripts_are_read_from_the_simulator_view(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        write_scenarios_view(
+            root, {"burst": {"archiver": [{"channel": FAULT, "events": [_spike(-60.0)]}]}}
+        )
+
+        assert active_archiver_events(root, ["burst"]) == {FAULT: [_spike(-60.0)]}
+
+    def test_the_view_is_found_under_a_deployment_repo_s_render(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        render = root / "build"
+        render.mkdir()
+        (render / "config.yml").write_text((root / "config.yml").read_text())
+        write_scenarios_view(
+            render, {"burst": {"archiver": [{"channel": FAULT, "events": [_spike(-60.0)]}]}}
+        )
+
+        assert list(active_archiver_events(root, ["burst"])) == [FAULT]
 
     def test_an_unknown_scenario_is_refused(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
 
         with pytest.raises(ValueError, match="Unknown scenario"):
-            active_archiver_events(root / "data" / "simulation" / "machine.json", ["nope"])
+            active_archiver_events(root, ["nope"])
 
-    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+    def test_a_render_without_a_simulator_view_is_refused_by_name(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
-        machine = root / "data" / "simulation" / "machine.json"
-        machine.write_text("{")
+        (root / "data" / "simulator" / "addresses.json").unlink()
 
-        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
-            active_archiver_events(machine, ["nominal"])
+        with pytest.raises(ValueError, match="No simulator view in .*simulator"):
+            active_archiver_events(root, ["nominal"])
 
 
 # ---------------------------------------------------------------------------
@@ -1190,16 +1257,56 @@ class TestRecurringEvents:
         assert 0 < result.archiver.inserted < base / 4
 
 
+class TestDottedChannel:
+    def test_a_dotted_channel_window_is_rewritten(self, dotted_project):
+        """A field-name address is rewritten under its own field, never as a path."""
+        root, collection = dotted_project
+        field = field_name(DOTTED)
+        before = _snapshot(collection)
+
+        result = _apply(root, ["dotted-burst"])
+
+        assert DOTTED in result.archiver.channels
+        assert result.archiver.updated > 0
+        low, high = _window(SPIKE_OFFSET_S, shrink=SPIKE_REACH_S - SPIKE_WIDTH_S)
+        inside = list(collection.find({DATE_FIELD: {"$gte": low, "$lte": high}}))
+        assert inside
+        assert any(
+            document[field] != before[document[DATE_FIELD]][field]
+            for document in inside
+            if document[DATE_FIELD] in before
+        )
+        assert all(field in document for document in inside)
+        assert all("SR:VAC:IP07" not in document for document in inside)
+
+
+class _ConstantArchive:
+    """An archive composite stand-in: every channel reads 1.0 at every moment."""
+
+    def series(self, _pv: str, moments: list[float]) -> list[float]:
+        return [1.0] * len(moments)
+
+
+class TestChannelNamedLikeTheMarker:
+    def test_a_densified_channel_named_like_the_marker_keeps_the_marker(self):
+        """The densify marker survives a channel of the same name in the same insert."""
+        [document] = _dense_documents(_ConstantArchive(), {}, {1.0e9: ("osprey_densified",)})
+
+        assert document[DENSIFIED_FIELD] is True
+        assert document["%6Fsprey_densified"] == 1.0
+
+
 class TestStoredTypes:
     def test_dense_inserts_carry_the_type_the_channel_is_stored_as(self, project):
         """A flag channel's history must not change type part way through.
 
         The updates already coerce to the stored type; an insert has no document
-        of its own to read that from, and writing the engine's raw float would
-        leave a boolean channel holding ``0.7`` beside its ``True`` — which reads
-        as a different instrument rather than a different value.
+        of its own to read that from, so it takes the type of the channel's
+        stored history — a flag's option index — rather than whatever the
+        recompute happened to return.
         """
         root, collection = project
+        stored = type(collection.find_one({FAULT: {"$exists": True}})[FAULT])
 
         _apply(root, ["flagged"])
 
@@ -1207,7 +1314,9 @@ class TestStoredTypes:
             document for document in collection.find({DENSIFIED_FIELD: True}) if FAULT in document
         ]
         assert inserted, "the flag channel's window was not densified"
-        assert all(isinstance(document[FAULT], bool) for document in inserted)
+        assert stored is int
+        assert all(type(document[FAULT]) is stored for document in inserted)
+        assert {document[FAULT] for document in inserted} == {1}
 
     def test_the_archive_is_not_rewritten_when_the_caller_opts_out(self, project):
         root, collection = project
@@ -1256,9 +1365,6 @@ class TestPreflight:
     feature exists to close, arrived at by a different route.
     """
 
-    def _machine_path(self, root: Path) -> Path:
-        return root / "data" / "simulation" / "machine.json"
-
     def _config(self, root: Path) -> dict:
         return yaml.safe_load((root / "config.yml").read_text())
 
@@ -1266,34 +1372,31 @@ class TestPreflight:
         root = _write_project(tmp_path / "proj", UNREACHABLE_STORE, password=None)
 
         with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
+            preflight_archive_rewrite(root, self._config(root), ["burst"])
 
         assert persisted_scenario_anchor(self._config(root), root) is None
 
     def test_a_window_fraction_event_is_refused_before_anything_is_written(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
-        machine = json.loads(self._machine_path(root).read_text())
+        machine = _machine()
         machine["scenarios"]["burst"]["archiver"][0]["events"] = [
             {"shape": "step", "at": 0.5, "to": 5.0}
         ]
-        self._machine_path(root).write_text(json.dumps(machine))
+        _write_model(root, machine)
 
         with pytest.raises(ValueError, match="at_offset"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
+            preflight_archive_rewrite(root, self._config(root), ["burst"])
 
     def test_an_unknown_scenario_is_refused(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
 
         with pytest.raises(ValueError, match="Unknown scenario"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["nope"])
+            preflight_archive_rewrite(root, self._config(root), ["nope"])
 
     def test_a_project_with_no_store_has_nothing_to_decide(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
 
-        assert (
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
-            is None
-        )
+        assert preflight_archive_rewrite(root, self._config(root), ["burst"]) is None
 
     def test_a_healthy_project_returns_the_store_it_would_rewrite(self, tmp_path):
         """Deciding never connects: the store only has to be declared and its
@@ -1302,9 +1405,7 @@ class TestPreflight:
             tmp_path / "proj", UNREACHABLE_STORE, password=UNREACHABLE_STORE["password"]
         )
 
-        store = preflight_archive_rewrite(
-            root, self._config(root), self._machine_path(root), ["burst"]
-        )
+        store = preflight_archive_rewrite(root, self._config(root), ["burst"])
 
         assert store is not None
         assert store["database"] == UNREACHABLE_STORE["database"]

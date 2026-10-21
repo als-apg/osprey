@@ -18,12 +18,12 @@ The server adds ``type`` and ``ts``; optional target fields are omitted from
 the broadcast when absent.  Like the panel routes, this endpoint relies on the
 loopback baseline for access control — no additional auth.
 
-Every accepted event is also appended to a bounded in-memory history ring on
-``app.state.agent_activity_ring`` before it is broadcast, so a browser that
+Every accepted event is also appended to a bounded in-memory history buffer on
+``app.state.agent_activity_buffer`` before it is broadcast, so a browser that
 connects (or reconnects) after the fact can still see what the agent has been
-doing.  SSE clients see no difference — the ring is a pure side channel.
+doing.  SSE clients see no difference — the buffer is a pure side channel.
 
-``GET /api/agent-activity/recent?limit=N`` reads that ring back, newest first::
+``GET /api/agent-activity/recent?limit=N`` reads that buffer back, newest first::
 
     response: {"events": [{"type": "agent_activity", "tool": ...,
                            "target": {...}, "ts": ...}, ...]}
@@ -49,9 +49,9 @@ router = APIRouter()
 _MAX_NAME_LEN = 256
 _MAX_DETAIL_LEN = 1024
 
-#: Size of the ``app.state.agent_activity_ring`` history buffer.  A browser
+#: Size of the ``app.state.agent_activity_buffer`` history buffer.  A browser
 #: replays at most this many recent events on connect; the oldest fall off.
-ACTIVITY_RING_MAX = 50
+ACTIVITY_BUFFER_MAX = 50
 
 
 class AgentActivityTarget(BaseModel):
@@ -70,11 +70,11 @@ class AgentActivityRequest(BaseModel):
 
 
 def record_activity(request: Request, tool: str, target: dict) -> dict:
-    """Stamp an agent-activity frame, append it to the history ring, return it.
+    """Stamp an agent-activity frame, append it to the history buffer, return it.
 
     The single place the frame shape is written, so every producer — this
     module's POST route and the panel routes, which mirror agent-origin panel
-    commands that never pass through it — puts the same thing in the ring that
+    commands that never pass through it — puts the same thing in the buffer that
     ``GET /api/agent-activity/recent`` serves and the SSE stream carries.
 
     Appending is not broadcasting: callers that also broadcast pass the
@@ -89,7 +89,7 @@ def record_activity(request: Request, tool: str, target: dict) -> dict:
         The frame.
     """
     event = {"type": "agent_activity", "tool": tool, "target": target, "ts": time.time()}
-    request.app.state.agent_activity_ring.append(event)
+    request.app.state.agent_activity_buffer.append(event)
     return event
 
 
@@ -99,7 +99,7 @@ async def post_agent_activity(body: AgentActivityRequest, request: Request):
 
     Malformed bodies and unknown target kinds are rejected with 422 by the
     Pydantic model before this handler runs — nothing is broadcast for them.
-    The accepted event is recorded in the history ring first, so an event is
+    The accepted event is recorded in the history buffer first, so an event is
     never broadcast without also being in the history a late browser reads.
     """
     event = record_activity(request, body.tool, body.target.model_dump(exclude_none=True))
@@ -108,16 +108,16 @@ async def post_agent_activity(body: AgentActivityRequest, request: Request):
 
 
 @router.get("/api/agent-activity/recent")
-async def get_recent_agent_activity(request: Request, limit: int = ACTIVITY_RING_MAX):
+async def get_recent_agent_activity(request: Request, limit: int = ACTIVITY_BUFFER_MAX):
     """Return the most recent agent-activity events, newest first.
 
     A browser that opens mid-session, or reconnects after its SSE stream
     dropped, reads this to rebuild the recent history it never received live.
     Each event is the broadcast frame verbatim, including the server ``ts``.
 
-    ``limit`` is clamped into ``0..ACTIVITY_RING_MAX`` rather than rejected, so
-    a caller asking for more than the ring can hold gets everything it has.
+    ``limit`` is clamped into ``0..ACTIVITY_BUFFER_MAX`` rather than rejected, so
+    a caller asking for more than the buffer can hold gets everything it has.
     """
-    ring = request.app.state.agent_activity_ring
-    limit = max(0, min(limit, ACTIVITY_RING_MAX))
-    return {"events": list(islice(reversed(ring), limit))}
+    buffer = request.app.state.agent_activity_buffer
+    limit = max(0, min(limit, ACTIVITY_BUFFER_MAX))
+    return {"events": list(islice(reversed(buffer), limit))}

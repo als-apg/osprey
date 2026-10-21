@@ -69,6 +69,7 @@ class LazyGroup(click.Group):
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
             "archive": "osprey.cli.archive_cmd",  # Append-only agent record
+            "history": "osprey.cli.history_cmd",  # Across-users history page
             "sim": "osprey.cli.sim",  # Simulation scenarios
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
@@ -77,7 +78,7 @@ class LazyGroup(click.Group):
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
-            "mml": "osprey.cli.mml_cmd",  # MATLAB Middle Layer install
+            "facility": "osprey.cli.facility_cmd",  # Facility description checks
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
@@ -141,6 +142,7 @@ class LazyGroup(click.Group):
             "eject",
             "ariel",
             "archive",
+            "history",
             "sim",
             "artifacts",
             "web",
@@ -149,7 +151,7 @@ class LazyGroup(click.Group):
             "audit",
             "vendor",
             "knowledge",
-            "mml",  # MATLAB Middle Layer install
+            "facility",
             "query",
             "users",
             "feedback",
@@ -197,8 +199,8 @@ def cli(ctx, verbose):
     """
     import logging
 
-    from osprey.utils.config import load_project_dotenv
-    from osprey.utils.logger import configure_logging, set_handler_console
+    from osprey_connectors.config import load_project_dotenv
+    from osprey_connectors.logger import configure_logging, set_handler_console
 
     from .altitude import install_gate
     from .styles import err_console, initialize_theme_from_config

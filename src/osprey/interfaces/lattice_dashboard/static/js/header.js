@@ -2,7 +2,8 @@
 /* OSPREY Lattice Dashboard — Header Actions
  *
  * One state machine behind two renderings of the same three actions
- * (Refresh / Verify / Baseline): the standalone page's top-bar buttons, and
+ * (Refresh / Verify / Baseline) and the model choice: the standalone page's
+ * top-bar controls, and
  * the web-terminal tile bar when the dashboard runs embedded — where the
  * panel has no bar of its own and contributes its controls to the hub's
  * (see /design-system/js/header-contrib.js).
@@ -12,11 +13,13 @@
  * second click inside ARM_WINDOW_MS runs it. Because the arming lives here
  * rather than in either rendering, both show the same armed label.
  *
- * The button-enabled state and the lattice name are pushed in from the
- * dashboard state (see syncState) — this module reads no state of its own.
+ * The button-enabled state and the selected model's name are pushed in from
+ * the dashboard state (see syncState), the model list from GET /api/models (see
+ * syncModels) — this module reads no state of its own.
  */
 
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
+import { modelLabel } from './models.js';
 
 /** How long an armed Baseline stays armed before it disarms itself. */
 const ARM_WINDOW_MS = 4000;
@@ -28,6 +31,7 @@ const NO_LATTICE = 'No lattice loaded';
  * @property {() => void} onRefresh - recompute the fast figures
  * @property {() => void} onVerify - launch the on-demand verification figures
  * @property {() => void} onBaseline - overwrite the baseline; fired on the CONFIRMED click only
+ * @property {(name: string) => void} [onSelectModel] - load the model the operator picked
  */
 
 /**
@@ -42,11 +46,39 @@ export function createHeader(callbacks) {
   let armTimer = null;
   let latticeName = NO_LATTICE;
   let hasLattice = false;
+  let canVerify = false;
+  /** @type {import('./models.js').ModelEntry[]} */
+  let models = [];
+
+  /**
+   * The model menu, absent while the build lists no model. Contributed first
+   * of the interactive items: it is conditional and its label is the selected
+   * model's name, so it is the least stable of them.
+   * @returns {import('/design-system/js/header-contrib.js').HeaderItem[]}
+   */
+  function modelMenu() {
+    if (models.length === 0) return [];
+    const selected = models.find((model) => model.selected);
+    return [
+      {
+        kind: 'menu',
+        id: 'model',
+        label: selected ? selected.name : 'Model',
+        items: models.map((model) => ({
+          id: model.name,
+          label: modelLabel(model),
+          checked: model.selected,
+        })),
+        priority: 1,
+      },
+    ];
+  }
 
   /** Publish the WHOLE contribution — the hub renders the last one verbatim. */
   function publishContribution() {
     contributeHeader([
       { kind: 'text', id: 'lattice-name', text: latticeName, priority: 0 },
+      ...modelMenu(),
       {
         kind: 'button',
         id: 'refresh',
@@ -60,7 +92,7 @@ export function createHeader(callbacks) {
         id: 'verify',
         label: 'Verify',
         title: 'Run DA + LMA verification',
-        disabled: !hasLattice,
+        disabled: !hasLattice || !canVerify,
         priority: 2,
       },
       {
@@ -129,8 +161,9 @@ export function createHeader(callbacks) {
     document.getElementById('btn-verify')?.addEventListener('click', callbacks.onVerify);
     document.getElementById('btn-baseline')?.addEventListener('click', baselineClicked);
 
-    onHeaderAction((id) => {
-      if (id === 'refresh') callbacks.onRefresh();
+    onHeaderAction((id, value) => {
+      if (id === 'model' && value !== undefined) callbacks.onSelectModel?.(value);
+      else if (id === 'refresh') callbacks.onRefresh();
       else if (id === 'verify') callbacks.onVerify();
       else if (id === 'baseline') baselineClicked();
     });
@@ -139,15 +172,16 @@ export function createHeader(callbacks) {
   }
 
   /**
-   * Adopt the dashboard state the tile bar has to reflect: the loaded
-   * lattice's name and whether the actions apply at all. render.js paints
-   * the same facts onto the standalone bar.
+   * Adopt the dashboard state the tile bar has to reflect: the selected
+   * model's name, whether the actions apply at all, and whether Verify does.
+   * render.js paints the same facts onto the standalone bar.
    * @param {any} state - the /api/state payload
    */
   function syncState(state) {
-    const path = state?.base_lattice || '';
-    latticeName = path ? path.split('/').pop() || path : NO_LATTICE;
-    const nowHasLattice = !!path;
+    const selection = state?.selection;
+    const nowHasLattice = selection?.status === 'ready';
+    latticeName = selection?.model || NO_LATTICE;
+    canVerify = nowHasLattice && !!selection.capabilities?.verify;
     // Losing the lattice mid-arm would leave a confirm prompt for an action
     // that no longer applies.
     if (!nowHasLattice && armed) disarm();
@@ -155,5 +189,15 @@ export function createHeader(callbacks) {
     render();
   }
 
-  return { init, syncState };
+  /**
+   * Adopt the GET /api/models list: the model menu's entries, in the order
+   * the server lists them.
+   * @param {import('./models.js').ModelEntry[]} list
+   */
+  function syncModels(list) {
+    models = list;
+    render();
+  }
+
+  return { init, syncState, syncModels };
 }

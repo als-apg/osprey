@@ -24,6 +24,7 @@ from osprey.mcp_server.ariel.server import (
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import serialize_page
+from osprey.mcp_server.errors import MISSING_KEY, refuse_nothing_answered
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.services.ariel_search.attachments.compose import caption_model_id
 from osprey.services.ariel_search.attachments.summaries import (
@@ -76,7 +77,7 @@ def _focus_ariel_panel(url: str) -> None:
 
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     return resolve_shared_data_root() / "drafts"
 
@@ -165,7 +166,7 @@ async def entry_get(
         # TypedDict -- dict access, not attribute access. Localize the three
         # timestamp fields through the shared egress helper so single-entry get
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         result: dict[str, Any] = {
             "entry_id": entry["entry_id"],
@@ -215,8 +216,10 @@ async def entries_by_ids(
         entry_ids: List of entry IDs to retrieve (max 50 per call).
 
     Returns:
-        JSON with list of found entries. May return fewer than requested
-        if some IDs don't exist.
+        JSON with the found entries under ``entries`` and, under ``missing``,
+        each requested ID that does not exist (mapped to ``null``; ``{}`` when
+        every ID was found); see the Partial Answers contract page.
+        When no ID exists the call is refused as ``nothing_answered``.
     """
     if not entry_ids:
         return make_error(
@@ -238,6 +241,12 @@ async def entries_by_ids(
 
         entries = await service.repository.get_entries_by_ids(entry_ids)
 
+        # The repository gives no text for an id it does not hold.
+        found = {entry["entry_id"] for entry in entries}
+        missing = {entry_id: None for entry_id in dict.fromkeys(entry_ids) if entry_id not in found}
+        if not entries:
+            refuse_nothing_answered("entries_by_ids", "entries", missing)
+
         # A batch read carries more of each entry than a search result; a cut entry says so.
         config = registry.config
         entries_out = await serialize_page(
@@ -245,11 +254,7 @@ async def entries_by_ids(
         )
 
         return json.dumps(
-            {
-                "requested": len(entry_ids),
-                "found": len(entries_out),
-                "entries": entries_out,
-            },
+            {"entries": entries_out, MISSING_KEY: missing},
             default=str,
         )
 
@@ -540,14 +545,14 @@ async def entry_create(
         except ToolError:
             raise
         except Exception as exc:
-            logger.warning("Artifact resolution failed (non-fatal for draft): %s", exc)
-            # For draft mode, store IDs for deferred resolution
-            if not draft:
-                return make_error(
-                    "internal_error",
-                    f"Failed to resolve artifacts: {exc}",
-                    ["Check MCP server logs for details."],
-                )
+            # Refused in both modes: a draft written without the artifact would
+            # reach the logbook without it once a human submits it.
+            logger.warning("Artifact resolution failed: %s", exc)
+            return make_error(
+                "internal_error",
+                f"Failed to resolve artifacts: {exc}",
+                ["Check MCP server logs for details."],
+            )
 
     # Merge artifact-resolved paths with explicit file_paths (used by both modes)
     all_file_paths = list(file_paths or []) + artifact_paths

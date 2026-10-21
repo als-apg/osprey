@@ -19,6 +19,9 @@ ROOTS = ("src", "packages", "scripts")
 #: (82), so a walk that misses ``src`` or finds nothing fails.
 MODULE_FLOOR = 500
 _NAME_CLASS = "[A-Za-z_][A-Za-z0-9_]*"
+#: Code generated from a schema, never edited by hand: its identifier patterns validate record
+#: names, not environment-variable names, and cannot import from the connectors package.
+GENERATED = ("src/osprey/facility/schema/_generated/",)
 WHOLE_NAME_PATTERNS = frozenset(
     start + _NAME_CLASS + end for start in ("^", "\\A") for end in ("$", "\\Z")
 )
@@ -66,6 +69,9 @@ def _is_re_compile(node: ast.Call) -> bool:
 def test_the_connectors_package_holds_the_only_whole_name_pattern():
     modules = [path for root in ROOTS for path in sorted((REPO / root).rglob("*.py"))]
     assert len(modules) >= MODULE_FLOOR
+    modules = [
+        path for path in modules if not path.relative_to(REPO).as_posix().startswith(GENERATED)
+    ]
 
     hits = []
     for path in modules:

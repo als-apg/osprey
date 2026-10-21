@@ -158,6 +158,17 @@ class Phase:
             segments.append((f" ({format_elapsed(lap)})", Styles.DIM))
         self._reporter.emit_segments(segments)
 
+    def note(self, text: str) -> None:
+        """Print a dim line at step depth that is not a step.
+
+        For news about work still in progress ("still waiting on ..."): it
+        carries no duration and leaves the lap alone, so the next real step
+        still names the cost of the whole unit of work it closes.
+        """
+        indent = "    " if self._group is not None else "  "
+        for line in text.splitlines() or [""]:
+            self._reporter.emit_segments(((f"{indent}  {line}", Styles.DIM),))
+
     def done(self, note: str = "") -> None:
         """Print the success line for this phase.
 
@@ -687,15 +698,46 @@ class PhaseReporter:
             self._phase.set_spool(path)
 
     def replay(self, path: Path | None) -> None:
-        """Dump a spool file's content to stdout in full."""
+        """Dump a spool file's content to stdout, a run of identical lines once.
+
+        A child that retries every second (podman-compose waiting on a
+        dependency that will never come) writes the same line thousands of
+        times; replayed whole, that buries everything above it. Each run of
+        identical consecutive lines prints once, with how often it repeated.
+        """
         if path is None:
             return
         self.emit(f"--- {path} ---")
         try:
-            self.emit(Path(path).read_text(errors="replace").rstrip("\n"))
+            self.emit(collapse_repeats(Path(path).read_text(errors="replace").rstrip("\n")))
         except OSError as exc:
             self.emit(f"(could not read spool: {exc})")
         self.emit("--- end ---")
+
+
+def collapse_repeats(text: str) -> str:
+    """``text`` with each run of identical consecutive lines printed once.
+
+    A run of more than one line keeps its first line and gains a note saying
+    how many times it was repeated, so the replay still tells a reader that the
+    child was looping rather than having said it once.
+    """
+    out: list[str] = []
+    previous: str | None = None
+    repeats = 0
+    for line in text.split("\n"):
+        if line == previous:
+            repeats += 1
+            continue
+        if repeats:
+            out.append(
+                f"  (the line above repeated {repeats} more time{'s' if repeats > 1 else ''})"
+            )
+        out.append(line)
+        previous, repeats = line, 0
+    if repeats:
+        out.append(f"  (the line above repeated {repeats} more time{'s' if repeats > 1 else ''})")
+    return "\n".join(out)
 
 
 def _heartbeat_line(row: BuildRow, now: float) -> str:
@@ -1040,6 +1082,17 @@ def report_step(name: str) -> None:
     phase = current_reporter().current_phase
     if phase is not None:
         phase.step(name)
+
+
+def report_note(text: str) -> None:
+    """Report ``text`` as a progress note under the open phase, if there is one.
+
+    :func:`report_step`'s counterpart for news about work that has not finished
+    (see :meth:`Phase.note`): no duration, and the next step's lap is unchanged.
+    """
+    phase = current_reporter().current_phase
+    if phase is not None:
+        phase.note(text)
 
 
 def report_group(name: str | None) -> None:

@@ -94,7 +94,13 @@ def _make_project(
     ``writes_enabled=None`` omits the key entirely; ``channel_write=NO_PERMISSIONS``
     renders a settings.json with no ``permissions`` block at all.
     """
-    lines = ["control_system:", "  type: mock"]
+    lines = [
+        "control_system:",
+        "  type: virtual_accelerator",
+        "  connector:",
+        "    virtual_accelerator:",
+        "      serving: in_process",
+    ]
     if writes_enabled is not None:
         lines.append(f"  writes_enabled: {'true' if writes_enabled else 'false'}")
     return _make_project_from_text(
@@ -157,20 +163,22 @@ def _make_project_from_text(
 # `writes_enabled:` keys, both legitimate.
 MIXED_POSTURE_CONFIG = """\
 control_system:
-  type: mock
+  type: virtual_accelerator
   writes_enabled: false
   connector:
     virtual_accelerator:
+      serving: in_process
       writes_enabled: true
 """
 
 # The second key carries no value at all — still a second key.
 BARE_SECOND_KEY_CONFIG = """\
 control_system:
-  type: mock
+  type: virtual_accelerator
   writes_enabled: true
   connector:
     virtual_accelerator:
+      serving: in_process
       writes_enabled:
 """
 
@@ -215,7 +223,10 @@ def run_drift(hook_runner_raw, monkeypatch):
         # The regex is case-insensitive, so a hand-typed capital still reads.
         ("control_system:\n  WRITES_ENABLED: TRUE\n", True),
         # No key at all — undeterminable, not "false".
-        ("control_system:\n  type: mock\n", None),
+        (
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+            None,
+        ),
         # Commented out: `^\s*` refuses to skip the '#', so it does not count.
         ("control_system:\n  # writes_enabled: true\n", None),
         # Only the literals true/false are accepted; YAML's other booleans are not.

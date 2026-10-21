@@ -25,6 +25,12 @@ from osprey_connectors import control_context
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
 def _record(target: str) -> control_context.ControlContext:
     """The deployment's control-context record, naming *target*."""
     return control_context.ControlContext(target=target, generation=3)
@@ -34,7 +40,7 @@ def _validator_for(target: str | None) -> LimitsValidator:
     """A validator whose policy says out loud which target it was built for."""
     return LimitsValidator(
         {},
-        {"allow_unlisted_channels": True, "allow_unlisted_key": f"resolved-for:{target}"},
+        {"mode": "optional", "mode_key": f"resolved-for:{target}"},
     )
 
 
@@ -60,6 +66,7 @@ def _run_local(tmp_path, monkeypatch) -> _LocalRun:
 
     class _FakeProc:
         returncode = 0
+        pid = 4243
 
         async def communicate(self):
             return b"", b""

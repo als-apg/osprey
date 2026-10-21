@@ -52,9 +52,12 @@ from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_defaul
 EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "nginx": 10000,
     "auth": 10001,
+    "reader": 10002,
+    "history": 10003,
     "dispatcher": 10010,
     "worker": 10011,
-    "openobserve": 10050,
+    "telemetry_gateway": 10051,
+    "telemetry_metrics": 10052,
     "qmd": 10060,
     "tiled": 10070,
     "bluesky_web": 10071,
@@ -72,6 +75,7 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "mongo": 10801,
     "graphdb_bolt": 10802,
     "graphdb_http": 10803,
+    "telemetry_store": 10804,
     "facility": 10900,
 }
 

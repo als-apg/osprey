@@ -6,9 +6,10 @@ deployment where a write is harmless. The preset also declares
 ``virtual_accelerator.live_standin``, so a second copy of the simulator ships
 and is deployed as the deployment's own third control target — the
 hardware-shaped soft IOC an operator switches to on purpose to rehearse under
-approval prompts and strict-limit refusals. ``mock`` is the documented fallback
-for environments with no containers to depend on — its non-tracking readbacks
-make plans browse-only — reachable via ``osprey set connector=mock``.
+approval prompts and strict-limit refusals. Serving the simulator in process
+is the documented fallback for environments with no containers to depend on —
+it speaks no Channel Access, so plans are browse-only — reachable via
+``osprey set config.control_system.connector.virtual_accelerator.serving=in_process``.
 
 The module also pins the preset's TIER FLOOR: the privileges the base preset
 takes away from every tier built on it (the ``setup_patch`` deployment-editing
@@ -17,16 +18,16 @@ tier lifts back rather than each tier having to remember to restrict itself.
 
 Covers six angles:
 
-1. In-process profile resolution: the base preset and its two extends
-   children (``control-assistant-readonly``, ``control-assistant-readwrite``)
-   all carry the ``virtual_accelerator`` baseline (fast, no build).
+1. Profile resolution without a build: the base preset and the two tiers laid
+   over it (``tiers/readonly``, ``tiers/readwrite``) all carry the
+   ``virtual_accelerator`` baseline.
 2. A full ``osprey build`` of the bare preset: the rendered ``config.yml``
    carries ``control_system.type: virtual_accelerator``.
 3. The same rendered build's ``deployed_services`` list is unchanged by the
    flip — it is driven by the ``bluesky:``/``virtual_accelerator:``/
    ``bluesky_web:`` injector blocks, not by ``control_system.type``.
-4. The tier floor, in-process on the base and on the three persona deltas that
-   stay at it (``readonly``, ``readwrite``, ``ariel``), and on the real render — where
+4. The tier floor, in-process on the base and on every tier and app that
+   stays at it, and on the real render — where
    :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` of the
    rendered ``config.yml`` is now ``False``. That real-render assertion is the
    one deferred when the predicate itself was introduced: until the preset
@@ -34,7 +35,7 @@ Covers six angles:
 5. ``seeded_logins`` on the init'd repo: the preset's ``env.defaults`` seed
    carol's demo password alongside alice's and bob's, so the admin tier's login
    is announced on the landing page the same way the other two are.
-6. The ADMIN tier — ``control-assistant-admin``, the one preset that lifts the
+6. The ADMIN tier — ``tiers/admin``, the one layer that lifts the
    floor back: in-process (what it overrides, and that it is the only tier
    :func:`~osprey.cli.build_cmd._profile_setup_patch_capable` calls capable),
    on the base preset's roster and catalog, and on the real render, where the
@@ -56,10 +57,12 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import _profile_setup_patch_capable, build
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
+from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
 from osprey.deployment.web_terminals.auth_credentials import seeded_logins
 from osprey.deployment.web_terminals.lint import lint_web_terminals
+from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
 DENY_KEY = "claude_code.permissions.deny"
@@ -70,71 +73,97 @@ UI_MODE_KEY = "web.ui_mode"
 WEB_TERMINALS_KEY = "modules.web_terminals"
 SEEDED_PASSWORD_CODE = "web_terminals.auth_seeded_password"
 
-ADMIN_PRESET = "control-assistant-admin"
+PRESET = "control-assistant"
+ADMIN_LAYER = f"{TIERS_DIRNAME}/admin"
 
-#: Every preset built from the base that stays AT the floor, base included. The
-#: floor is asserted on all of them together because a persona delta can only
-#: ADD config keys — the point of putting the restrictions in the base is that
-#: no delta can drop one, and that only holds while every delta is checked.
+#: The deployment's own profile and every layer ``osprey init`` writes beside it
+#: that stays AT the floor. The floor is asserted on all of them together
+#: because a tier can only ADD config keys and an app keeps the deployment's
+#: permissions — the point of putting the restrictions in the base is that no
+#: layer can drop one, and that only holds while every layer is checked.
 #:
-#: ``control-assistant-admin`` is deliberately absent: it is the one tier that
-#: lifts the floor, and what it lifts is pinned by
-#: :class:`TestControlAssistantAdminPreset` instead. It still inherits the deny
-#: entry itself — a delta cannot subtract from a list — which is asserted there
-#: beside the ``remove_deny`` that neutralises it.
+#: ``tiers/admin`` is deliberately absent: it is the one tier that lifts the
+#: floor, and what it lifts is pinned by :class:`TestControlAssistantAdminPreset`
+#: instead. It still inherits the deny entry itself — a tier cannot subtract
+#: from a list — which is asserted there beside the ``remove_deny`` that
+#: neutralises it.
 FLOOR_PRESETS = [
-    "control-assistant",
-    "control-assistant-readonly",
-    "control-assistant-readwrite",
-    "control-assistant-logbook",
-    "control-assistant-knowledge",
+    PRESET,
+    f"{TIERS_DIRNAME}/readonly",
+    f"{TIERS_DIRNAME}/readwrite",
+    f"{APPS_DIRNAME}/logbook",
+    f"{APPS_DIRNAME}/knowledge",
+    f"{APPS_DIRNAME}/channel-finder",
 ]
 
 
-def resolve_preset(name: str) -> BuildProfile:
-    """Resolve a bundled preset by name, fully merging its ``extends`` chain."""
-    profile, _profile_dir = resolve_build_profile(None, preset=name)
-    return profile
+@pytest.fixture(scope="module")
+def initialized_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """``osprey init`` of the bare ``control-assistant`` preset, not yet built.
+
+    The repo holds ``profile.yml`` and the ``tiers/`` and ``apps/`` files init
+    materializes beside it — the layers every render below is resolved from.
+    """
+    repo = tmp_path_factory.mktemp("preset-va-default") / "preset-va-default"
+    created = CliRunner().invoke(
+        init, [str(repo), "--preset", PRESET, "--no-git"], catch_exceptions=False
+    )
+    assert created.exit_code == 0, created.output
+    return repo
+
+
+@pytest.fixture(scope="module")
+def resolve_preset(initialized_repo: Path):
+    """Resolve the deployment's profile or one layer of it, by name.
+
+    ``control-assistant`` names the repo's ``profile.yml``; ``tiers/<n>`` and
+    ``apps/<n>`` name the file of that kind beside it, merged or composed over
+    the profile exactly as the build does.
+    """
+
+    def resolve(name: str) -> BuildProfile:
+        path = initialized_repo / ("profile" if name == PRESET else name)
+        profile, _profile_dir = resolve_build_profile(path.with_suffix(".yml"), None)
+        return profile
+
+    return resolve
 
 
 class TestControlAssistantPresetDefault:
     """The base preset and its extends children all default to the simulator."""
 
-    def test_base_preset_defaults_to_the_simulator(self) -> None:
-        base = resolve_preset("control-assistant")
+    def test_base_preset_defaults_to_the_simulator(self, resolve_preset) -> None:
+        base = resolve_preset(PRESET)
         assert base.config.get(CONTROL_SYSTEM_TYPE_KEY) == "virtual_accelerator"
 
     @pytest.mark.parametrize(
-        "preset_name", ["control-assistant-readonly", "control-assistant-readwrite"]
+        "preset_name", [f"{TIERS_DIRNAME}/readonly", f"{TIERS_DIRNAME}/readwrite"]
     )
-    def test_extends_children_inherit_the_simulator_default(self, preset_name: str) -> None:
-        """Neither persona overrides ``control_system.type`` — both inherit the
-        base preset's baseline through their ``extends:`` chain."""
+    def test_extends_children_inherit_the_simulator_default(
+        self, preset_name: str, resolve_preset
+    ) -> None:
+        """Neither tier overrides ``control_system.type`` — both inherit the
+        deployment's baseline from the profile they are laid over."""
         profile = resolve_preset(preset_name)
         assert profile.config.get(CONTROL_SYSTEM_TYPE_KEY) == "virtual_accelerator"
 
 
 @pytest.fixture(scope="module")
-def rendered_preset_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """``osprey init`` + ``osprey build`` the bare ``control-assistant`` preset
-    (no overrides) into a tmp repo, and return the REPO — the directory holding
-    ``profile.yml`` and the ``.env`` init seeded from ``env.defaults``.
+def rendered_preset_repo(initialized_repo: Path) -> Path:
+    """``osprey build`` of the init'd bare ``control-assistant`` repo (no
+    overrides), returning the REPO — the directory holding ``profile.yml`` and
+    the ``.env`` init seeded from ``env.defaults``.
 
     Module-scoped: the build is the slow part and every test below only reads
     files out of the result, so they all share this one render.
     """
-    tmp_path = tmp_path_factory.mktemp("preset-va-default")
-    runner = CliRunner()
-    repo = tmp_path / "preset-va-default"
-    created = runner.invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git"], catch_exceptions=False
-    )
-    assert created.exit_code == 0, created.output
-    result = runner.invoke(
-        build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"], catch_exceptions=False
+    result = CliRunner().invoke(
+        build,
+        ["--repo", str(initialized_repo), "--skip-deps", "--skip-lifecycle"],
+        catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
-    return repo
+    return initialized_repo
 
 
 @pytest.fixture(scope="module")
@@ -188,34 +217,40 @@ class TestControlAssistantTierFloor:
     """
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_denies_setup_patch(self, preset_name: str) -> None:
-        """The deployment-editing tool is denied at the base, so every persona
+    def test_control_assistant_tier_floor_denies_setup_patch(
+        self, preset_name: str, resolve_preset
+    ) -> None:
+        """The deployment-editing tool is denied at the base, so every render
         inherits the deny. The admin tier lifts it back with ``remove_deny``
         rather than the base leaving it on for everyone."""
         profile = resolve_preset(preset_name)
         assert SETUP_PATCH_TOOL in profile.config.get(DENY_KEY, [])
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_disables_config_panel(self, preset_name: str) -> None:
+    def test_control_assistant_tier_floor_disables_config_panel(
+        self, preset_name: str, resolve_preset
+    ) -> None:
         profile = resolve_preset(preset_name)
         assert profile.config.get(CONFIG_PANEL_KEY) is False
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_disables_scaffold_writes(self, preset_name: str) -> None:
+    def test_control_assistant_tier_floor_disables_scaffold_writes(
+        self, preset_name: str, resolve_preset
+    ) -> None:
         """Reading the gallery stays on at every tier; only writing to it is
         floored, because the gallery's contents are shared deployment state."""
         profile = resolve_preset(preset_name)
         assert profile.config.get(SCAFFOLD_WRITE_KEY) is False
 
-    def test_control_assistant_floor_uses_deny_not_remove_ask(self) -> None:
+    def test_control_assistant_floor_uses_deny_not_remove_ask(self, resolve_preset) -> None:
         """The floor must never be spelled as a base-level ``remove_ask``.
 
-        String lists UNION across ``extends`` — a child adds to an inherited
-        list and can never subtract from it — so a ``remove_ask`` written in the
-        base would reach every tier including admin and strip the approval
+        String lists UNION when a tier is laid over the profile — a tier adds
+        to an inherited list and can never subtract from it — so a ``remove_ask``
+        written in the base would reach every tier including admin and strip the approval
         prompt that keeps the tool supervised there. ``deny`` is the spelling a
         floor needs: a tier lifts it with ``remove_deny``."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset(PRESET)
         assert "remove_ask" not in base.config.get("claude_code.permissions", {})
         assert base.config.get("claude_code.permissions.remove_ask") is None
 
@@ -295,7 +330,7 @@ class TestControlAssistantSeededLogins:
 
 
 class TestControlAssistantAdminPreset:
-    """``control-assistant-admin`` — the one tier that lifts the base's floor.
+    """``tiers/admin`` — the one tier that lifts the base's floor.
 
     Resolved in-process. Every other tier inherits the three restrictions and
     keeps them; this one names all three and turns them back on, which is the
@@ -303,103 +338,98 @@ class TestControlAssistantAdminPreset:
     """
 
     def test_admin_preset_extends_the_base(self) -> None:
-        """A persona preset is emitted into ``personas/`` as a pure delta over
-        the profile beside it, which only holds while its ``extends`` names the
-        host preset DIRECTLY (``_off_chain_problem``). An admin preset reaching
-        the base through an intermediate would emit a file with that
-        intermediate's layer silently missing."""
-        from osprey.cli.build_profile_presets import _load_preset_raw
+        """A tier is laid over the profile beside it because of where it lives,
+        never because it says so: the bundled admin tier names no base and
+        subtracts nothing, so the file ``osprey init`` writes from it is a pure
+        addition over whichever ``profile.yml`` it sits next to."""
+        raw, _path = _load_preset_raw(ADMIN_LAYER)
+        assert "extends" not in raw
+        assert "exclude" not in raw
 
-        raw, _path = _load_preset_raw(ADMIN_PRESET)
-        assert raw.get("extends") == "control-assistant"
-
-    def test_admin_preset_lifts_the_setup_patch_deny(self) -> None:
+    def test_admin_preset_lifts_the_setup_patch_deny(self, resolve_preset) -> None:
         """Both halves, in one place: the inherited deny is still there — a
-        delta can add to a list and never subtract from it — and the
+        tier can add to a list and never subtract from it — and the
         ``remove_deny`` beside it is what takes the entry back out at render
         time. Reading either half alone tells the wrong story about this tier.
         """
-        profile = resolve_preset(ADMIN_PRESET)
+        profile = resolve_preset(ADMIN_LAYER)
         assert SETUP_PATCH_TOOL in profile.config.get(DENY_KEY, [])
         assert SETUP_PATCH_TOOL in profile.config.get(REMOVE_DENY_KEY, [])
 
-    def test_admin_is_the_only_setup_patch_capable_tier(self) -> None:
+    def test_admin_is_the_only_setup_patch_capable_tier(self, resolve_preset) -> None:
         """The posture the container's render context is built from.
 
         ``_profile_setup_patch_capable`` composes deny minus ``remove_deny``,
         which is why the admin tier reads capable while carrying the same deny
-        entry as the three tiers that are not. It decides whether the image
-        chowns ``build/config.yml`` to the agent's user, so a tier landing on
-        the wrong side of it is a filesystem privilege, not a cosmetic one.
+        entry as the layers that are not. It decides whether the image chowns
+        ``build/config.yml`` to the agent's user, so a layer landing on the
+        wrong side of it is a filesystem privilege, not a cosmetic one.
         """
-        assert _profile_setup_patch_capable(resolve_preset(ADMIN_PRESET)) is True
+        assert _profile_setup_patch_capable(resolve_preset(ADMIN_LAYER)) is True
         for preset_name in FLOOR_PRESETS:
             assert _profile_setup_patch_capable(resolve_preset(preset_name)) is False, preset_name
 
-    def test_admin_preset_enables_the_config_panel(self) -> None:
-        assert resolve_preset(ADMIN_PRESET).config.get(CONFIG_PANEL_KEY) is True
+    def test_admin_preset_enables_the_config_panel(self, resolve_preset) -> None:
+        assert resolve_preset(ADMIN_LAYER).config.get(CONFIG_PANEL_KEY) is True
 
-    def test_admin_preset_enables_scaffold_gallery_writes(self) -> None:
-        assert resolve_preset(ADMIN_PRESET).config.get(SCAFFOLD_WRITE_KEY) is True
+    def test_admin_preset_enables_scaffold_gallery_writes(self, resolve_preset) -> None:
+        assert resolve_preset(ADMIN_LAYER).config.get(SCAFFOLD_WRITE_KEY) is True
 
-    def test_admin_preset_adds_the_setup_mode_skill(self) -> None:
-        """The skill the base leaves out on purpose. Skill lists UNION across
-        ``extends``, so the admin tier keeps the base selection and adds this
-        one rather than replacing it."""
-        base = resolve_preset("control-assistant")
-        admin = resolve_preset(ADMIN_PRESET)
+    def test_admin_preset_adds_the_setup_mode_skill(self, resolve_preset) -> None:
+        """The skill the base leaves out on purpose. Skill lists UNION when a
+        tier is laid over the profile, so the admin tier keeps the base
+        selection and adds this one rather than replacing it."""
+        base = resolve_preset(PRESET)
+        admin = resolve_preset(ADMIN_LAYER)
         assert "setup-mode" in admin.skills
         assert "setup-mode" not in base.skills
         assert set(base.skills) <= set(admin.skills)
 
-    def test_admin_preset_is_an_attached_render(self) -> None:
-        """Same persona-sub-preset shape as its three siblings: no services of
-        its own, and no second web tier on the host's ports — the hosting
-        deployment owns both."""
-        admin = resolve_preset(ADMIN_PRESET)
+    def test_admin_preset_is_an_attached_render(self, resolve_preset) -> None:
+        """Attached like every tier: no services of its own, and no second web
+        tier on the host's ports — the hosting deployment owns both."""
+        admin = resolve_preset(ADMIN_LAYER)
         assert admin.deploy_services is False
-        # Spelled as its own dotted key, exactly as the siblings do: the base's
-        # `modules.web_terminals` is ONE dotted key holding the whole roster,
-        # and a delta that respelled it as a nested block would replace that
-        # subtree and drop the roster with it.
         assert admin.config.get(f"{WEB_TERMINALS_KEY}.enabled") is False
         assert admin.config.get(UI_MODE_KEY) == "expert"
 
-    def test_base_catalog_deploys_the_admin_persona(self) -> None:
-        """The catalog entry is what makes the tier exist as a deployed login:
-        ``osprey init`` emits one ``personas/<name>.yml`` per entry here."""
-        catalog = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]["personas"]
-        entry = catalog["admin"]
-        assert entry["build_profile"] == ADMIN_PRESET
-        # The render's name and directory come from the deployment's
-        # project_name at build time, never from the shipped catalog.
-        assert "project" not in entry
-        assert "project_path" not in entry
+    def test_base_catalog_deploys_the_admin_render(self) -> None:
+        """The admin tier exists because a bundled file ships it: ``osprey
+        init`` writes one ``tiers/<name>.yml`` per bundled tier, and the build
+        renders one project per file. The base preset keeps no render catalog,
+        and the render's name and directory come from the deployment's
+        project_name at build time, never from the shipped file."""
+        assert "admin" in list_tiers()
+        wt = resolve_build_profile(None, preset=PRESET)[0].config[WEB_TERMINALS_KEY]
+        assert "renders" not in wt
+        raw, _path = _load_preset_raw(ADMIN_LAYER)
+        assert "project" not in raw
+        assert "project_path" not in raw
 
     def test_admin_roster_user_carol_is_authenticated(self) -> None:
-        """Carol is a person, not a shared service. The ARIEL card ships
-        ``access: any`` deliberately; an admin card doing the same would hand
-        the Config panel and the setup tool to every roster login, so the
-        absence of that key here is the assertion."""
-        wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
+        """Carol is a person, not a shared app. The apps in ``shared:`` carry
+        no password of their own; an admin card doing the same would hand the
+        Config panel and the setup tool to every roster login, so the absence
+        of an ``access`` key here is the assertion."""
+        wt = resolve_build_profile(None, preset=PRESET)[0].config[WEB_TERMINALS_KEY]
         carol = next(u for u in wt["users"] if u["name"] == "carol")
-        assert carol["persona"] == "admin"
-        assert carol["index"] == 3
+        assert carol["tier"] == "admin"
+        assert carol["index"] == 2
         assert "access" not in carol
         assert carol["display_name"]
 
-    def test_admin_tier_is_not_the_default_persona(self) -> None:
-        """A roster entry with no ``persona`` must not land on this tier."""
-        wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
-        assert wt["default_persona"] == "readonly"
+    def test_admin_tier_is_not_the_default_tier(self) -> None:
+        """A roster entry with no ``tier`` must not land on this tier."""
+        wt = resolve_build_profile(None, preset=PRESET)[0].config[WEB_TERMINALS_KEY]
+        assert wt["default_tier"] == "readonly"
 
 
 @pytest.fixture(scope="module")
 def rendered_admin_project(rendered_preset_repo: Path) -> Path:
-    """The admin persona's rendered project inside the shared build.
+    """The admin render's rendered project inside the shared build.
 
     No second build: one ``osprey build`` of the init'd repo renders the
-    deployment's own project AND one per delta in ``personas/``, so the admin
+    deployment's own project AND one per tier and app file, so the admin
     render is already sitting beside the base one that
     :func:`rendered_preset_config` reads.
     """
@@ -415,9 +445,9 @@ def rendered_admin_settings(rendered_admin_project: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def rendered_admin_config(rendered_admin_project: Path) -> dict:
-    """The admin persona's rendered ``config.yml`` — the deny AND the lift.
+    """The admin render's rendered ``config.yml`` — the deny AND the lift.
 
-    The document the later persona-roster guards read, and the counterpart to
+    The document the later render-roster guards read, and the counterpart to
     :func:`rendered_preset_config` one tier up.
     """
     return yaml.safe_load((rendered_admin_project / "config.yml").read_text("utf-8"))
@@ -426,14 +456,16 @@ def rendered_admin_config(rendered_admin_project: Path) -> dict:
 class TestControlAssistantRenderedAdmin:
     """The admin tier through a real ``osprey init`` + ``osprey build``."""
 
-    def test_init_emits_a_persona_delta_for_every_tier_including_admin(
+    def test_init_emits_a_layer_delta_for_every_tier_including_admin(
         self, rendered_preset_repo: Path
     ) -> None:
-        """FIVE deltas, not three. ``personas/`` is what ``osprey build``
-        renders a project per, so a catalog entry with no file here is a tier
-        that exists on the landing page and in nothing else."""
-        deltas = sorted(p.stem for p in (rendered_preset_repo / "personas").glob("*.yml"))
-        assert deltas == ["admin", "knowledge", "logbook", "readonly", "readwrite"]
+        """Every bundled tier, admin included, and every bundled app. ``tiers/``
+        and ``apps/`` are what ``osprey build`` renders a project per, so a tier
+        or app with no file here exists on the landing page and in nothing else."""
+        tiers = sorted(p.stem for p in (rendered_preset_repo / TIERS_DIRNAME).glob("*.yml"))
+        apps = sorted(p.stem for p in (rendered_preset_repo / APPS_DIRNAME).glob("*.yml"))
+        assert tiers == ["admin", "readonly", "readwrite"]
+        assert apps == ["channel-finder", "knowledge", "logbook"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict
@@ -471,11 +503,11 @@ class TestControlAssistantRenderedAdmin:
 
         Asked of BOTH rendered documents, which is the point. The
         ``settings.json`` (deny at the top level) is the composed output. The
-        ``config.yml`` is not: a persona cannot subtract from an inherited
+        ``config.yml`` is not: a render cannot subtract from an inherited
         list, so it carries the base's deny and the admin ``remove_deny``
         together — and :func:`is_setup_patch_capable` composes them the way the
         settings render does, so the two documents agree. They have to: the
-        roster guards are handed persona ``config.yml`` documents, and a
+        roster guards are handed render ``config.yml`` documents, and a
         predicate that called the capable tier denied would let exactly the
         tier those guards exist to catch pass them. The base render is the
         control — it denies with nothing lifting it, and answers ``False``.

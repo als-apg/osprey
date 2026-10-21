@@ -4,9 +4,12 @@ The explicit-profile-config work moves the declarative defaults out of
 ``src/osprey/templates/apps/*/config.yml.j2`` and into the presets, and rewrites
 the framework template to carry only derived keys. Nothing about the *rendered*
 ``build/config.yml`` is supposed to change. ``tests/fixtures/explicit_config``
-holds what the render produced at the baseline commit; this module re-runs the
-same ``osprey init`` + ``osprey build`` against the **live** tree and asserts the
-two agree, document by document, leaf by leaf.
+holds a freeze of the render taken by ``freeze.py`` against the live tree (not
+against a pre-conversion baseline); this module re-runs the same ``osprey init``
++ ``osprey build`` against the **live** tree and asserts the two agree, document
+by document, leaf by leaf. What it guarantees is therefore "the render has not
+moved since the last freeze": a change that moves it declares the moved leaves
+below or re-freezes the fixtures.
 
 What "the same" means
 ---------------------
@@ -25,39 +28,17 @@ Allowed differences: the delta table
 from its fixture by, save the host-resolved ones below. It is exact in both
 directions. A difference that is not
 declared fails, and a declared difference that is not observed fails too, so a
-delta cannot outlive the change that justified it. Requirement 1 sanctions two,
-which land with the tasks that cause them:
+delta cannot outlive the change that justified it. The table is empty while the
+fixtures match the live render; a change that moves the render either declares
+its leaves here or re-freezes the fixtures with ``freeze.py``. A delta is spelt
+like this::
 
-- the two standalone presets gain ``{amsc-i2, argo, ds4, stanford}`` in the
-  ``api.providers`` name list, because the packaged provider catalog is what
-  feeds the render::
+    "hello-world/unset": (
+        Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
+    ),
 
-      "ariel-standalone/unset": (
-          Delta(document="root", path="api.providers",
-                added=("amsc-i2", "argo", "ds4", "stanford")),
-      ),
-
-- ``hello-world`` gains ``hooks.debug: false``, because the posture floor makes
-  that key unconditional::
-
-      "hello-world/unset": (
-          Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
-      ),
-
-``execution.environment.*`` is named in Requirement 1 too, but the freeze strips
-that whole mapping (it resolves to an interpreter path), so it can never surface
-as a delta and needs no entry here.
-
-Three more deltas are declared that Requirement 1 did not foresee, two from
-later gating work rather than from the conversion. ``approval.tools.entry_publish``
-reaches every render made from a preset that spells an ARIEL approval policy,
-and the three panel-rail verbs — ``approval.tools.add_panel_to_rail``,
-``approval.tools.remove_panel_from_rail`` and ``approval.tools.register_panel``
-— reach every render made from a preset that names its approval policy tool by
-tool. The fixtures were frozen while all four were gated nowhere, so those
-leaves are genuinely new. ``web.feedback.email`` goes the other way: the three
-root presets stopped shipping a recipient, so every document they render
-carries ``""`` where the frozen one carries the address the baseline shipped.
+``execution.environment.*`` can never surface as a delta: the freeze strips that
+whole mapping (it resolves to an interpreter path).
 
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
@@ -73,9 +54,7 @@ than an allowance: a difference an upcoming task is expected to introduce. It is
 not asserted and does not go stale while it is unobserved, but the moment the
 render does produce it the module fails and says to drop the marker — so the
 prediction is checked against reality exactly once, deliberately, instead of
-quietly becoming an allowance nobody re-read. The control-assistant persona
-entries below were carried this way until the app templates were deleted and
-the observation matched the prediction on every cell.
+quietly becoming an allowance nobody re-read.
 
 Running it
 ----------
@@ -160,7 +139,7 @@ class Delta:
     cannot arrive unnoticed in the meantime.
 
     Attributes:
-        document: Render the leaf belongs to — ``"root"`` or a persona name.
+        document: Render the leaf belongs to — ``"root"`` or a render name.
         path: Dotted path of the leaf inside that document.
         fixture: Value the frozen document carries.
         live: Value the live render carries.
@@ -225,972 +204,14 @@ class Delta:
 
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
-#: mapping must equal its fixture exactly. See the module docstring for the
-#: Requirement 1 deltas and how to spell one.
-def _control_assistant_persona_deltas() -> tuple[Delta, ...]:
-    """The per-persona differences the framework template introduces.
-
-    Both are functionally inert, and both are the same in all four
-    channel-finder modes, so every control-assistant cell carries them. They
-    were predicted before the app templates were deleted and observed exactly
-    as predicted — fixture value present, live key absent — once the personas
-    rendered through the framework template.
-
-    Returns:
-        The knowledge-persona and logbook-persona deltas.
-    """
-    return (
-        # knowledge persona runs with `claude_code.servers.ariel.enabled: false`,
-        # and the framework template gates these two on that flag. Their only readers
-        # are the ARIEL surfaces, which are off for this persona, so dropping them
-        # changes nothing it does.
-        Delta(
-            document="knowledge",
-            path="logbook.composition.provider",
-            fixture="anthropic",
-            live=ABSENT,
-        ),
-        Delta(
-            document="knowledge",
-            path="ariel.enhancement_modules.semantic_processor.provider",
-            fixture="anthropic",
-            live=ABSENT,
-        ),
-        # logbook persona: the app template wrote `pipeline_mode: {{ default_pipeline }}`
-        # with the variable undefined, so both keys froze as null. The framework
-        # template omits the whole block instead of writing an empty one.
-        Delta(
-            document="logbook",
-            path="channel_finder.pipeline_mode",
-            fixture=None,
-            live=ABSENT,
-        ),
-        Delta(
-            document="logbook",
-            path="channel_finder.pipelines",
-            fixture=None,
-            live=ABSENT,
-        ),
-    )
-
-
-def _standalone_catalog_delta() -> tuple[Delta, ...]:
-    """The provider entries a standalone preset gains from the packaged catalog.
-
-    The two standalone app templates carried a shorter ``api.providers`` list
-    than the control-assistant one; the packaged ``providers.yml`` is one
-    catalog for every preset, so their renders gain exactly the four entries
-    they lacked (Requirement 1), plus the embeddings-only ``llama-cpp`` entry
-    every render gains (:func:`_llama_cpp_catalog_deltas`). One delta carries
-    both, because a second ``api.providers`` delta on the same document would
-    replace the first.
-
-    Returns:
-        The ``api.providers`` delta, the same for every standalone cell.
-    """
-    return (
-        Delta(
-            document="root",
-            path="api.providers",
-            added=("amsc-i2", "argo", "ds4", "stanford", "llama-cpp"),
-        ),
-    )
-
-
-def _llama_cpp_catalog_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The ``llama-cpp`` entry every ``api.providers`` render gains.
-
-    The packaged catalog carries the embeddings-only llama-server entry that
-    an embedding module names as its provider; the fixtures predate it, so
-    each document that renders the catalog gains exactly that name.
-
-    Args:
-        *documents: The documents of the cell that render ``api.providers``.
-
-    Returns:
-        One ``api.providers`` delta per document.
-    """
-    return tuple(
-        Delta(document=document, path="api.providers", added=("llama-cpp",))
-        for document in documents
-    )
-
-
-def _entry_publish_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The approval policy every render with an ARIEL approval table gained.
-
-    ``entry_publish`` is the half of a logbook write that reaches the facility,
-    and it was gated nowhere: it sat in neither ``permissions_ask`` nor the
-    approval hook, so a headless read-only query could publish. Gating it put
-    ``approval.tools.entry_publish: always`` beside the existing
-    ``entry_create`` line in every preset that spells an ARIEL approval policy,
-    so every document those presets render gains the leaf. The fixtures were
-    frozen before that, which is why it reads as a difference here rather than
-    as a render the conversion changed.
-
-    channel-finder-standalone runs no ARIEL server and names no approval table
-    for it, so its cells gain nothing and are absent below.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="approval.tools.entry_publish",
-            fixture=ABSENT,
-            live="always",
-        )
-        for document in documents
-    )
-
-
-#: The panel-rail verbs that moved behind the approval hook.
-_RAIL_TOOLS = ("add_panel_to_rail", "remove_panel_from_rail", "register_panel")
-
-
-def _rail_tool_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The panel-rail policy every render with a named approval table gained.
-
-    The rail axis decides what an operator can launch at all, which the
-    on-screen verbs beside it do not: ``remove_panel_from_rail`` costs them the
-    ability to launch the panel back, ``add_panel_to_rail`` puts an entry in
-    front of them, and ``register_panel`` adds a proxied upstream. Gating the
-    three put ``approval.tools.<tool>: always`` in every preset that names its
-    approval policy tool by tool, so every document those presets render gains
-    the three leaves. The fixtures were frozen before that, which is why it
-    reads as a difference here rather than as a render the conversion changed.
-
-    channel-finder-standalone names no ``approval.tools`` entry at all — its
-    rail verbs fall to ``approval.default_policy``, which the freeze already
-    recorded — so its cells gain nothing and are absent below.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per rail verb per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path=f"approval.tools.{tool}",
-            fixture=ABSENT,
-            live="always",
-        )
-        for document in documents
-        for tool in _RAIL_TOOLS
-    )
-
-
-def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The three leaves naming the upstream project the presets stopped rendering.
-
-    ``web.feedback.email``, ``web.feedback.github_repo`` and ``web.docs_url``
-    named the OSPREY maintainers, their tracker and their documentation site.
-    Rendered live they landed in every deployment's own ``profile.yml`` as
-    though the facility had chosen them; each preset now documents the key as a
-    commented example instead. The code defaults in
-    ``interfaces/web_terminal/feedback_destination.py`` still apply when
-    nothing spells the key, so the running deployment is unchanged — only the
-    rendered document is three leaves shorter.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        Three deltas per document.
-    """
-    return tuple(
-        Delta(document=document, path=path, fixture=fixture, live=ABSENT)
-        for document in documents
-        for path, fixture in (
-            ("web.docs_url", "https://als-apg.github.io/osprey"),
-            ("web.feedback.email", "alice@example.com"),
-            ("web.feedback.github_repo", "als-apg/osprey"),
-        )
-    )
-
-
-def _query_max_rows_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The middle-layer SQL row cap the presets now state.
-
-    ``run_sql`` capped its answer at a number fixed in the tool, so a facility
-    could not decide how much of its channel table was worth a turn of the
-    agent's context. The cap is now ``channel_finder.query_max_rows``, stated at
-    its previous value in the two presets that carry a ``channel_finder`` block,
-    so every document they render gains the leaf. The fixtures were frozen
-    before the key existed, which is why it reads as a difference here rather
-    than as a render that changed.
-
-    ``hello-world`` and ``ariel-standalone`` name no ``channel_finder`` block
-    and gain nothing, so their cells are absent below.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="channel_finder.query_max_rows",
-            fixture=ABSENT,
-            live=500,
-        )
-        for document in documents
-    )
-
-
-def _fuzzy_threshold_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The keyword fuzzy-fallback similarity floor the presets now state.
-
-    The floor was a literal in the keyword module, so a facility could tune the
-    pattern envelope but not how loose a spelling the fallback accepts. The
-    floor is now ``ariel.search_modules.keyword.settings.fuzzy_threshold``,
-    stated at its previous value beside the two pattern knobs in the two
-    presets that carry a keyword block, so every document they render gains the
-    leaf. The fixtures were frozen before the key existed, which is why it
-    reads as a difference here rather than as a render that changed.
-
-    ``hello-world`` and ``channel-finder-standalone`` name no keyword block and
-    gain nothing, so their cells are absent below.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="ariel.search_modules.keyword.settings.fuzzy_threshold",
-            fixture=ABSENT,
-            live=0.3,
-        )
-        for document in documents
-    )
-
-
-def _embedding_input_limit_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The input window the presets now state for the embedding model they ship.
-
-    Each model under ``ariel.enhancement_modules.text_embedding.models`` states
-    the input window, in tokens, its embedding server applies, and a longer
-    entry is cut so its start is embedded. The two presets that carry a
-    text-embedding block now give ``nomic-embed-text`` its served 2048-token
-    window, so every document they render gains ``max_input_tokens`` on that
-    entry. The fixtures were frozen before the key existed. Lists are compared
-    whole, so the delta names the whole models list.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="ariel.enhancement_modules.text_embedding.models",
-            fixture=[{"dimension": 768, "name": "nomic-embed-text"}],
-            live=[{"dimension": 768, "max_input_tokens": 2048, "name": "nomic-embed-text"}],
-        )
-        for document in documents
-    )
-
-
-def _expand_entries_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The entry-side vocabulary expansion switch the presets now state.
-
-    ``ariel.vocabulary.expand_entries`` decides whether an entry's embedding
-    input is expanded with the vocabulary's canonical phrases. Both root presets
-    that carry a vocabulary block now state it, off, beside its
-    ``canonical_to_shorthand`` sibling, so every document they render gains the
-    key. The fixtures were frozen before the key existed.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="ariel.vocabulary.expand_entries",
-            fixture=ABSENT,
-            live=False,
-        )
-        for document in documents
-    )
-
-
-#: The leaves the ARIEL picture modules add to a preset's render, and their
-#: shipped values.
-_PICTURE_MODULE_LEAVES: tuple[tuple[str, Any], ...] = (
-    ("ariel.attachments.copy_on_ingest", "images"),
-    ("ariel.attachments.view.enabled", True),
-    ("ariel.enhancement_modules.image_caption.enabled", True),
-    ("ariel.enhancement_modules.image_caption.provider", "ollama"),
-    ("ariel.enhancement_modules.image_caption.model.model_id", "qwen3-vl:4b"),
-    ("ariel.enhancement_modules.image_embedding.enabled", True),
-    ("ariel.enhancement_modules.image_embedding.provider", "llama-cpp"),
-    ("ariel.enhancement_modules.image_embedding.model", "qwen3-vl-embedding-2b"),
-    ("ariel.enhancement_modules.image_embedding.dimensions", 1024),
-)
-
-
-def _picture_module_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The picture captions, picture search and view switch the presets turn on.
-
-    The two presets that carry an ``ariel:`` block state what ingest copies, the
-    agents' attachment view, and the caption and picture-embedding modules with
-    their own provider and model, so every document they render gains those
-    leaves. The fixtures were frozen before any of the keys existed.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per leaf per document.
-    """
-    return tuple(
-        Delta(document=document, path=path, fixture=ABSENT, live=value)
-        for document in documents
-        for path, value in _PICTURE_MODULE_LEAVES
-    )
-
-
-def _mcp_health_address_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The MCP probe address a render that serves web terminals carries.
-
-    A web terminal runs on the host network, so the health check reaches each
-    MCP server at its host address. The build states that address by writing
-    ``health.auto.mcp.url_key: host_url`` into every document of a render that
-    serves web terminals. The fixtures were frozen before the key existed.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="health.auto.mcp.url_key",
-            fixture=ABSENT,
-            live="host_url",
-        )
-        for document in documents
-    )
-
-
-def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
-    """The dispatch worker's turn ceiling, now written into its service block.
-
-    How many agentic turns one dispatched run may take was a literal in the
-    worker's request model, so a facility could set the two clock budgets and
-    not this one. ``dispatch.max_turns`` is the third budget, and the build
-    writes it into ``services.dispatch_worker`` beside ``timeout_sec`` and
-    ``inactivity_sec`` on every deploy. The fixtures were frozen before the key
-    existed, and only the root document carries a service block, so this is one
-    delta rather than one per persona.
-
-    Only ``control-assistant`` deploys a dispatch worker; the other presets gain
-    nothing and are absent below.
-
-    Returns:
-        The single root-document delta.
-    """
-    return (
-        Delta(
-            document="root",
-            path="services.dispatch_worker.max_turns",
-            fixture=ABSENT,
-            live=25,
-        ),
-    )
-
-
-def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
-    """The dispatch pair's network namespace, and the port rule that follows it.
-
-    A dispatched job runs the same agent a terminal runs and reaches the control
-    system and the plan queue at this machine's own loopback, so the pair runs in
-    the host's network namespace. One profile knob writes ``network`` into both
-    service blocks, and the host namespace is where workers need a port apiece,
-    so the build records the stride it derives them with. The fixtures were
-    frozen while the preset said nothing, and only the root document carries a
-    service block.
-
-    Only ``control-assistant`` deploys a dispatch pair; the other presets gain
-    nothing and are absent below.
-
-    On the host network each half also declares the variable its compose file
-    renders the bind address into, which the off-host bind check reads.
-
-    Returns:
-        The five root-document deltas.
-    """
-    return (
-        Delta(
-            document="root", path="services.event_dispatcher.network", fixture=ABSENT, live="host"
-        ),
-        Delta(
-            document="root",
-            path="services.event_dispatcher.bind_env",
-            fixture=ABSENT,
-            live="FASTMCP_HOST",
-        ),
-        Delta(
-            document="root",
-            path="services.dispatch_worker.bind_env",
-            fixture=ABSENT,
-            live="DISPATCH_WORKER_BIND",
-        ),
-        Delta(
-            document="root", path="services.dispatch_worker.network", fixture=ABSENT, live="host"
-        ),
-        Delta(
-            document="root",
-            path="services.dispatch_worker.worker_port_stride",
-            fixture=ABSENT,
-            live=1,
-        ),
-    )
-
-
-def _tier_write_posture_deltas() -> tuple[Delta, ...]:
-    """The write-capable tiers' posture, now armed on the simulator alone.
-
-    ``readwrite`` and ``admin`` stated their posture with the flat
-    ``control_system.writes_enabled: true``, which every connector type inherits
-    when its own block says nothing, so both were armed on every target. They
-    now pin the flat key false, the epics block false by name, and arm the
-    virtual_accelerator block. The fixtures were frozen under the flat key, so
-    each of the two documents reads as one leaf flipped and two gained.
-
-    Returns:
-        Three deltas for each of the two write-capable documents.
-    """
-    return tuple(
-        delta
-        for document in ("admin", "readwrite")
-        for delta in (
-            Delta(
-                document=document,
-                path="control_system.writes_enabled",
-                fixture=True,
-                live=False,
-            ),
-            Delta(
-                document=document,
-                path="control_system.connector.epics.writes_enabled",
-                fixture=ABSENT,
-                live=False,
-            ),
-            Delta(
-                document=document,
-                path="control_system.connector.virtual_accelerator.writes_enabled",
-                fixture=ABSENT,
-                live=True,
-            ),
-        )
-    )
-
-
-#: The documents a control-assistant cell renders: the root config plus one per
-#: persona in the preset's roster.
-_CONTROL_ASSISTANT_DOCUMENTS = (
-    "admin",
-    "knowledge",
-    "logbook",
-    "readonly",
-    "readwrite",
-    "root",
-)
-
-#: The control-assistant personas: every document of the cell but the root.
-_CONTROL_ASSISTANT_PERSONAS = tuple(
-    document for document in _CONTROL_ASSISTANT_DOCUMENTS if document != "root"
-)
-
-
-def _tool_call_record_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The full tool-call record the control-assistant preset turns on.
-
-    ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes`` are
-    stated in the root preset and inherited by every persona, so every document
-    the family renders gains both leaves. The fixtures were frozen before the
-    keys existed.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        Two deltas per document.
-    """
-    return tuple(
-        delta
-        for document in documents
-        for delta in (
-            Delta(document=document, path="audit.tool_call.enabled", fixture=ABSENT, live=True),
-            Delta(
-                document=document,
-                path="audit.tool_call.max_inline_bytes",
-                fixture=ABSENT,
-                live=262144,
-            ),
-        )
-    )
-
-
-def _simulator_baseline_deltas() -> tuple[Delta, ...]:
-    """The session baseline, moved from the live stand-in to the simulator.
-
-    ``control_system.type`` was ``live_standin`` when the fixtures were frozen
-    and is ``virtual_accelerator`` now, in the root and in every persona that
-    inherits it. The single plan lane followed: the build writes a lane's
-    ``target`` and CA name servers only on a stand-in baseline, so the lane is
-    now addressed by the fallback — the co-deployed simulator — and the root
-    loses both leaves while the three attached tiers that copy the target lose
-    it too.
-
-    Returns:
-        One ``type`` delta per document, one ``target`` delta per document
-        that carried it, and the root's ``ca_name_servers`` delta.
-    """
-    return (
-        tuple(
-            Delta(
-                document=document,
-                path="control_system.type",
-                fixture="live_standin",
-                live="virtual_accelerator",
-            )
-            for document in _CONTROL_ASSISTANT_DOCUMENTS
-        )
-        + tuple(
-            Delta(
-                document=document,
-                path="services.bluesky.target",
-                fixture="standin",
-                live=ABSENT,
-            )
-            for document in ("admin", "readonly", "readwrite", "root")
-        )
-        + (
-            Delta(
-                document="root",
-                path="services.bluesky.ca_name_servers",
-                fixture="live-standin:10090",
-                live=ABSENT,
-            ),
-        )
-    )
-
-
-def _persona_corpus_deltas() -> tuple[Delta, ...]:
-    """The corpus key every control-assistant persona carries beside its host's port.
-
-    ``services.graphdb.ttl_path`` names a file in the render's own ``data/``
-    tree, which a persona stages exactly as the deployment does, so the
-    attached strip keeps it — the Reach Contract declares it render-local
-    (:attr:`osprey.deployment.reach.ReachContract.render_local`). The fixtures
-    were frozen while the strip took every ``services.graphdb.*`` key of a
-    claimed store, so each persona reads as gaining the leaf. The preset
-    spells the key in every channel-finder mode, so every control-assistant
-    cell carries the delta.
-
-    Returns:
-        One delta per persona.
-    """
-    return tuple(
-        Delta(
-            document=persona,
-            path="services.graphdb.ttl_path",
-            fixture=ABSENT,
-            live="./data/demo_machine.ttl",
-        )
-        for persona in _CONTROL_ASSISTANT_PERSONAS
-    )
-
-
-#: The three helper agents the fixtures pin, and the Claude id each was pinned to.
-_FROZEN_HELPER_PINS = (
-    ("channel-finder", "claude-sonnet-5"),
-    ("facility-knowledge-graph", "claude-sonnet-5"),
-    ("logbook-deep-research", "claude-opus-5-5"),
-)
-
-
-def _helper_agent_model_deltas() -> tuple[Delta, ...]:
-    """The helper-agent pins every control-assistant document lost.
-
-    The fixtures were frozen while the preset pinned three helper agents to a
-    model each. The preset pins none now, so every agent runs the deployment's
-    main model, and every document it renders loses those three leaves.
-
-    Returns:
-        One delta per document per pinned agent.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path=f"claude_code.agent_models.{agent}",
-            fixture=model_id,
-            live=ABSENT,
-        )
-        for document in _CONTROL_ASSISTANT_DOCUMENTS
-        for agent, model_id in _FROZEN_HELPER_PINS
-    )
-
-
-def _agent_record_deltas() -> tuple[Delta, ...]:
-    """Transcript retention in every document, and the record archive in the root.
-
-    The control-assistant preset keeps transcripts ten years rather than Claude
-    Code's 30 days, which every document inherits, and deploys the bundled
-    archive service, which only the root builds (the personas build no
-    services). The fixtures were frozen before either existed.
-
-    Returns:
-        One retention delta per document, and the root's service deltas.
-    """
-    return (
-        *(
-            Delta(
-                document=document,
-                path="claude_code.transcripts.retention_days",
-                fixture=ABSENT,
-                live=3650,
-            )
-            for document in _CONTROL_ASSISTANT_DOCUMENTS
-        ),
-        Delta(
-            document="root", path="services.archive.path", fixture=ABSENT, live="./services/archive"
-        ),
-        # The service is listed where the preset's own `services:` block lands:
-        # after the stores the preset spells, before the ones sections inject.
-        Delta(
-            document="root",
-            path="deployed_services",
-            fixture=[*_DEPLOYED_BEFORE_ARCHIVE, *_DEPLOYED_AFTER_ARCHIVE],
-            live=[*_DEPLOYED_BEFORE_ARCHIVE, "archive", *_DEPLOYED_AFTER_ARCHIVE],
-        ),
-    )
-
-
-#: The control-assistant root's ``deployed_services`` as the fixtures froze it,
-#: split where the record archive now lands.
-_DEPLOYED_BEFORE_ARCHIVE = ("postgresql", "openobserve", "qmd", "graphdb")
-_DEPLOYED_AFTER_ARCHIVE = (
-    "event_dispatcher",
-    "dispatch_worker",
-    "bluesky",
-    "bluesky_web",
-    "virtual_accelerator",
-    "live_standin",
-    "mongodb",
-    "archiver_recorder",
-)
+#: mapping must equal its fixture exactly. Empty while the fixtures match the
+#: live render; see the module docstring for how to spell a delta.
+CELL_DELTAS: dict[str, tuple[Delta, ...]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
-#: :data:`CELL_DELTAS`. The record archive is a bundled service, so the build
-#: stages a config beside its compose file like every other one.
-BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
-    f"control-assistant/{mode}": ("services/archive/config.yml",)
-    for mode in ("graph", "hierarchical", "in_context", "middle_layer")
-}
-
-
-def _tool_content_deltas() -> tuple[Delta, ...]:
-    """The tool-content gate and content limit every control-assistant document gains.
-
-    The fixtures were frozen before the control-assistant preset recorded
-    built-in tool output, so every document it renders gains the gate and the
-    content limit.
-
-    Returns:
-        Two deltas per control-assistant document.
-    """
-    return tuple(
-        delta
-        for document in _CONTROL_ASSISTANT_DOCUMENTS
-        for delta in (
-            Delta(
-                document=document,
-                path="claude_code.telemetry.log_tool_content",
-                fixture=ABSENT,
-                live=True,
-            ),
-            Delta(
-                document=document,
-                path="claude_code.telemetry.content_max_length",
-                fixture=ABSENT,
-                live=262144,
-            ),
-        )
-    )
-
-
-def _probe_timeout_deltas() -> tuple[Delta, ...]:
-    """The readiness-probe bound every control-assistant document gains.
-
-    The root preset states ``control_system.target_switch.probe_timeout_s``
-    beside the drain timeout and every persona inherits it; the fixtures were
-    frozen before the key existed.
-
-    Returns:
-        One delta per control-assistant document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="control_system.target_switch.probe_timeout_s",
-            fixture=ABSENT,
-            live=5,
-        )
-        for document in _CONTROL_ASSISTANT_DOCUMENTS
-    )
-
-
-def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
-    """The two standalone personas, now with nothing that reaches the machine.
-
-    ``logbook`` and ``knowledge`` drop the JUPYTER panel, whose kernels read and
-    write through the control target, and state
-    ``web.control_target_picker: false``; the logbook persona also pins the
-    epics and virtual_accelerator write keys off by name, as the knowledge
-    persona already did. The fixtures were frozen with the panel on, before the
-    picker key existed, and with the logbook persona stating the flat key alone.
-
-    Returns:
-        Two deltas per standalone persona, and two more for the logbook one.
-    """
-    return (
-        *(
-            delta
-            for document in ("knowledge", "logbook")
-            for delta in (
-                Delta(
-                    document=document,
-                    path="web.panels.jupyter.enabled",
-                    fixture=True,
-                    live=ABSENT,
-                ),
-                Delta(
-                    document=document,
-                    path="web.control_target_picker",
-                    fixture=ABSENT,
-                    live=False,
-                ),
-            )
-        ),
-        Delta(
-            document="logbook",
-            path="control_system.connector.epics.writes_enabled",
-            fixture=ABSENT,
-            live=False,
-        ),
-        Delta(
-            document="logbook",
-            path="control_system.connector.virtual_accelerator.writes_enabled",
-            fixture=ABSENT,
-            live=False,
-        ),
-    )
-
-
-#: The control-assistant persona catalog entries, each a ``build_profile``.
-_CATALOG_PERSONAS = ("admin", "knowledge", "logbook", "readonly", "readwrite")
-
-
-def _persona_catalog_project_deltas() -> tuple[Delta, ...]:
-    """The ``project``/``project_path`` leaves every persona catalog entry lost.
-
-    A catalog entry that names a ``build_profile`` takes its project name and
-    directory from that profile, so the preset no longer spells either beside
-    it. The fixtures were frozen with both stated. The root build still renders
-    both into its own catalog, from each persona's profile; the persona
-    documents, built from those profiles, no longer carry them.
-
-    Returns:
-        Two deltas per catalog entry per persona document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path=f"modules.web_terminals.personas.{persona}.{key}",
-            fixture=value,
-            live=ABSENT,
-        )
-        for document in _CONTROL_ASSISTANT_DOCUMENTS
-        if document != "root"
-        for persona in _CATALOG_PERSONAS
-        for key, value in (
-            ("project", f"osprey-freeze-{persona}"),
-            ("project_path", f"build/osprey-freeze-{persona}"),
-        )
-    )
-
-
-def _standalone_picker_deltas() -> tuple[Delta, ...]:
-    """The picker setting a standalone preset that reaches no machine states.
-
-    Returns:
-        One delta for the root document.
-    """
-    return (Delta(document="root", path="web.control_target_picker", fixture=ABSENT, live=False),)
-
-
-CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    # The posture floor makes `hooks.debug` unconditional, and hello-world is the
-    # one preset whose app template never carried it (Requirement 1). The other
-    # presets already render `hooks.debug: true`, so they gain nothing.
-    "hello-world/unset": (
-        Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
-        # hello-world dropped the two ARIEL logbook rows for a server it
-        # disables, so where the fixture carries `entry_create` the live render
-        # carries nothing, and `entry_publish` — which the fixture predates and
-        # every other ARIEL-gating preset gained — never reaches this cell at
-        # all, so no delta declares it here.
-        Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
-        *_rail_tool_deltas("root"),
-        *_llama_cpp_catalog_deltas("root"),
-    ),
-    "ariel-standalone/unset": _standalone_catalog_delta()
-    + _entry_publish_deltas("root")
-    + _rail_tool_deltas("root")
-    + _retired_upstream_link_deltas("root")
-    + _fuzzy_threshold_deltas("root")
-    + _embedding_input_limit_deltas("root")
-    + _expand_entries_deltas("root")
-    + _picture_module_deltas("root")
-    + _standalone_picker_deltas(),
-    "channel-finder-standalone/in_context": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
-    "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
-    "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
-    + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
-    "control-assistant/in_context": _control_assistant_persona_deltas()
-    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas()
-    + _dispatch_host_network_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas()
-    + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas()
-    + _agent_record_deltas()
-    + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _expand_entries_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
-    "control-assistant/hierarchical": _control_assistant_persona_deltas()
-    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas()
-    + _dispatch_host_network_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas()
-    + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas()
-    + _agent_record_deltas()
-    + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _expand_entries_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
-    "control-assistant/middle_layer": _control_assistant_persona_deltas()
-    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas()
-    + _dispatch_host_network_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas()
-    + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas()
-    + _agent_record_deltas()
-    + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _expand_entries_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
-    "control-assistant/graph": _control_assistant_persona_deltas()
-    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _dispatch_max_turns_deltas()
-    + _dispatch_host_network_deltas()
-    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas()
-    + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas()
-    + _agent_record_deltas()
-    + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _expand_entries_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
-}
+#: :data:`CELL_DELTAS`. Empty while the fixtures match the live render.
+BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {}
 
 
 #: Substrings a refused cell's live refusal must still contain, keyed by cell
@@ -1198,9 +219,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
 #: template, which this feature removes; what must survive is *why* the mode was
 #: refused. A cell absent from this mapping is only asserted to be refused at the
 #: same stage.
-REFUSAL_TOKENS: dict[str, tuple[str, ...]] = {
-    "channel-finder-standalone/graph": ("channel_finder_mode", "services.graphdb"),
-}
+REFUSAL_TOKENS: dict[str, tuple[str, ...]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1264,7 +283,7 @@ class Rendered(NamedTuple):
     """What one live build produced.
 
     Attributes:
-        documents: Masked documents, keyed by render name (``root`` + personas).
+        documents: Masked documents, keyed by render name (``root`` + renders).
         build_configs_checked: Build-relative paths of every ``config.yml`` in
             the build tree, each proved equal to one of *documents*.
     """
@@ -1293,11 +312,13 @@ class CellRenderer:
     refused — is cached under the cell directory.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, build_env: Mapping[str, str]) -> None:
         """Args:
         root: An existing directory to build the cells under.
+        build_env: Environment additions each cell's ``osprey build`` runs under.
         """
         self._root = root
+        self._build_env = build_env
         self._outcomes: dict[str, Rendered | Refused] = {}
 
     def attempt(self, cell: Cell) -> Rendered | Refused:
@@ -1355,7 +376,7 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env=env)
+        result = _run_cli(["build"], cwd=project, env={**env, **self._build_env})
         # The comparison reads only rendered documents, never the venv, and a
         # refused build has no reader at all.
         shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
@@ -1368,9 +389,11 @@ class CellRenderer:
 
 
 @pytest.fixture(scope="session")
-def rendered_cells(tmp_path_factory: pytest.TempPathFactory) -> CellRenderer:
+def rendered_cells(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> CellRenderer:
     """One renderer for the whole session, so no cell is built twice."""
-    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"))
+    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
 
 
 def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
@@ -1380,7 +403,7 @@ def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
         cell: A cell the freeze recorded as frozen.
 
     Returns:
-        ``{"root": …}`` plus one entry per persona.
+        ``{"root": …}`` plus one entry per render.
     """
     directory = FIXTURE_ROOT / cell.directory
     return {
@@ -1692,13 +715,13 @@ def test_live_render_equals_frozen_baseline(cell: Cell, rendered_cells: CellRend
 def test_live_render_is_as_complete_as_the_baseline(
     cell: Cell, rendered_cells: CellRenderer
 ) -> None:
-    """The live build emits the same personas and the same number of config documents."""
+    """The live build emits the same renders and the same number of config documents."""
     rendered = rendered_cells.render(cell)
     expected = META["completeness"][cell.directory]
 
-    personas = sorted(name for name in rendered.documents if name != "root")
-    assert personas == expected["personas"], (
-        f"{cell.directory}: personas changed. frozen={expected['personas']} live={personas}"
+    tiers = sorted(name for name in rendered.documents if name != "root")
+    assert tiers == expected["renders"], (
+        f"{cell.directory}: renders changed. frozen={expected['renders']} live={tiers}"
     )
     documents = sorted(f"{name}.yml" for name in rendered.documents)
     assert documents == expected["documents"], (

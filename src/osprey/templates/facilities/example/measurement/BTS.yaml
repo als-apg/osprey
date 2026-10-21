@@ -1,0 +1,7 @@
+kinds:
+- orm
+groups:
+  bpm: BTS/BPM
+  hcor: BTS/HCM
+  vcor: BTS/VCM
+corrector_delta: 1.0e-05

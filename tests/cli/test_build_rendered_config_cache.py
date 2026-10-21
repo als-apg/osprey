@@ -36,24 +36,46 @@ def _render(tmp_path: Path, text: str) -> Path:
 
 
 def test_repeated_reads_parse_once(tmp_path: Path, parse_calls: list[str]) -> None:
-    render_dir = _render(tmp_path, "control_system:\n  type: mock\nports: [1, 2]\n")
+    render_dir = _render(
+        tmp_path,
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\nports: [1, 2]\n",
+    )
 
     first = build_cmd._rendered_config(render_dir)
     second = build_cmd._rendered_config(render_dir)
     third = build_cmd._rendered_config(render_dir)
 
-    assert first == second == third == {"control_system": {"type": "mock"}, "ports": [1, 2]}
+    assert (
+        first
+        == second
+        == third
+        == {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+            "ports": [1, 2],
+        }
+    )
     assert len(parse_calls) == 1
 
 
 def test_callers_get_their_own_copy(tmp_path: Path) -> None:
-    render_dir = _render(tmp_path, "control_system:\n  type: mock\n")
+    render_dir = _render(
+        tmp_path,
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+    )
 
     annotated = build_cmd._rendered_config(render_dir)
     annotated["config_dir"] = str(render_dir)
     annotated["control_system"]["type"] = "epics"
 
-    assert build_cmd._rendered_config(render_dir) == {"control_system": {"type": "mock"}}
+    assert build_cmd._rendered_config(render_dir) == {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    }
 
 
 def test_a_rewrite_is_parsed_afresh(tmp_path: Path, parse_calls: list[str]) -> None:

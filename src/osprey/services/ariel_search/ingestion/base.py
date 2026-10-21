@@ -14,8 +14,8 @@ import aiohttp
 
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.http import build_ssl_context
-from osprey.utils.config import localize_facility
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import localize_facility
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig, Origin
@@ -195,6 +195,21 @@ class FacilityAdapter(ABC):
         """
         return True
 
+    @property
+    def supports_attachments(self) -> bool:
+        """Whether ``create_entry`` publishes the entry's files to the facility logbook.
+
+        Default ``False``: the adapter is never handed files, and an entry's files
+        stay in ARIEL only. An adapter that declares ``True`` receives each file
+        as a readable local path in ``request.attachment_paths``, valid only while
+        ``create_entry`` runs, and must publish every one of them before it
+        returns. When it cannot, it raises :class:`IngestionError` (or
+        :class:`AttachmentPublishError` once the entry already exists); the
+        submit then fails as a whole. Once the facility's record is read back
+        with its attachment list, that list replaces ARIEL's copies of the files.
+        """
+        return False
+
     @abstractmethod
     def fetch_entries(
         self,
@@ -302,7 +317,7 @@ def parse_entry_time(value: object) -> datetime:
     A time that carries a UTC offset, a ``Z`` or a Unix epoch (number or
     numeric string) keeps its instant. A time without an offset is the
     facility-local wall clock of the people who wrote it, read through
-    :func:`~osprey.utils.config.localize_facility` like every other
+    :func:`~osprey_connectors.config.localize_facility` like every other
     facility-local time. A wall time that does not exist (spring forward) is
     read with the offset in force before the change, and one that happens twice
     (fall back) as its first occurrence (zoneinfo's ``fold=0``). The result is
@@ -337,7 +352,3 @@ def parse_entry_time(value: object) -> datetime:
         return localize_facility(parsed).astimezone(UTC)
     except (ValueError, OverflowError, OSError) as err:
         raise ValueError(message) from err
-
-
-# Backwards-compatible alias
-BaseAdapter = FacilityAdapter

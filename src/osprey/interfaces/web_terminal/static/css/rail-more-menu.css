@@ -1,0 +1,112 @@
+/* OSPREY Web Terminal — the rail's ⋯ More menu (js/rail-more-menu.js)
+
+   The popover behind the last cell of the rail's utility cluster. The button
+   is an ordinary .panel-utility-btn (terminal.css); this file places and
+   draws what it opens. The cluster sits at the FAR end of the rail, so the
+   menu grows back toward the rail's start: beside the column and
+   bottom-aligned to the button in the left rail, below the strip and
+   right-aligned to the button under a top rail. Either way it stays inside
+   the window rather than running off the edge the cluster is pinned to. */
+
+.rail-more {
+  position: relative;
+  display: flex;
+}
+
+/* The strip's cells are height:100%, so the wrapper has to be too. */
+html[data-rail-position="top"] .rail-more {
+  height: 100%;
+}
+
+/* Lit while its menu is open, as the "+" is. */
+#rail-more-btn[aria-expanded="true"] {
+  color: var(--color-accent-light);
+  background: var(--bg-elevated);
+}
+
+.rail-more-menu {
+  display: none;
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 8px);
+  min-width: 220px;
+  padding: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  z-index: var(--z-dropdown);
+}
+
+.rail-more-menu.open { display: block; }
+
+html[data-rail-position="top"] .rail-more-menu {
+  top: calc(100% + 8px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+}
+
+/* One line per row: the verb fills it, the pin (System only, while it is off
+   the rail) rides at its end as a second, separately focusable target. */
+.rail-more-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.rail-more-item,
+.rail-more-pin {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  transition: background var(--wt-transition-fast), color var(--wt-transition-fast);
+}
+
+.rail-more-item {
+  flex: 1;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.rail-more-pin {
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--text-muted);
+}
+
+.rail-more-item:hover,
+.rail-more-item:focus,
+.rail-more-pin:hover,
+.rail-more-pin:focus {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.rail-more-pin:hover,
+.rail-more-pin:focus { color: var(--color-accent-light); }
+
+/* The rail's own marks, drawn the way the utility cells draw theirs. */
+.rail-more-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-muted);
+}
+
+.rail-more-item:hover .rail-more-icon,
+.rail-more-item:focus .rail-more-icon { color: var(--color-accent-light); }
+
+.rail-more-pin .rail-more-icon { color: inherit; }

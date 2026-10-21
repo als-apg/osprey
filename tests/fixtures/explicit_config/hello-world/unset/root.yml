@@ -9,6 +9,7 @@ api:
   - cborg
   - ds4
   - google
+  - llama-cpp
   - ollama
   - openai
   - stanford
@@ -16,11 +17,13 @@ approval:
   default_policy: always
   enabled: true
   tools:
+    add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
     channel_write: always
-    entry_create: always
     execute: selective
+    register_panel: always
+    remove_panel_from_rail: always
     setup_patch: always
 archiver:
   auto_bin_points: 10000
@@ -57,39 +60,49 @@ claude_code:
         - example_status
         ask: []
   telemetry:
-    backend: openobserve
+    backend: gateway
     enabled: true
     log_assistant_responses: true
     log_raw_api_bodies: true
     log_tool_details: true
     log_user_prompts: true
-    openobserve:
-      org: default
-      password: ${ZO_INGEST_SA_TOKEN}
-      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
     protocol: http/protobuf
 container_runtime: docker
 control_system:
   channel_read_artifact_retention: 20
+  connector:
+    virtual_accelerator:
+      serving: in_process
   limits_checking:
-    allow_unlisted_channels: true
     database_path: data/channel_limits.json
     enabled: true
+    mode: optional
   read_inline_max_elements: 2000
-  type: mock
+  type: virtual_accelerator
   writes_enabled: false
 deployed_services:
-- openobserve
+- telemetry_store
+- telemetry_gateway
 execution:
   execution_method: subprocess
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports
+hooks:
+  debug: false
 project_name: osprey-freeze
 services:
-  openobserve:
-    path: ./services/openobserve
-    port: 10050
+  telemetry_gateway:
+    path: ./services/telemetry_gateway
+    port: 10051
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804
+    readers:
+    - name: operator
     retention_days: 14
+simulation:
+  models: null
+  tick_s: 1.0
 system:
   timezone: UTC

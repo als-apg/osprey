@@ -17,14 +17,14 @@ CONFIG_TEMPLATE = """\
 services:
   postgresql:
     path: ./services/postgresql
-  openobserve:
-    path: ./services/openobserve
-    port: 5080          # Host port
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
-  - openobserve
+  - telemetry_store
 
 # ============================================================
 # SAFETY CONTROLS
@@ -59,7 +59,7 @@ def test_inject_va_keeps_section_banner_after_deployed_services(tmp_path):
     assert _line_no(text, "# Approval workflow") < _line_no(text, "approval:")
 
     config = pyyaml.safe_load(text)
-    assert config["deployed_services"] == ["postgresql", "openobserve", "virtual_accelerator"]
+    assert config["deployed_services"] == ["postgresql", "telemetry_store", "virtual_accelerator"]
     assert config["services"]["virtual_accelerator"] == {
         "path": "./services/virtual_accelerator",
         "port": 5064,

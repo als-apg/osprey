@@ -33,7 +33,6 @@ from pathlib import Path
 import click
 
 from .output import note, report, warn
-from .profile_expand import RETIRED_TEMPLATE_KEY
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .styles import Styles
 
@@ -48,15 +47,26 @@ RETIRED_GATEWAY_KEY = "epics_gateway"
 GATEWAY_KEY_PREFIX = "config.control_system.connector.epics.gateways"
 
 
-def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
-    """Refuse the retired ``epics_gateway=`` spelling before anything is written.
+#: The two spellings that state a control-system type on this command line.
+_TYPE_KEYS = ("connector", "config.control_system.type")
 
-    Runs before the shared parser sees anything, so the refusal costs no
-    partial write: the whole command line is rejected the way a malformed pair
-    is.
+
+def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
+    """Refuse retired spellings before anything is written.
+
+    Two refusals: the ``epics_gateway=`` shorthand, and a retired control-system
+    type name stated through ``connector=`` or
+    ``config.control_system.type=`` — the latter names the new spelling. Runs
+    before the shared parser sees anything, so the refusal costs no partial
+    write: the whole command line is rejected the way a malformed pair is.
     """
+    from osprey_connectors.types import RETIRED_CONTROL_SYSTEM_TYPES, retired_type_message
+
     for pair in pairs:
-        key, separator, _ = pair.partition("=")
+        key, separator, value = pair.partition("=")
+        if separator and key.strip() in _TYPE_KEYS:
+            if value.strip() in RETIRED_CONTROL_SYSTEM_TYPES:
+                raise click.UsageError(retired_type_message(value.strip()))
         if separator and key.strip() == RETIRED_GATEWAY_KEY:
             raise click.UsageError(
                 f"`{RETIRED_GATEWAY_KEY}=` named a facility out of a gateway table "
@@ -67,8 +77,12 @@ def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
             )
 
 
-def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
-    """Top-level keys in *pairs* that the profile schema does not recognize.
+def _unrecognized_top_level_keys(pairs: tuple[str, ...], profile_path: Path) -> list[str]:
+    """Top-level keys in *pairs* not legal in the profile file at *profile_path*.
+
+    Legal means the known-key set of that file's kind
+    (:func:`~osprey.cli.build_profile_load.known_profile_keys`), decided by
+    where the file sits — the repo's ``profile.yml`` is a root profile.
 
     The write itself is happy to put any key into the file — it is a YAML edit,
     not a schema-aware one — but the profile schema is CLOSED, so an unknown
@@ -81,11 +95,12 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
     reads it should not be blocked by this command. The build still refuses.
 
     ``config.``-prefixed keys are excluded — they address the rendered config,
-    whose key space is open, and the profile's ``config:`` block holds them as
+    whose key space is open except the closed blocks
+    (:func:`~osprey.cli.build_profile_load.reject_unknown_closed_config_keys`,
+    which the build applies), and the profile's ``config:`` block holds them as
     the dotted paths they are.
     """
-    from .build_profile import _KNOWN_PROFILE_KEYS
-
+    legal = _legal_keys(profile_path)
     # Deduplicated through a dict, not a `set()`: the command in this module is
     # NAMED `set`, so at module scope that name is a click Command and calling
     # it re-enters the CLI instead of building a set.
@@ -95,9 +110,17 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
         if not separator:
             continue
         head = key.strip().split(".", 1)[0]
-        if head and head != "config" and head not in _KNOWN_PROFILE_KEYS:
+        if head and head != "config" and head not in legal:
             unknown[head] = None
     return sorted(unknown)
+
+
+def _legal_keys(profile_path: Path) -> frozenset[str]:
+    """The top-level keys legal in the profile file at *profile_path*."""
+    from .build_profile_load import known_profile_keys
+    from .profile_root import resolve_profile_root
+
+    return known_profile_keys(resolve_profile_root(profile_path)[1])
 
 
 #: Claude Code's own alias names. They name no model, so ``model=`` refuses them.
@@ -121,8 +144,8 @@ def _read_profile(repo_root: Path) -> dict:
 
 def _served_models(repo_root: Path, provider: str) -> list[str]:
     """The model ids the catalog entry for *provider* lists; empty when it lists none."""
-    from osprey.errors import BuildProfileError
     from osprey.profiles.providers import load_provider_catalog
+    from osprey_connectors.errors import BuildProfileError
 
     try:
         entry = load_provider_catalog(repo_root).entries.get(provider) or {}
@@ -232,7 +255,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     from it and is never hand-edited or CLI-edited. Run `osprey build` to carry
     a setting through to build/, then `osprey up` to deploy it.
 
-    KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
+    KEY is a top-level profile key (provider, model, channel_finder_mode,
     connector) or a dotted path. `model` is a model id the provider serves, and so is
     each `config.claude_code.agent_models.<agent>` pin. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
@@ -253,13 +276,13 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set model=claude-sonnet-5
       $ osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5-5
       $ osprey set connector=epics
-      $ osprey set tier=1 channel_finder_mode=in_context
-      $ osprey set config.facility.name='Storage Ring'
+      $ osprey set channel_finder_mode=in_context
+      $ osprey set config.system.timezone=America/Los_Angeles
       $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
       $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """
     from osprey.deployment.staleness import check_drift
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     from .build_profile import write_back_cli_overrides
 
@@ -272,6 +295,11 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     # Resolved before anything is parsed: standing outside a deployment repo is
     # the operator's first problem, and a message about a malformed pair would
     # send them looking in the wrong place.
+    from .build_profile_presets import bundled_layer_dir_refusal
+
+    layer_refusal = bundled_layer_dir_refusal(Path.cwd() if repo is None else repo)
+    if layer_refusal is not None:
+        raise click.UsageError(layer_refusal)
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
@@ -294,22 +322,24 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
                 f"{model} is not in provider '{provider}''s served list; the build trusts the gateway."
             )
 
-    unrecognized = _unrecognized_top_level_keys(pairs)
+    unrecognized = _unrecognized_top_level_keys(pairs, profile_path)
     # The retired app-template key is unknown for a REASON the generic advice
     # gets wrong: prefixing it with `config.` writes a key nothing reads, and
     # what the operator actually wants is the verb that fills the profile in.
     # Its own message says so, and it is the same one the loader refuses with.
-    if RETIRED_TEMPLATE_KEY in unrecognized:
-        from .build_profile_load import _RETIRED_APP_TEMPLATE_REFUSAL
+    from .build_profile_load import _RETIRED_APP_TEMPLATE_REFUSAL
+    from .build_profile_presets import PRESET_DATA_BUNDLE_KEY
 
-        unrecognized.remove(RETIRED_TEMPLATE_KEY)
-        warn(f"Not a profile key: {RETIRED_TEMPLATE_KEY}", _RETIRED_APP_TEMPLATE_REFUSAL)
+    if PRESET_DATA_BUNDLE_KEY in unrecognized:
+        unrecognized.remove(PRESET_DATA_BUNDLE_KEY)
+        warn(f"Not a profile key: {PRESET_DATA_BUNDLE_KEY}", _RETIRED_APP_TEMPLATE_REFUSAL)
     if unrecognized:
         warn(
             f"Not a profile key: {', '.join(unrecognized)}",
             "It was written, but the profile schema is closed, so `osprey build` will "
             "refuse this profile until it is corrected or removed. To address the "
-            "rendered config instead, prefix the key with `config.`.",
+            "rendered config instead, prefix the key with `config.`. Keys legal in "
+            f"{profile_path.name}: {', '.join(sorted(_legal_keys(profile_path)))}.",
         )
 
     # The build this edit just invalidated, named while the operator is still

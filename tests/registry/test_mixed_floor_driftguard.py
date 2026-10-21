@@ -67,6 +67,7 @@ from osprey.registry.mcp import (
     _WRITES_CHECK,
     FRAMEWORK_SERVERS,
     MIXED_READ_WRITE_TEMPLATES,
+    MIXED_READ_WRITE_TOOLS,
     framework_write_tools,
 )
 from osprey_connectors.control_system import base as connector_base
@@ -80,7 +81,7 @@ _HOOK_LOG_TEMPLATE = _HOOKS_DIR / "osprey_hook_log.py"
 
 def _mixed_matchers_from_framework_servers() -> list[str]:
     """Fully-qualified ``_WRITES_CHECK`` matchers of every
-    ``MIXED_READ_WRITE_TEMPLATES`` entry, built directly from
+    ``MIXED_READ_WRITE_TOOLS`` entry, built directly from
     ``FRAMEWORK_SERVERS``/``_WRITES_CHECK`` -- deliberately NOT by calling
     ``registry.mcp.framework_mixed_read_write_tools()``, so this guard does
     not share a single point of failure with the one in
@@ -94,7 +95,8 @@ def _mixed_matchers_from_framework_servers() -> list[str]:
     for template in sorted(MIXED_READ_WRITE_TEMPLATES):
         template_def = FRAMEWORK_SERVERS[template]
         for rule in template_def.hooks_pre:
-            if _WRITES_CHECK in rule.hooks:
+            short = rule.matcher.split("__", 2)[-1]
+            if _WRITES_CHECK in rule.hooks and (template, short) in MIXED_READ_WRITE_TOOLS:
                 matchers.append(rule.matcher)
     return matchers
 
@@ -131,6 +133,13 @@ class TestMixedFloorDriftGuard:
             "all -- this guard would be vacuous"
         )
         assert am._FALLBACK_MIXED_TOOLS == expected
+
+    def test_a_measurement_is_pure_write_on_the_floor_and_never_mixed(self):
+        measure = "mcp__python__pyaml_measure"
+        assert measure in am._FALLBACK_WRITE_TOOLS
+        assert measure in _write_floor_literal_from_hook()
+        assert measure not in am._FALLBACK_MIXED_TOOLS
+        assert measure in framework_write_tools()
 
     def test_fallback_mixed_tools_names_are_all_fully_qualified(self):
         assert am._FALLBACK_MIXED_TOOLS

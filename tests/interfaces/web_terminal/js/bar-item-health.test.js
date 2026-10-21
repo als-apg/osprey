@@ -133,6 +133,8 @@ function layoutOf(header, status) {
     status: status.map(item),
     header_visible: true,
     status_visible: true,
+    rail_docs_visible: true,
+    rail_feedback_visible: true,
   };
 }
 
@@ -291,6 +293,26 @@ describe('system-health item: the card', () => {
       expect(open).toBeDefined();
     } finally {
       stampFacilityZone(null);
+    }
+  });
+
+  test('"Open SYSTEM" opens the panel off the rail — reading it does not pin it', async () => {
+    const manager = { openPanelOffRail: vi.fn(), showPanel: vi.fn() };
+    vi.doMock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => manager);
+    try {
+      seedDom('', shellMarkup());
+      host.hydrate();
+      await settle();
+      chip().click();
+      const open = /** @type {HTMLButtonElement} */ (
+        Array.from(pop().querySelectorAll('button')).find((b) => b.textContent === 'Open SYSTEM')
+      );
+      open.click();
+
+      await vi.waitFor(() => expect(manager.openPanelOffRail).toHaveBeenCalledWith('system-health'));
+      expect(manager.showPanel).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
     }
   });
 

@@ -27,7 +27,7 @@ from click.testing import CliRunner
 from osprey.cli.users_cmd import users
 from osprey.deployment.web_terminals import auth_credentials, lifecycle, seeding
 from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 ALICE_SECRET = f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"
 BOB_SECRET = f"{TERMINAL_SECRET_VAR_PREFIX}BOB"
@@ -39,7 +39,6 @@ RENDERED_CONFIG = textwrap.dedent(
     """
     project_name: demo-project
     facility:
-      name: Demo Light Source
       prefix: dls
     system:
       timezone: UTC
@@ -82,7 +81,6 @@ PROFILE_WITH_ROSTER = textwrap.dedent(
     """
     preset: control-assistant
     config:
-      facility.prefix: dls
       modules.web_terminals:
         enabled: true
         users:

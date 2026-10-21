@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.server_context import (
     GraphAuthFailed,
     GraphNotConfigured,
@@ -263,7 +264,7 @@ class TestEmptyStore:
 
         envelope = captured["envelope"]
         assert "not seeded" in envelope["error_message"]
-        assert any("osprey knowledge seed-graph" in s for s in envelope["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in s for s in envelope["suggestions"])
 
     def test_empty_store_issues_no_schema_queries(self, monkeypatch):
         fake = _install(monkeypatch, _FakeContext(empty=True))

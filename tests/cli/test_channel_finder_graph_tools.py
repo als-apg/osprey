@@ -33,26 +33,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.validate_claude_artifacts import (
     validate_agent_tools_against_permissions,
 )
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, FRAMEWORK_SERVERS
-
-from ._vocabulary_guard import hardcoded_vocabulary_hits
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
+from tests._vocabulary import hardcoded_vocabulary_hits
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -73,7 +61,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -353,18 +341,18 @@ def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-def test_channel_finder_standalone_renders_its_paradigm_and_no_graph_server(tmp_path):
-    """The bundle that ships neither a store nor a graph paradigm."""
-    project_dir = _create_project(
-        TemplateManager(),
-        project_name="cf-standalone-tools",
-        output_dir=tmp_path,
-        data_bundle="channel_finder_standalone",
-        context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
+def test_a_project_with_no_store_renders_its_paradigm_and_no_graph_server(tmp_path):
+    """A project that declares neither a store nor the graph paradigm."""
+    from osprey.utils.config_writer import config_delete_field
+
+    manager, project_dir = _control_assistant(
+        tmp_path, "cf-nostore-tools", "hierarchical", deploy_services=False
     )
+    config_delete_field(project_dir / "config.yml", "services.graphdb")
+    manager.regenerate_claude_code(project_dir)
 
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    assert (config.get("services") or {}).get("graphdb") is None, "the bundle ships no store"
+    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
 
     assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == []

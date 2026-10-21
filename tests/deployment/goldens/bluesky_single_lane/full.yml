@@ -249,11 +249,11 @@ services:
       # `resolve_limits_mount` (compose_generator.py) and consumed here as
       # finished strings. One configured value —
       # control_system.limits_checking.database_path — has to name one file for
-      # the operator, for this bind source and for the connector that reopens it
-      # in the container, and the two halves anchor differently: the source
-      # against the pinned compose project directory, the target against the
-      # container's project root, with an absolute operator-owned path mounted
-      # verbatim on both sides. This Jinja context holds those anchors but
+      # the build that writes it, for this bind source and for the connector that
+      # reopens it in the container, and the two halves anchor differently: the
+      # source against the pinned compose project directory, the target against
+      # the container's project root, with an absolute path (a hand-edited
+      # render's) mounted verbatim on both sides. This Jinja context holds those anchors but
       # cannot derive them, so a template that spelled the path itself would be
       # a second spelling of the same rule, free to drift from the one the
       # connector follows. The writes gate above still decides WHETHER to mount.
@@ -358,7 +358,7 @@ services:
       - "sh"
       - "-c"
       - >-
-        python /opt/osprey/control_identity.py apply --uid 0 --name osprey-bluesky
+        python /opt/osprey/control_identity/control_identity.py apply --uid 0 --name osprey-bluesky
         || echo "WARNING: control identity osprey-bluesky not applied; this lane writes as root" >&2;
         exec start-re-manager
         --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
@@ -493,10 +493,10 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/bluesky_curve/queueserver:/app/curve:ro
-      # The control-identity module the command runs, staged into this build
-      # context by compose_generator byte for byte from the packaged source.
-      # Read-only: it runs as root, so nothing inside may edit it.
-      - ./build/services/bluesky/control_identity.py:/opt/osprey/control_identity.py:ro
+      # The control-identity script the command runs, with its catalog
+      # closure beside it, staged into this build context by compose_generator
+      # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity:/opt/osprey/control_identity:ro
 
 
       - /facility/plans:/app/project/plans:ro

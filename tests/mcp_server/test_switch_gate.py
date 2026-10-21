@@ -80,7 +80,7 @@ def _config(*, va_probe_channel: str | None = "VA:PROBE:CHANNEL") -> dict[str, A
         "control_system": {
             "type": EPICS_TYPE,
             "writes_enabled": False,
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
             "connector": {
                 EPICS_TYPE: {
                     "timeout_s": 5.0,

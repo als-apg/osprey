@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.deployment.web_terminals import persona_images
+from osprey.deployment.web_terminals import render_images
 from osprey.version import is_prerelease, pins_prerelease
 
 
@@ -72,10 +72,10 @@ class TestProjectImageBuildCmd:
         assert "OSPREY_PIP_PRE" not in _build_args(cmd)
 
 
-class TestPersonaImageBuildCmd:
+class TestRenderImageBuildCmd:
     def test_a_prerelease_pin_admits_prereleases(self, monkeypatch, tmp_path):
         monkeypatch.setenv("OSPREY_PIP_SPEC", "osprey-framework==2026.9.0b2")
-        cmd = persona_images._persona_image_build_cmd(
+        cmd = render_images._render_image_build_cmd(
             "docker", str(tmp_path), "p-alice:local", "p", {"project_name": "p"}
         )
 
@@ -86,7 +86,7 @@ class TestPersonaImageBuildCmd:
 
     def test_a_stable_pin_stays_strict(self, monkeypatch, tmp_path):
         monkeypatch.setenv("OSPREY_PIP_SPEC", "osprey-framework==2026.9.0")
-        cmd = persona_images._persona_image_build_cmd(
+        cmd = render_images._render_image_build_cmd(
             "docker", str(tmp_path), "p-alice:local", "p", {"project_name": "p"}
         )
 

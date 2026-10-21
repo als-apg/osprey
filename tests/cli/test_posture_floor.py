@@ -4,12 +4,12 @@ Two halves, and they check different things.
 
 The **unit** half exercises :func:`~osprey.cli.build_posture_check.missing_posture_errors`
 directly over hand-written rendered configs. It is where the conditional rules
-live: which keys a controls-less standalone is asked for, which a profile that
+live: which keys a controls-less deployment is asked for, which a profile that
 never selected the approval hook is asked for, and what counts as "stated".
 
 The **CLI** half runs the real ``osprey init`` + ``osprey build``, because the
 floor is only worth anything if it is wired into the gate a build actually
-passes through. Each of the four presets is built once and cached for the
+passes through. Each preset is built once and cached for the
 session; the refusals then take one built hello-world repo, delete a single
 required line from its ``profile.yml``, and rebuild — so the assertion is on the
 message the CLI prints, not on a function called in isolation.
@@ -25,9 +25,11 @@ built at most once per session.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -36,19 +38,24 @@ import yaml
 
 from osprey.cli.build_posture_check import (
     APPROVAL_HOOK,
+    GUARDED_TOOLS,
     PROFILE_FILENAME,
     REQUIRED_ALWAYS,
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
+    approval_enabled_fault,
+    ask_capable,
+    check_approval_enabled,
+    check_approval_hook_selected,
+    effective_policy,
     missing_posture_errors,
 )
+from osprey.facility.errors import FacilityBuildError
 
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
     "hello-world",
     "control-assistant",
-    "ariel-standalone",
-    "channel-finder-standalone",
 )
 
 #: Deployment directory name for every built cell. Becomes ``project_name``.
@@ -84,7 +91,10 @@ def _rendered(**overrides: Any) -> dict[str, Any]:
         A fresh mapping in the shape ``yaml.safe_load`` produces.
     """
     document: dict[str, Any] = {
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
         "archiver": {"type": "mock_archiver"},
         "approval": {"enabled": True, "default_policy": "always"},
         "claude_code": {"telemetry": {"enabled": True}},
@@ -156,7 +166,7 @@ class TestControlsGate:
         assert _named_keys(errors) == ["control_system.type", "archiver.type"]
 
     def test_controls_switched_off_requires_neither(self) -> None:
-        """The two standalone presets' shape: no controls server, no type to state."""
+        """A deployment with no controls server has no type to state."""
         rendered = _rendered(
             control_system={},
             archiver={},
@@ -194,7 +204,7 @@ class TestApprovalHookGate:
 
     def test_hook_not_selected_requires_neither(self) -> None:
         """A profile with no approval hook has no approval posture to state."""
-        assert missing_posture_errors(_rendered(approval={}), ["hook-log", "limits"]) == []
+        assert missing_posture_errors(_rendered(approval={}), ["error-guidance", "limits"]) == []
 
     def test_one_leaf_stated_still_names_the_other(self) -> None:
         """Half an answer is not one: the missing leaf is named on its own."""
@@ -257,11 +267,170 @@ class TestWhatCountsAsStated:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# The guarded tools' approval policies
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _approval(**tools: str) -> dict[str, Any]:
+    """An ``approval`` section prompting for writes, with per-tool *tools*."""
+    return {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"channel_write": "always", **tools},
+    }
+
+
+class TestEffectivePolicy:
+    """A tool's own entry, else the deployment's default."""
+
+    def test_the_guarded_tools(self) -> None:
+        assert GUARDED_TOOLS == ("execute", "execute_file", "pyaml_measure")
+
+    def test_a_tool_entry_wins_over_the_default(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        assert effective_policy(rendered, "execute") == "selective"
+
+    def test_an_unlisted_tool_takes_the_default(self) -> None:
+        rendered = _rendered(approval={**_approval(), "default_policy": "skip"})
+        assert effective_policy(rendered, "pyaml_measure") == "skip"
+
+
+class TestAskCapable:
+    """Whether a guarded tool's call is put to a human, read from the render alone."""
+
+    def test_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
+        assert ask_capable(_rendered(approval=_approval()), "execute_file")
+
+    def test_approval_disabled_is_not_ask_capable(self) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": False})
+        assert not ask_capable(rendered, "execute_file")
+
+    def test_a_skip_policy_is_not_ask_capable(self) -> None:
+        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
+        assert not ask_capable(rendered, "pyaml_measure")
+
+    def test_a_selective_policy_is_ask_capable(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        assert ask_capable(rendered, "execute")
+
+    def test_an_absent_approval_block_asks(self) -> None:
+        """The hook reads an unstated switch as on and an unstated policy as ``always``."""
+        rendered = _rendered()
+        del rendered["approval"]
+        assert ask_capable(rendered, "execute")
+
+    @pytest.mark.parametrize("enabled", [None, "", 0, "false", "no", 1])
+    def test_a_non_bool_switch_is_not_ask_capable(self, enabled: Any) -> None:
+        """A switch that is not true or false asks nobody; the hook and executor refuse it."""
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        assert ask_capable(rendered, "execute") is False
+
+    @pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+    def test_a_section_that_is_not_a_mapping_is_not_ask_capable(self, section: Any) -> None:
+        assert ask_capable(_rendered(approval=section), "execute") is False
+
+
+class TestApprovalEnabled:
+    """The approval switch is true, false or unstated; any other value stops the build."""
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_a_bool_passes(self, enabled: bool) -> None:
+        check_approval_enabled(_rendered(approval={**_approval(), "enabled": enabled}))
+
+    def test_an_unstated_switch_passes(self) -> None:
+        approval = _approval()
+        del approval["enabled"]
+        check_approval_enabled(_rendered(approval=approval))
+        rendered = _rendered()
+        del rendered["approval"]
+        check_approval_enabled(rendered)
+
+    @pytest.mark.parametrize("enabled", [None, "", "false", "true", 0, 1])
+    def test_any_other_value_stops_naming_the_key(self, enabled: Any) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_enabled(rendered)
+        assert stop.value.kind == "profile-invalid"
+        assert stop.value.record_id == "approval.enabled"
+        message = stop.value.format_message()
+        assert "profile.yml" in message
+        assert "set approval.enabled to true or false" in message
+
+    @pytest.mark.parametrize("enabled", [None, "", "false", "true", 0, 1])
+    def test_the_fault_sentence(self, enabled: Any) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        assert approval_enabled_fault(rendered) == (
+            f"approval.enabled is {enabled!r}, not true or false; "
+            "set approval.enabled to true or false in profile.yml and rebuild"
+        )
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_a_bool_switch_has_no_fault(self, enabled: bool) -> None:
+        assert (
+            approval_enabled_fault(_rendered(approval={**_approval(), "enabled": enabled})) is None
+        )
+
+    def test_an_unstated_switch_has_no_fault(self) -> None:
+        approval = _approval()
+        del approval["enabled"]
+        assert approval_enabled_fault(_rendered(approval=approval)) is None
+        rendered = _rendered()
+        del rendered["approval"]
+        assert approval_enabled_fault(rendered) is None
+
+    @pytest.mark.parametrize("section", [None, "false", ["enabled"]])
+    def test_a_section_that_is_not_a_mapping_is_a_fault(self, section: Any) -> None:
+        """A bare ``approval:`` line reads as ``None``, never as an unstated switch."""
+        assert approval_enabled_fault(_rendered(approval=section)) == (
+            f"approval is {section!r}, not a mapping; "
+            "set approval.enabled to true or false in profile.yml and rebuild"
+        )
+
+
+class TestApprovalHookSelected:
+    """A render that puts a guarded tool to a human selects the hook that asks."""
+
+    def test_the_hook_selected_passes(self) -> None:
+        check_approval_hook_selected(_rendered(approval=_approval()), [APPROVAL_HOOK])
+
+    def test_approval_disabled_without_the_hook_passes(self) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": False})
+        check_approval_hook_selected(rendered, ["error-guidance"])
+
+    def test_every_guarded_tool_skipped_without_the_hook_passes(self) -> None:
+        rendered = _rendered(
+            approval=_approval(
+                channel_write="skip", execute="skip", execute_file="skip", pyaml_measure="skip"
+            )
+        )
+        check_approval_hook_selected(rendered, ["error-guidance"])
+
+    def test_an_asking_tool_without_the_hook_stops(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert stop.value.kind == "profile-invalid"
+        assert stop.value.record_id == "approval.enabled"
+        message = stop.value.format_message()
+        assert "guarded tool `execute` is put to a human under `approval.tools.execute`" in message
+        assert "add `approval` to `hooks:` in profile.yml" in message
+
+    def test_an_unstated_approval_block_without_the_hook_stops(self) -> None:
+        rendered = _rendered()
+        del rendered["approval"]
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, [])
+        assert "under `approval.default_policy`" in stop.value.format_message()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The CLI half
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    args: list[str], cwd: Path, env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run one ``osprey`` command under the running interpreter.
 
     Invoked as ``[sys.executable, "-m", "osprey", …]`` rather than a bare
@@ -271,6 +440,7 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     Args:
         args: Arguments after ``osprey``.
         cwd: Working directory for the command.
+        env: Additions to the environment the command runs under.
 
     Returns:
         The completed process, output captured, a non-zero exit not raised.
@@ -278,6 +448,7 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "osprey", *args],
         cwd=cwd,
+        env={**os.environ, **(env or {})},
         capture_output=True,
         text=True,
         check=False,
@@ -290,11 +461,14 @@ def _output(result: subprocess.CompletedProcess[str]) -> str:
 
 
 @pytest.fixture(scope="session")
-def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
+def built_preset(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> Any:
     """Build a preset once per session and hand back its repo.
 
     Args:
         tmp_path_factory: Pytest's session-scoped directory factory.
+        offline_build_env: Environment additions each build's install runs under.
 
     Returns:
         A callable taking a preset name and returning the built repo directory.
@@ -310,7 +484,7 @@ def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME
-        build = _run_cli(["build"], repo)
+        build = _run_cli(["build"], repo, offline_build_env)
         # Every reader of this repo reads its rendered files, never the venv.
         shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
         assert build.returncode == 0, f"osprey build ({preset}) failed:\n{_output(build)}"
@@ -339,7 +513,7 @@ def _selected_hooks(repo: Path) -> list[str]:
     """The ``hooks:`` list a built repo's profile selects.
 
     Read from the emitted profile rather than the preset, because the profile
-    is what the build resolves; a persona's selection is merged into it before
+    is what the build resolves; a render's selection is merged into it before
     the gate sees it.
 
     Args:
@@ -353,26 +527,9 @@ def _selected_hooks(repo: Path) -> list[str]:
 
 
 @pytest.mark.slow
-def test_standalone_without_controls_is_not_asked_for_a_control_system_type(
-    built_preset: Any,
-) -> None:
-    """The ARIEL standalone builds green while stating no ``control_system.type``.
-
-    It switches the controls server off, so the pair the server would make
-    required is not a posture it has. This is the half of the rule that a floor
-    written as an unconditional list would get wrong: the build would refuse a
-    preset that ships as intended.
-    """
-    repo = built_preset("ariel-standalone")
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text())
-    assert "type" not in (rendered.get("control_system") or {})
-    assert missing_posture_errors(rendered, _selected_hooks(repo)) == []
-
-
-@pytest.mark.slow
 @pytest.mark.parametrize("key", FLOOR_KEYS)
 def test_removing_a_required_key_is_refused_naming_it(
-    key: str, built_preset: Any, tmp_path: Path
+    key: str, built_preset: Any, offline_build_env: dict[str, str], tmp_path: Path
 ) -> None:
     """A built repo, one line deleted from its profile, refuses to rebuild.
 
@@ -392,7 +549,7 @@ def test_removing_a_required_key_is_refused_naming_it(
     assert len(kept) == len(lines) - 1, f"expected exactly one `  {key}:` line in {profile}"
     profile.write_text("".join(kept))
 
-    result = _run_cli(["build"], repo)
+    result = _run_cli(["build"], repo, offline_build_env)
     output = _output(result)
     assert result.returncode != 0, f"build should have refused a profile with no {key}:\n{output}"
     assert f"{key} is not stated" in output

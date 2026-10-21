@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "common/KnobPanel",
+  "metadata": {
+    "title": "KnobPanel",
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 100,
+      "height": 100
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 100
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "pv-label",
+        "props": {
+          "pv": "${P}${R}LeftPV"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      }
+    ]
+  }
+}

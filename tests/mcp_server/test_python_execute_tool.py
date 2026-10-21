@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -261,6 +261,56 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["status"] == "Success"
+
+
+@pytest.mark.parametrize(
+    ("mode", "has_writes", "detail"),
+    [
+        # A library call such as ``lattice.strengths.set(...)`` writes through the
+        # runtime without matching any write pattern; the mode is what tells.
+        ("readwrite", False, "ran a script in read-write mode"),
+        ("readwrite", True, "ran a script with control-system writes"),
+        ("readonly", False, None),
+    ],
+)
+async def test_python_execute_write_activity_follows_the_run_mode(
+    tmp_path, monkeypatch, mode, has_writes, detail
+):
+    """A read-write run reports write activity even when the scan finds no write."""
+    monkeypatch.chdir(tmp_path)
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": has_writes,
+                "has_reads": False,
+                "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]} if has_writes else {},
+            },
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", _mock_execute_code()),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.tools.python_execute.notify_agent_activity_async"
+        ) as notify,
+    ):
+        fn = _get_python_execute()
+        await fn(
+            code="lattice.strengths.set([0.1, 0.2])",
+            description="pyAML tool run",
+            execution_mode=mode,
+            save_output=False,
+        )
+
+    if detail is None:
+        notify.assert_not_called()
+    else:
+        notify.assert_called_once_with("execute", "channel", detail=detail)
 
 
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
@@ -743,6 +793,28 @@ def test_collect_artifacts_empty_when_no_manifest(tmp_path):
     assert collect_artifacts(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        pytest.param({"filename": "abc123_test.json"}, id="not-a-list"),
+        pytest.param([{}], id="no-filename"),
+        pytest.param([{"filename": 3}, "abc123_test.json", None], id="malformed-entries"),
+    ],
+)
+def test_collect_artifacts_skips_a_malformed_manifest(tmp_path, manifest):
+    """A manifest that is not a list, or an entry naming no filename, saves nothing."""
+    import json
+
+    from osprey.stores.artifact_manifest import collect_artifacts
+
+    art_dir = tmp_path / "artifacts"
+    art_dir.mkdir()
+    (art_dir / "abc123_test.json").write_bytes(b"{}")
+    (art_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    assert collect_artifacts(tmp_path) == []
+
+
 async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
     """Artifacts from exec_result.artifacts are saved to the gallery."""
 
@@ -1148,6 +1220,16 @@ def test_package_line_prioritises_scientific_stack():
     listed = line.split(": ", 1)[1].rstrip(".").split(", ")
     assert listed[:3] == ["numpy", "scipy", "pandas"]
     assert set(listed) == {"aiohttp", "pandas", "zstandard", "numpy", "click", "scipy"}
+
+
+def test_package_line_lists_pyaml_right_after_at():
+    """The pyAML import name is prioritised directly behind the AT lattice toolbox."""
+    from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
+
+    line = render_package_line(["zstandard", "pyaml", "click", "at", "numpy"])
+
+    listed = line.split(": ", 1)[1].rstrip(".").split(", ")
+    assert listed[:3] == ["numpy", "at", "pyaml"]
 
 
 def test_package_line_caps_names_and_reports_remainder():

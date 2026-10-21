@@ -562,7 +562,7 @@ class TestCompanionProbeAttribution:
 
     def _render(self, lifecycle_repo, monkeypatch, *, roster: bool) -> None:
         """Stand this repo's render on ``BASE``, with the roster on or off."""
-        from osprey.utils.workspace import reset_config_cache
+        from osprey_connectors.workspace import reset_config_cache
 
         build = stub_build(
             lifecycle_repo,

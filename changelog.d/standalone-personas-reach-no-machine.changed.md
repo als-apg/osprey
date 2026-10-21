@@ -1,1 +1,0 @@
-The `control-assistant-logbook` and `control-assistant-knowledge` personas no longer carry the JUPYTER panel, and they, `ariel-standalone` and `channel-finder-standalone` ship `web.control_target_picker: false`: nothing in them reaches a control target, and the title bar names none.

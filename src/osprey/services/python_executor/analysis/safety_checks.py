@@ -5,7 +5,7 @@ Usable by the MCP execute tool for pre-execution validation.
 
 import ast
 
-from osprey.services.python_executor.write_surface import READONLY_DENIED_IMPORTS
+from osprey.services.python_executor.write_surface import CLIENT_PACKAGES
 
 
 def check_syntax(code: str) -> list[str]:
@@ -103,12 +103,13 @@ def check_imports(code: str) -> list[str]:
 # (``from epics import caput as _w``), and an import never appears inside a
 # comment or string, so it has none of the regex false positives either.
 #
-# Derived from the client half of the write surface rather than spelled again
-# here: one producer means a client added to the runtime guard is denied at
-# import in the same change. Acquisition frameworks (ophyd-async, Bluesky) are
-# deliberately NOT in it — they are document and analysis libraries too, so
-# only their write entry points refuse, and that happens at runtime.
-_READONLY_DENIED_IMPORTS = READONLY_DENIED_IMPORTS
+# The set is ``write_surface.CLIENT_PACKAGES``, derived from the client half of
+# the write surface rather than spelled again here: one producer means a client
+# added to the runtime guard is denied at import in the same change.
+# Acquisition frameworks (ophyd-async, Bluesky) are deliberately NOT in it —
+# they are document and analysis libraries too, so only their write entry
+# points refuse, and that happens at runtime.
+_READONLY_DENIED_IMPORTS = CLIENT_PACKAGES
 
 
 def check_readonly_imports(code: str) -> list[str]:

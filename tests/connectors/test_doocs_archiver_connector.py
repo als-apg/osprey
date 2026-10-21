@@ -62,7 +62,7 @@ async def archiver():
     mock_d4py = _make_doocs4py()
 
     with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-        from osprey.connectors.archiver.doocs_archiver_connector import (
+        from osprey_connectors.archiver.doocs_archiver_connector import (
             DOOCSArchiverConnector,
         )
 
@@ -81,7 +81,7 @@ class TestArchiverConnect:
     async def test_connect_sets_connected(self):
         mock_d4py = _make_doocs4py()
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -93,7 +93,7 @@ class TestArchiverConnect:
 
     async def test_connect_raises_import_error_without_doocs4py(self):
         with patch.dict(sys.modules, {"doocs4py": None}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -105,7 +105,7 @@ class TestArchiverConnect:
         mock_d4py = _make_doocs4py()
         mock_d4py.names.side_effect = RuntimeError("ENS down")
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -116,7 +116,7 @@ class TestArchiverConnect:
     async def test_connect_stores_avg_window(self):
         mock_d4py = _make_doocs4py()
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -149,7 +149,7 @@ class TestConnectionSettings:
     )
     async def test_a_login_or_ca_is_refused_by_name(self, block, key):
         with patch.dict(sys.modules, {"doocs4py": _make_doocs4py()}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -160,7 +160,7 @@ class TestConnectionSettings:
 
     async def test_a_flat_timeout_is_refused_naming_timeout_s(self):
         with patch.dict(sys.modules, {"doocs4py": _make_doocs4py()}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -173,7 +173,7 @@ class TestGetDataValidation:
     async def test_raises_when_not_connected(self):
         mock_d4py = _make_doocs4py()
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -225,7 +225,7 @@ class TestGetDataTimeout:
     @staticmethod
     def _spy_wait_for(monkeypatch):
         """Capture the timeout handed to asyncio.wait_for, then run it for real."""
-        from osprey.connectors.archiver import doocs_archiver_connector as mod
+        from osprey_connectors.archiver import doocs_archiver_connector as mod
 
         seen = {}
         real = mod.asyncio.wait_for
@@ -288,7 +288,7 @@ class TestReadHistory:
     def _make_connector_with_d4py(self, mock_d4py):
         """Return a DOOCSArchiverConnector with _doocs4py already set (no connect)."""
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -537,7 +537,7 @@ class TestCheckAvailability:
 
 class TestGetMetadata:
     async def test_get_metadata_returns_archiver_metadata(self, archiver):
-        from osprey.connectors.archiver.base import ArchiverMetadata
+        from osprey_connectors.archiver.base import ArchiverMetadata
 
         conn, _ = archiver
         meta = await conn.get_metadata("FAC/DEV/LOC/PROP")
@@ -561,7 +561,7 @@ class TestDisconnectedGuard:
         The client is planted by hand so the ``_connected`` guard, not a missing
         client, is what keeps the lookup from happening.
         """
-        from osprey.connectors.archiver.doocs_archiver_connector import (
+        from osprey_connectors.archiver.doocs_archiver_connector import (
             DOOCSArchiverConnector,
         )
 
@@ -583,7 +583,7 @@ class TestDisconnectedGuard:
         mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -602,7 +602,7 @@ class TestDisconnectedGuard:
         mock_d4py = _make_doocs4py()
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -637,7 +637,7 @@ class TestQueryWindowTimezone:
 
         conn, mock_d4py = archiver
         monkeypatch.setattr(
-            "osprey.utils.config.get_facility_timezone",
+            "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
 
@@ -679,7 +679,7 @@ class TestProcessingSparseData:
         mock_d4py = _make_doocs4py(chunk=chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -750,7 +750,7 @@ class TestProcessingGenuineAggregation:
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -775,7 +775,7 @@ class TestProcessingGenuineAggregation:
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -847,7 +847,7 @@ class TestProcessingGenuineAggregation:
         mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 
@@ -885,7 +885,7 @@ class TestProcessingGenuineAggregation:
         mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
+            from osprey_connectors.archiver.doocs_archiver_connector import (
                 DOOCSArchiverConnector,
             )
 

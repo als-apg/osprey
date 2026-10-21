@@ -30,6 +30,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import primer_pip_argv
@@ -181,7 +182,7 @@ class TestDockerfileContent:
         """Every pip and apt install in the image mounts the shared caches.
 
         The rule is spelled once, in :mod:`tests.deployment._cache_mounts`, and
-        applied to the service recipes too, so the project, persona and service
+        applied to the service recipes too, so the project, render and service
         images building in one deploy draw on the same downloads.
         """
         assert_build_caches_mounted(
@@ -329,6 +330,28 @@ class TestDockerfileContent:
         # The wheel force-reinstall lives only in the wheel layer.
         assert "--force-reinstall" in wheel
         assert "--force-reinstall" not in deps
+
+    def test_converter_browser_is_baked_in_with_its_libraries(self, hello_project):
+        """The artifact converter's Chromium ships in the image, launchable by
+        the unprivileged agent: installed as root with its system libraries,
+        into a shared path, between the deps layer and the dev wheel."""
+        text = (hello_project / "Dockerfile").read_text()
+        bodies = [b for b in self._run_command_bodies(text) if "playwright install" in b]
+        assert len(bodies) == 1, f"expected exactly one browser RUN, got {len(bodies)}"
+        browser = bodies[0]
+        assert "--with-deps" in browser
+        assert "chromium" in browser
+
+        env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
+        assert env, "the browser path must be shared, not root's home cache"
+        assert not env.group(1).startswith(("/root", "/home"))
+
+        assert (
+            text.index("apt-get purge -y build-essential")
+            < env.start()
+            < text.index("playwright install")
+            < text.index("--force-reinstall")
+        )
 
     def test_deps_run_primes_pip_spec_with_dev_fallback(self, hello_project):
         """The deps RUN installs ``$OSPREY_PIP_SPEC`` and carries the dev-gated
@@ -500,6 +523,81 @@ class TestDockerfileContent:
         )
         assert not ctx.exists(), "staged context not cleaned up on the no-manifest path"
 
+    _GIT_SPEC = "git+https://example.invalid/osprey.git@0123abc"
+
+    @classmethod
+    def _member_installs(cls, calls: list[str]) -> list[str]:
+        """The pip calls that pre-install a workspace member from a git spec."""
+        return [c for c in calls if "#subdirectory=packages/" in c]
+
+    @staticmethod
+    def _install_calls(log) -> list[str]:
+        """The logged installer calls, less the layer's own uv bootstrap and removal."""
+        return [
+            c
+            for c in log.read_text().splitlines()
+            if not c.startswith(("install uv==", "uninstall -y uv"))
+        ]
+
+    def test_git_spec_preinstalls_every_workspace_member(self, hello_project, tmp_path):
+        """Empirical probe: a git+ spec points into the monorepo, so the deps RUN
+        calls pip once per workspace member, each from the same URL's
+        ``packages/<member>`` subdirectory, before the framework primer."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps, tmp_path, with_manifest=False, spec=self._GIT_SPEC, pip_log=log
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        calls = self._install_calls(log)
+        members = self._member_installs(calls)
+        assert members == [
+            f"install {m} @ {self._GIT_SPEC}#subdirectory=packages/{m}" for m in WORKSPACE_MEMBERS
+        ], calls
+        primer = next(i for i, c in enumerate(calls) if c.endswith(f" {self._GIT_SPEC}"))
+        assert primer == len(members), f"member pre-installs must precede the primer: {calls}"
+
+    def test_pypi_pin_preinstalls_no_workspace_member(self, hello_project, tmp_path):
+        """Empirical probe: a PyPI pin resolves the members from the index, so
+        the deps RUN makes no ``#subdirectory`` pre-install call at all."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps, tmp_path, with_manifest=False, spec="osprey-framework==2026.9.0", pip_log=log
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        calls = self._install_calls(log)
+        assert self._member_installs(calls) == [], calls
+        assert calls == ["install osprey-framework==2026.9.0"], calls
+
+    def test_member_preinstall_failure_is_fatal_for_a_git_spec(self, hello_project, tmp_path):
+        """Empirical probe: a git spec carries the ``#subdirectory`` fragment, so a
+        member pip cannot install from it fails the build. Falling through would
+        resolve the member by name from PyPI, where a commit-pinned build has no
+        guarantee the name belongs to this project."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps,
+            tmp_path,
+            with_manifest=False,
+            spec=self._GIT_SPEC,
+            pip_log=log,
+            fail_subdirectory=True,
+        )
+        assert result.returncode != 0, f"{result.stdout}\n{result.stderr}"
+        calls = self._install_calls(log)
+        first = WORKSPACE_MEMBERS[0]
+        assert self._member_installs(calls) == [
+            f"install {first} @ {self._GIT_SPEC}#subdirectory=packages/{first}"
+        ], calls
+        assert not any(c.endswith(f" {self._GIT_SPEC}") for c in calls), (
+            f"the framework primer ran after a member pre-install failed: {calls}"
+        )
+        output = result.stdout + result.stderr
+        assert f"could not install {first} from the git spec" in output
+        assert "resolving from PyPI" not in output
+
     def test_run_commands_are_valid_shell(self, hello_project, deps_project):
         """Every rendered RUN body must parse under ``/bin/sh -n``.
 
@@ -577,14 +675,25 @@ def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
     return result, ctx, store
 
 
-def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
+def _probe_deps_body(
+    body: str,
+    tmp_path,
+    *,
+    with_manifest: bool,
+    spec: str = "osprey-framework",
+    pip_log=None,
+    fail_subdirectory: bool = False,
+):
     """Execute the deps-layer RUN body in a sandbox with a real shell.
 
     ``/tmp/deps-ctx`` (and the apt lists dir) are rewritten to temp dirs, and
     stub ``apt-get``/``pip`` shadow the real ones on PATH: apt-get is a no-op
     and pip succeeds for the primer but exits 1 for any ``-r`` (manifest)
     install, so the probe exercises the manifest branch's failure propagation
-    without a container. Returns ``(CompletedProcess, ctx_path)``.
+    without a container. *spec* is the ``OSPREY_PIP_SPEC`` the RUN sees; with
+    *pip_log* set, every pip invocation's argv is appended to that file, one
+    line per call; *fail_subdirectory* makes any ``#subdirectory=`` install
+    exit 1. Returns ``(CompletedProcess, ctx_path)``.
     """
     ctx = tmp_path / "deps-ctx"
     ctx.mkdir()
@@ -595,9 +704,14 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     apt_lists.mkdir()
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
+    record = f'printf "%s\\n" "$*" >> {shlex.quote(str(pip_log))}\n' if pip_log else ""
+    subdir_fails = '*"#subdirectory="*) exit 1 ;; ' if fail_subdirectory else ""
+    pip_script = (
+        f'#!/bin/sh\n{record}case " $* " in *" -r "*) exit 1 ;; {subdir_fails}*) exit 0 ;; esac\n'
+    )
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
-        ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
+        ("pip", pip_script),
         ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
     ):
         stub = stub_bin / name
@@ -606,7 +720,7 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     env = dict(
         os.environ,
         PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
-        OSPREY_PIP_SPEC="osprey-framework",
+        OSPREY_PIP_SPEC=spec,
         OSPREY_DEV="",
         PIP_NO_PROXY="",
     )
@@ -658,7 +772,7 @@ class TestDockerignore:
         ``.env.auth`` holds the web-terminal password hashes and the sidecar's
         session-signing secrets; ``.env.users`` holds the provider secrets
         a multi-user deploy generates at the project root — the same root the
-        persona images are then built from, so an unexcluded one is baked into
+        render images are then built from, so an unexcluded one is baked into
         every agent image.
 
         Asserted by **matching** rather than by literal line, and separately
@@ -813,7 +927,7 @@ def _instructions(dockerfile_text: str) -> list[tuple[str, str]]:
 def _render_template(**context) -> str:
     """Render ``Dockerfile.j2`` directly, against a synthetic context.
 
-    The persona-conditional line depends on a context key whose real value comes
+    The render-conditional line depends on a context key whose real value comes
     from the profile's permission overrides, and no shipped preset denies the
     setup tool yet (the base floor lands with the tiered presets). Rendering the
     template itself is how both sides of the conditional can be pinned now,
@@ -915,9 +1029,8 @@ class TestPrivilegeSplit:
         """The blanket `chown -R` of the whole project is gone.
 
         That single line is what used to hand the agent its own render. What
-        replaces it is `var/` plus the knowledge bundle — and the bundle chown
-        is guarded, because `osprey build` renders that directory only for a
-        deployment that names a bundle path.
+        replaces it is `var/` plus the knowledge bundle — and hello-world names
+        no bundle path, so its image chowns `var/` alone.
         """
         text = (hello_project / "Dockerfile").read_text()
         bodies = [b for _, b in _instructions(text) if "chown" in b]
@@ -928,8 +1041,59 @@ class TestPrivilegeSplit:
             )
         joined = "\n".join(bodies)
         assert "chown -R osprey:osprey /app/hello-docker/var" in joined
-        assert "if [ -d /app/hello-docker/build/data/facility_knowledge ]" in joined
-        assert "chown -R osprey:osprey /app/hello-docker/build/data/facility_knowledge" in joined
+        assert "build/data" not in joined
+
+    def test_bundle_chown_follows_the_configured_path(self):
+        """The bundle chown names the directory the profile's bundle path says,
+        guarded on the directory because a chown of a missing path fails."""
+        text = _render_template(knowledge_bundle_dir="data/facility/knowledge")
+        assert "if [ -d /app/synthetic/build/data/facility/knowledge ]; then" in text
+        assert "chown -R osprey:osprey /app/synthetic/build/data/facility/knowledge;" in text
+
+        moved = _render_template(knowledge_bundle_dir="docs/pages")
+        assert "chown -R osprey:osprey /app/synthetic/build/docs/pages;" in moved
+        assert "facility/knowledge" not in moved
+
+    def test_no_bundle_chown_without_a_bundle_path(self):
+        for context in ({}, {"knowledge_bundle_dir": ""}):
+            bodies = [b for _, b in _instructions(_render_template(**context)) if "chown" in b]
+            assert bodies
+            assert all("/build/" not in body.replace("/build/config.yml", "") for body in bodies)
+
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [
+            (
+                {"facility_knowledge.bundle_path": "data/facility/knowledge"},
+                "data/facility/knowledge",
+            ),
+            ({"facility_knowledge": {"bundle_path": "./docs//pages/"}}, "docs/pages"),
+            ({}, ""),
+            ({"facility_knowledge.bundle_path": ""}, ""),
+            ({"facility_knowledge.bundle_path": "/srv/bundle"}, ""),
+            ({"facility_knowledge.bundle_path": "../bundle"}, ""),
+            ({"facility_knowledge.bundle_path": "data/$(id)"}, ""),
+        ],
+    )
+    def test_the_profile_names_the_bundle_directory(self, config, expected):
+        """Only a bundle path inside the render reaches the image's chown."""
+        from osprey.cli.build_cmd import _profile_knowledge_bundle_dir
+
+        class _Profile:
+            def __init__(self, config):
+                self.config = config
+
+        assert _profile_knowledge_bundle_dir(_Profile(config)) == expected
+
+    def test_a_bundle_path_the_chown_cannot_carry_is_named(self, capsys):
+        """A bundle path the shell line cannot carry is left out with a warning."""
+        from osprey.cli.build_cmd import _profile_knowledge_bundle_dir
+
+        class _Profile:
+            config = {"facility_knowledge.bundle_path": "data/my pages"}
+
+        assert _profile_knowledge_bundle_dir(_Profile()) == ""
+        assert "data/my pages" in " ".join(capsys.readouterr().err.split())
 
     def test_render_zone_is_not_chowned(self, hello_project):
         """Nothing in the render is handed to the agent's user — the shipped
@@ -942,7 +1106,7 @@ class TestPrivilegeSplit:
 
 
 class TestSetupCapabilityConditional:
-    """`build/config.yml` is chowned only for a persona that can still edit it.
+    """`build/config.yml` is chowned only for a render that can still edit it.
 
     The tier boundary is a filesystem fact rather than a permission list: a
     readonly or readwrite render cannot write the file that says what it may do,
@@ -959,7 +1123,7 @@ class TestSetupCapabilityConditional:
     def test_no_config_chown_without_the_capability(self):
         text = _render_template(is_setup_patch_capable=False)
         assert self._CHOWN not in text, (
-            "config.yml handed to the agent's user for a persona that cannot patch it"
+            "config.yml handed to the agent's user for a render that cannot patch it"
         )
 
     def test_config_chown_with_the_capability(self):
@@ -1036,14 +1200,14 @@ class TestSetupCapabilityConditional:
         `claude_code.permissions:` mapping, or fully nested, and all three
         render the same leaf. This helper used to read the first and the third:
         a profile that denied the setup tool through the middle one was reported
-        CAPABLE and the image chowned `build/config.yml` to a persona whose
+        CAPABLE and the image chowned `build/config.yml` to a render whose
         settings.json denies the tool. Both sides now come from
-        `personas.persona_capability_document`, so the two verdicts are the same
+        `renders.render_capability_document`, so the two verdicts are the same
         verdict.
         """
         from osprey.cli.build_cmd import _profile_setup_patch_capable
         from osprey.cli.profile_conventions import is_setup_patch_capable
-        from osprey.deployment.web_terminals.personas import persona_capability_document
+        from osprey.deployment.web_terminals.roster import render_capability_document
 
         tool = "mcp__osprey_workspace__setup_patch"
         config = {"claude_code.permissions.deny": [tool]} if key == "remove_deny" else {}
@@ -1053,7 +1217,7 @@ class TestSetupCapabilityConditional:
             def __init__(self, config):
                 self.config = config
 
-        guard_verdict = is_setup_patch_capable(persona_capability_document(config))
+        guard_verdict = is_setup_patch_capable(render_capability_document(config))
         assert _profile_setup_patch_capable(_Profile(config)) is guard_verdict is capable
 
     def test_the_floor_does_not_deny_the_setup_tool(self):
@@ -1062,7 +1226,7 @@ class TestSetupCapabilityConditional:
         The capability check reads the PROFILE's deny; it never sees the
         framework's `DENY_DEFAULTS` floor. While the floor is silent about the
         setup tool the two agree — and if the deny ever moved down into the
-        floor, every persona would read as capable and every image would chown
+        floor, every render would read as capable and every image would chown
         its config.yml to the agent.
         """
         from fnmatch import fnmatchcase
@@ -1075,7 +1239,7 @@ class TestSetupCapabilityConditional:
     def test_the_build_refuses_a_floor_that_denies_the_setup_tool(self, monkeypatch):
         """And the build says so rather than shipping the widened chown."""
         from osprey.cli.templates import claude_code
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         monkeypatch.setattr(
             claude_code, "DENY_DEFAULTS", (*claude_code.DENY_DEFAULTS, "mcp__osprey_workspace__*")
@@ -1122,7 +1286,7 @@ class TestSetupCapabilityConditional:
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
     """Render the `control-assistant` preset once — the deployment's own project
-    plus one per persona delta, all from a single `osprey build`.
+    plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
@@ -1137,7 +1301,7 @@ class TestTieredPresetConfigChown:
     `TestSetupCapabilityConditional` pins both sides of the template branch
     against a synthetic context; this pins that the real preset family lands one
     tier on each side. It is the end of the chain the tiered presets exist for:
-    the base preset denies `setup_patch`, `control-assistant-admin` lifts that
+    the base preset denies `setup_patch`, the `admin` tier lifts that
     deny with `remove_deny`, `_profile_setup_patch_capable` composes the two into
     the render context, and the difference comes out here as which image hands
     `build/config.yml` to the agent's user.
@@ -1154,9 +1318,9 @@ class TestTieredPresetConfigChown:
     def _dockerfile(render: pathlib.Path, project_name: str) -> str:
         """The Dockerfile of one project in the shared render.
 
-        The deployment's own project IS the render directory; each persona's
+        The deployment's own project IS the render directory; each render's
         sits beside it under the name `osprey init` wrote into the catalog,
-        `<repo>-<persona>`.
+        `<repo>-<render>`.
         """
         root = render if project_name == render.parent.name else render / project_name
         dockerfile = root / "Dockerfile"
@@ -1171,12 +1335,12 @@ class TestTieredPresetConfigChown:
         project = f"{tiered_render.parent.name}-admin"
         assert self._chown_line(project) in self._dockerfile(tiered_render, project)
 
-    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "logbook", "knowledge"])
-    def test_no_other_persona_hands_over_config_yml(self, tiered_render, persona):
+    @pytest.mark.parametrize("tier", ["readonly", "readwrite", "logbook", "knowledge"])
+    def test_no_other_render_hands_over_config_yml(self, tiered_render, tier):
         """Every tier the base preset's floor still applies to renders the image
         WITHOUT the chown: it cannot rewrite the file that says what it may do,
         whatever else its permission list allows."""
-        project = f"{tiered_render.parent.name}-{persona}"
+        project = f"{tiered_render.parent.name}-{tier}"
         text = self._dockerfile(tiered_render, project)
         assert self._chown_line(project) not in text
         assert "/build/config.yml" not in "\n".join(
@@ -1193,6 +1357,17 @@ class TestTieredPresetConfigChown:
         assert "/build/config.yml" not in "\n".join(
             b for _, b in _instructions(text) if "chown" in b
         )
+
+    @pytest.mark.parametrize("tier", [None, "admin", "knowledge", "readonly"])
+    def test_every_tier_hands_over_the_knowledge_bundle(self, tiered_render, tier):
+        """The preset names its bundle in the facility tree, and each image
+        chowns that directory to the agent's user."""
+        name = tiered_render.parent.name
+        project = name if tier is None else f"{name}-{tier}"
+        text = self._dockerfile(tiered_render, project)
+        bundle = f"/app/{project}/build/data/facility/knowledge"
+        assert f"if [ -d {bundle} ]; then" in text
+        assert f"chown -R osprey:osprey {bundle};" in text
 
 
 class TestLayerOrder:

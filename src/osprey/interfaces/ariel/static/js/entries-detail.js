@@ -69,7 +69,8 @@ function renderAttachmentCard(att) {
     const escapedUrl = escapeHtml(href);
     return `
     <div class="card" style="width: 150px; cursor: pointer;"
-         data-lightbox-url="${escapeHtml(att.display_url)}" data-lightbox-name="${escapedName}">
+         data-lightbox-url="${escapeHtml(att.display_url)}" data-lightbox-name="${escapedName}"
+         data-attachment-id="${escapeHtml(att.attachment_id || '')}">
       <div class="card-body" style="padding: 12px; text-align: center;">
         <img src="${escapedUrl}" alt="${escapedName}"
              style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
@@ -121,7 +122,8 @@ export function initEntryDetail() {
     const raw = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
     const url = safeHref(raw);
     const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
-    if (url) showImageLightbox(url, name || '', originalHref(raw));
+    const attachmentId = /** @type {HTMLElement} */ (thumb).dataset.attachmentId;
+    if (url) showImageLightbox(url, name || '', originalHref(raw), attachmentId || null);
   });
 }
 
@@ -169,7 +171,9 @@ export async function openEntry(entryId, attachmentId = null) {
   );
   const href = att && att.viewable === true ? safeHref(att.display_url) : null;
   if (!href) return false;
-  showImageLightbox(href, att.filename || 'attachment', originalHref(att.display_url));
+  showImageLightbox(
+    href, att.filename || 'attachment', originalHref(att.display_url), att.attachment_id || null,
+  );
   return true;
 }
 
@@ -322,8 +326,10 @@ export function closeEntryModal() {
  * @param {string} filename - Display filename
  * @param {string|null} [originalUrl] - The full-resolution original, linked
  *   beside the picture when given
+ * @param {string|null} [attachmentId] - Stored attachment identifier for the
+ *   local Workspace handoff; an external attachment URL is never used for it
  */
-export function showImageLightbox(url, filename, originalUrl = null) {
+export function showImageLightbox(url, filename, originalUrl = null, attachmentId = null) {
   // Remove existing lightbox if any
   const existing = document.getElementById('image-lightbox');
   if (existing) existing.remove();
@@ -351,6 +357,11 @@ export function showImageLightbox(url, filename, originalUrl = null) {
          title="The picture as stored, at full resolution"
          style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open original &#x2197;</a>
       ` : ''}
+      ${attachmentId ? `
+      <button type="button" data-use-in-workspace data-attachment-id="${escapeHtml(attachmentId)}"
+         style="color: var(--color-accent-secondary); background: transparent; border: 0; font: inherit; font-size: var(--text-xl); cursor: pointer;">Use in Workspace</button>
+      <span data-workspace-status style="color: silver; font-size: var(--text-sm);" aria-live="polite"></span>
+      ` : ''}
     </div>
   `;
 
@@ -368,6 +379,40 @@ export function showImageLightbox(url, filename, originalUrl = null) {
     }, { once: true });
   }
   overlay.querySelectorAll('a').forEach((a) => a.addEventListener('click', (e) => e.stopPropagation()));
+
+  const workspaceButton = /** @type {HTMLButtonElement|null} */ (
+    overlay.querySelector('[data-use-in-workspace]')
+  );
+  const workspaceStatus = /** @type {HTMLElement|null} */ (
+    overlay.querySelector('[data-workspace-status]')
+  );
+  workspaceButton?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const id = workspaceButton.dataset.attachmentId;
+    if (!id) return;
+    workspaceButton.disabled = true;
+    if (workspaceStatus) workspaceStatus.textContent = 'Copying…';
+    try {
+      const response = await fetch(
+        apiUrl(`/attachments/${encodeURIComponent(id)}/artifact`),
+        { method: 'POST' },
+      );
+      if (!response.ok) throw new Error(`Workspace copy failed (${response.status})`);
+      if (workspaceStatus) workspaceStatus.textContent = 'Copied to Workspace';
+      // This is deliberately a local browser action. The host verifies that
+      // this message came from its registered ARIEL iframe; it activates no
+      // agent panel and sends no cross-client focus event.
+      if (window.parent !== window) {
+        window.parent.postMessage(
+          { type: 'osprey:activate', panel: 'artifacts' }, window.location.origin,
+        );
+      }
+    } catch (error) {
+      console.error('Failed to copy picture to Workspace:', error);
+      workspaceButton.disabled = false;
+      if (workspaceStatus) workspaceStatus.textContent = 'Could not copy picture';
+    }
+  });
 
   overlay.addEventListener('click', () => overlay.remove());
   document.addEventListener('keydown', function onKey(e) {

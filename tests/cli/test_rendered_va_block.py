@@ -33,13 +33,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import pytest
 
 import osprey.templates
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
 
 TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
 PRESET = "control-assistant"
@@ -136,20 +141,20 @@ def test_va_target_ships_a_probe_channel():
     assert va.get("probe_channel"), "a target with no probe_channel is ineligible to switch to"
 
 
-def test_control_assistant_probe_channel_is_served_by_its_own_machine_model():
-    """The preset's probe channel must exist in the model its VA actually serves.
+@pytest.mark.slow
+def test_control_assistant_probe_channel_is_served_by_its_own_facility(
+    built_control_assistant: BuiltProject,
+):
+    """The preset's probe channel must exist in what its VA actually serves.
 
-    The Control Assistant VA is seeded from the ``machine.json`` its bundle
-    packages (the same file its ``simulation_file`` names), so a probe
-    channel that is not a channel of that model would fail every switch to va on
-    a stock preset build — the one deployment where the framework CAN know the
+    The Control Assistant VA serves the simulator view its build writes, so a
+    probe channel that view does not list would fail every switch to va on a
+    stock preset build — the one deployment where the framework CAN know the
     answer and therefore must get it right.
     """
-    model = json.loads(
-        (TEMPLATE_ROOT / "apps/control_assistant/data/simulation/machine.json").read_text()
-    )
+    view = json.loads(built_control_assistant.outputs[0].files["data/simulator/addresses.json"])
     va = _control_system()["connector"]["virtual_accelerator"]
-    assert va["probe_channel"] in model["channels"]
+    assert va["probe_channel"] in view["channels"]
 
 
 def test_live_target_documents_probe_channel_without_guessing_one():

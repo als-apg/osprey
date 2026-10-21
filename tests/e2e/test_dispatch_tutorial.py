@@ -31,6 +31,7 @@ a runner that lacks it must fail this test loudly, not skip it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
@@ -129,12 +130,10 @@ def _terminate(proc: subprocess.Popen | None) -> None:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
-        try:
+        # Process ignored SIGKILL within the grace window; teardown is
+        # best-effort, so leave it for the OS to reap rather than hang the test.
+        with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            # Process ignored SIGKILL within the grace window; teardown is
-            # best-effort, so leave it for the OS to reap rather than hang the test.
-            pass
 
 
 def _find_osprey_console_script() -> Path:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import ipaddress
 import logging
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.interfaces.common_middleware import (
     MOUNT_SEGMENT_RE,
@@ -519,7 +520,7 @@ _TERMINAL_PANEL_ID = "terminal"
 
 
 def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
-    """Record an agent-origin panel command in the agent-activity history ring.
+    """Record an agent-origin panel command in the agent-activity history buffer.
 
     Panel commands reach the browser as their own SSE frames (``panel_focus``,
     ``panel_visibility``, ...), never through ``POST /api/agent-activity``, so
@@ -592,7 +593,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     concurrent arrange overtook, and applying it would resurrect the panel the
     arrange just pruned.
 
-    An agent switch is also mirrored into the activity history ring as one
+    An agent switch is also mirrored into the activity history buffer as one
     ``open_panel`` row. When the open additionally adds rail membership,
     only the focus is mirrored: the pair of frames is one agent action, and
     history counts actions, not frames.
@@ -655,22 +656,38 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 
 
 class PanelVisibilityRequest(BaseModel):
+    """A rail-membership change.
+
+    ``index`` places a panel being ADDED at that position of the rail's panel
+    entries (the SESSION entry is not counted), clamped to the list. It is how an
+    operator's Undo puts a removed entry back where it was; without it an added
+    panel goes to the end. It is ignored when hiding and when the panel is
+    already a member, which keeps its place.
+    """
+
     panel: str
     visible: bool
     source: Literal["agent"] | None = None
+    index: int | None = Field(default=None, ge=0)
 
 
 @router.post("/api/panel-visibility")
 async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     """Show or hide a panel and broadcast the change via SSE.
 
-    An agent-origin change is also mirrored into the activity history ring, as
+    An agent-origin change is also mirrored into the activity history buffer, as
     an ``add_panel_to_rail`` or ``remove_panel_from_rail`` row depending on the
     flag, so a client reading the history can word it the way it words the live
     frame.
 
+    A positioned addition carries its clamped ``index`` on the frame, so every
+    client places the entry at the same position of its own rail rather than
+    only the client that asked; the frame of an addition that changed nothing
+    carries none, so no client moves an entry that was already there.
+
     Args:
-        body: ``panel`` (panel id) and ``visible`` (desired visibility).
+        body: ``panel`` (panel id), ``visible`` (desired visibility) and the
+            optional ``index`` an addition is placed at.
         request: Incoming FastAPI request carrying ``app.state``.
 
     Returns:
@@ -682,13 +699,19 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     if body.panel not in _known_panel_ids(request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     visible_panels: list[str] = list(getattr(request.app.state, "visible_panels", []))
+    index: int | None = None
     if body.visible:
-        if body.panel not in visible_panels:
+        if body.panel not in visible_panels and body.index is not None:
+            index = min(body.index, len(visible_panels))
+            visible_panels.insert(index, body.panel)
+        elif body.panel not in visible_panels:
             visible_panels.append(body.panel)
     else:
         visible_panels = [p for p in visible_panels if p != body.panel]
     request.app.state.visible_panels = visible_panels
     event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
+    if index is not None:
+        event["index"] = index
     if body.source:
         event["source"] = body.source
     if body.source == "agent":
@@ -699,6 +722,56 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
         )
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
+
+
+class RailOrderRequest(BaseModel):
+    """Move a rail member so it sits directly above ``before``.
+
+    ``before`` names another member; ``None`` moves the panel to the foot of
+    the rail. The SESSION entry is not a member, so it is never a target and
+    always stays at the head.
+    """
+
+    panel: str
+    before: str | None = None
+
+
+@router.post("/api/rail-order")
+async def set_rail_order(body: RailOrderRequest, request: Request):
+    """Reorder the rail and broadcast the whole resulting order via SSE.
+
+    The rail's order is server-owned like its membership, so every client and
+    every reload shows the same rail. The frame carries the full order rather
+    than the one move, which makes applying it idempotent and lets a client
+    that missed an earlier frame converge from this one.
+
+    Args:
+        body: ``panel`` (the member to move) and ``before`` (the member it
+            should sit above, or ``None`` for the foot of the rail).
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "order": [<id>, ...]}``
+
+    Raises:
+        HTTPException: 422 when ``panel`` or ``before`` is not on the rail, or
+            when ``before`` names the panel itself.
+    """
+    # Membership, resolved the same way ``get_panels`` resolves ``visible``.
+    stored_visible = getattr(request.app.state, "visible_panels", None)
+    if stored_visible is None:
+        visible_panels = sorted(getattr(request.app.state, "enabled_panels", set()))
+    else:
+        visible_panels = list(stored_visible)
+    if body.panel not in visible_panels:
+        raise HTTPException(status_code=422, detail=f"Not on the rail: {body.panel}")
+    if body.before is not None and (body.before == body.panel or body.before not in visible_panels):
+        raise HTTPException(status_code=422, detail=f"Cannot place before: {body.before}")
+    order = [p for p in visible_panels if p != body.panel]
+    order.insert(order.index(body.before) if body.before else len(order), body.panel)
+    request.app.state.visible_panels = order
+    request.app.state.broadcaster.broadcast({"type": "rail_order", "order": order})
+    return {"status": "ok", "order": order}
 
 
 class PanelCloseRequest(BaseModel):
@@ -863,7 +936,7 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     broadcast still carries ``focus`` only when one was requested, leaving the
     client's fallback rule in charge of what is actually focused on screen.
 
-    An agent arrangement is mirrored into the activity history ring as a single
+    An agent arrangement is mirrored into the activity history buffer as a single
     ``arrange_workspace`` row targeting the recorded focus panel.
 
     Args:
@@ -1331,7 +1404,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     If a custom panel with the same ``id`` already exists it is replaced
     atomically (remove-then-append) so the proxy always returns the first match.
 
-    An agent-origin registration is mirrored into the activity history ring as
+    An agent-origin registration is mirrored into the activity history buffer as
     a ``register_panel`` row.
 
     Args:
@@ -1488,10 +1561,9 @@ async def restart_terminal(request: Request):
     logger.info("All PTY sessions terminated for restart")
 
     # Terminate all operator sessions if active
-    try:
+    # May not have active operator sessions
+    with contextlib.suppress(Exception):
         await operator_registry.cleanup_all()
-    except Exception:
-        pass  # May not have active operator sessions
 
     return {"status": "ok", "message": "Terminal session terminated — reconnecting"}
 

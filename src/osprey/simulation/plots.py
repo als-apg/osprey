@@ -1,6 +1,6 @@
 """Draw a scenario plot spec as the PNG an operator would export from a strip chart.
 
-A :class:`~osprey.simulation.machine.PlotSpec` carries its time axis as hours
+A :class:`~osprey_connectors.simulation.logbook.PlotSpec` carries its time axis as hours
 before the instant its logbook entry is written. :func:`render_plot_spec` places
 that axis at a real instant, so the picture shows the dates of the entry it is
 attached to, read in that instant's own time zone.
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-    from osprey.simulation.machine import PlotSpec
+    from osprey_connectors.simulation.logbook import PlotSpec
 
 #: Figure size in inches; at :data:`DPI` every picture is 800 x 450 pixels.
 FIGSIZE = (8.0, 4.5)

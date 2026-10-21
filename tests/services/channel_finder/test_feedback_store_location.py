@@ -8,7 +8,7 @@ accumulated feedback with them. These tests pin the shipped defaults: the config
 template, the app fallback, and the capture hook must all agree.
 
 The three producers follow ``agent_data.base_dir``. Every default is asserted
-against :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR` rather than a
+against :data:`~osprey_connectors.workspace.DEFAULT_AGENT_DATA_BASE_DIR` rather than a
 literal path, because that constant is what the key falls back to. A test naming
 the directory itself would keep passing against a stale spelling while the
 writers moved on.
@@ -22,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from osprey.interfaces.channel_finder.app import feedback_dir
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
 

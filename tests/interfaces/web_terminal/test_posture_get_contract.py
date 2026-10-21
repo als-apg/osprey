@@ -5,7 +5,7 @@ There is one control context per login identity, so every answer here is that
 login's: which target it is standing on, at which generation, who owns the
 record, what each running controls server has actually bound, what is executing
 right now, and one row per configured target carrying that machine's identity,
-its reachability, the persona's ceiling, the operator's narrowing, the effective
+its reachability, the render's ceiling, the operator's narrowing, the effective
 answer the connector will apply and whether a switch is offered.
 
 Four properties shape every test below.
@@ -21,7 +21,7 @@ Four properties shape every test below.
 * **Ceiling, posture and effective are three separate columns.** The ceiling is
   the deployment's, the posture is the operator's, and the effective answer is
   the rule the connector applies. Collapsing them would leave the popover unable
-  to say whether a locked toggle is the persona's doing or the operator's.
+  to say whether a locked toggle is the render's doing or the operator's.
 * **The fleet is published, not collapsed.** A switch has landed when every live
   server reports the generation it was asked for, so the rows say which server
   is where instead of offering one verdict that could not name a stuck pid.
@@ -50,8 +50,13 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.mcp_server.control_system import target_state
-from osprey_connectors import control_context, posture_store
+from osprey.mcp_server.control_system import (
+    connector_host_manager,
+    target_eligibility,
+    target_state,
+)
+from osprey_connectors import control_context, posture_store, workspace
+from osprey_connectors.ipc import verification
 from tests._control_context_fixtures import (
     owner,
     state_dir_under,
@@ -157,6 +162,7 @@ def render(
     live_write_port=None,
     name="config.yml",
     tmp_path=None,
+    va_port=None,
 ):
     """A render carrying all three control targets.
 
@@ -181,26 +187,31 @@ def render(
     one gateway row serving both roles the selected role moves under a narrowing
     and the host:port the row reports does not, so a render that named the wrong
     gateway would look identical to one that named the right one.
+
+    ``va_port`` leaves the simulator's gateway without a ``port`` and states it
+    as ``services.virtual_accelerator.port`` instead, which is where an unset
+    gateway port is filled from.
     """
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     va: dict = {
-        "simulation_file": "data/sim.json",
         "probe_channel": "SIM:PROBE",
         "gateways": {"read_only": dict(gateway)},
     }
     if va_writes is not None:
         va["writes_enabled"] = va_writes
+    if va_port is not None:
+        del va["gateways"]["read_only"]["port"]
     config = {
         "control_system": {
             "type": "live_standin",
             "writes_enabled": global_writes,
             # The keys a switch is judged on besides the gateways: a channel to
-            # probe, strict limits (required toward the live family) and the
+            # probe and the
             # operator's acknowledgement of the live gateway. Without them every
             # row would answer with an eligibility refusal and the roster could
             # not be exercised.
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
             "target_switch": {"live_gateway_acknowledged": "operator@example"},
             "connector": {
                 "epics": {
@@ -227,6 +238,8 @@ def render(
     }
     if display_names is not None:
         config["control_system"]["target_display_names"] = display_names
+    if va_port is not None:
+        config["services"]["virtual_accelerator"] = {"port": va_port}
     path = tmp_path / name
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
@@ -1016,11 +1029,69 @@ class TestTargetIdentity:
         assert row_for(payload, "standin")["short_label"] == "STAND-IN"
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
 
+    def test_a_row_that_is_not_a_real_machine_is_the_simulator(self, client, agent_data_root):
+        """Whatever its label says: the only machine that is not real is the simulator."""
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            targets={"va": {"label": "some label nobody minted", "real_machine": False}},
+        )
+        with only_alive(SERVER_A):
+            payload = get_posture(client)
+        assert row_for(payload, "va")["short_label"] == "VIRTUAL"
+        assert row_for(payload, "va")["kind"] == "virtual accelerator"
+
     def test_a_deployment_may_rename_the_rows(self, make_client, tmp_path):
         config = render(tmp_path=tmp_path, display_names={"va": "Digital Twin"})
         with make_client(config) as client:
             payload = get_posture(client)
         assert row_for(payload, "va")["display_name"] == "Digital Twin"
+
+    def test_a_va_rows_endpoint_carries_the_port_its_own_render_sets(
+        self, make_client, tmp_path, monkeypatch
+    ):
+        """An unset gateway port is filled from the terminal's render, not the process default."""
+        other = tmp_path / "other" / "config.yml"
+        other.parent.mkdir()
+        other.write_text(
+            yaml.safe_dump({"services": {"virtual_accelerator": {"port": 25064}}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CONFIG_FILE", str(other))
+        monkeypatch.setenv("OSPREY_CONFIG", str(other))
+        monkeypatch.chdir(other.parent)
+        config = render(tmp_path=tmp_path, va_port=15064, name="terminal.yml")
+        try:
+            with make_client(config) as client:
+                workspace.reset_config_cache()
+                payload = get_posture(client)
+        finally:
+            workspace.reset_config_cache()
+        assert row_for(payload, "va")["endpoint"].endswith(":15064")
+
+    def test_every_roster_derivation_reads_the_terminals_own_render(self, client, monkeypatch):
+        """Each derivation behind a row fills unset ports from the file the terminal parsed."""
+        seen: dict[str, list] = {}
+
+        def spy(module, name):
+            original = getattr(module, name)
+            seen[name] = []
+
+            def recording(*args, **kwargs):
+                seen[name].append(kwargs.get("config_path"))
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(module, name, recording)
+
+        spy(target_eligibility, "narrowing_refusal")
+        spy(target_eligibility, "target_availability")
+        spy(connector_host_manager, "target_display_metadata")
+        spy(verification, "derive_endpoints")
+        get_posture(client)
+        expected = str(client.app.state.config_path)
+        for name, paths in seen.items():
+            assert paths, name
+            assert set(paths) == {expected}, name
 
 
 # -- ceiling, posture, effective -------------------------------------------

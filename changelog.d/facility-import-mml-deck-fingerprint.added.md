@@ -1,0 +1,1 @@
+`osprey facility import mml` holds each export's deck to the lattice fingerprint the export states. A deck with another element count, family-name digest or parameter-element indices stops the import with `import mml: export-invalid`, naming the fact, both values and the remedy; an energy that differs alone is reported and the import goes on.

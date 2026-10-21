@@ -12,10 +12,10 @@ import numpy as np
 import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
-    load_ring,
+    load_baseline_lattice,
+    load_job,
+    load_lattice,
     load_settings,
-    load_state,
     parse_args,
     save_data,
     unpack_tracking,
@@ -23,7 +23,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 
 
 def find_da_at_angle(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     angle_rad: float,
     nturns: int,
     amp_min: float,
@@ -38,7 +38,7 @@ def find_da_at_angle(
         rin[0] = mid * np.cos(angle_rad)
         rin[2] = mid * np.sin(angle_rad)
 
-        result = ring.track(rin, nturns=nturns)
+        result = lattice.track(rin, nturns=nturns)
         rout = unpack_tracking(result)
         try:
             survived = bool(np.all(np.isfinite(rout)))
@@ -53,7 +53,7 @@ def find_da_at_angle(
 
 
 def compute_da(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     nturns: int = 512,
     n_angles: int = 19,
     amp_max: float = 0.030,
@@ -70,7 +70,7 @@ def compute_da(
     da_y = np.zeros(n_angles)
 
     for i, angle in enumerate(angles_rad):
-        da_amp = find_da_at_angle(ring, angle, nturns, amp_min, amp_max, n_bisect)
+        da_amp = find_da_at_angle(lattice, angle, nturns, amp_min, amp_max, n_bisect)
         da_amplitudes[i] = da_amp
         da_x[i] = da_amp * np.cos(angle)
         da_y[i] = da_amp * np.sin(angle)
@@ -156,24 +156,24 @@ def build_figure(
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Subprocess entry point: the parent captures this worker's stderr and
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    settings = load_settings(state, "da")
+    lattice = load_lattice(job)
+    settings = load_settings(job, "da")
     nturns = settings["nturns"]
     n_angles = settings["n_angles"]
     amp_max = settings["amp_max_mm"] / 1000.0
     n_bisect = settings["n_bisect"]
 
     da_x, da_y, _, area_mm2 = compute_da(
-        ring,
+        lattice,
         nturns=nturns,
         n_angles=n_angles,
         amp_max=amp_max,
@@ -188,10 +188,10 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
-    if baseline_ring is not None:
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
         bda_x, bda_y, _, barea = compute_da(
-            baseline_ring,
+            baseline_lattice,
             nturns=nturns,
             n_angles=n_angles,
             amp_max=amp_max,
@@ -203,7 +203,7 @@ def main() -> None:
             "area_mm2": float(barea),
         }
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

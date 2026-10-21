@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -56,7 +56,7 @@ def max_attachment_bytes() -> int:
     """
     default = DEFAULT_MAX_ATTACHMENT_MB * 1024 * 1024
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("ariel.attachments", {})
     except Exception:
@@ -295,6 +295,34 @@ def is_native_item(item: Any) -> bool:
     """
     url = _item_url(item)
     return url is not None and _NATIVE_URL_RE.fullmatch(url) is not None
+
+
+def replaced_stand_in_ids(previous: Any, current: Any) -> list[str]:
+    """Return the ids of the published stand-ins ``previous`` holds and ``current`` does not.
+
+    A stand-in is a native item marked ``"published": true``: ARIEL's copy of a
+    file the facility logbook also holds. A list that is not a list holds none.
+
+    Args:
+        previous: The entry's attachment list before a write.
+        current: Its attachment list after the write.
+
+    Returns:
+        The attachment ids, in ``previous`` order, without repeats.
+    """
+    kept = {
+        match.group(1)
+        for item in (current if isinstance(current, list) else [])
+        if (url := _item_url(item)) and (match := _NATIVE_URL_RE.fullmatch(url))
+    }
+    replaced: list[str] = []
+    for item in previous if isinstance(previous, list) else []:
+        if not is_native_item(item) or item.get("published") is not True:
+            continue
+        match = _NATIVE_URL_RE.fullmatch(item["url"])
+        if match and match.group(1) not in kept and match.group(1) not in replaced:
+            replaced.append(match.group(1))
+    return replaced
 
 
 def attachment_id_for(entry_id: str, item: Any) -> str | None:

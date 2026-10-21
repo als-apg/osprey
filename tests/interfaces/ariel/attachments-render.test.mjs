@@ -211,6 +211,36 @@ describe('entry detail attachments', () => {
     overlay.remove();
   });
 
+  test('a stored attachment can be copied to Workspace without using its source URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const body = await renderDetail([
+      {
+        attachment_id: 'att-0123456789ab',
+        filename: 'beam.png',
+        viewable: true,
+        display_url: RENDITION,
+        // A source URL may be present, but the handoff must use the local id.
+        url: 'https://elog.example/beam.png',
+        mime_type: 'image/png',
+      },
+    ]);
+    const thumb = /** @type {HTMLElement} */ (body.querySelector('[data-lightbox-url]'));
+    thumb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const overlay = /** @type {HTMLElement} */ (document.getElementById('image-lightbox'));
+    const button = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-use-in-workspace]'));
+
+    button.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/attachments/att-0123456789ab/artifact', { method: 'POST' },
+    );
+    expect(overlay.querySelector('[data-workspace-status]')?.textContent).toBe('Copied to Workspace');
+    overlay.remove();
+    vi.unstubAllGlobals();
+  });
+
   test('a skipped file card shows why the file was skipped', async () => {
     const body = await renderDetail([
       {

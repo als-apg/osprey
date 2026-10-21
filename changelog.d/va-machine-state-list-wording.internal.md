@@ -1,0 +1,1 @@
+The shipped `data/machine_state_channels.json` and its data README entry describe the file as what it is: an address list the build reconciles against the virtual-accelerator channel manifest, of which only the keys are read.

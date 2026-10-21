@@ -27,7 +27,8 @@ import { startHealthPolling as startPolling, stopHealthPolling } from './panel-h
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
 import {
-  clockTime, createRail, addEntry, setActive, setEntryEnabled, setEntryReachable, setEntryStatus,
+  clockTime, createRail, addEntry, placeEntry, setActive, setEntryEnabled, setEntryReachable,
+  setEntryStatus,
 } from './panel-rail.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
@@ -82,8 +83,8 @@ export function freshPanelState() {
 
 /**
  * Destructive full render of the rail: the terminal entry first (the session
- * tile is the workspace's anchor), then every MEMBER service panel in PANELS
- * order — non-members have no entry at all. The terminal entry is enabled
+ * tile is the workspace's anchor), then every MEMBER service panel in the
+ * server's rail order — non-members have no entry at all. The terminal entry is enabled
  * after the render (it never health-polls, so it would stay disabled).
  */
 export function renderRail() {
@@ -92,13 +93,32 @@ export function renderRail() {
     railEl,
     [
       { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
-      ...PANELS.filter((p) => ctx().memberSet.has(p.id)).map(
-        (p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })
-      ),
+      ...[...ctx().memberSet]
+        .map((id) => PANELS.find((p) => p.id === id))
+        .filter((p) => p !== undefined)
+        .map((p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })),
     ],
     railOptions(),
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
+}
+
+/**
+ * Put the rail in the server's order — the body behind the `rail_order` frame
+ * and the reconnect resync. Membership is untouched: ids in `order` that are not
+ * members are skipped, and a member missing from `order` keeps its place ahead
+ * of the ordered ones. The member set is re-sequenced too, so a later full
+ * render draws the same rail. Idempotent.
+ * @param {string[]} order
+ */
+export function applyRailOrder(order) {
+  const c = ctx();
+  const ordered = order.filter((id) => c.memberSet.has(id));
+  const rest = [...c.memberSet].filter((id) => !ordered.includes(id));
+  c.memberSet.clear();
+  for (const id of [...rest, ...ordered]) c.memberSet.add(id);
+  // Appending each in turn leaves SESSION (never in `order`) at the head.
+  for (const id of ordered) placeEntry(c.getRailEl(), id, null);
 }
 
 /**

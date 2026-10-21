@@ -13,7 +13,7 @@ import inspect
 import numpy as np
 import pytest
 
-from osprey.connectors.control_system.base import values_match
+from osprey_connectors.control_system.base import values_match
 
 
 class _Unmentionable:

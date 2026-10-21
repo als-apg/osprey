@@ -16,7 +16,7 @@ from osprey.services.channel_finder.databases import FlatChannelDatabase
 #: effect depend on which was entered first — unwound in the wrong order, the
 #: fixture's mock is restored *after* the real function and leaks into every
 #: later test in the process.
-_CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 
 
 def _patch_config(monkeypatch, mock_config):

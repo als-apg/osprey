@@ -734,17 +734,15 @@ claude_code:
   provider: cborg
 """
 
-# Telemetry enabled but misconfigured (openobserve backend, password missing) —
-# resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
-# lose provider auth.
+#: A gateway telemetry block; the worker under test carries no login for it, so
+#: resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
+#: lose provider auth.
 _TELEMETRY_BROKEN_CONFIG = """\
 claude_code:
   provider: anthropic
   telemetry:
     enabled: true
-    backend: openobserve
-    openobserve:
-      user: root@example.com
+    backend: gateway
 """
 
 
@@ -812,15 +810,16 @@ def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
 
 
 def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypatch, caplog):
-    """A broken telemetry block must NOT cost the worker its provider auth.
+    """A worker without its gateway login must NOT lose its provider auth.
 
-    Telemetry is an observability add-on; a misconfig degrades it (logged loud)
-    while provider auth/model injection still happens (F4 regression guard).
+    Telemetry is an observability add-on; a missing login degrades it (logged
+    at ERROR) while provider auth/model injection still happens.
     """
     import logging
 
     _render_config(tmp_path, _TELEMETRY_BROKEN_CONFIG)
     fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
+    fake.pop("OSPREY_TELEMETRY_LOGIN", None)
 
     with caplog.at_level(logging.ERROR):
         dispatch_api._inject_provider_env_once()

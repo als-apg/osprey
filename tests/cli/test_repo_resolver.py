@@ -22,6 +22,7 @@ from osprey.cli.repo_resolver import (
     is_repo_free,
     repo_option,
 )
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 
 def make_repo(root: Path) -> Path:
@@ -53,7 +54,7 @@ def test_finds_root_from_nested_subdirectory(tmp_path: Path) -> None:
 def test_nested_repos_resolve_to_the_nearest_one(tmp_path: Path) -> None:
     outer = make_repo(tmp_path / "outer")
     inner = make_repo(outer / "sub" / "inner")
-    deep = inner / "personas"
+    deep = inner / TIERS_DIRNAME
     deep.mkdir()
 
     assert find_repo_root(deep) == inner.resolve()

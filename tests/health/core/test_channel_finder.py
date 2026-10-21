@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT, resolve_graph_index_path
 from osprey.health.core.channel_finder import channel_finder
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -61,7 +62,7 @@ def _make_duckdb(path: Path, channels: list[str]) -> None:
 
     con = duckdb.connect(str(path))
     try:
-        con.execute("CREATE TABLE channels (channel_name TEXT PRIMARY KEY, system TEXT)")
+        con.execute("CREATE TABLE channels (channel_name TEXT NOT NULL, system TEXT)")
         if channels:
             con.executemany("INSERT INTO channels VALUES (?, ?)", [(c, "SR") for c in channels])
     finally:
@@ -249,6 +250,14 @@ class TestDuckDBCount:
         assert channels.status is Status.OK
         assert channels.value == "3 channels"
 
+    async def test_a_channel_in_two_families_counts_once(self, tmp_path) -> None:
+        js = tmp_path / "middle_layer.json"
+        _write_json_db(js)
+        duck = tmp_path / "middle_layer.duckdb"
+        _make_duckdb(duck, ["SR:BPM1:X", "SR:BPM1:X", "SR:HCM1:Setpoint"])
+        by_name = await _run(_cf(mode="middle_layer", path=str(js), duckdb_path=str(duck)))
+        assert by_name["channel_finder_channels"].value == "2 channels"
+
     async def test_zero_channels_warns(self, tmp_path) -> None:
         js = tmp_path / "middle_layer.json"
         _write_json_db(js)
@@ -317,12 +326,10 @@ class _FakeDriver:
         *,
         count: int = 7,
         sha256: str | None = DIGEST,
-        direction_source: str | None = "grammar",
         connect_error: Exception | None = None,
     ) -> None:
         self.count = count
         self.sha256 = sha256
-        self.direction_source = direction_source
         self.connect_error = connect_error
         self.queries: list[str] = []
 
@@ -335,9 +342,7 @@ class _FakeDriver:
         if "_OspreySeed" in query:
             if self.sha256 is None:
                 return _FakeEagerResult([])
-            return _FakeEagerResult(
-                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
-            )
+            return _FakeEagerResult([_FakeRecord(sha256=self.sha256)])
         return _FakeEagerResult([_FakeRecord(count=self.count)])
 
     def close(self) -> None:
@@ -349,10 +354,10 @@ def _make_index(
     *,
     digest: str = DIGEST,
     schema_version: int | None = None,
-    filename: str = "demo_machine.ttl",
+    filename: str = "facility.ttl",
     counts: tuple[int, int, int, int, int] = (12, 5, 3, 4, 2),
 ) -> None:
-    """Write a tiny real search index: the four tables and one ``meta`` row.
+    """Write a tiny real search index: the three tables and one ``meta`` row.
 
     No builder exists yet, so the row is inserted directly. The DDL is the
     package's own, which is what makes this a real index rather than a fixture
@@ -393,12 +398,15 @@ class _GraphModeCase:
     def _isolate(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Keep the case off the host's password and off any real search index.
 
-        ``index_path`` is pointed into ``tmp_path`` for every case, so a case
-        that says nothing about the index gets a reliably absent one rather
-        than whatever the developer's working tree happens to hold.
+        ``OSPREY_CONFIG`` names a render inside ``tmp_path`` for every case, so
+        the index resolves there, and a case that says nothing about the index
+        gets a reliably absent one rather than whatever the developer's working
+        tree happens to hold.
         """
         monkeypatch.delenv("GRAPHDB_PASSWORD", raising=False)
-        self.index_path = tmp_path / "render" / "graph.duckdb"
+        render = tmp_path / "render"
+        monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
+        self.index_path = resolve_graph_index_path(None, render)
 
     @staticmethod
     def _install_driver(monkeypatch: pytest.MonkeyPatch, driver: _FakeDriver) -> list[tuple]:
@@ -419,7 +427,7 @@ class _GraphModeCase:
         cf: dict = {"pipeline_mode": "graph"}
         if pipelines is not None:
             cf["pipelines"] = pipelines
-        block = {"path": "./services/graphdb", "index_path": str(self.index_path)}
+        block = {"path": "./services/graphdb"}
         block.update(graphdb_block)
         return {"channel_finder": cf, "services": {"graphdb": block}}
 
@@ -505,7 +513,7 @@ class TestGraphPipeline(_GraphModeCase):
         self._install_driver(monkeypatch, _FakeDriver(count=0))
         row = (await _run(self._cfg()))["channel_finder_resources"]
         assert row.status is Status.WARNING
-        assert "osprey knowledge seed-graph" in f"{row.message} {row.details}"
+        assert GRAPHDB_REBUILD_HINT in f"{row.message} {row.details}"
 
     async def test_external_store_is_dialed_at_its_own_uri(
         self, monkeypatch: pytest.MonkeyPatch
@@ -580,7 +588,7 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.OK
         assert row.value == f"12 bindings · 5 devices · {DIGEST[:12]}"
         assert "store's seed unknown" not in row.value
-        assert "demo_machine.ttl" in row.details
+        assert "facility.ttl" in row.details
 
     async def test_missing_index_warns_and_names_the_build_verbs(
         self, monkeypatch: pytest.MonkeyPatch
@@ -591,7 +599,7 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.WARNING
         assert str(self.index_path) in row.message
         assert "osprey build" in row.details
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_unreadable_index_degrades_to_warning(
         self, monkeypatch: pytest.MonkeyPatch
@@ -602,7 +610,7 @@ class TestSearchIndexRow(_GraphModeCase):
         self.index_path.write_bytes(b"this is not a duckdb file at all")
         row = (await _run(self._cfg()))["channel_finder_search_index"]
         assert row.status is Status.WARNING
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_index_from_another_schema_version_warns(
         self, monkeypatch: pytest.MonkeyPatch
@@ -616,20 +624,19 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.WARNING
         assert f"v{SCHEMA_VERSION + 1}" in row.message
         assert f"v{SCHEMA_VERSION}" in row.message
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_index_and_store_from_different_corpora_warn(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Two corpora, two digests: the row shows both and offers both fixes."""
+        """Two corpora, two digests: the row shows both and names the rebuild."""
         self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
         _make_index(self.index_path, digest=OTHER_DIGEST)
         row = (await _run(self._cfg()))["channel_finder_search_index"]
         assert row.status is Status.WARNING
         assert "different corpora" in row.message
         assert row.value == f"index {OTHER_DIGEST[:12]} · store {DIGEST[:12]}"
-        assert "osprey knowledge build-index" in row.details
-        assert "osprey knowledge seed-graph" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_unseeded_store_leaves_the_index_row_ok(
         self, monkeypatch: pytest.MonkeyPatch
@@ -658,24 +665,13 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.OK
         assert row.value.endswith("(store's seed unknown)")
 
-    async def test_relative_index_path_resolves_against_the_config_directory(
+    async def test_the_index_resolves_against_the_config_directory(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """The render zone, not the repo root — the anchor ``ttl_path`` uses."""
         self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
         render = tmp_path / "build"
-        _make_index(render / "data" / "graph.duckdb", digest=DIGEST)
-        row = (await _run(self._cfg(index_path="./data/graph.duckdb"), cwd=render))[
-            "channel_finder_search_index"
-        ]
+        _make_index(resolve_graph_index_path(None, render), digest=DIGEST)
+        row = (await _run(self._cfg(), cwd=render))["channel_finder_search_index"]
         assert row.status is Status.OK
         assert row.value.endswith(DIGEST[:12])
-
-    async def test_malformed_index_path_warns_and_names_the_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A bad key is reported as the row, not raised out of the suite."""
-        self._install_driver(monkeypatch, _FakeDriver())
-        row = (await _run(self._cfg(index_path="   ")))["channel_finder_search_index"]
-        assert row.status is Status.WARNING
-        assert "services.graphdb.index_path" in row.details

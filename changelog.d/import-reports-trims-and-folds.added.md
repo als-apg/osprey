@@ -1,0 +1,1 @@
+`osprey facility import mml` prints one line per family whose sampled calibrations it cut to the stretch holding the operating point (`import mml: curves trimmed: <model>: family <family> (<n>)`) and one per family whose supplies feed several devices in series (`import mml: supplies folded: …`), with the count. The files it writes are unchanged.

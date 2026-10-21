@@ -642,6 +642,19 @@ class TestTheGate:
         assert record.last_switch["reason"] == target_eligibility.REASON_READONLY_RUN
         assert record.last_switch["generation"] is None
 
+    def test_the_gate_derives_against_the_terminals_own_render(self, client, monkeypatch):
+        """The gate fills unset gateway ports from the file the terminal parsed."""
+        original = target_eligibility.evaluate_switch
+        seen: list = []
+
+        def recording(*args, **kwargs):
+            seen.append(kwargs.get("config_path"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(target_eligibility, "evaluate_switch", recording)
+        post_target(client)
+        assert seen == [str(client.app.state.config_path)]
+
 
 class TestApplied:
     """What the record carries once a switch is granted."""

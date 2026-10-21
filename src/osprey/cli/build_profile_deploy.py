@@ -26,12 +26,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import BuildProfileError
+from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
+    IN_PROCESS,
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,
+    LIMITS_MODES,
+    RETIRED_CONTROL_SYSTEM_TYPES,
+    SERVING_KEY,
+    SERVING_MODES,
     SET_CONTROL_SYSTEM_TYPES,
+    VIRTUAL_ACCELERATOR,
+    retired_type_message,
 )
 
 #: CI platforms with a shipped pipeline template. ``deploy.ci`` selects one of
@@ -55,8 +63,8 @@ _PROFILE_OWNED_KEYS: dict[str, str] = {
     "timezone": "the profile's `config:` key `system.timezone`",
     "control_system": "the profile's `config:` key `control_system.type`",
     "users": "the profile's `config:` key `modules.web_terminals.users`",
-    "personas": "the profile's `config:` key `modules.web_terminals.personas`",
-    "default_persona": "the profile's `config:` key `modules.web_terminals.default_persona`",
+    RETIRED_CATALOG_KEY: "one file per tier in `tiers/` and per app in `apps/` beside profile.yml",
+    RETIRED_DEFAULT_TIER_KEY: "the profile's `config:` key `modules.web_terminals.default_tier`",
 }
 
 #: Environment declarations have one channel for the whole profile, so the
@@ -85,6 +93,10 @@ IMAGE_SOURCE_CONFIG_KEY = f"{WEB_TERMINALS_CONFIG_PATH}.image_source"
 #: registry mode the build fills it from ``deploy.registry.url`` when the
 #: profile's ``config:`` block names none.
 REGISTRY_URL_CONFIG_KEY = "registry.url"
+
+#: Where the build writes ``dispatch.tier`` in the rendered config
+#: (``_inject_dispatch``), and so where the lint view carries it.
+DISPATCH_TIER_CONFIG_KEY = "services.dispatch_worker.tier"
 
 _KNOWN_DEPLOY_KEYS = frozenset(
     {"ci", "ci_image_prefix", "registry", "host", "image_source", "external_projects"}
@@ -317,37 +329,66 @@ def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[st
     return overrides
 
 
+def profile_dispatch_tier(profile: Any) -> str | None:
+    """A resolved profile's ``dispatch.tier``, or ``None`` when it sets none.
+
+    Read defensively, as the lint view's callers hand it on: a profile without
+    a ``dispatch:`` block — or a stand-in that carries none — has no dispatch
+    tier.
+    """
+    dispatch = getattr(profile, "dispatch", None)
+    tier = getattr(dispatch, "tier", None)
+    return tier if isinstance(tier, str) and tier else None
+
+
 def build_lint_view(
-    deploy: DeployConfig | None, config: Any, project_name: str | None
+    deploy: DeployConfig | None,
+    config: Any,
+    project_name: str | None,
+    *,
+    profile_root: Path | None = None,
+    dispatch_tier: str | None = None,
 ) -> dict[str, Any]:
     """The config the profile lint judges: the ``config:`` block as the build renders it.
 
-    Three contributions over the profile's own entries, each one the build
+    Four contributions over the profile's own entries, each one the build
     also writes into ``build/config.yml``:
 
     - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
-    - every rendered persona's ``project`` / ``project_path``, derived from
-      ``project_name``
-      (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`);
+    - the render projection ``modules.web_terminals.renders`` — one entry per
+      tier and app file under *profile_root*, its ``project`` /
+      ``project_path`` derived from ``project_name``
+      (:func:`~osprey.deployment.web_terminals.render_naming.derived_renders`);
     - ``project_name`` itself, at the root, where the rendered config carries
-      it — so the rules that compare a persona's project with the deployment's
-      own (the worker-image shadow, the persona collisions) judge real values
-      before any render exists.
+      it — so the rules that compare a render's project with the deployment's
+      own (the project-image shadow, the render collisions) judge real values
+      before any render exists;
+    - ``dispatch.tier`` as ``services.dispatch_worker.tier``, the key the build
+      writes it under, so the lint names the dispatch tier among the renders
+      the deployment serves by one key at both altitudes.
 
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
         project_name: The profile's top-level ``project_name:``, or ``None``
             when it states none (nothing is derived from an absent name).
+        profile_root: The deployment repo whose ``tiers/`` and ``apps/`` the
+            projection lists; ``None`` projects no render.
+        dispatch_tier: The profile's ``dispatch.tier``, or ``None`` when it
+            sets none (nothing is written then, as the build writes nothing).
 
     Returns:
         A flat bag of the profile's dotted keys with the derived ones laid over.
     """
     view: dict[str, Any] = {**config, **deploy_config_overrides(deploy, config)}
+    if dispatch_tier is not None:
+        view[DISPATCH_TIER_CONFIG_KEY] = dispatch_tier
     if project_name:
-        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+        from osprey.deployment.web_terminals.render_naming import derived_renders
 
-        view.update(derived_persona_catalog(config, project_name))
+        view.update(
+            derived_renders(config, project_name, profile_root, dispatch_tier=dispatch_tier)
+        )
         view["project_name"] = project_name
     return view
 
@@ -358,6 +399,7 @@ def deploy_aware_config_errors(
     *,
     profile_root: Path | None = None,
     project_name: str | None = None,
+    dispatch_tier: str | None = None,
 ) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
@@ -389,26 +431,31 @@ def deploy_aware_config_errors(
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
-        profile_root: The directory the profile being linted lives in. Persona
-            deltas (``build_profile: personas/<name>.yml``) are named relative
-            to it, so a caller that omits it gets a lint that reads no delta
-            unless it happens to be running from the repo root — which is how
-            ``osprey build`` from a subdirectory, and ``--repo`` from anywhere,
-            used to pass a roster the profile gate exists to refuse. Every
-            command surface passes it.
+        profile_root: The directory the profile being linted lives in. Its
+            ``tiers/`` and ``apps/`` are the renders the projection lists, so
+            a caller that omits it gets a lint that sees no render — and would
+            pass a roster the profile gate exists to refuse. Every command
+            surface passes it.
         project_name: The profile's top-level ``project_name:``; see
             :func:`build_lint_view` for what is derived from it.
+        dispatch_tier: The profile's ``dispatch.tier``; see
+            :func:`build_lint_view`.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
     """
     # Imported in-function: this module is on `BuildProfile`'s import chain, and
     # the lint engine pulls in the whole web-terminals package behind it.
-    from osprey.deployment.web_terminals.lint import profile_config_errors
+    from osprey.deployment.telemetry_lint import telemetry_errors
+    from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
-    return profile_config_errors(
-        build_lint_view(deploy, config, project_name), profile_root=profile_root
+    view = build_lint_view(
+        deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    return [
+        *profile_config_errors(view, profile_root=profile_root),
+        *telemetry_errors(_nest_dotted(view)),
+    ]
 
 
 def deploy_aware_config_warnings(
@@ -417,6 +464,7 @@ def deploy_aware_config_warnings(
     *,
     profile_root: Path | None = None,
     project_name: str | None = None,
+    dispatch_tier: str | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
 
@@ -428,22 +476,26 @@ def deploy_aware_config_warnings(
     ``none`` — in front of a privileged terminal) is deliberately not an error,
     so printing is the only way it reaches an operator at all.
     """
-    from osprey.deployment.web_terminals.lint import profile_config_warnings
+    from osprey.deployment.telemetry_lint import telemetry_warnings
+    from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
-    return profile_config_warnings(
-        build_lint_view(deploy, config, project_name), profile_root=profile_root
+    view = build_lint_view(
+        deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    return [
+        *profile_config_warnings(view, profile_root=profile_root),
+        *telemetry_warnings(_nest_dotted(view)),
+    ]
 
 
 def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
     """Refuse a profile whose per-type ``limits_checking`` block will not render.
 
     ``control_system.connector.<type>.limits_checking`` overrides the
-    deployment-wide ``enabled`` / ``allow_unlisted_channels`` pair as a WHOLE
+    deployment-wide ``enabled`` / ``mode`` pair as a WHOLE
     block — there is no leaf inheritance — so a block stating one leaf has no
     posture to answer with, and every reader falls back to the failsafe
-    validator. That is a deployment quietly stricter (or, for the operator who
-    meant to relax a simulator, quietly unchanged) than the profile says.
+    validator. That is a deployment quietly stricter than the profile says.
 
     The other half of the check is about the render rather than the block. A
     ``config:`` entry reaches ``config.yml`` through
@@ -491,7 +543,16 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
           message names the shallower key and every deeper key inside it;
         * a per-type block stating one of its two leaves — the message names
           the connector type, the leaf the profile did state, and the missing
-          leaf.
+          leaf;
+        * a retired control-system type name, a leftover block under one, or
+          a simulator ``serving`` value the deployment cannot run — see
+          :func:`_control_system_value_errors`;
+        * a limits block, deployment-wide or per type, writing a leaf other
+          than ``enabled`` and ``mode``, or a ``mode`` that is not one of the
+          two modes — the message names the entry and the two allowed values.
+          The database path is not a profile leaf: the build names it, and
+          :func:`osprey.cli.build_profile_load._check_limits_database_path`
+          stops a profile that states it before this check runs.
     """
     if not isinstance(config, dict):
         return []
@@ -503,8 +564,22 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
 
     errors: list[str] = []
     named_types: set[str] = set()
+    modes = " | ".join(LIMITS_MODES)
+    mode_leaf = LIMITS_LEAVES[1]
 
-    for written, rendered, _value in _rendered_leaf_paths(config):
+    for written, rendered, value in _rendered_leaf_paths(config):
+        leaf = _limits_block_leaf(rendered)
+        if leaf is not None and leaf not in LIMITS_LEAVES:
+            errors.append(
+                f"The profile's config: block writes `{written}`, which is not a limits "
+                f"leaf. A limits block states `{LIMITS_LEAVES[0]}` and "
+                f"`{LIMITS_CHECKING_LEAF}.{mode_leaf}: {modes}`."
+            )
+        elif leaf == mode_leaf and value not in LIMITS_MODES:
+            errors.append(
+                f"The profile's config: block writes `{written}` as {value!r}. "
+                f"`{LIMITS_CHECKING_LEAF}.{mode_leaf}` is {modes}."
+            )
         if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) != _CONNECTOR_SEGMENTS:
             continue
         below = rendered[len(_CONNECTOR_SEGMENTS) :]
@@ -526,10 +601,11 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"      mypkg.MoatConnector:\n"
             f"        limits_checking:\n"
             f"          enabled: true\n"
-            f"          allow_unlisted_channels: false"
+            f"          mode: exclusive"
         )
 
     errors.extend(_mixed_depth_control_system_errors(config))
+    errors.extend(_control_system_value_errors(config))
 
     candidates = set(SET_CONTROL_SYSTEM_TYPES) | named_types
     for _spelling, value in spelled_values(config, _CONNECTOR_PREFIX):
@@ -554,12 +630,96 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"{', '.join(repr(leaf) for leaf in missing)}. A per-type block overrides the "
             f"deployment-wide `control_system.limits_checking` pair as a whole — no leaf is "
             f"inherited — so a block missing one has no posture to answer with, and every "
-            f"reader falls back to refusing unlisted channels. State both "
+            f"reader falls back to blocking every write. State both "
             f"{', '.join(repr(leaf) for leaf in LIMITS_LEAVES)}, or remove the block "
             f"and let the deployment-wide pair answer for this type."
         )
 
     return errors
+
+
+def _control_system_value_errors(config: Mapping[str, Any]) -> list[str]:
+    """Refuse a retired type name, and a ``serving`` value no reader accepts.
+
+    Four refusals, each naming the line to change:
+
+    * a ``control_system.type`` value in the retired table — the message is the
+      one every refusal of it quotes, naming the new spelling;
+    * any ``control_system.connector.<retired>`` block. A leftover block would
+      otherwise count as a real machine when ``live`` is derived, and beside
+      the facility's own block it makes ``live`` ambiguous;
+    * a ``serving`` value outside the two venues;
+    * ``serving: in_process`` on a deployment whose stated type is another
+      type. A host child for ``va`` on such a deployment states its own type,
+      and the leaf would otherwise flip the container ``va`` names into the
+      simulator in process.
+    """
+    from .build_profile_reach import spelled_values
+
+    errors: list[str] = []
+    types_stated = spelled_values(config, f"{_CONTROL_SYSTEM_KEY}.type")
+    for spelling, value in types_stated:
+        if isinstance(value, str) and value in RETIRED_CONTROL_SYSTEM_TYPES:
+            errors.append(
+                f"The profile's config: block writes `{spelling}`. {retired_type_message(value)}"
+            )
+
+    retired_blocks: dict[str, str] = {}
+    for written, rendered, _value in _rendered_leaf_paths(config):
+        below = rendered[len(_CONNECTOR_SEGMENTS) :]
+        if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) == _CONNECTOR_SEGMENTS and below:
+            if below[0] in RETIRED_CONTROL_SYSTEM_TYPES:
+                retired_blocks.setdefault(below[0], written)
+    for spelling, value in spelled_values(config, _CONNECTOR_PREFIX):
+        if isinstance(value, dict):
+            for key in value:
+                if key in RETIRED_CONTROL_SYSTEM_TYPES:
+                    retired_blocks.setdefault(key, f"{spelling}: {key}")
+    for retired, written in sorted(retired_blocks.items()):
+        errors.append(
+            f"The profile's config: block writes `{written}`, a "
+            f"`{_CONNECTOR_PREFIX}.{retired}` block. {retired_type_message(retired)}"
+        )
+
+    servings = spelled_values(config, SERVING_KEY)
+    for spelling, value in servings:
+        if value not in SERVING_MODES:
+            errors.append(
+                f"The profile's config: block writes `{spelling}` as {value!r}. "
+                f"`{SERVING_KEY}` is {' | '.join(SERVING_MODES)}."
+            )
+    foreign = sorted(
+        {
+            str(value)
+            for _spelling, value in types_stated
+            if value and value != VIRTUAL_ACCELERATOR and value not in RETIRED_CONTROL_SYSTEM_TYPES
+        }
+    )
+    if foreign and any(value == IN_PROCESS for _spelling, value in servings):
+        errors.append(
+            f"The profile's config: block writes `{SERVING_KEY}: {IN_PROCESS}` on a "
+            f"deployment whose control_system.type is {', '.join(repr(t) for t in foreign)}: "
+            f"the simulator runs in process only on a deployment whose own type is "
+            f"`{VIRTUAL_ACCELERATOR}`; on this deployment `va` is the served container."
+        )
+    return errors
+
+
+def _limits_block_leaf(rendered: list[str]) -> str | None:
+    """The limits leaf a rendered path names, or ``None`` when it names none.
+
+    The two places a limits block renders where a reader finds it:
+    ``control_system.limits_checking.<leaf>`` and
+    ``control_system.connector.<type>.limits_checking.<leaf>``.
+    """
+    if rendered[:1] != [_CONTROL_SYSTEM_KEY]:
+        return None
+    below = rendered[1:]
+    if len(below) >= 2 and below[0] == LIMITS_CHECKING_LEAF:
+        return below[1]
+    if len(below) >= 4 and below[0] == "connector" and below[2] == LIMITS_CHECKING_LEAF:
+        return below[3]
+    return None
 
 
 def _rendered_leaf_paths(config: Mapping[str, Any]) -> list[tuple[str, list[str], Any]]:

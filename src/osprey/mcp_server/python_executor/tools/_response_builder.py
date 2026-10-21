@@ -9,11 +9,15 @@ import nbformat
 from osprey.audit.call import note, write_stamps
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.executor import (
+    FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+    FAILURE_KIND_APPROVAL_MISSING,
+    FAILURE_KIND_GUARDED_RUN_BUSY,
     FAILURE_KIND_SETUP,
     FAILURE_KIND_SWITCH_IN_PROGRESS,
     FAILURE_KIND_TIMEOUT,
     ExecutionResult,
 )
+from osprey.stores.artifact_manifest import read_collected_file
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
@@ -45,6 +49,18 @@ _SWITCH_IN_PROGRESS_SUGGESTIONS = [
     "The control target is being switched, so the run was declined before it started.",
     "Re-run the code after the target switch completes.",
 ]
+_APPROVAL_MISSING_SUGGESTIONS = [
+    "The approval prompt left no record for this call, so the run was declined before it started.",
+    "Call the tool again so the approval prompt can ask.",
+]
+_APPROVAL_CONFIG_INVALID_SUGGESTIONS = [
+    "Nothing ran: the deployment's approval switch is not true or false, and calling "
+    "again will not help. Tell the operator to set approval.enabled in profile.yml and rebuild.",
+]
+_GUARDED_RUN_BUSY_SUGGESTIONS = [
+    "Nothing ran: another guarded run holds this control target. Run it again once the "
+    "holder named in the message (pid, since) has ended.",
+]
 
 
 def _note_writes(exec_result: ExecutionResult) -> None:
@@ -71,7 +87,16 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
     declined because the control target is mid-switch
     (:data:`FAILURE_KIND_SWITCH_IN_PROGRESS`) is the third ``kind``: nothing
     ran, nothing is broken, and the answer is to run it again once the switch
-    lands — which is neither of the other two protocols.
+    lands — which is neither of the other two protocols. A run declined because
+    the approval prompt left no record of the call
+    (:data:`FAILURE_KIND_APPROVAL_MISSING`) is the fourth: nothing ran, nothing
+    is broken, and the answer is to call the tool again so the prompt can ask.
+    A run refused because the deployment's approval switch is not true or false
+    (:data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID`) has its own ``kind``: nothing
+    ran, and only the operator can fix it, in the profile.
+    A run declined because another guarded run holds its control target
+    (:data:`FAILURE_KIND_GUARDED_RUN_BUSY`) is the fifth: nothing ran, and the
+    answer is to run it again once the holder the message names has ended.
 
     ``details`` carries the response the success path would have returned, so
     a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
@@ -89,6 +114,13 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
         kind, suggestions = "timeout", _TIMEOUT_SUGGESTIONS
     elif exec_result.failure_kind == FAILURE_KIND_SWITCH_IN_PROGRESS:
         kind, suggestions = FAILURE_KIND_SWITCH_IN_PROGRESS, _SWITCH_IN_PROGRESS_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_APPROVAL_MISSING:
+        kind, suggestions = FAILURE_KIND_APPROVAL_MISSING, _APPROVAL_MISSING_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_APPROVAL_CONFIG_INVALID:
+        kind = FAILURE_KIND_APPROVAL_CONFIG_INVALID
+        suggestions = _APPROVAL_CONFIG_INVALID_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_GUARDED_RUN_BUSY:
+        kind, suggestions = FAILURE_KIND_GUARDED_RUN_BUSY, _GUARDED_RUN_BUSY_SUGGESTIONS
     else:
         kind, suggestions = "script_error", _SCRIPT_ERROR_SUGGESTIONS
     make_error(
@@ -148,7 +180,7 @@ async def build_execution_response(
 
             store = get_artifact_store()
             fig_entry = store.save_file(
-                file_content=fig_path.read_bytes(),
+                file_content=read_collected_file(fig_path),
                 filename=fig_path.name,
                 artifact_type="image",
                 title=f"Figure: {fig_path.stem}",
@@ -167,7 +199,7 @@ async def build_execution_response(
 
             store = get_artifact_store()
             art_entry = store.save_file(
-                file_content=art["path"].read_bytes(),
+                file_content=read_collected_file(art["path"]),
                 filename=art["path"].name,
                 artifact_type=art["artifact_type"],
                 title=art["title"],

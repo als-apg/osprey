@@ -20,22 +20,24 @@ Database Contracts, per Paradigm
 In-context
 ----------
 
-A flat JSON structure loaded by ``TemplateChannelDatabase``, with standalone
-entries and template entries for device families:
+A flat JSON structure, the index ``osprey build`` writes from every channel, or
+from the subset the facility tags ``in_context``: one row per channel, sorted by
+address, loaded by the flat ``ChannelDatabase``. A row's ``channel`` is the
+channel's ``label``, else its address:
 
 .. code-block:: json
 
    {
+     "schema": "osprey.facility.channel_finder/1",
+     "count": 1,
      "channels": [
-       {"template": false, "channel": "TerminalVoltageReadBack",
+       {"channel": "TerminalVoltageReadBack",
         "address": "TerminalVoltageReadBack",
-        "description": "Actual value of the terminal potential"},
-       {"template": true, "base_name": "BPM", "instances": [1, 10],
-        "sub_channels": ["XPosition", "YPosition"],
-        "address_pattern": "BPM{instance:02d}{suffix}",
-        "description": "Beam Position Monitors"}
+        "description": "Actual value of the terminal potential"}
      ]
    }
+
+``count`` is the number of rows.
 
 .. _channel-finder-db-hierarchical:
 
@@ -93,7 +95,13 @@ roster in its ``setup`` block:
      }
    }
 
-``DeviceList`` holds ``[sector, device]`` pairs, parallel to ``CommonNames``.
+``DeviceList`` holds ``[place index, ordinal]`` pairs: the device's place
+numbered among its sibling places at the same level, by beam position, and the
+device's ordinal inside that place. A device whose place has no sibling places
+— one at the machine itself, or with no place — has place index 0, and those
+devices are numbered together, so no two rows of a family are equal.
+``PlaceList``, when present, holds each device's place beside its row.
+It is parallel to ``CommonNames``, which is each device's label, else its id.
 An existing MML export keeps its metadata keys (``Units``, ``DataType``,
 ``Description``, …) — the pipeline skips them during navigation rather than
 requiring their removal.
@@ -107,12 +115,13 @@ takes a ``protocol`` argument to pick between them; without one it returns the
 ``ChannelNames`` list, and asking for a protocol the field does not carry is an
 error naming the keys it does.
 
-**Provenance.** A database written by ``osprey mml emit`` carries one top-level
-``_provenance`` string naming the exporter version and the checksums of the two
-files it was built from — the export and the reviewed mapping. It is a string,
-not a nested object, so the pipeline's system listing passes over it like any
-other underscore key. See :doc:`/how-to/use-channel-finder` for the install
-flow that writes it.
+**The row count.** Every index ``osprey build`` writes states ``count`` beside
+``schema``: the rows of an in-context index, the leaves of a hierarchical
+tree, the distinct addresses listed under the fields of a middle-layer index
+(a channel of no family is not counted). ``osprey channel-finder benchmark``
+records it as the run's ``channel_count`` and refuses an index that does not
+state it; in graph mode the number is the store's channel count. A
+middle-layer System cannot be named ``schema`` or ``count``.
 
 .. _channel-finder-db-graph:
 
@@ -121,30 +130,28 @@ Graph
 
 The graph pipeline has no channel database of its own: the facility graph
 describes the machine. Its contract is the graph schema documented in
-:doc:`/how-to/facility-knowledge/use-facility-graph`, authored as the Turtle
-corpus ``services.graphdb.ttl_path`` names. Load that corpus into the
-``services.graphdb`` store with ``osprey knowledge seed-graph``.
+:doc:`/how-to/facility-knowledge/use-facility-graph`, carried by the Turtle
+corpus ``osprey build`` writes from the facility file into
+``data/graph/facility.ttl``. The build writes that path into every rendered
+``services.graphdb`` block as ``ttl_path`` unless the profile names a corpus of
+its own. ``osprey up`` loads that corpus into the ``services.graphdb`` store.
 
 The corpus is the source of truth, and two things are built from it. The store
 answers questions about structure — which device an address belongs to, what a
 class is a kind of — and the device card and the agent's Cypher tools read it.
-``osprey build`` also derives a flat search index from the same file, and a
-graph-mode project ships that index as ``data/channel_databases/graph.duckdb``
-(``services.graphdb.index_path``). Nothing parses the corpus while the
-deployment runs; rebuild the index with ``osprey knowledge build-index``
-whenever the corpus changes, and seed the store from the same file so the two
-agree.
+``osprey build`` also derives a flat search index from the same file, and every
+render with a ``services.graphdb`` block ships that index as
+``data/channel_databases/graph.duckdb`` under the render, a fixed path no key
+moves. Nothing parses the corpus while the deployment runs; ``osprey build &&
+osprey up`` rebuilds the index and reseeds the store from the same file, so the
+two agree.
 
-The corpus is also this deployment's **channel roster** — the one answer to
-which channels the facility has, and which of them are written. The web
-interface enumerates and validates against it, and ``osprey build`` derives the
-queue server's plan devices from it (:doc:`/how-to/bluesky/write-plans`). Both
-read the index built from the corpus, not the store, and both need a corpus
-this deployment holds (``services.graphdb.ttl_path``), or an ``index_path``
-that names an index built elsewhere: a deployment pointed at a store the
-facility runs, holding no corpus file of its own and no such index, has
-nothing to enumerate, and the two web routes say so — naming that key —
-instead of reporting a facility with no channels.
+The deployment's **channel roster** — the one answer to which channels the
+facility has, and which of them are written — is the facility file
+(``facility.json``) the build writes at the root of the render, not the corpus
+or the index. The web interface enumerates and validates against it, and
+``osprey build`` derives the queue server's plan devices from it
+(:doc:`/how-to/bluesky/write-plans`).
 
 
 Configuration Reference
@@ -158,11 +165,13 @@ Key ``config.yml`` settings:
      pipeline_mode: in_context  # "in_context", "hierarchical", "middle_layer", or "graph"
      pipelines:
        in_context:
-         database: {type: template, path: data/channel_databases/in_context.json}
+         database: {path: data/channel_finder/in_context.json}
        hierarchical:
-         database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
+         database: {path: data/channel_finder/hierarchical.json}
        middle_layer:
-         database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
+         database:
+           path: data/channel_finder/middle_layer.json
+           duckdb_path: data/channel_finder/middle_layer.duckdb
        # graph has no entry: it is configured by the `services.graphdb` block.
      benchmark:
        dataset_path: data/benchmarks/queries.json
@@ -193,7 +202,7 @@ language via the agent, or invoke the CLI directly:
 
 .. code-block:: bash
 
-   osprey channel-finder generate --source my_channels.json   # build database from template
+   osprey channel-finder validate     # check the configured database
    osprey channel-finder benchmark    # evaluate on a query dataset
 
 .. tip::

@@ -7,11 +7,11 @@ full from the SOURCE zone (``profile.yml`` at the repo root and the trees it
 names). Nothing durable lives there, so it is wiped and re-rendered whole every
 time; ``rm -rf build/`` loses nothing.
 
-A repo with a ``personas/`` directory renders more than one project: the
-deployment's own, plus ``build/<project_name>-<persona>/`` for every delta in there
-(:func:`_render_persona_projects`). That is the whole of when a persona project
+A repo with a ``tiers/`` directory renders more than one project: the
+deployment's own, plus ``build/<project_name>-<render>/`` for every delta in there
+(:func:`_render_projects`). That is the whole of when a render project
 is written — no start verb renders one — so ``build/`` is a complete account of
-what a deploy will run, personas included.
+what a deploy will run, renders included.
 
 The render is atomic. It lands in ``build/.tmp/`` and is swapped in by rename
 only once every step has succeeded, so a build that fails — or is killed
@@ -34,6 +34,7 @@ persistence (config overrides, convention artifacts, MCP servers, git init) in
 
 from __future__ import annotations
 
+import difflib
 import errno
 import json
 import os
@@ -41,7 +42,7 @@ import shlex
 import shutil
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -50,7 +51,8 @@ from uuid import uuid4
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.errors import BuildProfileError
+from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -58,8 +60,9 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import (
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     STATE_DIR_NAME,
@@ -72,18 +75,21 @@ from .build_environment import (
     report_provider_credentials,
 )
 from .build_injectors import (
+    _SHARED_SERVICE_TEMPLATE,
     _copy_service_templates,
     _declare_bundled_host_bindings,
     _inject_bluesky,
     _inject_bluesky_web,
     _inject_dispatch,
     _inject_gchat_bridge,
+    _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
+    graphdb_corpus_fill,
 )
 from .build_lifecycle import (
     _SHELL_METACHARACTERS,
@@ -93,6 +99,7 @@ from .build_lifecycle import (
 from .build_limits_check import limits_database_errors
 from .build_persistence import (
     FACILITY_RULE_NAME,
+    FACILITY_RULE_RELPATH,
     _apply_config_overrides,
     _apply_conventions,
     _persist_artifact_server,
@@ -106,7 +113,10 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.facility.build import FacilityDocument
+
     from .build_profile_model import BuildProfile
+    from .profile_root import ProfileKind
 
 logger = get_logger("build")
 
@@ -136,6 +146,7 @@ __all__ = [
     "_inject_bluesky_web",
     "_inject_dispatch",
     "_inject_gchat_bridge",
+    "_inject_limits_database",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_teams_bridge",
@@ -314,7 +325,7 @@ def _profile_project_name(project_name: str | None, repo_root: Path) -> str:
     proposed = _normalize_compose_name(repo_root.name) or "my-deployment"
     raise BuildProfileError(
         f"{PROFILE_FILENAME} states no project_name. It names this deployment's compose "
-        f"project, volumes, images and persona renders on every host. Add this line at the "
+        f"project, volumes, images and renders on every host. Add this line at the "
         f"top level of {PROFILE_FILENAME}, beside `name:`:\n\n"
         f"    project_name: {proposed}\n\n"
         f"That is the name this checkout has been deploying under, so existing volumes keep "
@@ -533,7 +544,7 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
     Args:
         zones: The render's paths.
         renders: Every render root this build produced, the staged tree
-            included. A persona project is rendered by the same three producers
+            included. A render project is rendered by the same three producers
             and so grows the same directories one level deeper; passing the
             roots rather than walking the tree keeps the rule "each render's own
             top-level runtime state" rather than "anything anywhere that looks
@@ -623,11 +634,11 @@ def _stamp_repo_manifest(
     :func:`osprey.deployment.staleness.check_drift` name which part of
     ``profile.yml`` moved when it refuses to start a stale build. Deliberately
     not a second hash mechanism — nothing decides drift by reading these — which
-    is exactly why a persona render does not get them: the drift gate reads one
-    manifest per repo, the deployment's, and the persona deltas are already
+    is exactly why a render does not get them: the drift gate reads one
+    manifest per repo, the deployment's, and the layers are already
     folded into ITS fingerprint
     (:func:`~osprey.cli.build_profile_merge._fold_profile_material`). A second
-    set of digests under each persona would be a fingerprint nothing consults.
+    set of digests under each render would be a fingerprint nothing consults.
 
     Args:
         render_dir: The rendered project whose manifest is rewritten. For the
@@ -1054,6 +1065,102 @@ def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) 
     ]
 
 
+# ---------------------------------------------------------------------------
+# A service must be real, checked against what is about to be rendered
+# ---------------------------------------------------------------------------
+
+#: The file that makes a directory a service template, bundled or custom.
+_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
+
+
+def _bundled_service_names() -> frozenset[str]:
+    """Every service OSPREY ships a compose template for, by its config key.
+
+    A second instance of a bundled service (``live_standin``) is bundled too:
+    it renders the template of the service it shares.
+    """
+    root = _locate_pkg_services()
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
+    }
+    shared = {name for name, owner in _SHARED_SERVICE_TEMPLATE.items() if owner in templates}
+    return frozenset(templates | shared)
+
+
+def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> list[str]:
+    """Every ``services.<name>`` block and ``deployed_services`` entry nothing can render.
+
+    A service is real when OSPREY bundles a template under its name, or when its
+    block's ``path`` names a directory holding a ``docker-compose.yml.j2`` in the
+    render — where the injectors write the template of a second instance and of
+    each lane service, and where the profile's own ``services/`` directory lands.
+    A block of a bundled service passes by name whether or not it is deployed:
+    an attached project describes the service it dials. A deployed entry also
+    needs a block, which is where its ``path`` lives.
+
+    Checked on the rendered config, after every injector and before the compose
+    render, so the refusal is an ordinary build error in one place rather than
+    the render's own ``RuntimeError`` for the first name it cannot find.
+
+    Args:
+        config: The rendered config.
+        render_root: The directory the compose render resolves ``path`` against.
+
+    Returns:
+        One message per offending name; empty when every name is renderable.
+    """
+    raw_services = config.get("services")
+    services = raw_services if isinstance(raw_services, Mapping) else {}
+    raw_deployed = config.get("deployed_services")
+    deployed = [str(name) for name in raw_deployed] if isinstance(raw_deployed, list) else []
+    bundled = _bundled_service_names()
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    for name in [*(str(key) for key in services), *deployed]:
+        if name in seen:
+            continue
+        seen.add(name)
+        block = services.get(name)
+        if name in bundled:
+            if name in deployed and not isinstance(block, Mapping):
+                errors.append(
+                    f"deployed_services names {name!r}, but the config has no "
+                    f"services.{name} block to render it from. Add the block (its "
+                    f"`path` is ./services/{name}) or drop the entry."
+                )
+            continue
+        path = block.get("path") if isinstance(block, Mapping) else None
+        if (
+            isinstance(path, str)
+            and path.strip()
+            and (render_root / path / _SERVICE_TEMPLATE_FILE).is_file()
+        ):
+            continue
+        where = [
+            *(["deployed_services"] if name in deployed else []),
+            *([f"services.{name}"] if name in services else []),
+        ]
+        close = difflib.get_close_matches(name, sorted(bundled), n=1)
+        hint = f" (did you mean {close[0]!r}?)" if close else ""
+        if isinstance(path, str) and path.strip():
+            found = f"its path {path!r} holds no {_SERVICE_TEMPLATE_FILE}"
+        else:
+            found = "it states no path"
+        errors.append(
+            f"{' and '.join(where)} name(s) the service {name!r}{hint}, which OSPREY "
+            f"does not bundle, and {found}. Bundled services are: "
+            f"{', '.join(sorted(bundled))}. A custom service needs services.{name}.path "
+            f"naming a directory in the repo that holds its {_SERVICE_TEMPLATE_FILE} "
+            "(for example ./services/<name>, from the profile's services/ directory)."
+        )
+    return errors
+
+
 def _render_compose_files(
     zones: _RenderZones, runtime_root: str | None = None, dev_mode: bool = False
 ) -> dict[str, Any] | None:
@@ -1062,8 +1169,8 @@ def _render_compose_files(
     Compose files are rendered in the same pass as everything else, because they
     are derived from the same ``config.yml``: emitting them a verb later would
     leave ``build/`` an incomplete description of the deployment. After the
-    persona renders, because they read them: the bluesky_web sidecar's compose
-    lists the secret of every user whose persona's rendered ``config.yml``
+    renders, because they read them: the bluesky_web sidecar's compose
+    lists the secret of every user whose render's rendered ``config.yml``
     shows the BLUESKY tab, and what this pass writes is what ``osprey up``
     starts.
 
@@ -1112,6 +1219,10 @@ def _render_compose_files(
 
     from osprey.deployment.compose_generator import prepare_compose_files
 
+    unrenderable = _service_existence_errors(_rendered_config(zones.stage), zones.stage)
+    if unrenderable:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrenderable))
+
     previous = Path.cwd()
     os.chdir(zones.stage)
     try:
@@ -1121,16 +1232,16 @@ def _render_compose_files(
         # from ``build/`` once the swap lands. Derived from the config path it
         # would come out empty, and every path spelled against it would resolve
         # one directory too high at deploy time.
-        # ``persona_root`` for the same reason again: the persona renders this
+        # ``layer_root`` for the same reason again: the renders this
         # build has already written sit in the staged tree, and the catalog's
-        # ``project_path`` (``build/<project_name>-<persona>``) names where they will
-        # be once the swap lands — the previous build's personas until then.
+        # ``project_path`` (``build/<project_name>-<render>``) names where they will
+        # be once the swap lands — the previous build's renders until then.
         config, compose_files = prepare_compose_files(
             str(zones.stage / "config.yml"),
             dev_mode=dev_mode,
             output_root=".",
             deployed_config_dir=BUILD_DIR_NAME,
-            persona_root=str(zones.stage),
+            layer_root=str(zones.stage),
         )
         # Read back inside the chdir: every path involved — the rendered files,
         # the service directories the config names — is spelled relative to the
@@ -1214,8 +1325,8 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
 class _SharedRenderInputs(NamedTuple):
     """What every project one ``osprey build`` renders has in common.
 
-    A repo with personas renders several projects — the deployment's own and one
-    per delta — and the whole point of a persona is that it differs from its host
+    A repo with tier and app files renders several projects — the deployment's own and one
+    per delta — and the whole point of a render is that it differs from its host
     in the profile and in NOTHING ELSE. Everything that is a property of the
     build rather than of the profile therefore lives here and is passed to each
     render unchanged: the same repo root, the same interpreter, the same
@@ -1240,40 +1351,12 @@ class _SharedRenderInputs(NamedTuple):
     manager: TemplateManager
     """One template manager, so the template root is resolved once."""
 
-    va_manifests: dict[tuple[str, int], Any]
-    """Prepared virtual-accelerator manifests, memoized by ``(data root, tier)``.
-
-    Preparing one parses the channel databases under the data tree, which is
-    seconds of work on a real facility. Personas overwhelmingly share their
-    host's data tree and tier, so the second and third renders would otherwise
-    re-derive a manifest byte-for-byte identical to the first. Keyed on the two
-    inputs that decide it, so a delta that *does* move either still gets its own.
-
-    A graph-deferred entry is stored under the same key but is per build
-    profile in truth: the deferred prepare reads the profile's mode and its
-    rendered ``services.graphdb.ttl_path``, so a persona that overrode the
-    corpus while keeping the tree would be served its host's answer. Every
-    render of one build shares one profile chain today, which is why the key
-    has not grown a third input.
-    """
-
-    va_reported: set[tuple[str, int]]
-    """``(data root, tier)`` keys whose manifest outcome has already been reported.
-
-    The manifest is prepared once per key and every render sharing that key
-    reuses it, so what the virtual accelerator will actually serve is one fact
-    about the build rather than one per project. Kept apart from
-    :attr:`va_manifests` because the outcome is reported only by a render that
-    deploys the virtual accelerator, which need not be the render that prepared
-    the manifest.
-    """
-
     graph_indexes: dict[str, Path]
     """Graph search indexes this build has already written, by corpus digest.
 
     Deriving one parses the whole Turtle corpus with rdflib, which is seconds on
     a real facility, and every render pass of one build stages the same corpus:
-    the deployment's own project, each persona delta, each container image copy.
+    the deployment's own project, each layer, each container image copy.
     The first pass that needs an index builds it; every later pass whose corpus
     hashes the same copies the file it wrote.
 
@@ -1291,8 +1374,7 @@ class _SharedRenderInputs(NamedTuple):
 
     Every render pass resolves the same profile, so "no corpus to derive an
     index from" is one fact about the build rather than one per render. The
-    first pass states it; later passes log it at DEBUG, the way
-    :attr:`va_reported` keeps the manifest outcome to one line.
+    first pass states it; later passes log it at DEBUG.
     """
 
     model_facts_reported: set[str]
@@ -1300,9 +1382,20 @@ class _SharedRenderInputs(NamedTuple):
 
     Every render pass resolves the same provider, so an alias running the main
     model, or a configured id the provider does not list, is one fact about the
-    build rather than one per render. A persona that moves the provider says
+    build rather than one per render. A render that moves the provider says
     something different, so it still gets its own line.
     """
+
+    facility: FacilityDocument
+    """The facility file, built once from ``data/facility/`` before any render.
+
+    Every render of one build copies the same profile ``data/`` tree, so the
+    file is a fact about the build: built once, identified by the sha256 of the
+    tree, and written byte-equal at the root of every render.
+    """
+
+    facility_sha256: str
+    """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
 
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
@@ -1310,10 +1403,18 @@ class _SharedRenderInputs(NamedTuple):
     The host-variant overlay (:mod:`~osprey.cli.variant_selection`), or empty
     when this host builds the tracked profile. It belongs here for the same
     reason ``--runtime-root`` does: it is a property of the build, not of a
-    profile, so the deployment's render and each persona's must see the same
-    one. A variant that reached only the deployment would leave every persona
-    project — and every persona image — rendered for a different host than the
+    profile, so the deployment's render and each render's must see the same
+    one. A variant that reached only the deployment would leave every render
+    project — and every render image — rendered for a different host than the
     stack they ship in.
+    """
+
+    views_omitted_reported: set[str] | None = None
+    """Facility views this build has already named as not written.
+
+    Every render pass of a build asks the same views of the same profile, so an
+    omitted view is one fact about the build rather than one per render. ``None``
+    for a single render, which names each view it omits.
     """
 
     runtime_interpreter: str | None = None
@@ -1345,6 +1446,55 @@ class _SharedRenderInputs(NamedTuple):
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
 _rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
+
+
+def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
+    """Record ``deployment.host_identity`` in a render that states none.
+
+    A session launched on the host sends telemetry under one name and files
+    its ledger under another unless both are told the same one. The name is
+    fixed at build — the account building, unless the profile states one — so a
+    repo built by one account and run by another still agrees with itself.
+    Only where the telemetry store is deployed: nothing else reads the key.
+
+    Returns:
+        Whether the render's ``config.yml`` was changed.
+    """
+    import getpass
+
+    from osprey.deployment import telemetry_config
+    from osprey.utils.config_writer import config_update_fields
+
+    if not telemetry_config.store_deployed(rendered):
+        return False
+    if telemetry_config.host_identity(rendered) is not None:
+        return False
+    try:
+        account = getpass.getuser()
+    except (KeyError, OSError):
+        # A uid with no passwd entry has no name to record; host launches
+        # then fall back to the ledger's own ladder.
+        return False
+    config_update_fields(render_dir / "config.yml", {"deployment.host_identity": account})
+    return True
+
+
+def _ensure_telemetry_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
+    """Mint the telemetry credential files this build's compose files name.
+
+    Reader keys are left to ``osprey up``: a build must not produce a key
+    nobody was told about.
+    """
+    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
+
+    try:
+        report = ensure_telemetry_credentials(repo_root, rendered, reader_keys=False)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    for name in report.minted:
+        logger.debug("telemetry credential file created: %s", name)
+    for name in report.purged:
+        logger.debug("telemetry credential file removed: %s", name)
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
@@ -1465,12 +1615,14 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
 
     Both scopes are read: the deployment-wide block and every per-type block.
     A per-type block overrides the deployment-wide pair whole, so a block that
-    states one leaf answers no posture at all; a leaf that is present but not
-    a literal ``true``/``false`` (``"true"``, ``1``, an unexpanded ``${VAR}``)
-    answers nothing either, in either scope; and a ``limits_checking`` value
-    that is not a mapping at all answers neither leaf. Each of those makes
-    every write path fall back to refusing unlisted channels — a deployment
-    whose limits posture quietly stopped doing what its author wrote.
+    states one leaf answers no posture at all; a leaf that is present but
+    unreadable (``enabled`` as ``"true"``, ``1`` or an unexpanded ``${VAR}``;
+    ``mode`` as anything but ``exclusive`` or ``optional``) answers nothing
+    either, in either scope; and a ``limits_checking`` value that is not a
+    mapping at all answers neither leaf. Each of those makes every write path
+    fall back to blocking every write — a deployment whose limits posture
+    quietly stopped doing what its author wrote. A leaf the block does not
+    define is refused too: no reader consults it.
     ``osprey validate`` catches the ones a ``config:`` block spelled; this
     reads the config a deployment actually runs, so a block an injector
     assembled or a preset's ``config:`` wrote is caught too.
@@ -1479,8 +1631,8 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
         render_dir: The rendered project directory, read after the injectors.
 
     Returns:
-        One line per missing or unreadable leaf, naming the key an operator
-        has to add or rewrite as a literal boolean; one line naming the block
+        One line per missing, unreadable or undefined leaf, naming the key an
+        operator has to add, rewrite or remove; one line naming the block
         and its value when ``limits_checking`` is not a mapping; nothing for a
         render whose blocks are complete or absent.
     """
@@ -1530,11 +1682,11 @@ def _template_host_config(
     as for a deploying profile: an attached profile inherits the blocks they
     read (``dispatch:``, ``bluesky_web:``, …) from the deployment profile it
     extends, and what they derive — the EVENTS and BLUESKY tab entries above
-    all — is what a persona beside a real host is told from that host's render.
+    all — is what a render beside a real host is told from that host's render.
 
     The overlay carries the layout's ports for the service blocks the profile
     deploys without naming one, exactly as the deploying build's own overlay
-    does, so a persona is told the ports its host actually publishes and not
+    does, so a render is told the ports its host actually publishes and not
     the layout default of a base its host has moved off.
 
     Rendered into a scratch directory the build zone never sees — it is a
@@ -1569,186 +1721,6 @@ def _template_host_config(
         return _rendered_config(scratch_dir)
 
 
-def _named_in_prose(names: Sequence[str]) -> str:
-    """Join a NON-EMPTY *names* the way a sentence does: "a", "a and b",
-    "a, b and c". Both callers are guarded -- the manifest build refuses a tree
-    with no staged paradigm, and the absent list is only named when there is
-    one -- so an empty sequence never reaches here."""
-    names = list(names)
-    if len(names) == 1:
-        return names[0]
-    return f"{', '.join(names[:-1])} and {names[-1]}"
-
-
-def _report_va_manifest_outcome(
-    shared: _SharedRenderInputs,
-    build_profile: Any,
-    *,
-    data_root: Path,
-    tier: int,
-    prepared: Any,
-    config: dict[str, Any] | None = None,
-) -> None:
-    """Report the channel set a deployed virtual accelerator will serve.
-
-    A project's accelerator serves the project's own channels. It is built from
-    whatever paradigm channel databases the project's data tree stages, and
-    when the tree names no channels at all the build REFUSES: the alternative
-    is a container serving the framework's demo namespace while its operators
-    read their own facility's name on it, and for a control system that is
-    worse than failing the build. There is no third outcome, and in particular
-    no fallback.
-
-    Two facts, both once per ``(data root, tier)`` because that is the key the
-    prepared manifest is memoized under and one build renders the deployment
-    and every persona from the same tree: which databases fed the channel set
-    (which the tree did not stage, and which it staged but could not read), and
-    how the machine-state list reconciled against it.
-
-    Args:
-        shared: The build's shared render inputs, holding what has been said.
-        build_profile: The profile this render came from.
-        data_root: The ``data/`` tree this build sourced from.
-        tier: The build-resolved tier whose channel databases were expanded.
-        prepared: The prepared manifest, or ``None`` when the tree backs none.
-        config: The rendered project configuration, when this render prepared
-            its manifest through the graph source -- what the refusal resolves
-            the corpus from, so a graph-mode gap is reported as the corpus's
-            rather than as absent database files.
-
-    Raises:
-        BuildProfileError: when a deployed virtual accelerator has no channels
-            of the project's to serve.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import manifest_gap_reason
-
-    if not build_profile.deploy_services or build_profile.virtual_accelerator is None:
-        return
-    key = (str(data_root), tier)
-    if key in shared.va_reported:
-        return
-
-    if prepared is None:
-        if config is not None:
-            # The graph was consulted, so the tier-database framing is the
-            # wrong sentence: the reason names the corpus (or the per-tree
-            # file) that left this accelerator nothing to serve.
-            raise BuildProfileError(
-                f"this deployment runs a virtual accelerator, but no channel manifest "
-                f"could be built from its data tree {data_root}: "
-                f"{manifest_gap_reason(data_root, tier, config=config)}. The accelerator "
-                f"serves the project's own channels or the build stops here. Repair or "
-                f"stage what is named above, or remove the `virtual_accelerator:` block "
-                f"from the profile."
-            )
-        raise BuildProfileError(
-            f"this deployment runs a virtual accelerator, but no channel manifest could "
-            f"be built from its data tree {data_root} at tier {tier}: "
-            f"{manifest_gap_reason(data_root, tier)}. The accelerator serves the "
-            f"project's own channels or the build stops here. Add what is named above to "
-            f"the data tree, or remove the `virtual_accelerator:` block from the profile."
-        )
-
-    shared.va_reported.add(key)
-    metadata = prepared.manifest["_metadata"]
-    # The graph source as an operator names it: the search index the
-    # roster read, not the Turtle corpus behind it.
-    graph_source = metadata.get("source_corpus")
-    absent = metadata["absent_paradigms"]
-    novel = metadata["machine_json_novel_addresses"]
-    from_databases = metadata["total_channels"] - len(novel)
-    # The tree is named by what it is rather than by its absolute path: the
-    # operator is being told what the accelerator will serve, not sent to a
-    # path they would have to retype.
-    if graph_source is not None:
-        # The one source that is not a channel database. The index path is the
-        # configured spelling, which IS what an operator would retype.
-        line = (
-            f"Virtual-accelerator channel set built from this project's channel search "
-            f"index ({graph_source}): {from_databases} channel(s)"
-        )
-    else:
-        fed = _named_in_prose(metadata["source_paradigms"])
-        line = (
-            f"Virtual-accelerator channel set built from this project's own data tree at "
-            f"tier {tier}: {from_databases} channel(s) from its {fed} channel database(s)"
-        )
-    if novel:
-        # Not all of the count came from the databases the sentence just named,
-        # and a scenario seed is a different kind of source from a channel
-        # database. Naming the file is what lets an operator find the addresses
-        # that exist nowhere else.
-        line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
-    line += "."
-    if graph_source is not None and metadata["setpoint_count"]:
-        # What the corpus's device grouping bought: the pairs it states are
-        # the only channels a graph-sourced accelerator can echo a write on,
-        # and the operator driving one should know which count that is.
-        line += (
-            f" The corpus pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
-            "those are served as setpoint-echo channels, every other channel as static-noisy."
-        )
-    if absent:
-        line += f" Not staged at that tier: {_named_in_prose(absent)}."
-    corrupt = metadata["corrupt_paradigms"]
-    if corrupt:
-        # A staged database that could not be read is neither absent nor a
-        # source: it contributed nothing to the count above, and the operator
-        # is handed the file rather than left to work out why the census is
-        # short a database they shipped.
-        line += " Staged but unreadable, contributing no channels: " + _named_in_prose(
-            [f"{entry['paradigm']} ({entry['path']}) -- {entry['detail']}" for entry in corrupt]
-        )
-        line += "."
-    from osprey.services.virtual_accelerator.manifest.classify import PARTITION_STATIC_NOISY
-
-    # The degradation that changes what the accelerator can DO, so it is
-    # spelled out rather than left to be inferred from the list above. The
-    # claim is read off the manifest's own census -- 0 setpoints, everything
-    # static-noisy -- never off the source list, so a source that someday
-    # yields identity keys cannot have this printed falsely over it. The
-    # lead-in names the mechanism per source, and every source has one: for the
-    # graph this is not a missing database at all -- the corpus states
-    # membership and direction but no hierarchy path; for a tree without the
-    # hierarchical database no channel carries identity keys; and a tree that
-    # HAS one is degraded because of what that database says, either levels the
-    # partition rules cannot be evaluated against or tokens no rule matched.
-    # Nothing is invented to classify better than the source can say, and no
-    # source is left without an explanation of a census this thin.
-    degraded = metadata["setpoint_count"] == 0 and set(metadata["by_partition"]) <= {
-        PARTITION_STATIC_NOISY
-    }
-    if degraded:
-        unclassified_reason = metadata.get("unclassified_reason")
-        if graph_source is not None:
-            lead_in = " The knowledge graph carries no hierarchy identity keys, so"
-        elif "hierarchical" not in metadata["source_paradigms"]:
-            lead_in = " Without a hierarchical database the channels carry no identity keys, so"
-        elif unclassified_reason:
-            lead_in = (
-                " The hierarchical database is not levelled the way the partition rules read it "
-                f"({unclassified_reason}), so"
-            )
-        else:
-            tokens = metadata["by_ring"]
-            lead_in = (
-                " The hierarchical database's tokens matched no partition rule (top-level tokens "
-                f"seen: {_named_in_prose(sorted(tokens)) if tokens else 'none'}), so"
-            )
-        line += lead_in + (
-            " this"
-            " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
-            " every channel as static-noisy."
-        )
-    _report_fact(line)
-    reconciliation = metadata["machine_state_reconciliation"]
-    _report_fact(
-        "Virtual-accelerator machine-state channels reconciled against that channel set: "
-        f"{reconciliation['candidates_checked']} checked, "
-        f"{len(reconciliation['valid'])} valid, {len(reconciliation['invalid'])} invalid."
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class GraphIndexTarget:
     """The corpus one render derives its channel search index from, and where it goes.
@@ -1763,7 +1735,7 @@ class GraphIndexTarget:
     """The staged Turtle corpus, as ``services.graphdb.ttl_path`` resolves."""
 
     index_path: Path
-    """Where ``services.graphdb.index_path`` says the index goes."""
+    """``data/channel_databases/graph.duckdb`` under the render, where the index goes."""
 
 
 def _graph_index_target(
@@ -1771,20 +1743,22 @@ def _graph_index_target(
     rendered_config: Mapping[str, Any],
     reported: set[str] | None = None,
 ) -> GraphIndexTarget | None:
-    """The corpus and index path for a graph-mode render, or ``None`` with a reason.
+    """The corpus and index path for a render with a graph store, or ``None`` with a reason.
 
-    Only the rendered config can answer this: both keys are render-relative
+    Only the rendered config can answer this: the corpus key and the fixed
+    index path are render-relative
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`), so they
     are resolved against the render that wrote them rather than against the repo
-    or the working directory. That is the same resolution the roster, the
-    ``osprey knowledge`` verbs and the deploy's seeding step apply, which is what
-    keeps the build writing the index where every reader afterwards looks.
+    or the working directory. That is the same resolution the ``osprey
+    knowledge`` verbs and the deploy's seeding step apply, which is what keeps
+    the build writing the index where every reader afterwards looks.
 
-    The three answers that are not a target are facts rather than failures. A
-    project with no corpus staged is a legal project: it keeps its device card
-    from the store it dials, and its roster reports the same absence it reports
-    today. So each returns ``None`` after saying which key left it there, and
-    the build carries on.
+    A render with no ``services.graphdb`` block has no graph store and no
+    index to miss, so it returns ``None`` and says nothing. The three other
+    answers that are not a target are facts rather than failures. A project
+    with no corpus staged is a legal project: it keeps its device card from the
+    store it dials. So each returns ``None`` after saying which key left it
+    there, and the build carries on.
 
     Args:
         render_dir: The render's own directory, holding its ``config.yml``.
@@ -1817,7 +1791,10 @@ def _graph_index_target(
         _fact_once(f"No channel search index: the services.graphdb block cannot be read ({error}).")
         return None
 
-    ttl_path = settings.ttl_path if settings is not None else None
+    if settings is None:
+        return None
+
+    ttl_path = settings.ttl_path
     if ttl_path is None:
         _fact_once(
             "No channel search index: services.graphdb.ttl_path names no corpus to derive one from."
@@ -1843,8 +1820,7 @@ def _build_graph_index(
 ) -> Path | None:
     """Write the render's channel search index, building it at most once per build.
 
-    The index is what the graph paradigm's roster, explorer and keyword tool
-    read, so every render that ships a corpus ships one derived from THAT
+    The index is what the graph paradigm's explorer and keyword tool read, so every render that ships a corpus ships one derived from THAT
     corpus. Deriving it is an rdflib parse of the whole file, and the render
     passes of one build stage the same corpus over and over, so the first pass
     builds and the rest copy: the memo is keyed on the corpus text's digest
@@ -1910,16 +1886,33 @@ def _build_graph_index(
 
     shared.graph_indexes[digest] = target.index_path
     progress(
-        "  ✓ Built the channel search index (%d channel(s) from %s)",
-        report.channel_count,
+        "  ✓ Built the channel search index (%d binding(s) from %s)",
+        report.binding_count,
         target.corpus_path.name,
     )
     _report_fact(
         f"Channel search index built from {target.corpus_path.name}: "
         f"{report.binding_count} binding(s) over {report.device_count} device(s), "
-        f"{report.channel_count} channel(s), {report.class_count} class(es)."
+        f"{report.class_count} class(es)."
     )
     return target.index_path
+
+
+def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> str:
+    """The display name a build's facility document gives its facility.
+
+    :func:`osprey.utils.facility.identity_record` holds the one precedence.
+
+    Args:
+        facility: The build's in-memory facility document.
+        project_name: The name of the project being rendered.
+
+    Returns:
+        The display name.
+    """
+    from osprey.utils.facility import identity_record
+
+    return identity_record(facility["identity"], project_name)["name"]
 
 
 def _render_project(
@@ -1933,49 +1926,50 @@ def _render_project(
     progress: Any,
     extra_known: Sequence[str] = (),
     injected_out: list[str] | None = None,
+    repair: bool = True,
 ) -> Path:
     """Render one resolved profile into ``<output_dir>/<project_name>``.
 
     The build's whole render pass, and the one place it is written: the base
     template, the profile's config overrides, its services, its convention
-    artifacts, the virtual-accelerator manifest, the MCP servers, the build
+    artifacts, the facility file and its views, the MCP servers, the build
     manifest, and the Claude Code artifacts regenerated over the lot. A
-    deployment's own project and a persona's go through it identically — same
-    steps, same order, same inputs bar the profile — because a persona that
+    deployment's own project and a render's go through it identically — same
+    steps, same order, same inputs bar the profile — because a render that
     differed from its host in any of them would be a different deployment
     wearing its name.
 
-    What is NOT here is what a persona does not get, and each is deliberate:
+    What is NOT here is what a render does not get, and each is deliberate:
 
-    * **the venv** — one per repo, at ``build/.venv``. A persona project is a
+    * **the venv** — one per repo, at ``build/.venv``. A render project is a
       container image build context, and the image installs its own
       dependencies from ``OSPREY_PIP_SPEC``;
     * **the compose files** — the deployment's compose describes the whole
-      stack, personas included. A persona project is never deployed on its own;
+      stack, renders included. A render project is never deployed on its own;
     * **the lifecycle phases** — ``pre_build``/``post_build``/``validate`` are
       the profile's own shell commands, and a delta inherits them from the root.
-      Running them once per persona would run the same commands three times over
+      Running them once per render would run the same commands three times over
       for one build.
 
     Args:
         shared: What this render has in common with every other in this build.
-        resolved: The ``LoadedProfile`` for this project — for a persona, the
+        resolved: The ``LoadedProfile`` for this project — for a render, the
             delta already merged over the root profile, with the root as its
             profile directory.
         profile_path: The profile FILE this render came from, recorded in the
-            manifest. The delta itself for a persona, so a rendered project can
+            manifest. The delta itself for a render, so a rendered project can
             always name the source it is derived from.
         project_name: The rendered project's name and directory leaf.
         output_dir: The directory the render lands under.
         deployment: Whether this is the deployment's own project rather than a
-            persona's. Gates the two things only it gets: the drift check's
+            render's. Gates the two things only it gets: the drift check's
             per-key manifest digests, and the provider-credential report (an
             account of the repo's one ``.env``, identical for every render).
         progress: Where the per-step progress lines go — ``logger.info`` for
-            the deployment, ``logger.debug`` for a persona, whose steps are
-            summarized in one line by :func:`_render_persona_projects`.
+            the deployment, ``logger.debug`` for a render, whose steps are
+            summarized in one line by :func:`_render_projects`.
         extra_known: Repo-root entry names to exempt from the unknown-entry
-            warning on top of the profile's own, so a persona render does not
+            warning on top of the profile's own, so a render does not
             repeat a warning the deployment's render already made.
         injected_out: A list to record this render's injected service names in,
             for a caller that reports them. Passed rather than returned because
@@ -1983,21 +1977,25 @@ def _render_project(
             caller names the ONE pass whose set it reports (``deployment`` does
             not identify it — the deployment's container copy renders with it
             set too).
+        repair: Whether the render may write into the profile: rescue the
+            facility description into ``rules/`` and seed a
+            ``web-terminal-context/<user>/`` directory for each roster user
+            without one. ``False`` renders from the profile as it stands and
+            writes nothing outside ``output_dir``.
 
     Returns:
         The rendered project directory.
     """
     from osprey.agent_runner.provider_env import load_provider_spec
-    from osprey.build.build_tiers import tier_mode_conflict
     from osprey.deployment.reach import reach_errors
-    from osprey.services.virtual_accelerator.manifest.build import (
-        prepare_project_manifest,
-        write_project_manifest,
-    )
 
-    from .build_posture_check import missing_posture_errors
+    from .build_posture_check import (
+        check_approval_enabled,
+        check_approval_hook_selected,
+        missing_posture_errors,
+    )
     from .build_profile_archiver import va_archiver_config_overrides
-    from .build_profile_deploy import deploy_config_overrides
+    from .build_profile_deploy import deploy_config_overrides, profile_dispatch_tier
     from .build_profile_health import health_config_overrides
     from .build_profile_panels import apply_panel_selection, panel_selection_overrides
     from .build_profile_ports import layout_port_fill
@@ -2052,8 +2050,8 @@ def _render_project(
     # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
     # It is a file rather than a profile field because it is a list of
     # endpoints, not a facility decision, and it is read here rather than
-    # carried in `shared` because a persona render reads the same repo root:
-    # a persona talks to its deployment's gateways, so the two render one
+    # carried in `shared` because a render reads the same repo root:
+    # a render talks to its deployment's gateways, so the two render one
     # catalog. A `config:` spelling of the same key is refused in
     # `BuildProfile.validate`, so this is the only writer of the block.
     context["provider_catalog"] = load_provider_catalog(repo_root).entries
@@ -2064,6 +2062,10 @@ def _render_project(
     # project's provenance; without it the first render says "hand-written" for
     # every project until the regen overwrites the file.
     context["preset"] = recorded_preset
+    # The facility's display name for the prompts this render writes. The
+    # facility file reaches the render only after them, so the name travels
+    # from the build's in-memory facility document.
+    context["facility_name"] = _facility_display_name(shared.facility, project_name)
 
     # The facility description is the profile's, not the render's. Ensured
     # before the render so the framework's create-only copy is not what a
@@ -2073,65 +2075,25 @@ def _render_project(
     # facility rule has no description to keep.
     selected = effective_artifacts or {}
     if FACILITY_RULE_NAME in selected.get("rules", []):
-        moved = ensure_profile_facility_rule(
-            repo_root,
-            build_dir=shared.build_dir,
-            enabled_agents=selected.get("agents", []),
-        )
-        if moved:
-            _report_fact(moved)
-        # Rendering it into build/ as well would give the operator two files
-        # and no way to tell which one the deployment reads; the convention
-        # copy below carries the profile's in.
-        context["profile_owns_facility_rule"] = True
+        if repair:
+            moved = ensure_profile_facility_rule(
+                repo_root,
+                build_dir=shared.build_dir,
+                enabled_agents=selected.get("agents", []),
+            )
+            if moved:
+                _report_fact(moved)
+            # Rendering it into build/ as well would give the operator two files
+            # and no way to tell which one the deployment reads; the convention
+            # copy below carries the profile's in.
+            context["profile_owns_facility_rule"] = True
+        else:
+            context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
 
-    # Prepared before the render (which prunes the tiers/ subtree the paradigm
-    # databases live in) and written after it, so the decision is settled before
-    # anything is written.
-    #
     # The profile's own tree is the only one there is: `data:` is required of
-    # every profile file, so nothing falls back to a packaged bundle here and
-    # the manifest describes the facility's databases or the build refuses.
-    va_data_root = build_profile.resolved_data_root(repo_root)
-    assert va_data_root is not None  # `data:` required; narrows for type-checkers
-    va_key = (str(va_data_root), build_profile.resolved_tier())
-    if va_key not in shared.va_manifests:
-        shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
-    prepared_va_manifest = shared.va_manifests[va_key]
-    # A graph-mode tree that stages no paradigm database is not yet a verdict:
-    # its channels live in the knowledge-graph corpus, and the corpus is a
-    # render-relative config value (`services.graphdb.ttl_path`) that only the
-    # rendered config can resolve. The manifest question is re-asked after the
-    # render, with that config in hand -- see below, before the manifest write.
-    va_graph_deferred = (
-        prepared_va_manifest is None and build_profile.channel_finder_mode == "graph"
-    )
-    # Prepared unconditionally above (the memoization is the build's, not the
-    # virtual accelerator's); only what is SAID about it is gated on the
-    # virtual accelerator actually being deployed.
-    if not va_graph_deferred:
-        _report_va_manifest_outcome(
-            shared,
-            build_profile,
-            data_root=va_data_root,
-            tier=va_key[1],
-            prepared=prepared_va_manifest,
-        )
-
-    # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
-    # not "the tier to use": given ``None`` it applies the same paradigm-aware
-    # derivation ``resolved_tier()`` does, and given a value it enforces
-    # ``tier_mode_conflict`` against it. So a paradigm that refuses an explicit
-    # tier — one whose store is a service rather than tiered database files —
-    # must be handed ``None`` here, or its own derived default comes back as a
-    # pin and the build refuses to render at all. Ask the rule rather than
-    # naming the paradigm, so this stays true as paradigms are added.
-    derived_tier = build_profile.resolved_tier()
-    pinned_tier = (
-        None
-        if tier_mode_conflict(derived_tier, build_profile.channel_finder_mode)
-        else derived_tier
-    )
+    # every profile file, so nothing falls back to a packaged bundle here.
+    data_root = build_profile.resolved_data_root(repo_root)
+    assert data_root is not None  # `data:` required; narrows for type-checkers
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2146,7 +2108,7 @@ def _render_project(
         # is the deployment's whole secret store, it is mounted from the repo root,
         # and a build neither reads nor rewrites it — copying it into the disposable
         # zone would put the facility's keys somewhere a `rm -rf build/` is
-        # documented to make safe. A persona render is inside that same zone and is
+        # documented to make safe. A render is inside that same zone and is
         # a container build context on top of it, so it gets no `.env` either; its
         # container is handed one at run time through compose.
         manager.create_project(
@@ -2156,8 +2118,7 @@ def _render_project(
             context=context,
             force=True,
             artifacts=effective_artifacts,
-            tier=pinned_tier,
-            data_root=va_data_root,
+            data_root=data_root,
         )
         progress("  ✓ Base template rendered")
 
@@ -2178,32 +2139,42 @@ def _render_project(
         # contribute to the rendered config, applied with the profile's own
         # `config:` entries in one pass.
         #
-        # Two entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
+        # Three entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
         # `layout`'s host ports: a host port is the facility's to move —
         # `services.<name>.port` is the documented override — so the fill only
         # supplies the layout's number for a service block the profile deploys
         # and left without one, and a spelled port is skipped rather than
-        # refused. The other is the deploy block's `registry.url`, filled only
+        # refused. Another is the deploy block's `registry.url`, filled only
         # when `config:` names none, because a facility may point the web tier
-        # at a registry other than the one CI pushes to. Every other derived key
+        # at a registry other than the one CI pushes to. The third is
+        # `graphdb`'s corpus: a `services.graphdb` block seeds its store from
+        # the graph view this build writes unless the profile names a corpus
+        # of its own. Every other derived key
         # the profile also spells is rejected at validation, so winning here can
         # never silently overwrite a facility's own value. `layout` is listed
         # first so that a block below, which does own its keys, still wins if
         # the two ever name one key. The `modules.web_terminals` entry is
         # REFUSE-IF-CONTRADICTED: a spelling that agrees with it is accepted, and
         # health_url_key_errors refuses any other value at validation, so the
-        # overwrite never silently replaces a different value. The persona
-        # catalog's `project`/`project_path` are DERIVED for every entry with a
-        # `build_profile` (validation refuses a profile spelling of either), and
-        # empty for a render that stands up no persona stack of its own — a
-        # persona's render — so no render derives personas-of-a-persona.
-        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+        # overwrite never silently replaces a different value. The render
+        # projection `modules.web_terminals.renders` is DERIVED from this repo's
+        # tier and app files (validation refuses a profile spelling of it). The
+        # deployment projects it when it stands up web terminals or runs its
+        # dispatch workers at a tier; a tier's or app's render stands up neither,
+        # so no render projects renders-of-a-render.
+        from osprey.deployment.web_terminals.render_naming import derived_renders
 
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "modules.web_terminals": health_config_overrides(build_profile.config),
-            "project_name": derived_persona_catalog(build_profile.config, project_name),
+            "graphdb": graphdb_corpus_fill(build_profile.config),
+            "project_name": derived_renders(
+                build_profile.config,
+                project_name,
+                repo_root,
+                dispatch_tier=profile_dispatch_tier(build_profile) if deployment else None,
+            ),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
@@ -2250,9 +2221,23 @@ def _render_project(
                 # with the profile's own `config:` laid over them, and the layout's
                 # ports filled in for the service blocks it names — is what the
                 # host says.
+                #
+                # `dispatch.tier` is judged against the deployment's own base,
+                # never a tier-merged one: the deployment's render, the first of
+                # every build, took this reading of the root profile and judged
+                # the tier there. A tier's or app's render takes it with the
+                # tier cleared, or the tier's own posture (admin's Config panel)
+                # would be read as the base the dispatch tier inherits.
+                host_profile = build_profile
+                if not deployment and build_profile.dispatch is not None:
+                    from dataclasses import replace
+
+                    host_profile = replace(
+                        build_profile, dispatch=replace(build_profile.dispatch, tier=None)
+                    )
                 host_config = _template_host_config(
                     shared,
-                    build_profile,
+                    host_profile,
                     project_name=project_name,
                     render_dir=render_dir,
                     profile_dir=repo_root,
@@ -2290,16 +2275,18 @@ def _render_project(
             if tabless:
                 raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
 
-        injected = _inject_services(build_profile, repo_root, render_dir)
+        injected = _inject_services(
+            build_profile, repo_root, render_dir, facility_name=context["facility_name"]
+        )
         if injected_out is not None:
             injected_out.extend(injected)
 
         # The selection, projected. The tab strip is read from `web.panels` alone,
         # and by now every block this render will carry is there: the template's
         # own for a selected builtin, the profile's `config:` facts about a custom
-        # panel, the facts a persona inherits for a tab it excluded, the blocks the
-        # injectors just wrote for a tab only a persona selects. Each is told
-        # whether THIS render shows it — the facts stay (a persona cannot subtract
+        # panel, the facts a render inherits for a tab it excluded, the blocks the
+        # injectors just wrote for a tab only a render selects. Each is told
+        # whether THIS render shows it — the facts stay (a render cannot subtract
         # `config:`, and the Reach Contract copies addresses from the host's
         # render); only `enabled` moves, and it says one thing: selected here.
         projected_tabs = panel_selection_overrides(
@@ -2335,17 +2322,30 @@ def _render_project(
             # has a reader that answers something regardless.
             *missing_posture_errors(_rendered_config(render_dir), build_profile.hooks),
         ]
+        # The render is what the approval hook reads, so it is the render that
+        # is held to these rules. A guarded tool put to a human in a profile that does not select the
+        # approval hook would never be asked; the render is held to "asks ⇒ hook
+        # selected" so config.yml alone answers whether a call is asked.
+        # An approval switch that is not true or false would turn every prompt
+        # off, or on, by truthiness; the render states a bool or nothing.
+        check_approval_enabled(_rendered_config(render_dir))
+        check_approval_hook_selected(_rendered_config(render_dir), build_profile.hooks)
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,
         # restart and preflight this deployment read the render, and must act on
         # the runtime that owns the containers rather than re-detect one.
         _resolve_rendered_container_runtime(render_dir, progress)
+        # And who host launches send and record as, recorded once so the two
+        # agree whichever account later runs them. The deployment's render
+        # only: a render's runs in a container the compose file names.
+        if deployment:
+            _record_host_identity(render_dir, _rendered_config(render_dir))
 
         applied = _apply_conventions(
             repo_root,
             render_dir,
-            _resolve_context_roster(render_dir),
+            _resolve_context_roster(render_dir) if repair else None,
             extra_known=[
                 *_profile_known_root_entries(build_profile, profile_path),
                 *extra_known,
@@ -2362,54 +2362,42 @@ def _render_project(
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
 
+        # The limits database is the limits view, written below with the other
+        # facility outputs; the render names it before anything reads the config.
+        _inject_limits_database(render_dir)
+
         # The render is on disk, so its config can resolve the two paths that are
         # relative to it: the corpus this render staged and the index derived
-        # from it. Loaded once here and handed to the deferred manifest step
-        # below, which asks the same config the same question.
+        # from it. Loaded once here and handed to the steps below.
         rendered = _rendered_config(render_dir)
         rendered["config_dir"] = str(render_dir)
 
-        # The graph paradigm's roster, explorer and keyword tool all read the
-        # search index rather than the corpus, so a graph-mode render that ships
-        # a corpus ships the index too. Gated on the paradigm the profile
-        # resolved, which is what the render just wrote as
-        # `channel_finder.pipeline_mode`. Before the manifest write below, so the
-        # index is inside the render when the checksums are taken.
-        if build_profile.channel_finder_mode == "graph":
-            graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
-            if graph_target is not None:
-                _build_graph_index(shared, graph_target, progress)
+        # The build's facility outputs, written before the search index and the
+        # manifest so both are taken over a render that already carries them.
+        from osprey.facility.render import render_facility_outputs
 
-        if va_graph_deferred:
-            # The deferred half of the manifest step above: the render is on disk,
-            # so the rendered config can resolve the corpus the roster reads --
-            # the same resolution every other roster consumer applies. The refusal
-            # (a virtual accelerator with an unreadable or empty corpus) fires
-            # here, still before anything is published outside the render zone.
-            prepared_va_manifest = prepare_project_manifest(
-                va_data_root, va_key[1], config=rendered
-            )
-            shared.va_manifests[va_key] = prepared_va_manifest
-            _report_va_manifest_outcome(
-                shared,
-                build_profile,
-                data_root=va_data_root,
-                tier=va_key[1],
-                prepared=prepared_va_manifest,
-                config=rendered,
-            )
+        render_facility_outputs(
+            render_dir,
+            shared.facility,
+            rendered,
+            data_root / "facility",
+            omitted_reported=shared.views_omitted_reported,
+        )
+        progress("  ✓ Wrote the facility file and its views")
 
-        if prepared_va_manifest is not None:
-            write_project_manifest(prepared_va_manifest, render_dir / "data")
-            progress(
-                "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
-                prepared_va_manifest.manifest["_metadata"]["total_channels"],
-            )
+        # The explorer and the keyword tool read the search index rather than the
+        # corpus, so every render that seeds a graph store ships the index
+        # derived from the same corpus, whatever its channel-finder paradigm.
+        # Before the manifest write below, so the index is inside the render
+        # when the checksums are taken.
+        graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
+        if graph_target is not None:
+            _build_graph_index(shared, graph_target, progress)
 
         # The limits database is read here and not in the `unrunnable` gate above,
-        # because it arrives with the conventions: the profile's `data/` tree is
-        # copied into the render after that gate, and a relative `database_path`
-        # resolves to exactly that copy. Same refusal shape as the gate.
+        # because it arrives with the conventions: the limits view is written into
+        # the render after that gate, and the `database_path` the build names
+        # resolves to that file. Same refusal shape as the gate.
         limits_errors = limits_database_errors(render_dir)
         if limits_errors:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
@@ -2429,7 +2417,7 @@ def _render_project(
         "default_model": build_profile.model,
         # Absolute, and on every build: for the deployment this is the profile
         # the drift check re-hashes to decide whether `build/` still describes
-        # the source; for a persona it is the delta the render came from.
+        # the source; for a render it is the delta the render came from.
         "profile_path_abs": str(profile_path),
     }
     if build_profile.channel_finder_mode is not None:
@@ -2467,14 +2455,12 @@ def _render_project(
             "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
         )
     try:
-        # Reachability: with defer_unresolved_telemetry_creds=True, an
-        # unresolved "${VAR}" in an openobserve credential (user/password) no
-        # longer raises here — _openobserve_auth_header
-        # (claude_code_telemetry.py) warns and omits the auth header instead.
-        # Only the missing/blank-credential arm of that same check still
+        # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
+        # gateway login or a collector token absent at build time does not
+        # raise here — a build never carries the secret, so
+        # _gateway_auth_header and _bearer_header (claude_code_telemetry.py)
+        # omit the auth header instead. Only a malformed credential still
         # raises ObservabilityCredentialError into this ValueError catch.
-        # Pinned by test_deferred_var_credential_warns_not_raises_through_resolve
-        # in tests/cli/test_telemetry_env.py.
         #
         # A provider base_url still spelled "${VAR}" is deferred for the same
         # reason: this render may start on another host (a container image is
@@ -2558,110 +2544,167 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
         output.warn_fact(logger, summary, detail, remedy)
 
 
-def _persona_deltas(repo_root: Path) -> list[Path]:
-    """Every persona delta a build of *repo_root* renders a project for.
+def _warn_facility_build(warnings: Iterable[FacilityBuildWarning]) -> None:
+    """Print the facility build's warnings, one each.
 
-    The direct children of ``personas/`` that are files and are not dot-prefixed,
-    sorted by name — deliberately the same enumeration as the drift
-    fingerprint's
-    (:func:`~osprey.cli.build_profile_merge._fold_profile_material`), and for the
-    same reason it uses: root discovery reads a file as a delta only when its
-    parent directory IS ``personas/``
-    (:func:`~osprey.cli.profile_root.resolve_profile_root`), so a nested tree is
-    not build input.
+    They go through ``warn_fact`` because the altitude gate keeps raw warnings
+    off the terminal while the build draws its phases; the build made them
+    once, so each prints once.
 
-    The two enumerations have to agree exactly. A file the fingerprint covers but
-    the render skips would make an edit to it refuse the next start with nothing
-    to re-render; a file the render picks up but the fingerprint misses would let
-    an edit to it ship silently. That is also why there is no suffix filter here:
-    ``personas/`` holds deltas and nothing else, so a file in there that will not
-    parse as a profile is a mistake the build should name rather than walk past.
+    Args:
+        warnings: The warnings of a clean facility build, in the order found.
+    """
+    from . import output
 
-    Returns an empty list when there is no ``personas/`` directory, which is what
-    keeps a repo without personas rendering exactly what it rendered before.
+    for warning in warnings:
+        output.warn_fact(logger, warning.summary, None, warning.remedy)
+
+
+def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
+    """Every layer file a build of *repo_root* renders a project for.
+
+    :func:`~osprey.cli.profile_root.layer_files` — the direct children of
+    ``tiers/``, ``apps/`` and the retired layer directory — which is the same listing the
+    content-hash fold (:func:`~osprey.cli.build_profile_merge._fold_profile_material`)
+    and the staleness digests read. The build and the fingerprint have to agree
+    exactly: a file the fingerprint covers but the render skips would make an
+    edit to it refuse the next start with nothing to re-render; a file the
+    render picks up but the fingerprint misses would let an edit to it ship
+    silently.
+
+    Returns an empty list when there is no layer directory, which is what keeps
+    a repo without layers rendering exactly what it rendered before.
 
     Raises:
-        BuildProfileError: When a delta does not anchor back at *repo_root* —
-            see the containment check below.
+        BuildProfileError: When a layer does not anchor back at *repo_root*
+            (see the containment check below), or two layer files share a
+            name, which would render two projects into one directory.
     """
-    from .profile_root import PERSONA_DIRNAME, resolve_profile_root
+    from .profile_root import layer_files, resolve_profile_root
 
-    persona_dir = repo_root / PERSONA_DIRNAME
-    if not persona_dir.is_dir():
-        return []
-    deltas = sorted(
-        (
-            entry
-            for entry in persona_dir.iterdir()
-            if entry.is_file() and not entry.name.startswith(".")
-        ),
-        key=lambda entry: entry.name,
-    )
+    layers = layer_files(repo_root)
 
-    # The property the rest of this rests on: a file found under `personas/`
-    # must be read AS a delta over THIS repo's profile. The enumeration above is
-    # lexical and cannot see a symlink; root discovery resolves one. So a delta
-    # symlinked in from elsewhere, or a symlinked `personas/` directory, would
+    # The property the rest of this rests on: a file found in a layer directory
+    # must be read AS a layer over THIS repo's profile. The enumeration is
+    # lexical and cannot see a symlink; root discovery resolves one. So a layer
+    # symlinked in from elsewhere, or a symlinked layer directory, would
     # otherwise be read as a standalone profile — rendering a hollow project
-    # with none of this repo's data tree, conventions or secrets — or as a delta
+    # with none of this repo's data tree, conventions or secrets — or as a layer
     # over a different facility's profile, and either way reporting nothing. The
-    # drift fingerprint folds the same files without resolving them, so a build
-    # that walked past this would also be stamping a hash over material it never
+    # fingerprint folds the same files without resolving them, so a build that
+    # walked past this would also be stamping a hash over material it never
     # rendered from.
-    for delta in deltas:
-        anchored_root, is_delta = resolve_profile_root(delta)
-        if not is_delta or anchored_root != repo_root:
+    seen: dict[str, Path] = {}
+    for _kind, layer in layers:
+        anchored_root, anchored_kind = resolve_profile_root(layer)
+        if not anchored_kind.is_layer or anchored_root != repo_root:
             landed = (
-                f"a delta over the profile at {anchored_root}"
-                if is_delta
+                f"a layer over the profile at {anchored_root}"
+                if anchored_kind.is_layer
                 else f"a standalone profile at {anchored_root}"
             )
             raise BuildProfileError(
-                f"{delta} resolves to {landed}, not a delta over this repo's own "
-                f"{PROFILE_FILENAME} at {repo_root}. A symlinked delta, or a symlinked "
-                f"{PERSONA_DIRNAME}/ directory, does this: the persona would be built "
-                "without this deployment's data tree, conventions and secrets, or over "
-                f"somebody else's. Keep every delta a real file inside {persona_dir}."
+                f"{layer} resolves to {landed}, not a layer over this repo's own "
+                f"{PROFILE_FILENAME} at {repo_root}. A symlinked layer file, or a "
+                f"symlinked {layer.parent.name}/ directory, does this: it would be "
+                "built without this deployment's data tree, conventions and secrets, "
+                f"or over somebody else's. Keep every layer a real file inside "
+                f"{layer.parent}."
             )
-    return deltas
+        twin = seen.setdefault(layer.stem, layer)
+        if twin != layer:
+            raise BuildProfileError(
+                f"{twin} and {layer} share the name {layer.stem!r}, and a layer's "
+                "project is named by its file, so both would render into one "
+                "directory. Keep one of them: rename the other, or delete it."
+            )
+    return layers
 
 
-def _render_persona_projects(
-    shared: _SharedRenderInputs, zones: _RenderZones, project_name: str
-) -> list[Path]:
-    """Render ``build/<project_name>-<persona>/`` for every delta in ``personas/``.
+def _layer_render(
+    shared: _SharedRenderInputs,
+    kind: ProfileKind,
+    layer: Path,
+    *,
+    project_name: str,
+    host_profile: BuildProfile,
+) -> tuple[str, Any]:
+    """The rendered project name and the resolved profile for one tier or app file.
 
-    Personas are rendered HERE, by the build, and nowhere else. No start verb
-    renders one: ``build/`` is the complete account of what a deploy will run,
-    and a persona project appearing at ``osprey up`` would have made that false
-    exactly when it mattered — an operator whose delta changed would have had a
-    fresh persona beside a stale deployment, from a start that re-rendered half
-    the stack.
+    The one place a layer file is turned into what its render is made from, so
+    the host-side render and the image copy of it cannot disagree about either.
 
-    Into the STAGED tree, so persona projects transit the atomic swap with
-    everything else (:func:`_swap_in_render`): a persona whose delta will not
-    resolve fails the whole build and leaves the previous ``build/`` — every
-    project in it — exactly as it was. Never a half-written set.
+    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s
+    for the file's kind, the same call the render projection
+    (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
+    makes when it writes ``modules.web_terminals.renders.<name>`` into the
+    deployment's config, which is how the deploy finds this render.
 
-    The naming is :func:`~osprey.deployment.web_terminals.persona_naming.persona_project`'s,
-    the same call that writes every catalog entry's ``project`` and
-    ``project_path`` into the deployment's rendered config (see
-    :func:`_render_project`), which is how the deploy finds the render this
-    produced. Every delta is rendered whether the
-    catalog names it or not — the catalog decides which personas are *deployed*,
-    ``personas/`` decides which exist — so a delta added before its catalog entry
-    is already built when the entry lands.
+    A tier is the deployment's own agent at one access level, so its render
+    records the deployment's preset: the packaged trees it copies and the preset
+    its manifest is stamped with are the deployment's. The tier file's own
+    ``provenance:`` block says which bundled tier it was materialized from, which
+    is a fact about that file for ``osprey validate`` and not a preset the build
+    could copy anything from. An app keeps what its resolution gives it: the
+    composer already carries the deployment's provenance.
 
     Returns:
-        The persona render directories, for the runtime-state prune.
+        ``(project, resolved)``: the render's project name and its
+        ``LoadedProfile``.
     """
-    from osprey.deployment.web_terminals.persona_naming import persona_project
+    from dataclasses import replace
+
+    from osprey.deployment.web_terminals.render_naming import (
+        RENDER_KIND_APP,
+        RENDER_KIND_TIER,
+        render_project,
+    )
 
     from .build_profile import resolve_build_document
+    from .profile_root import ProfileKind
+
+    render_kind = RENDER_KIND_APP if kind is ProfileKind.APP else RENDER_KIND_TIER
+    project, _ = render_project(project_name, layer.stem, kind=render_kind)
+    resolved = resolve_build_document(layer, None, shared.profile_overlays)
+    if kind is not ProfileKind.APP:
+        profile = replace(resolved.profile, provenance=host_profile.provenance)
+        # Not a dataclass field, so `replace` does not carry it: set it here.
+        profile.inherited_preset = host_profile.inherited_preset
+        resolved = replace(resolved, profile=profile)
+    return project, resolved
+
+
+def _render_projects(
+    shared: _SharedRenderInputs,
+    zones: _RenderZones,
+    project_name: str,
+    *,
+    host_profile: BuildProfile,
+) -> list[Path]:
+    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/`` and ``apps/``.
+
+    Tiers and apps are rendered HERE, by the build, and nowhere else. No start
+    verb renders one: ``build/`` is the complete account of what a deploy will
+    run, and a render appearing at ``osprey up`` would make that false exactly
+    when it mattered: an operator whose tier file changed would get a fresh tier
+    beside a stale deployment, from a start that re-rendered half the stack.
+
+    Into the STAGED tree, so these projects transit the atomic swap with
+    everything else (:func:`_swap_in_render`): a tier or app that will not
+    resolve fails the whole build and leaves the previous ``build/`` exactly as
+    it was. Never a half-written set.
+
+    Every file is rendered whether the roster references it or not: the roster
+    decides which renders are *deployed*, ``tiers/`` and ``apps/`` decide which
+    exist. See :func:`_layer_render` for how each one is named and resolved.
+
+    Returns:
+        The render directories, for the runtime-state prune.
+    """
     from .profile_conventions import unknown_root_entries
 
-    deltas = _persona_deltas(shared.repo_root)
-    if not deltas:
+    layers = _layer_files(shared.repo_root)
+    if not layers:
         return []
 
     # Already warned about once, by the deployment's own render. The entries are
@@ -2670,15 +2713,17 @@ def _render_persona_projects(
     already_warned = unknown_root_entries(shared.repo_root)
 
     rendered: list[Path] = []
-    for delta in deltas:
-        persona_name, _ = persona_project(project_name, delta.stem)
-        logger.debug("  Rendering persona %r → %s/", delta.stem, persona_name)
+    for kind, layer in layers:
+        project, resolved = _layer_render(
+            shared, kind, layer, project_name=project_name, host_profile=host_profile
+        )
+        logger.debug("  Rendering %s %r → %s/", kind.value, layer.stem, project)
         rendered.append(
             _render_project(
                 shared,
-                resolve_build_document(delta, None, shared.profile_overlays),
-                profile_path=delta,
-                project_name=persona_name,
+                resolved,
+                profile_path=layer,
+                project_name=project,
                 output_dir=zones.stage,
                 deployment=False,
                 progress=logger.debug,
@@ -2702,7 +2747,7 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
       it from the source beside the render
       (:func:`~osprey.cli.build_profile_merge._fold_profile_material` covers the
       ``data:`` tree, every convention directory, ``triggers.yml`` and every
-      persona delta), and a container carrying the profile alone reports its own
+      layer), and a container carrying the profile alone reports its own
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
@@ -2892,7 +2937,7 @@ def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
     the context — and :func:`_relocate_container_manifest` does, stamping the
     profile hash that ``osprey status`` and the drift gate re-check inside the
     container. The hash folds the profile's file inputs (``data/``, the
-    convention directories, ``personas/``), and those patterns are ``**/``-
+    convention directories, ``tiers/``), and those patterns are ``**/``-
     anchored, so a stray ``data/ingest.log`` or a ``__pycache__/`` under a
     convention directory would be folded into the stamp here and then be missing
     from the image there. The container would recompute a different hash and
@@ -2939,19 +2984,19 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
       render came from, recorded as the building host's absolute path. Rewritten
       to paths inside the container, which is where those files actually are: the
       source zone travels with the render, so both the root profile and the
-      persona deltas ARE in the image. These are the last host strings in the
+      layers ARE in the image. These are the last host strings in the
       tree; with them gone, "no path in an image names the build machine" is a
       property that can be asserted in one line.
 
       The two are rewritten to DIFFERENT files, on purpose.
       ``profile_path`` keeps naming the file this render came from — the
-      persona delta for a persona image — because that is its job: provenance.
+      layer for a render image — because that is its job: provenance.
       ``profile_path_abs`` is not provenance; it is the input
       :func:`~osprey.deployment.staleness.staleness_reasons` hashes and compares
       against ``creation.preset_hash``, so it must name the same file the stamp
       below is computed from — the repo's own ``profile.yml``. Pointed at the
       delta it would hash the delta against a root-profile stamp and every
-      persona container would print "profile has changed" on an untouched build:
+      render container would print "profile has changed" on an untouched build:
       a false drift report from the advisory while
       :func:`~osprey.deployment.staleness.check_drift`, which reads the profile
       off the repo root, correctly says CLEAN. Advisory and gate now agree by
@@ -2959,13 +3004,13 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
     * ``creation.preset_hash`` — the fingerprint
       :func:`osprey.deployment.staleness.check_drift` holds ``build/`` against.
       For the deployment's own image this is already right (same profile, same
-      fold) and the rewrite is a no-op. For a PERSONA's image it is not: that
-      render came from ``personas/<name>.yml`` merged over the root, while the
+      fold) and the rewrite is a no-op. For a RENDER's image it is not: that
+      render came from ``tiers/<name>.yml`` merged over the root, while the
       ``profile.yml`` at the root of the repo the image carries is the root
       profile — so an operator running ``osprey status`` in that container would
       be told its own untouched build had drifted. Re-stamped from the profile
       the container actually holds, which is the profile that produced this
-      whole tree; the persona delta is folded into that fingerprint too.
+      whole tree; the layer is folded into that fingerprint too.
 
     Skipped quietly if the manifest or the fingerprint cannot be read: a build
     that has rendered a complete tree must not fail on its commentary.
@@ -3033,7 +3078,7 @@ def _render_container_project(
     else: a container copy that fails to render fails the whole build and leaves
     the previous ``build/`` — every project in it — exactly as it was.
 
-    What it deliberately does NOT get, beyond what a persona render skips:
+    What it deliberately does NOT get, beyond what a render skips:
 
     * **the venv and the dependency install** — an image builds its own
       environment from ``OSPREY_PIP_SPEC``, and a venv recording the host's
@@ -3047,7 +3092,7 @@ def _render_container_project(
       the profile's own shell commands and ran once for this build already.
 
     :param deployment: Whether this is the deployment's own image rather than a
-        persona's — see :func:`_render_project`'s parameter of the same name.
+        render's — see :func:`_render_project`'s parameter of the same name.
     :returns: The container repo root, ready to be a build context.
     """
     from .profile_conventions import unknown_root_entries
@@ -3093,38 +3138,35 @@ def _render_container_projects(
     profile_path: Path,
     project_name: str,
 ) -> list[Path]:
-    """Every image context this build produces — the deployment's and each persona's.
+    """Every image context this build produces: the deployment's, and each tier's and app's.
 
     One rule, applied as many times as this repo has images to build: an image's
     build context is ``build/.image/<the image's project name>/``, and it is a
     deployment repo rendered against the ``/app/<project name>`` path that image
-    will see itself at. The deployment gets one; every delta under ``personas/``
-    gets one, because a persona is deployed as its own image and needs the same
-    things the deployment's does.
+    will see itself at. The deployment gets one; every file under ``tiers/`` and
+    ``apps/`` gets one, because each is deployed as its own image and needs the
+    same things the deployment's does.
 
-    A persona's needs are in fact sharper. Its render is the ONLY place its
-    ``config:`` deltas exist — ``control_system.writes_enabled`` among them —
-    and a persona image built from the deployment's render would come up with
-    the deployment's config and none of that persona's, which is the difference
-    between a read-only terminal and one that writes to hardware. The persona's
-    ``.mcp.json`` names ``/app/<project_name>-<persona>/build/config.yml``, so
-    its servers read ITS config, and only its own image carries that file.
+    A tier's or app's needs are in fact sharper. Its render is the ONLY place
+    its ``config:`` exists (``control_system.writes_enabled`` among it), and an
+    image built from the deployment's render would come up with the
+    deployment's config and none of its own, which is the difference between a
+    read-only terminal and one that writes to hardware. Its ``.mcp.json`` names
+    ``/app/<project_name>-<name>/build/config.yml``, so its servers read ITS
+    config, and only its own image carries that file.
 
-    The host-side persona renders at ``build/<project_name>-<persona>/`` are untouched
-    and stay FLAT: the credential sweep
+    The host-side renders at ``build/<project_name>-<name>/`` are untouched and
+    stay FLAT: the credential sweep
     (:func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`),
     the render check
-    (:func:`osprey.deployment.web_terminals.persona_images._check_existing_render`)
+    (:func:`osprey.deployment.web_terminals.render_images._check_existing_render`)
     and the lint rule all read ``config.yml`` at that render's root, and the
-    catalog's ``project_path`` is an externally-pinned contract. Personas get a
-    container copy in addition, exactly as the deployment does — not instead.
+    projection's ``project_path`` names it. Each gets a container copy in
+    addition, exactly as the deployment does, not instead. Named and resolved
+    by :func:`_layer_render`, the same call the host-side render makes.
 
     :returns: The image context roots, in build order.
     """
-    from osprey.deployment.web_terminals.persona_naming import persona_project
-
-    from .build_profile import resolve_build_document
-
     contexts = [
         _render_container_project(
             shared,
@@ -3135,257 +3177,21 @@ def _render_container_projects(
             deployment=True,
         )
     ]
-    for delta in _persona_deltas(shared.repo_root):
+    for kind, layer in _layer_files(shared.repo_root):
+        project, layer_resolved = _layer_render(
+            shared, kind, layer, project_name=project_name, host_profile=resolved.profile
+        )
         contexts.append(
             _render_container_project(
                 shared,
-                resolve_build_document(delta, None, shared.profile_overlays),
+                layer_resolved,
                 zones,
-                profile_path=delta,
-                project_name=persona_project(project_name, delta.stem)[0],
+                profile_path=layer,
+                project_name=project,
                 deployment=False,
             )
         )
     return contexts
-
-
-#: The ``VA_LATTICE`` value naming no lattice at all. Respelled from the
-#: container entrypoint's ``LATTICE_NONE`` rather than imported from it: that
-#: module pulls in the whole serving stack, which a build must not import.
-#: Pinned by test against the entrypoint's own.
-_VA_LATTICE_NONE = "none"
-
-#: A ``VA_LATTICE`` spelling with no meaning of its own on either side: the
-#: served tree is searched for a file of this name like any other, and
-#: :data:`_VA_LATTICE_NONE` is the only value naming no file. So a value on
-#: file reading exactly this, over a tree carrying no such file, points the
-#: container at nothing and is rewritten to the name this build derived. A
-#: served file of that name makes it a lattice like any other, and is pinned
-#: by the operator the way every other name is.
-_VA_LATTICE_RETIRED = "builtin"
-
-
-def _served_lattice(data_root: Path, manifest_path: Path) -> str:
-    """The ``VA_LATTICE`` value a published data tree earns.
-
-    A tree serves a lattice when it stages the bindings document that ties its
-    channels to one. That document is the evidence and the lattice file is not:
-    a ring no address reaches moves nothing the manifest names, so the bindings
-    are what make the two halves a model. The value written is the lattice
-    file's own name relative to the directory the container is handed -- the
-    same directory ``VA_CHANNELS_FILE`` names the manifest in -- and the
-    entrypoint looks that name up verbatim, case included.
-
-    Two things have to hold, and they answer one question between them. The
-    manifest has to record that a bindings document claimed its pyat-coupled
-    partition (``_metadata.partition_source``), because a channel set nothing
-    coupled reaches no model however many files sit beside it -- that is the
-    case a knowledge-graph roster produces, which states readback pairs and no
-    bindings at all. And both model files have to be in the published tree --
-    the bindings document and the lattice it names -- because
-    what has to be true at boot is that the model files are in the directory
-    the container mounts; this runs after the swap, on exactly that tree.
-
-    Args:
-        data_root: The published ``data/`` tree in the output zone, whose
-            ``simulation/`` directory is the container's data dir.
-        manifest_path: The generated manifest in that tree, whose ``_metadata``
-            names what claimed its partition.
-
-    Returns:
-        The lattice file's name, or :data:`_VA_LATTICE_NONE` for a tree with
-        nothing for a model to steer.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import PARTITION_SOURCE_NONE
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-
-    try:
-        source = json.loads(manifest_path.read_text())["_metadata"]["partition_source"]
-    except (json.JSONDecodeError, KeyError, OSError, TypeError):
-        # A lattice is the claim that needs evidence, so a manifest that cannot
-        # be read for it answers no rather than guessing yes.
-        return _VA_LATTICE_NONE
-    if source == PARTITION_SOURCE_NONE:
-        return _VA_LATTICE_NONE
-
-    paths = ManifestPaths(data_root=data_root)
-    # The bindings and the lattice are the two halves of one model -- the
-    # document states which channels couple, the lattice is what they steer --
-    # so a tree missing either carries no model to build, whatever its manifest
-    # claims, and the absent half is named rather than discovered at boot.
-    absent = [path.name for path in (paths.va_bindings, paths.lattice_json) if not path.is_file()]
-    if absent:
-        logger.warning(
-            "  The generated channel manifest was partitioned by %s, but %s is not in %s. "
-            "The accelerator is left serving no lattice, since the tree the container "
-            "mounts carries no model to build.",
-            source,
-            " and ".join(absent),
-            data_root,
-        )
-        return _VA_LATTICE_NONE
-    # Both the lattice and the manifest sit in the served directory, so the
-    # lattice's bare name IS its data-dir-relative name.
-    return paths.lattice_json.name
-
-
-def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
-    """Point the deployment's ``.env`` at the manifest this build generated.
-
-    The last link of the virtual accelerator's channel chain, and the only one
-    that reaches outside ``build/``. The generator writes its manifest into the
-    output zone (:func:`_render_project`); the VA compose service mounts that
-    directory; and the address of the manifest *inside* the mount travels as
-    ``VA_CHANNELS_FILE``, which compose can only substitute from the repo-root
-    ``.env`` it is handed as ``--env-file``. Nothing else reads these keys —
-    the container's entrypoint takes them straight from its environment — so
-    this is where the pointer is written or it is not written at all.
-
-    Two rules, and neither is negotiable:
-
-    * **Append-only.** That ``.env`` is the deployment's whole secret store:
-      hand-edited, and written back to by ``osprey up`` with tokens the running
-      volumes are pinned to. The build writes it through the same
-      :func:`~osprey.utils.dotenv.append_profile_env` every other writer uses,
-      so a value already on file always wins and a disagreement is *reported*
-      rather than resolved. Repointing a running IOC's channel set from under
-      an operator, on a rebuild they ran for some unrelated reason, is not a
-      thing a build gets to do.
-    * **After the swap.** Called once ``build/`` is the tree this render
-      produced, and gated on the manifest being in it — so the pointer is only
-      ever written when the file it names is already there to be found. A build
-      that fails leaves ``build/`` as it was and this never runs.
-
-    The reverse case — a repo whose ``.env`` still carries a pointer from a
-    build that could generate a manifest, run again on a tree that cannot — is
-    the one thing append-only cannot fix by itself, so it is warned about by
-    name. The stale pointer is not harmless: the entrypoint *raises* on a
-    manifest file it cannot find rather than falling back to the packaged
-    channel set, so the next start gets a container that will not boot.
-
-    Args:
-        repo_root: The deployment repo — the compose project directory, whose
-            ``.env`` is the file compose interpolates from.
-        build_dir: The output zone, after the swap.
-    """
-    from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import (
-        BUILD_DERIVED_BANNER,
-        BUILD_DERIVED_KEYS,
-        VA_LATTICE_KEY,
-        append_profile_env,
-        parse_dotenv_file,
-    )
-
-    env_path = repo_root / COMPOSE_ENV_FILENAME
-    data_root = build_dir / "data"
-    manifest = data_root / "simulation" / MANIFEST_FILENAME
-
-    if not manifest.is_file():
-        on_file = parse_dotenv_file(env_path) if env_path.is_file() else {}
-        for key in sorted(BUILD_DERIVED_KEYS & on_file.keys()):
-            logger.warning(
-                "  %s is set in %s, but this build generated no virtual-accelerator "
-                "channel manifest for it to point at. The value was left alone, since it is "
-                "yours and not the build's. The IOC will fail to start against a "
-                "manifest that is not there. Remove the line, or restore the channel "
-                "databases the manifest is generated from.",
-                key,
-                env_path,
-            )
-        return
-
-    # A name, not a path: the entrypoint resolves a relative VA_CHANNELS_FILE
-    # against its data mount, which is the directory the manifest was just
-    # written into.
-    #
-    # VA_LATTICE is DERIVED from the same published tree rather than asserted,
-    # and the rule is the one that governs the channel set itself: a project's
-    # accelerator runs on what the project actually has. A tree staging the
-    # bindings that tie its channels to a ring serves that ring, by name; a
-    # tree staging none has nothing for a model to steer, and naming a lattice
-    # over it would put physics behind a namespace it does not describe -- the
-    # half of the fallback this feature removed that a channel set alone
-    # cannot catch. So the lattice's own name is written when the model is in
-    # the tree the container mounts, and `none` otherwise, which is also the
-    # entrypoint's reading of an unset value.
-    #
-    # `none` has no constant outside the container's entrypoint, which the
-    # build cannot import (it pulls in the whole serving stack), so it is
-    # respelled above and pinned by test against `entrypoint.LATTICE_NONE`.
-    lattice = _served_lattice(data_root, manifest)
-    _migrate_retired_lattice_pointer(env_path, data_root, lattice)
-    entries = {
-        "VA_CHANNELS_FILE": MANIFEST_FILENAME,
-        VA_LATTICE_KEY: lattice,
-    }
-    result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
-
-    if result.added:
-        # The build's one write outside the output zone, into a file that is
-        # the operator's rather than a build artifact. It runs after the render
-        # phase has closed, so it is reported rather than stepped.
-        line = (
-            f"Pointed {COMPOSE_ENV_FILENAME} at the generated channel manifest "
-            f"({', '.join(sorted(result.added))})"
-        )
-        if VA_LATTICE_KEY in result.added:
-            # The lattice is named rather than summarised: which ring the
-            # accelerator runs on is the one fact an operator cannot read back
-            # off the channel set, and a file name is what they would go
-            # looking for in the served tree.
-            line += (
-                f", which serves the lattice {lattice}"
-                if lattice != _VA_LATTICE_NONE
-                else ", which serves no lattice: the tree stages no bindings document, so "
-                "its channels reach no model"
-            )
-        _report_fact(line)
-    for conflict in result.conflicts:
-        # Named, never valued: the store this reads is the one holding the
-        # facility's provider keys, and a warning is not a safe place for it.
-        logger.warning(
-            "  %s in %s disagrees with what this build generated. Your value was kept, "
-            "because the build never overwrites this file. The IOC will serve the channel "
-            "set you named, not the one in build/. Remove the line to take the build's.",
-            conflict.key,
-            env_path,
-        )
-
-
-def _migrate_retired_lattice_pointer(env_path: Path, data_root: Path, derived: str) -> None:
-    """Repoint a ``VA_LATTICE`` reading :data:`_VA_LATTICE_RETIRED` at *derived*.
-
-    The one value in this section the build rewrites rather than reports. It is
-    not a hole in append-only: the line sits under the build's own banner, in
-    the section whose whole promise is that every build regenerates it, and the
-    spelling it carries resolves to no file in any served tree. Left alone it
-    would WIN over the value derived above — the append never replaces — and
-    the container refuses to boot on a lattice name it cannot find, which is a
-    worse place to learn it than a build line.
-
-    Every other value is the operator's, including this spelling over a tree
-    that does carry a file of that name: there the pointer resolves, so there
-    is nothing to correct.
-
-    Args:
-        env_path: The deployment repo's ``.env``.
-        data_root: The published ``data/`` tree, whose ``simulation/`` directory
-            is the one the container mounts and looks the name up in.
-        derived: The value :func:`_served_lattice` earned from that tree.
-    """
-    from osprey.utils.dotenv import VA_LATTICE_KEY, replace_profile_env_value
-
-    if (data_root / "simulation" / _VA_LATTICE_RETIRED).is_file():
-        return
-    if not replace_profile_env_value(env_path, VA_LATTICE_KEY, _VA_LATTICE_RETIRED, derived):
-        return
-    _report_fact(
-        f"Repointed {VA_LATTICE_KEY}={_VA_LATTICE_RETIRED} in {env_path.name} at {derived}, "
-        f"the lattice this build's tree serves: {_VA_LATTICE_RETIRED} names no file there, "
-        "and the accelerator refuses to start on a name it cannot find"
-    )
 
 
 def _build_repo(
@@ -3405,8 +3211,8 @@ def _build_repo(
 
     What it renders is the whole OUTPUT zone in one pass — the project (config,
     Claude Code artifacts, data tree, service templates, injected services), the
-    compose files that deploy it, and one project per persona delta
-    (:func:`_render_persona_projects`). It lands in
+    compose files that deploy it, and one project per layer
+    (:func:`_render_projects`). It lands in
     ``build/.tmp`` and replaces ``build/`` only once every step below has
     succeeded; see :func:`_swap_in_render`.
 
@@ -3414,7 +3220,7 @@ def _build_repo(
     ``.env.variant`` at the repo root may name an overlay under ``profiles/``
     (:func:`~osprey.cli.variant_selection.resolve_variant_selection`); when it
     does, that overlay is merged over ``profile.yml`` as a profile layer before
-    resolution, for the deployment and for every persona alike. One repo, one
+    resolution, for the deployment and for every render alike. One repo, one
     tracked profile, and as many host renders as the repo has variants.
 
     Args:
@@ -3431,7 +3237,7 @@ def _build_repo(
             the images run this checkout instead of the pinned release.
 
     Raises:
-        click.Abort: On any failure, a persona delta that will not resolve
+        click.Abort: On any failure, a layer that will not resolve
             included. ``build/`` is left as it was found.
         click.UsageError: When no deployment repo encloses the search path.
     """
@@ -3443,10 +3249,15 @@ def _build_repo(
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
         limits_block_errors,
+        profile_dispatch_tier,
     )
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
-    from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
+    from .profile_conventions import (
+        PROJECT_MIRROR_DIR,
+        facility_mirror_violation,
+        handwritten_limits_violation,
+    )
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
     # Whatever the verb at the top of this run installed — this build's own
@@ -3472,9 +3283,16 @@ def _build_repo(
     name = ""
 
     try:
+        # A mirror file at a path the facility build writes is its own one-line
+        # stop, raised ahead of profile validation, which gathers every other
+        # profile error and leaves this one out.
+        mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+        if mirror_stop is not None:
+            raise mirror_stop
+
         # Which profile this HOST builds, decided before anything is resolved.
         # The overlay is an inheritance layer: it merges over `profile.yml` by
-        # the same deep merge a persona delta uses, ahead of `extends:`
+        # the same deep merge a layer uses, ahead of `extends:`
         # resolution, and anchors at the repo root — so the render reads the
         # merged result and every profile-relative path still points at this
         # repo. A future
@@ -3487,7 +3305,7 @@ def _build_repo(
         build_profile = resolved.profile
 
         # The deployment's name is the profile's: every host-visible name — the
-        # compose project, volumes, image tags, each persona render — derives
+        # compose project, volumes, image tags, each render — derives
         # from it, so a clone under any folder name deploys as the same thing,
         # and a host overlay renames the instance. Validation already held a
         # stated value to compose's spelling.
@@ -3501,12 +3319,17 @@ def _build_repo(
         # this build is about to render (the `config:` block plus what the
         # `deploy:` block contributes to it).
         # `repo_root`, not the working directory: a catalog entry's
-        # `build_profile: personas/<name>.yml` is named relative to the profile.
+        # `build_profile: tiers/<name>.yml` is named relative to the profile.
         # Without it, `osprey build` from a subdirectory or through `--repo`
-        # read no persona delta at all and passed a roster the gate exists to
+        # read no layer at all and passed a roster the gate exists to
         # refuse.
+        dispatch_tier = profile_dispatch_tier(build_profile)
         web_errors = deploy_aware_config_errors(
-            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
+            build_profile.deploy,
+            build_profile.config,
+            profile_root=repo_root,
+            project_name=name,
+            dispatch_tier=dispatch_tier,
         )
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
@@ -3522,7 +3345,11 @@ def _build_repo(
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(
-            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
+            build_profile.deploy,
+            build_profile.config,
+            profile_root=repo_root,
+            project_name=name,
+            dispatch_tier=dispatch_tier,
         )
         # An authored `web.bar_items` entry the served default will not carry:
         # the server filters a panel-gated item whose panel this profile does
@@ -3584,10 +3411,7 @@ def _build_repo(
         # follow, not something the operator ran the verb to find out.
         from . import output
 
-        output.note(
-            f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)}, "
-            f"tier {build_profile.resolved_tier()})"
-        )
+        output.note(f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)})")
         # Said out loud whenever a variant is in force: the same repo builds
         # differently on this host than on the next one, and an operator
         # reading a render has to be told which of the two they are looking at.
@@ -3651,6 +3475,24 @@ def _build_repo(
                 stream=stream,
             )
 
+        # The facility file, before the venv and every render: a facility stop
+        # is the author's to fix, and nothing is installed or rendered first.
+        from osprey.facility.build import build_facility_with_warnings
+        from osprey.facility.render import facility_digest
+
+        data_root = build_profile.resolved_data_root(repo_root)
+        assert data_root is not None  # `data:` required; narrows for type-checkers
+        # A limits file the profile ships itself is a stop: the build writes
+        # that file from the facility's limits.yaml.
+        limits_stop = handwritten_limits_violation(data_root, repo_root)
+        if limits_stop is not None:
+            raise limits_stop
+        facility_dir = data_root / "facility"
+        facility_sha256 = facility_digest(facility_dir)
+        facility, facility_warnings = build_facility_with_warnings(facility_dir, project_name=name)
+        logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
+        _warn_facility_build(facility_warnings)
+
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
         # is written where it will be read from and joins the staged tree at
@@ -3677,16 +3519,17 @@ def _build_repo(
             project_deps=project_deps,
             skip_deps=skip_deps,
             manager=TemplateManager(),
-            va_manifests={},
-            va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            views_omitted_reported=set(),
+            facility=facility,
+            facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
         )
 
         # One reported phase over every render pass this build makes — the
-        # deployment, the compose files, one per persona delta, one per image
+        # deployment, the compose files, one per layer, one per image
         # copy. They are six passes over the same profile producing one build/,
         # and reported one by one they read as six builds. Each pass gets a step
         # line naming what it produced instead.
@@ -3707,7 +3550,7 @@ def _build_repo(
                 progress=logger.debug,
                 injected_out=injected,
             )
-            # Every render after this one — each persona's, and each image
+            # Every render after this one — each render's, and each image
             # copy's — is told about the deployment's services from the render
             # just written (see _SharedRenderInputs.host_config). A profile
             # that is itself attached hosts nothing and projects nothing.
@@ -3738,19 +3581,29 @@ def _build_repo(
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
 
-            # Personas BEFORE the compose files: the services render reads the
-            # personas' rendered config.yml files for its per-persona grants
-            # (the bluesky_web sidecar's roster secrets), and the start verbs
-            # are as-built — a grant this pass misses reaches no container.
-            persona_renders = _render_persona_projects(shared, zones, name)
-            if persona_renders:
-                phase.step(f"{len(persona_renders)} persona render(s)")
+            # Tiers and apps BEFORE the compose files: the services render reads
+            # their rendered config.yml files for its per-render grants (the
+            # bluesky_web sidecar's roster secrets), and the start verbs are
+            # as-built — a grant this pass misses reaches no container.
+            renders = _render_projects(shared, zones, name, host_profile=build_profile)
+            if renders:
+                phase.step(f"{len(renders)} render(s)")
+
+            # The telemetry credential files, before the compose files that
+            # name them as `env_file`: every sender's login (the render
+            # renders above settled the roster) and every service account's.
+            # At the real repo root, never in the staged tree — they are
+            # durable secrets, and `build/` is disposable. Not under
+            # --runtime-root, for the reason the compose files are not: those
+            # files belong to the host that deploys.
+            if not runtime_root:
+                _ensure_telemetry_credentials(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)
             phase.step("compose files")
 
             # The copies the images are built from — the deployment's and one per
-            # persona — each rendered against the path its container sees itself at
+            # render — each rendered against the path its container sees itself at
             # rather than the host's. Skipped under an explicit --runtime-root: that
             # build is ALREADY aimed at a runtime elsewhere, and rendering a second
             # relocation inside it would be guessing which of the two the operator
@@ -3797,29 +3650,11 @@ def _build_repo(
             zones,
             renders=[
                 zones.stage,
-                *persona_renders,
+                *renders,
                 *(image_root / BUILD_DIR_NAME for image_root in image_renders),
             ],
         )
         _swap_in_render(zones)
-        # The one write outside build/, and last for that reason: it names a
-        # file in the tree the line above just published.
-        _wire_build_derived_env(repo_root, zones.build_dir)
-
-        # The build-time half of the stand-in's lattice gate. Validation asks
-        # the same question of the env chain alone; only here is the other half
-        # knowable — whether this render produced a channel manifest, which is
-        # the precondition the line above gates its `VA_LATTICE` write on. A
-        # stand-in with no lattice behind the readout perturbation it
-        # ships exits at container start, so it is refused now rather than
-        # discovered at `osprey up`.
-        va = build_profile.virtual_accelerator
-        if va is not None and va.live_standin is not None:
-            standin_errors = live_standin_lattice_errors(repo_root, zones.build_dir)
-            if standin_errors:
-                raise BuildProfileError(
-                    "Profile validation failed:\n  " + "\n  ".join(standin_errors)
-                )
 
     except click.Abort:
         raise
@@ -3846,6 +3681,8 @@ def _build_repo(
         if remedy is not None:
             logger.error("→ %s", remedy)
         raise click.Abort() from e
+    except FacilityBuildError:
+        raise
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)
         import traceback
@@ -3930,9 +3767,9 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     """Whether *build_profile*'s render leaves the setup capability in place.
 
     :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` answers this
-    for a rendered persona config; this reaches the same answer one step
+    for a rendered render config; this reaches the same answer one step
     earlier, from the ``config:`` overrides that config is about to be written
-    from. The composition — deny minus ``remove_deny``, because a persona tier
+    from. The composition — deny minus ``remove_deny``, because a render tier
     that lifts an inherited deny is capable — is NOT repeated here: the
     overrides are assembled into the ``config.yml``-shaped document the
     predicate reads and it does the subtraction, so there is one composition
@@ -3946,9 +3783,9 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     used to read the first and the third; the middle one renders and was read as
     nothing, so a profile that denied the setup tool through
     ``claude_code.permissions: {deny: [...]}`` was reported capable and the
-    Dockerfile chowned ``build/config.yml`` to a persona whose ``settings.json``
+    Dockerfile chowned ``build/config.yml`` to a render whose ``settings.json``
     denies the tool. Rather than adding the third reader,
-    :func:`~osprey.deployment.web_terminals.personas.persona_capability_document`
+    :func:`~osprey.deployment.web_terminals.roster.render_capability_document`
     — the guard belt's reader, which already tries every split point — assembles
     the document, so exactly one spelling reader exists in the codebase and the
     container's verdict cannot disagree with the guard's about what a profile
@@ -3970,12 +3807,56 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     Returns:
         ``True`` when nothing the profile denies takes the setup tool away.
     """
-    from osprey.deployment.web_terminals.personas import persona_capability_document
+    from osprey.deployment.web_terminals.roster import render_capability_document
 
     from .profile_conventions import is_setup_patch_capable
 
     overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
-    return is_setup_patch_capable(persona_capability_document(overrides))
+    return is_setup_patch_capable(render_capability_document(overrides))
+
+
+def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
+    """The knowledge bundle *build_profile* names, relative to its render.
+
+    Read from the ``config:`` overrides the rendered config is about to be
+    written from, in every spelling ``facility_knowledge.bundle_path`` can take.
+    The image owns only what the render carries, so an absolute path, or one
+    that climbs out of the render, names nothing here.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        The normalized project-relative posix path, or ``""`` when the profile
+        names no bundle inside the render.
+    """
+    import posixpath
+    import re
+
+    from .build_profile_reach import spelled_values
+
+    overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
+    for _spelling, value in spelled_values(overrides, "facility_knowledge.bundle_path"):
+        if not isinstance(value, str) or not value.strip():
+            continue
+        relative = posixpath.normpath(value.strip())
+        if relative.startswith("/") or relative in (".", "..") or relative.startswith("../"):
+            return ""
+        # The path is written into a shell line; anything outside this set is
+        # left to the operator's own image step.
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", relative):
+            from . import output
+
+            output.warn_fact(
+                logger,
+                f"The image leaves the ownership of the knowledge bundle {relative} "
+                "to the operator.",
+                "Its path holds a character outside letters, digits, '.', '_', '-' and '/'.",
+                "rename the bundle directory to those characters",
+            )
+            return ""
+        return relative
+    return ""
 
 
 def _profile_preset(build_profile: BuildProfile) -> str | None:
@@ -4176,15 +4057,11 @@ def _repo_render_context(
 
     ``port_base`` is the third, and it is resolved here because this is the
     one place that holds both the profile and every render made from it: the
-    project render, the persona renders and the reading of what the app
+    project render, the renders and the reading of what the app
     template deploys at its defaults all take their ports from this value.
 
     ``ariel_server_on`` is the flag the framework template gates its two
     ARIEL-dependent blocks on; see :func:`_ariel_server_enabled`.
-
-    ``middle_layer_duckdb`` says whether the profile's data tree holds
-    ``channel_databases/middle_layer.duckdb``; the framework template renders
-    the middle-layer ``duckdb_path`` only when it does.
 
     Raises:
         ValueError: If the profile's ``deployment.port_base`` is out of range;
@@ -4197,18 +4074,26 @@ def _repo_render_context(
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
         # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
-        # the agent's user: a persona that can still reach the setup tool needs
+        # the agent's user: a render that can still reach the setup tool needs
         # the file that tool edits to be writable, and every other tier must
         # leave it root-owned. Composed here the way settings.json renders it —
         # the profile's own deny minus its `remove_deny`, which is how a tier
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
+        # the knowledge bundle the profile names, relative to the render.
+        "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),
         # The base this deployment's whole port block hangs off, resolved from
         # the profile ONCE and handed down: every framework port the render
         # writes is derived from this value by the template manager, so no
         # consumer downstream falls back to the layout's own default.
         "port_base": _profile_port_base(build_profile),
+        # The workspace members a git+ OSPREY_PIP_SPEC pre-installs from the
+        # monorepo's packages/ subdirectories in Dockerfile.j2's deps layer. From
+        # the installed framework's constant, since a deployed framework has no
+        # monorepo pyproject.toml to read the workspace from.
+        "workspace_members": list(WORKSPACE_MEMBERS),
     }
     if build_profile.provider:
         context["default_provider"] = build_profile.provider
@@ -4223,15 +4108,6 @@ def _repo_render_context(
     if build_profile.claude_md_template:
         context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
-    # Binds the middle-layer pipeline's `duckdb_path` when the profile ships the
-    # database. Decided here, against the tree the build copies, because the
-    # template manager builds its context before it copies any data and so
-    # cannot see the file.
-    context["middle_layer_duckdb"] = (
-        (build_profile.resolved_data_root(repo_root) or repo_root / "data")
-        / "channel_databases"
-        / "middle_layer.duckdb"
-    ).is_file()
 
     python_env = build_profile.python_env or "project"
     if runtime_interpreter:
@@ -4301,10 +4177,11 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
 
     One kind of ``services.<name>`` key is not a claim about the stack at all:
     a key that names a file in the render's OWN data tree —
-    ``services.graphdb.ttl_path``, the corpus, and ``index_path``, the search
-    index the build derives from it. An attached render stages that ``data/``
-    tree like any other, and its build and its containers read both files from
-    it, so the key is as true for the persona as for its host. Which keys those
+    ``services.graphdb.ttl_path``, the corpus the build derives the search
+    index from, which it writes to ``data/channel_databases/graph.duckdb`` in
+    the same tree. An attached render stages that ``data/`` tree like any
+    other, and its build and its containers read both files from it, so the key
+    is as true for the render as for its host. Which keys those
     are is the Reach Contract's declaration
     (:attr:`osprey.deployment.reach.ReachContract.render_local`), read here
     through :func:`osprey.deployment.reach.render_local_keys`, and they are
@@ -4337,7 +4214,9 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
     return kept
 
 
-def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> list[str]:
+def _inject_services(
+    build_profile: Any, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
     Skipped wholesale for an attached project (``deploy_services: false``): its
@@ -4357,6 +4236,11 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     follows it for the same reason. OSPREY's own host-binding declarations are
     written last, once every injector (the dispatch pair's ``network`` among
     them) has settled which blocks are on the host network.
+
+    ``facility_name`` is the facility's display name the dispatcher shows. The
+    build hands it from its in-memory facility document, because the facility
+    file reaches the project only after the injectors run; ``""`` has the
+    dispatch injector read the project's facility identity instead.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4388,7 +4272,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
             # services than were injected.
             injected.append(f"{psvc_count} profile service(s)")
     if build_profile.dispatch is not None:
-        _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+        _inject_dispatch(
+            build_profile.dispatch, profile_dir, project_path, facility_name=facility_name
+        )
         injected.append("event dispatch")
     if build_profile.nextcloud_bridge is not None:
         _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)

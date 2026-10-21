@@ -10,9 +10,9 @@ import at
 import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
-    load_ring,
-    load_state,
+    load_baseline_lattice,
+    load_job,
+    load_lattice,
     parse_args,
     save_data,
 )
@@ -106,7 +106,7 @@ def build_figure(
     fig = go.Figure()
     _add_resonance_lines(fig, tune_range_x, tune_range_y)
 
-    # Baseline working point (dashed ring)
+    # Baseline working point (dashed circle)
     if baseline_nux is not None and baseline_nuy is not None:
         fig.add_trace(
             go.Scatter(
@@ -157,17 +157,17 @@ def build_figure(
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Subprocess entry point: the parent captures this worker's stderr and
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    tunes = at.get_tune(ring)
+    lattice = load_lattice(job)
+    tunes = at.get_tune(lattice)
     nux, nuy = float(tunes[0]), float(tunes[1])
 
     raw: dict = {
@@ -177,13 +177,13 @@ def main() -> None:
         "baseline_nuy": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
-    if baseline_ring is not None:
-        bt = at.get_tune(baseline_ring)
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
+        bt = at.get_tune(baseline_lattice)
         raw["baseline_nux"] = float(bt[0])
         raw["baseline_nuy"] = float(bt[1])
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

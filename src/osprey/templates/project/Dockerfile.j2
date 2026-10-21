@@ -5,8 +5,16 @@
 # repo the build renders for exactly this purpose, one directory above the render
 # this file sits in:
 #   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
-# Run (secrets at runtime — no .env ever enters the image):
-#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
+# Run from the deployment repo root (secrets at runtime — no .env ever enters
+# the image):
+#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env \
+#     --env-file .env.telemetry-sender.<deployment.host_identity> {{ project_name }}
+# The second --env-file is the sender login `osprey build` minted for
+# deployment.host_identity; with gateway telemetry on, `osprey web` refuses to
+# start without it. With gateway telemetry off, drop the second --env-file.
+# Records reach the gateway only while the deployment's gateway runs
+# (`osprey up`) and the container uses `--network host` in place of `-p`: a
+# container started this way sends to the gateway's loopback publish.
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact, restores the operator's owned
@@ -32,7 +40,7 @@
 #                       latest published osprey-framework instead of failing.
 #   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
 #                       layer then resolves with --prerelease=allow, since
-#                       the framework's paired osprey-connectors beta is
+#                       the framework's paired workspace-member betas are
 #                       admitted no other way.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
@@ -54,10 +62,10 @@
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
-# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and an installer prefers a stable
-# release for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and every
+# workspace member ship together from one tag, and an installer prefers a
+# stable release for a requirement that names none (the framework's own member
+# requirements), so the deps layer then resolves as a whole with
 # --prerelease=allow.
 ARG OSPREY_PIP_PRE=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
@@ -168,11 +176,15 @@ ENV DISABLE_AUTOUPDATER=1
 # only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
 # spec is unreleased (the primer install fails), fall back to the latest
 # published osprey-framework so dev builds are not blocked; otherwise the build
-# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so the
-# osprey-connectors workspace member the framework requires is pre-installed
-# from the same URL's packages/ subdirectory first — a commit-pinned build
-# cannot assume a satisfying connectors release exists on PyPI (best-effort: a
-# spec pip cannot take a #subdirectory fragment on falls through to PyPI).
+# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so each
+# workspace member the framework requires is pre-installed from the same URL's
+# packages/<member> subdirectory first — a commit-pinned build cannot assume a
+# satisfying member release exists on PyPI. A member that fails to install from
+# the git spec fails the build: falling through would resolve it by name from
+# PyPI, which a commit pin gives no reason to trust. Only a spec that cannot
+# carry the fragment (a PyPI release pin) resolves its members from the index,
+# where they are the releases paired with that framework version. The member
+# list is the framework's own, rendered in by `osprey build`.
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
@@ -223,8 +235,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && pip install "uv==0.12.21" \
     && { case "$OSPREY_PIP_SPEC" in \
-           git+*) uv pip install "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
-                  || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
+           git+*) : \
+{%- for member in workspace_members %}
+                  ; uv pip install "{{ member }} @ ${OSPREY_PIP_SPEC}#subdirectory=packages/{{ member }}" \
+                  || { echo "ERROR: could not install {{ member }} from the git spec" >&2; exit 1; } \
+{%- endfor %}
+                  ;; \
          esac; } \
     && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
@@ -238,6 +254,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
     && rm -rf /tmp/deps-ctx
+
+# Headless Chromium for the artifact converter, which renders HTML, Markdown
+# and notebook artifacts to PNG so they can be attached to a logbook entry.
+# Installed here, as root and with its system libraries, because the agent runs
+# unprivileged and cannot apt-install them on demand; the browser lands in a
+# shared path so that user finds it. The headless shell is all the converter
+# launches, so the full browser is not installed. It sits after the deps layer
+# because the playwright package it runs comes from there, and before the dev
+# wheel so that rebuilding with a local wheel does not fetch it again.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    python -m playwright install --with-deps --only-shell chromium
 
 # Dev wheel drop (wheel layer). `osprey up --dev` stages a locally-built
 # wheel in the build context; when present, reinstall osprey from it (deps
@@ -309,10 +339,10 @@ RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
 # there — the drift regen and the scaffold restore — run as root in the
 # entrypoint, once, before the server that serves requests exists.
 #
-# The bundle chown is conditional because the directory is: `osprey build`
-# renders `build/data/facility_knowledge/` only for a deployment that names a
-# `facility_knowledge.bundle_path`, and a chown of a path that is not there
-# fails the build.
+# The bundle chown names the directory `facility_knowledge.bundle_path` says,
+# under the render: it is rendered only for a deployment that names a
+# project-relative bundle path, and guarded on the directory because a chown of
+# a path that is not there fails the build.
 #
 # uid/gid are PINNED rather than left to useradd's next-free, so they are a
 # fact of this image instead of an accident of whichever Debian release the
@@ -322,15 +352,16 @@ RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
 # uid 1000 fails this line loudly, which is the right way to find out.
 RUN groupadd --gid 1000 osprey \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash osprey \
- && chown -R osprey:osprey /app/{{ project_name }}/var \
- && if [ -d /app/{{ project_name }}/build/data/facility_knowledge ]; then \
-        chown -R osprey:osprey /app/{{ project_name }}/build/data/facility_knowledge; \
-    fi
+ && chown -R osprey:osprey /app/{{ project_name }}/var{% if knowledge_bundle_dir | default("") %} \
+ && if [ -d /app/{{ project_name }}/build/{{ knowledge_bundle_dir }} ]; then \
+        chown -R osprey:osprey /app/{{ project_name }}/build/{{ knowledge_bundle_dir }}; \
+    fi{% endif %}
+
 {% if is_setup_patch_capable %}
-# This persona keeps the setup capability — its permission render leaves
+# This tier keeps the setup capability — its permission render leaves
 # `mcp__osprey_workspace__setup_patch` outside the deny list — so the one file
 # that capability exists to edit is handed to the agent's user. Rendered ONLY
-# for such a persona: for every other tier this line is absent and `config.yml`
+# for such a tier: for every other tier this line is absent and `config.yml`
 # stays root-owned, which is what makes the tier boundary a filesystem fact
 # rather than a permission list the agent is asked to respect.
 RUN chown osprey:osprey /app/{{ project_name }}/build/config.yml

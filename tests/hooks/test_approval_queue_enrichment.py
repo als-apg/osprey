@@ -44,11 +44,14 @@ from __future__ import annotations
 
 import http.server
 import json
+import shlex
 import socket
 import threading
 import time
 from contextlib import contextmanager
 
+from osprey import bluesky_tool_names as bsky
+from osprey.registry import mcp as mcp_registry
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 SCAN_HOOK_CONFIG = {
@@ -157,6 +160,18 @@ def _queue_config(make_config):
     )
 
 
+def _rendered_hook_args(tool: str) -> list[str]:
+    """The arguments the render gives the approval hook on bluesky *tool*.
+
+    The arming pair's prompt is the pre-flight, so the render launches the hook
+    with the budget that pre-flight needs; launching it bare would run every
+    trajectory under the harness default, which no rendered arming tool gets.
+    """
+    if tool not in bsky.ARMING_TOOLS:
+        return []
+    return shlex.split(mcp_registry._APPROVAL_PREFLIGHT.command)[2:]
+
+
 def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
     return hook_runner(
         "osprey_approval.py",
@@ -165,6 +180,7 @@ def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
+        args=_rendered_hook_args("queue_add"),
     )
 
 
@@ -176,6 +192,7 @@ def _run_queue_tool(hook_runner, config, tmp_path, tool, tool_input=None):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
+        args=_rendered_hook_args(tool),
     )
 
 

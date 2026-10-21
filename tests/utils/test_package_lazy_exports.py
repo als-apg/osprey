@@ -27,16 +27,13 @@ LAZY_EXPORT_PACKAGES = (
     "osprey.interfaces.web_terminal",
     "osprey.services.ariel_search.database",
     "osprey.services.channel_finder.graph_index",
-    "osprey.services.facility_knowledge.ontology_compiler",
-    "osprey.services.virtual_accelerator.ioc",
-    "osprey.services.virtual_accelerator.model",
 )
 
-#: Packages whose module ``__getattr__`` aliases submodules rather than the
-#: symbols a module defines. There is no defining module to check a name
-#: against — the target *is* the name — and the submodule aliased first imports
-#: a Channel Access server extension published for one platform.
-SUBMODULE_ALIAS_PACKAGES = frozenset({"osprey.services.virtual_accelerator.serving"})
+#: Packages whose hook resolves a name from a module that imports a
+#: platform-specific Channel Access server extension at module level, so the
+#: resolution cases do not import it. The serving package resolves
+#: ``ModelRunner`` from ``.runner`` this way.
+UNRESOLVED_HOOK_PACKAGES = frozenset({"osprey.services.virtual_accelerator.serving"})
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
 
@@ -184,6 +181,6 @@ def test_every_lazily_exporting_package_declares_a_map():
     """Every package resolving names through a hook is on one of the two lists."""
     found = _packages_defining_a_module_getattr()
 
-    assert set(LAZY_EXPORT_PACKAGES) | SUBMODULE_ALIAS_PACKAGES == found
+    assert set(LAZY_EXPORT_PACKAGES) | UNRESOLVED_HOOK_PACKAGES == found
     for package in LAZY_EXPORT_PACKAGES:
         assert _assigns_a_lazy_export_map(package), f"{package} declares no _LAZY_EXPORTS map"

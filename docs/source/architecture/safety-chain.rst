@@ -13,13 +13,13 @@ passing the checks first. That guarantee belongs to the harness: a process on th
 starts a server by hand sits outside it, which is why access to the host is part of the trust
 boundary.
 
-The checks are the first gate, not the only one. There are four ways a value reaches a
-machine through the connector --- a single channel write, Python the agent wrote, a Bluesky
-plan, and a notebook cell --- and each has gates of its own below the checks. Two of them can
-also be driven by a person, from the BLUESKY panel or a Jupyter cell, and a person's action
-goes through none of the checks. All four end at the same connector and leave the same audit
-record. A deployment that enables the ``phoebus`` server and sets
-``phoebus.agent_access: read_write`` has a fifth: ``phoebus_drive`` passes the checks and then
+The checks are the first gate, not the only one. There are five ways a value reaches a
+machine through the connector --- a single channel write, Python the agent wrote, a pyAML tool
+the executor runs, a Bluesky plan, and a notebook cell --- and each has gates of its own below
+the checks. Two of them can also be driven by a person, from the BLUESKY panel or a Jupyter
+cell, and a person's action goes through none of the checks. All five end at the same
+connector and leave the same audit record. A deployment that enables the ``phoebus`` server
+and sets ``phoebus.agent_access: read_write`` has one more: ``phoebus_drive`` passes the checks and then
 the Phoebus product writes the value through its own connections, not through the connector
 --- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
 
@@ -74,7 +74,7 @@ next tool call; whether writes are switched on for that machine is rendered from
    a single file, at ``var/agent_data/control_target/control_context.json``, are not read ---
    including a narrowing that record held.
 
-Four paths below the checks
+Five paths below the checks
 ===========================
 
 One channel write
@@ -85,6 +85,9 @@ checks are its first gates. The control-system server then checks the limits onc
 that the machine is still the one the operator approved, and hands the values to the
 connector.
 
+.. raw:: html
+   :file: ../_diagrams/write-sequence.html
+
 Python the agent wrote
 ----------------------
 
@@ -93,13 +96,36 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Then the code runs in its own process with guards in
+before anyone is asked to approve it. Before a read-write run starts, the executor
+checks that the approval prompt recorded this call and that what the call carries matches
+what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
+out of the script's reach. Then the code runs in its own process with guards in
 place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
 so nothing a library does on the way out can hold it open; the executor reports the run from
-that record. All nine layers are described on :doc:`python-executor`.
+that record. All ten layers are described on :doc:`python-executor`.
+
+.. _architecture-safety-chain-pyaml-tool:
+
+A pyAML tool
+------------
+
+``pyaml_measure`` runs one of pyAML's tuning tools --- an orbit response, a dispersion, a tune
+or a chromaticity routine; pyAML, the Python accelerator middle layer, calls them measurements
+--- on the control target. It is not how the agent measures: the agent reads channels, runs
+its own Python and queues plans for that. It is the one path on which the executor runs code
+OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
+facility description, with the tool's settings from ``data/facility/measurement/``. The call
+passes the kill switch and the approval prompt. The prompt lists the model, the kind, the
+digest of the view the tool runs on and every setpoint the call steps; a call that would step
+more setpoints than a prompt can list is refused without asking. The tool then runs in the
+same sandbox as the agent's Python, under the same guards, and each setpoint it moves is an
+ordinary write through the connector --- under the target's run lock; the result lists each
+setpoint the call moved with its value before the call
+(:ref:`Guarded Runs <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
+``execute`` included, is refused. See :doc:`/how-to/measure-with-pyaml`.
 
 A Bluesky plan
 --------------
@@ -145,21 +171,46 @@ A cell is run by a person, so no tool call and none of the checks are involved. 
 are the deployment's settings, which the notebook kernel carries. The kernel starts with writes
 off, and before every cell it re-reads which machine the deployment points at and whether it
 may write; a switch made anywhere reaches the next cell, and narrowing the machine reaches a
-cell already running, because the connector checks the narrowing on every write. A cell writes
-through ``osprey.runtime.write_channel``; a client library's own put is refused whatever the
-chip says, so every write a cell makes reaches the connector, PVAccess puts excepted until
-the connector writes PVAccess. A refused
+cell already running, because the connector checks the narrowing on every write. A cell reaches
+the machine through ``osprey.runtime``: importing a control-system client library, or loading
+one through ``ctypes`` or ``cffi``, is refused whatever the chip says, for reads as for writes,
+so a cell written the ordinary way reads and writes through the connector. The block is
+cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the ``notebooks`` and ``artifacts``
 folders under the agent-data root, held there by a file-write guard that protects the host's
 files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
+
+.. _architecture-safety-chain-guarded-run:
+
+Guarded Runs
+============
+
+None of the five paths remembers what it moved. Each write is checked on its own, and a
+script, a plan or a cell that stops half way leaves the machine where it stopped. A *guarded
+run* adds a lock around a run's writes, and only the two paths that run code in the
+executor's sandbox take part in it: Python the agent wrote and a pyAML tool. A channel write,
+a Bluesky plan and a notebook cell do not hold the lock, and nothing puts back what any path
+moved.
+
+**One run per machine.** A read-write Python run and a pyAML tool run each hold a lock on
+their control target for as long as they run, from whichever terminal, job or container of
+the deployment they were launched. A second run on that target, of either kind, is refused
+before it starts, naming the holder. The lock is between these two kinds of run only; it keeps
+no channel write, plan or cell off the machine.
+
+**What a stopped tool leaves.** Nothing is written back. A pyAML tool that stops, fails or is
+interrupted leaves the machine where it stopped, and its result lists each setpoint it moved
+with its value before the call; a run killed outright, at its time limit or otherwise, lists
+only the channels it attempted. :ref:`reference-guarded-run` has the lock and what a run
+reports.
 
 .. _architecture-safety-chain-shared:
 
 What every path shares
 ======================
 
-**The connector.** Each of the four paths ends at the connector, the last step before the
+**The connector.** Each of the five paths ends at the connector, the last step before the
 machine. On
 every write it asks the deployment's records one question --- may this person write to this
 machine right now --- and gets back one of three answers:
@@ -271,12 +322,12 @@ The queue belongs to the facility, and OSPREY gates its own doors to it, not eve
 gaps follow from that, and a deployment should know them:
 
 - **A plan added from inside a container.** Something already running there --- a Python run,
-  or a persona whose profile allows a shell --- can reach the queue's own port and add a plan
+  or a tier whose profile allows a shell --- can reach the queue's own port and add a plan
   under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
   mint it, and it binds all the same, so the plan is judged against whoever it names. With no
   name it runs at the lane's ceiling.
 - **A shell reaching the panel's dispatcher address.** The panel token sits in the agent's own
-  environment, so the same shell can fire a job without the approval prompt. Building a persona
+  environment, so the same shell can fire a job without the approval prompt. Building a tier
   that allows a shell warns about exactly this, and a sandboxed run cannot do it --- neither the
   token nor the port is there. The job still runs as the real person, under their narrowing.
 - **A direct login at the panel's own address.** Unnamed, as above, and at the lane's ceiling.
@@ -287,15 +338,25 @@ RunEngine and devices: no OSPREY check runs inside it, so neither a person's nar
 lane's ceiling reaches its writes. The name OSPREY puts on such an item is attribution --- it
 says who queued the plan, not what gated it.
 
-The raw-put block that sends Python runs and notebook cells through the connector has gaps of
-the same kind. It refuses a client library's own put, and it tells a connector's put apart by
-the connector's write door, which records who is making the put rather than guarding it. Code
-that goes around the client library altogether is not stopped: a ``libca`` handle loaded
-through ``ctypes``, a raw socket, a pyepics callback under ``PREEMPTIVE_CALLBACK=False`` run
-inside a connector's waiting put, a connector subclass written in the run itself, or a shell
-escape in a notebook (``!python -c …``), which starts a fresh interpreter with no block at all.
+The raw-put block that sends Python runs through the connector has gaps of the same kind. It
+refuses a client library's own put, and it tells a connector's put apart by the connector's
+write door, which records who is making the put rather than guarding it. Code that goes around
+the client library altogether is not stopped: a ``libca`` handle loaded through ``ctypes``, a
+raw socket, a user-installed pyepics' callback under ``PREEMPTIVE_CALLBACK=False`` run inside a
+connector's waiting put, or a connector subclass written in the run itself.
+
+A notebook kernel's block refuses the client library itself: client imports and Python's two
+loaders (``ctypes`` and ``cffi``) are refused. What remains is the OS loader itself (an extension
+module that links a client library, loaded from a copied package), a fresh interpreter with no
+block at all (a shell escape such as ``!python -c …``, or ``subprocess``), an edited
+``sys.meta_path``, and a raw socket.
+
 These are **cooperative bypasses**: the block keeps honest code on the checked path, and it is
-not a sandbox. See :ref:`python-executor-armed-block` and :ref:`connector-write-door`.
+not a sandbox. See :ref:`python-executor-armed-block`, :ref:`connector-write-door` and
+:ref:`what a cell may load <notebooks-write-channel>`. The next layer is **network posture**:
+only connector-host children should reach a gateway. The web tier runs ``network_mode: host``
+today, so a kernel, and anything a cell starts, can reach any gateway a connector-host child
+can.
 
 **The approval prompt attributes a write to a person; it does not contain code already running
 in the container.** The prompt is answered at the terminal, and the terminal's server runs in
@@ -329,8 +390,9 @@ line joins back to them; see :ref:`audit-trail-attribution`.
 on trust. OSPREY authenticates the person at the login wall, and the name repeats that answer
 in a place the control system can read. It is process-wide, so it covers every write route in
 the card --- the connector, the Python executor, notebook kernels and raw client libraries ---
-but it is not a sandbox: a process running as uid 1000 can still reach the client library
-through ``ctypes`` or a raw socket, and what gates a write is the chain above, not the name.
+but it is not a sandbox: a process running as uid 1000 can still reach the control system
+around the blocks above --- through ``ctypes`` in an executor run, the OS loader, a fresh
+interpreter or a raw socket --- and what gates a write is the chain above, not the name.
 
 .. note::
 

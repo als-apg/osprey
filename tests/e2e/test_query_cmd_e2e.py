@@ -2,9 +2,9 @@
 
 Exercises the *shipped* command path end-to-end.
 
-Template: ``hello_world`` — the minimal preset with one mock ``controls``
-server and an ``example`` channel.  It is self-contained (no ARIEL Postgres,
-no real EPICS hardware) and resolves exit 0 in this environment.  The
+Template: ``hello_world`` — the minimal preset with one ``controls`` server
+serving the hello-world facility's channels.  It is self-contained (no ARIEL
+Postgres, no real EPICS hardware) and resolves exit 0 in this environment.  The
 ``control_assistant`` preset was considered but skipped: it declares additional
 MCP servers (channel-finder, ARIEL) that require running infrastructure absent
 here.
@@ -43,6 +43,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.query_cmd import query
+from tests.e2e._facility_select import repo_view, seeded_readback
 from tests.e2e.sdk_helpers import HAS_SDK, init_project, is_claude_code_available
 
 pytestmark = [
@@ -100,7 +101,7 @@ def test_query_cmd_json_mcp_connected(tmp_path: Path) -> None:
             "--repo",
             str(repo),
             "--json",
-            "Read the current value of the example channel and report it.",
+            f"Read the current value of {seeded_readback(repo_view(repo))} and report it.",
         ],
         capture_output=True,
         text=True,

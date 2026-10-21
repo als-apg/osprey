@@ -51,8 +51,9 @@ _install_attempted = False
 _install_error: str | None = None
 
 
-# The Plotly bundle vendored into git checkouts. The wheel ships without the
-# vendor dir, so its absence is the normal case for an installed package.
+# The Plotly bundle exists only where ``osprey vendor fetch`` wrote it. Its
+# absence is the normal case (an installed wheel, an unfetched checkout), and
+# the CDN URL is used then.
 _PLOTLY_VENDOR_REL = "artifacts/static/js/vendor/plotly-3.3.1.min.js"
 
 

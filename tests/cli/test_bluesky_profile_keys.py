@@ -30,8 +30,8 @@ from osprey.cli.build_profile_load import (
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.build_profile_schema import BlueskyConfig
 from osprey.cli.profile_cmd import validate as profile_validate
-from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
+from osprey_connectors.errors import BuildProfileError
 
 #: A port an author pinned by hand, one block above the layout's own. What these
 #: tests pin is that an AUTHORED number survives parsing and merging, so the
@@ -95,7 +95,6 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "second_lane": True,
             "plan_dir": "/facility/plans",
             "excluded_plans": ["orm"],
-            "devices_file": "data/facility_devices.yml",
             "device_page_size": 250,
             "settle_timeout_s": 30.0,
             "settle_tolerance": 0.001,
@@ -113,7 +112,6 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         second_lane=True,
         plan_dir="/facility/plans",
         excluded_plans=["orm"],
-        devices_file="data/facility_devices.yml",
         device_page_size=250,
         settle_timeout_s=30.0,
         settle_tolerance=0.001,
@@ -371,22 +369,33 @@ def test_unknown_key_from_a_set_pair_is_rejected(fake_presets: Path) -> None:
 
 
 def test_every_bundled_preset_still_resolves() -> None:
-    """Including the two ``extends: control-assistant`` children, whose bluesky
-    block arrives entirely from the parent layer."""
+    """Every top-level bundled preset resolves with the promoted block."""
     for name in build_profile_presets.list_presets():
         resolve_build_profile(None, name)
 
 
-@pytest.mark.parametrize(
-    "preset", ["control-assistant", "control-assistant-readonly", "control-assistant-readwrite"]
-)
-def test_control_assistant_family_keeps_its_bluesky_block(preset: str) -> None:
-    """The preset that actually carries a bluesky block resolves it intact.
+@pytest.fixture(scope="module")
+def exemplar_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The deployment ``control-assistant`` materializes, tiers included."""
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    return build_exemplar_repo(tmp_path_factory.mktemp("exemplar") / "repo")
+
+
+@pytest.mark.parametrize("tier", [None, "readonly", "readwrite"])
+def test_control_assistant_family_keeps_its_bluesky_block(
+    exemplar_repo: Path, tier: str | None
+) -> None:
+    """The preset that actually carries a bluesky block resolves it intact,
+    and every tier over its deployment inherits it whole.
 
     The preset names no port — the bridge and its catalog publish inside the
     deployment's port block — so what it resolves to is the layout's own pair.
     """
-    profile, _dir = resolve_build_profile(None, preset)
+    if tier is None:
+        profile, _dir = resolve_build_profile(None, "control-assistant")
+    else:
+        profile, _dir = resolve_build_profile(exemplar_repo / "tiers" / f"{tier}.yml", None)
 
     assert profile.bluesky is not None
     assert profile.bluesky.port == default_port("bluesky")

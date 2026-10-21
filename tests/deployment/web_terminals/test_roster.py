@@ -1,0 +1,3925 @@
+"""Tests for roster normalization and render identity resolution
+(osprey.deployment.web_terminals.roster)."""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import pytest
+
+from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
+from osprey.deployment.web_terminals import roster as renders_module
+from osprey.deployment.web_terminals.roster import (
+    CONTROL_IDENTITY_COLLISION_CODE,
+    EVENTS_PANEL_ID,
+    RENDER_CATALOG_REQUIRED,
+    UnresolvedRoleError,
+    _is_shared_entry,
+    access_wire_value,
+    bluesky_server_enabled,
+    ca_bundle_mounts,
+    config_archiver_ca_bundles,
+    config_archiver_credential_envs,
+    config_declares_panel,
+    config_needs_ariel_password,
+    config_needs_dispatcher_token,
+    config_needs_graphdb_password,
+    config_needs_launch_token,
+    config_needs_launch_token_for,
+    config_needs_phoebus_handles,
+    configured_registry_url,
+    control_identity_collision_warnings,
+    control_identity_problems,
+    effective_tier,
+    entry_is_shared,
+    freeze_user_indices,
+    lane_control_target,
+    normalize_users,
+    phoebus_server_runs,
+    renders_needing_archiver_ca_bundles,
+    renders_needing_archiver_credentials,
+    renders_needing_ariel_password,
+    renders_needing_dispatcher_token,
+    renders_needing_graphdb_password,
+    renders_needing_launch_token_by_lane,
+    renders_needing_phoebus_handles,
+    renders_not_denying_bash,
+    resolve_access_principals,
+    resolve_authorization_roles,
+    resolve_cards,
+    settings_json_denies,
+    shared_card_privileged_problems,
+)
+from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.services.auth_sidecar.roster_env import env_var_suffix_collisions
+from osprey_connectors.connection import read_connection_settings
+from tests._renders import tier_render
+
+
+def test_normalize_users_bare_strings_indexed_by_position() -> None:
+    """A legacy bare-string roster gets its raw list position as its index."""
+    # Arrange
+    users_raw = ["alice", "bob"]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 1},
+    ]
+
+
+def test_normalize_users_explicit_entries_pass_through_unchanged() -> None:
+    """Already-explicit object entries keep their own index, not their position."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 5}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 5}]
+
+
+def test_normalize_users_mixed_bare_and_explicit_entries() -> None:
+    """Bare entries keep raw position; object entries keep their explicit index."""
+    # Arrange
+    users_raw = ["alice", {"name": "bob", "index": 7}, "carol"]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 7},
+        {"name": "carol", "index": 2},
+    ]
+
+
+def test_normalize_users_is_idempotent() -> None:
+    """Normalizing an already-normalized list must be a no-op."""
+    # Arrange
+    users_raw = ["alice", {"name": "bob", "index": 7}, "carol"]
+
+    # Act
+    once = normalize_users(users_raw)
+    twice = normalize_users(once)
+
+    # Assert
+    assert once == twice
+
+
+def test_normalize_users_drops_malformed_entries() -> None:
+    """Non-string entries and dicts missing a str name or int index are dropped."""
+    # Arrange
+    users_raw = [
+        "alice",
+        123,
+        {"name": "bob"},  # missing index
+        {"index": 2},  # missing name
+        {"name": 4, "index": 1},  # name not a str
+        {"name": "carol", "index": "1"},  # index not an int
+        {"name": "dave", "index": True},  # bool is not a valid index (config typo)
+        None,
+        [],
+    ]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_string_display_name_through() -> None:
+    """An object entry's string `display_name` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+
+def test_normalize_users_omits_display_name_key_when_absent() -> None:
+    """An entry with no `display_name` keeps the plain two-key shape (no None key)."""
+    # Act / Assert — bare string and object-without-display_name both stay two-key
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_display_name() -> None:
+    """A non-string `display_name` (a config typo) is dropped defensively; the rest
+    of a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), display_name omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_string_theme_through() -> None:
+    """An object entry's string `theme` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "theme": "desy-light"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "theme": "desy-light"}]
+
+
+def test_normalize_users_omits_theme_key_when_absent() -> None:
+    """An entry with no `theme` keeps the plain two-key shape (no None key)."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_theme() -> None:
+    """A non-string `theme` (a config typo) is dropped defensively; the rest of a
+    well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "theme": ["desy"]}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), theme omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_string_tour_through() -> None:
+    """An object entry's string `tour` (onboarding-tour invite policy) is
+    carried onto the normalized entry on the same terms as `theme`."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": "always"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "tour": "always"}]
+
+
+def test_normalize_users_drops_non_string_tour() -> None:
+    """A non-string `tour` (a config typo) is dropped defensively; the rest of
+    a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": True}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), tour omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_display_name_and_theme_together() -> None:
+    """The two optional per-user fields are independent — declaring both keeps
+    both."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations", "theme": "desy"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": "Operations", "theme": "desy"}]
+
+
+def test_normalize_users_empty_list_returns_empty_list() -> None:
+    """An empty users list normalizes to an empty list."""
+    # Act / Assert
+    assert normalize_users([]) == []
+
+
+def test_normalize_users_non_list_input_returns_empty_list() -> None:
+    """Anything that isn't a list (including None) normalizes to an empty list."""
+    # Act / Assert
+    assert normalize_users(None) == []
+    assert normalize_users({"name": "alice", "index": 0}) == []
+    assert normalize_users("alice") == []
+
+
+def test_normalize_users_does_not_mutate_input_entries() -> None:
+    """Normalization must return new dicts, never the original entry by reference."""
+    # Arrange
+    original_entry = {"name": "alice", "index": 5}
+    users_raw = [original_entry]
+
+    # Act
+    result = normalize_users(users_raw)
+    result[0]["index"] = 99
+
+    # Assert
+    assert original_entry == {"name": "alice", "index": 5}
+
+
+# ---------------------------------------------------------------------------
+# freeze_user_indices()
+# ---------------------------------------------------------------------------
+
+
+def test_freeze_user_indices_keeps_the_render_normalize_users_drops() -> None:
+    """The whole point: the roster that goes BACK to config.yml keeps `render`.
+
+    normalize_users projects it away, and a roster written from that projection
+    re-resolves every entry onto `default_tier`.
+    """
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tier": "readonly"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "tier": "readonly"}]
+    assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
+
+
+def test_freeze_user_indices_keeps_a_survivors_role() -> None:
+    """`role:` is the OTHER binding whose loss is a silent privilege change.
+
+    It reaches a render through `modules.web_terminals.authorization` instead of
+    pinning one directly, but `effective_tier` resolves an entry through both,
+    so a survivor written back without its `role:` re-resolves onto
+    `default_tier` exactly as one written back without its `tier:` does.
+    The render half has had its own test since this function existed; this is
+    the half that did not — and it reaches the write-back by the other route,
+    carried through the projection rather than re-attached from the authored
+    entry, so the render test does not cover it.
+    """
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "role": "operator"},
+        {"name": "bob", "index": 1, "role": "expert"},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert [entry.get("role") for entry in result] == ["operator", "expert"]
+    assert result == users_raw
+
+
+def test_freeze_user_indices_freezes_bare_string_positions() -> None:
+    """A bare string carries nothing but its name, so it gains only an index —
+    the same one normalize_users assigns it."""
+    # Arrange
+    users_raw = ["alice", "bob"]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}]
+
+
+def test_freeze_user_indices_carries_unknown_keys_through() -> None:
+    """Keys this module does not read are still the facility's config."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 2, "shift": "swing"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 2, "shift": "swing"}]
+
+
+def test_freeze_user_indices_survival_matches_normalize_users() -> None:
+    """Who survives is normalize_users' contract, not a second copy of its rules."""
+    # Arrange
+    users_raw = [
+        "alice",
+        {"name": "bob", "index": 1, "tier": "readonly"},
+        {"name": "carol", "index": True},  # bool index: a config typo, dropped
+        {"index": 3},  # no name
+        42,
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert [entry["name"] for entry in result] == [
+        entry["name"] for entry in normalize_users(users_raw)
+    ]
+    assert [entry["name"] for entry in result] == ["alice", "bob"]
+
+
+def test_freeze_user_indices_index_comes_from_normalize_users() -> None:
+    """A malformed `index` on an otherwise-valid entry cannot leak back into the
+    file: the written index is always the normalized one."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 7, "tier": "readonly"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result[0]["index"] == 7 == normalize_users(users_raw)[0]["index"]
+
+
+def test_freeze_user_indices_is_idempotent() -> None:
+    """Its own output re-freezes to itself, so a roster can be frozen twice."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tier": "readonly"}, "bob"]
+
+    # Act
+    once = freeze_user_indices(users_raw)
+    twice = freeze_user_indices(once)
+
+    # Assert
+    assert twice == once
+
+
+def test_freeze_user_indices_duplicate_name_gives_both_the_last_entrys_extras() -> None:
+    """A duplicate-name roster resolves extras by NAME, so both entries take the
+    LAST authored entry's — including its render.
+
+    This is a guard, not an endorsement: the roster is already invalid (lint
+    reports the duplicate) and the behaviour hands one listing another's
+    render. Pinned because it is the one path where matching by name is
+    lossy, so a future change to the matching rule has to face it deliberately
+    rather than discover it in a facility's config.
+    """
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "tier": "readonly"},
+        {"name": "alice", "index": 4, "tier": "readwrite"},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert — each keeps its OWN frozen index...
+    assert [entry["index"] for entry in result] == [0, 4]
+    # ...but both carry the last authored entry's render.
+    assert [entry["tier"] for entry in result] == ["readwrite", "readwrite"]
+
+
+def test_freeze_user_indices_carries_values_normalize_users_drops_as_malformed() -> None:
+    """A malformed optional value goes back to the file as the author wrote it.
+
+    normalize_users drops a non-string ``display_name`` because the render
+    cannot use it. Removing one user must not quietly repair — or delete —
+    another user's config line: the value round-trips and lint keeps reporting
+    it.
+    """
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": 123}]
+    assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
+
+
+def test_freeze_user_indices_does_not_mutate_input_entries() -> None:
+    """Returns new dicts, never the authored entry by reference."""
+    # Arrange
+    original_entry = {"name": "alice", "index": 5, "tier": "readonly"}
+    users_raw = [original_entry]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+    result[0]["render"] = "readwrite"
+
+    # Assert
+    assert original_entry == {"name": "alice", "index": 5, "tier": "readonly"}
+
+
+# ---------------------------------------------------------------------------
+# resolve_cards()
+# ---------------------------------------------------------------------------
+
+_REGISTRY = {"url": "registry.example.org/osprey"}
+
+
+#: The minimal catalog every roster needs: one default tier naming the
+#: project its image was built from.
+_CATALOG: dict[str, Any] = {
+    "default_tier": "assistant",
+    "renders": {"assistant": tier_render("assistant", "demo-project-assistant")},
+}
+
+
+def _unresolved(name: str, index: int, render: str | None) -> dict[str, Any]:
+    """The lenient answer for an entry that does not resolve."""
+    return {
+        "name": name,
+        "index": index,
+        "render": render,
+        "image": None,
+        "project": None,
+        "container_project_dir": None,
+        "extra_mounts": [],
+        "seed_base": True,
+    }
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        {},
+        {"renders": {"assistant": tier_render("assistant", "demo-project-assistant")}},
+        {"default_tier": "assistant"},
+    ],
+    ids=["no-catalog", "no-default-render", "no-renders"],
+)
+def test_resolve_cards_without_catalog_and_default_tier_strict_raises(
+    image_source: str, catalog: dict[str, Any]
+) -> None:
+    """Every image source refuses a roster with no catalog or no default_tier:
+    nothing else names the project a terminal runs."""
+    web_terminals = {"users": ["alice"], "image_source": image_source, **catalog}
+
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
+        resolve_cards(web_terminals, _REGISTRY, strict=True)
+
+
+def test_resolve_cards_empty_roster_without_catalog_strict_raises() -> None:
+    """The refusal does not look at the roster: an empty one is refused too."""
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
+        resolve_cards({"users": []}, _REGISTRY, strict=True)
+
+
+def test_resolve_cards_without_catalog_lenient_returns_one_unresolved_entry_per_user() -> None:
+    """A lenient caller gets every roster name back, naming no image and no
+    directory."""
+    result = resolve_cards({"users": ["alice", "bob"]}, _REGISTRY, strict=False)
+
+    assert result == [_unresolved("alice", 0, None), _unresolved("bob", 1, None)]
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_resolve_cards_entry_without_project_is_refused(image_source: str) -> None:
+    """A render in effect with no `project` names no directory, so the strict
+    path refuses it in either image source."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "bare"}],
+        "default_tier": "bare",
+        "image_source": image_source,
+        "renders": {"bare": tier_render("bare", None, project_path="profiles/bare")},
+    }
+
+    with pytest.raises(ValueError, match=r"renders\['bare'\] has no project"):
+        resolve_cards(web_terminals, _REGISTRY, strict=True)
+
+
+def test_resolve_cards_entry_without_project_lenient_is_unresolved() -> None:
+    """The lenient path keeps the user and the render, and names no image."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "bare"}],
+        "default_tier": "bare",
+        "image_source": "local",
+        "renders": {"bare": tier_render("bare", None, project_path="profiles/bare")},
+    }
+
+    assert resolve_cards(web_terminals, _REGISTRY, strict=False) == [
+        _unresolved("alice", 0, "bare")
+    ]
+
+
+def test_resolve_cards_ready_made_entry_with_project_resolves_its_directory() -> None:
+    """A ready-made entry (no build_profile) that states its project runs in
+    `/app/<project>` and builds as `<project>:local`."""
+    web_terminals = {
+        "users": ["alice"],
+        "default_tier": "main",
+        "image_source": "local",
+        "renders": {"main": tier_render("main", "site-terminal", project_path="elsewhere/site")},
+    }
+
+    (entry,) = resolve_cards(web_terminals, _REGISTRY)
+
+    assert entry["image"] == "site-terminal:local"
+    assert entry["project"] == "site-terminal"
+    assert entry["container_project_dir"] == "/app/site-terminal"
+
+
+def test_resolve_cards_registry_default_tier_names_its_directory_by_its_project() -> None:
+    """A registry deployment's default tier pulls the unsuffixed image and
+    runs in the directory of the project that image was built from."""
+    (entry,) = resolve_cards({"users": ["alice"], **_CATALOG}, _REGISTRY)
+
+    assert entry == {
+        "name": "alice",
+        "index": 0,
+        "render": "assistant",
+        "image": "registry.example.org/osprey/web-terminal:latest",
+        "project": "demo-project-assistant",
+        "container_project_dir": "/app/demo-project-assistant",
+        "extra_mounts": [],
+        "seed_base": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("registry_cfg", "expected"),
+    [
+        (None, ""),
+        ({}, ""),
+        ({"url": None}, ""),
+        ({"url": 5}, ""),
+        ({"url": "registry.example.org/osprey"}, "registry.example.org/osprey"),
+    ],
+)
+def test_configured_registry_url_reads_only_a_string_url(registry_cfg: Any, expected: str) -> None:
+    """Only a string `registry.url` inside a mapping counts as configured."""
+    # Act
+    result = configured_registry_url(registry_cfg)
+
+    # Assert
+    assert result == expected
+
+
+def test_resolve_cards_default_tier_keeps_unsuffixed_registry_image() -> None:
+    """The default tier's registry-mode image stays un-suffixed; its
+    container dir follows its own catalog project uniformly, like every other
+    render."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "render": "cli",
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+        }
+    ]
+
+
+def test_resolve_cards_default_tier_container_dir_follows_its_project() -> None:
+    """The default tier's container dir is derived from its own catalog
+    project. The image stays un-suffixed, which is the only default-render
+    special case."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_tier": "cli",
+        "renders": {"cli": tier_render("cli", "control-room", project_path="profiles/cli")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["project"] == "control-room"
+    assert result[0]["container_project_dir"] == "/app/control-room"
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
+
+
+def test_resolve_cards_non_default_tier_registry_mode_suffixes_image() -> None:
+    """A non-default tier gets a `web-terminal-<render>` registry tag and a
+    container dir derived from its own catalog project."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+            "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result == [
+        {
+            "name": "gmartino",
+            "index": 0,
+            "render": "gui",
+            "image": "registry.example.org/osprey/web-terminal-gui:latest",
+            "project": "demo-project-gui-assistant",
+            "container_project_dir": "/app/demo-project-gui-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+        }
+    ]
+
+
+def test_resolve_cards_local_mode_tags_every_render_by_render_including_default() -> None:
+    """Local mode builds `<render.project>:local` for every render — the tag
+    names the render alone, and unlike registry mode, the default tier is
+    not special-cased on the image."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice", {"name": "gmartino", "index": 1, "tier": "gui"}],
+        "default_tier": "cli",
+        "image_source": "local",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+            "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    images = {entry["name"]: entry["image"] for entry in result}
+    assert images == {
+        "alice": "demo-project-assistant:local",
+        "gmartino": "demo-project-gui-assistant:local",
+    }
+    # Default tier's container dir follows its own catalog project, like every
+    # other render — no default-path special case (here `demo-project-assistant`).
+    default_entry = next(entry for entry in result if entry["name"] == "alice")
+    assert default_entry["container_project_dir"] == "/app/demo-project-assistant"
+
+
+def test_resolve_cards_own_project_ignores_the_project_name() -> None:
+    """A render with its own render is named and placed by that render alone."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "cli"}],
+        "default_tier": "cli",
+        "image_source": "local",
+        "renders": {"cli": tier_render("cli", "site-cli", project_path="build/site-cli")},
+    }
+
+    (entry,) = resolve_cards(web_terminals, _REGISTRY)
+
+    assert entry["image"] == "site-cli:local"
+    assert entry["container_project_dir"] == "/app/site-cli"
+
+
+def test_resolve_cards_entry_without_render_key_inherits_default_tier() -> None:
+    """A roster entry with no `tier:` key inherits `default_tier`, resolving
+    through the catalog."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["render"] == "cli"
+
+
+def test_resolve_cards_unknown_tier_ref_strict_raises() -> None:
+    """An explicit `tier:` referencing a name absent from the catalog raises
+    in strict mode."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "ghost"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+    }
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="ghost"):
+        resolve_cards(web_terminals, _REGISTRY, strict=True)
+
+
+def test_resolve_cards_unknown_tier_ref_lenient_degrades() -> None:
+    """The lenient variant returns an unknown render ref as an unresolved
+    entry instead of raising, keeping the requested (bad) name visible."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "ghost"}],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY, strict=False)
+
+    # Assert
+    assert result == [_unresolved("alice", 0, "ghost")]
+
+
+def test_resolve_cards_preserves_normalize_users_index_freezing() -> None:
+    """Explicit indices from an already-frozen roster carry through unchanged —
+    resolve_cards must not recompute positions itself."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 5, "tier": "cli"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["index"] == 5
+
+
+def test_resolve_cards_exposes_display_name_when_set() -> None:
+    """A roster entry's `display_name` is threaded onto the resolved svc dict as a
+    `display_name` key (here on the default tier)."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "display_name": "Operations"}],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "render": "assistant",
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+            "display_name": "Operations",
+        }
+    ]
+
+
+def test_resolve_cards_display_name_threads_through_render_branch() -> None:
+    """`display_name` is orthogonal to render resolution — it rides through a
+    fully-resolved non-default tier entry too, not only the default tier."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui", "display_name": "Control GUI"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+            "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["render"] == "gui"
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal-gui:latest"
+    assert result[0]["display_name"] == "Control GUI"
+
+
+def test_resolve_cards_omits_display_name_key_when_unset_or_empty() -> None:
+    """No `display_name` (or an empty-string one) omits the key entirely, so the
+    resolved entry stays byte-identical to a pre-`display_name` resolution."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            "alice",  # bare string — never carries one
+            {"name": "bob", "index": 1},  # object form, no display_name
+            {"name": "carol", "index": 2, "display_name": ""},  # empty is inert
+        ],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert — no entry carries a display_name key
+    assert all("display_name" not in entry for entry in result)
+
+
+def test_resolve_cards_exposes_theme_when_set() -> None:
+    """A roster entry's `theme` is threaded onto the resolved svc dict as a
+    `theme` key (here on the default tier)."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}], **_CATALOG}
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "render": "assistant",
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+            "theme": "desy-light",
+        }
+    ]
+
+
+def test_resolve_cards_exposes_tour_when_set() -> None:
+    """A roster entry's `tour` is threaded onto the resolved svc dict (the
+    render emits it as OSPREY_WEB_TOUR); entries without one carry no key."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "alice", "index": 0, "tour": "always"},
+            {"name": "bob", "index": 1},
+        ],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["tour"] == "always"
+    assert "tour" not in result[1]
+
+
+def test_resolve_cards_theme_threads_through_render_branch() -> None:
+    """`theme` is orthogonal to render resolution — it rides through a
+    fully-resolved non-default tier entry too, not only the default tier."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui", "theme": "desy"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+            "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["render"] == "gui"
+    assert result[0]["theme"] == "desy"
+
+
+def test_resolve_cards_omits_theme_key_when_unset_or_empty() -> None:
+    """No `theme` (or an empty-string one) omits the key entirely, so the resolved
+    entry stays byte-identical to a pre-`theme` resolution."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            "alice",  # bare string — never carries one
+            {"name": "bob", "index": 1},  # object form, no theme
+            {"name": "carol", "index": 2, "theme": ""},  # empty is inert
+        ],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert — no entry carries a theme key
+    assert all("theme" not in entry for entry in result)
+
+
+def test_resolve_cards_empty_users_returns_empty_list() -> None:
+    """An empty/missing roster resolves to an empty list."""
+    # Act / Assert
+    assert resolve_cards({**_CATALOG}, _REGISTRY) == []
+    assert resolve_cards({"users": [], **_CATALOG}, _REGISTRY) == []
+
+
+def test_resolve_cards_registry_cfg_missing_url_defaults_to_empty_string() -> None:
+    """A registry section with no `url` key must not raise: the resolver stays
+    total and yields the leading-slash name, and the render is where this shape
+    is refused."""
+    # Act
+    result = resolve_cards({"users": ["alice"], **_CATALOG}, {})
+
+    # Assert
+    assert result[0]["image"] == "/web-terminal:latest"
+
+
+# ---------------------------------------------------------------------------
+# resolve_cards() — render extra_mounts
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cards_reads_extra_mounts_from_catalog_entry() -> None:
+    """A render's `extra_mounts` list is carried onto every user of that render."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui"}],
+        "default_tier": "gui",
+        "renders": {
+            "gui": tier_render(
+                "gui",
+                "demo-project-gui",
+                extra_mounts=["/opt/site-data:/app/site-data:ro", "cache-vol:/app/cache"],
+            )
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["extra_mounts"] == [
+        "/opt/site-data:/app/site-data:ro",
+        "cache-vol:/app/cache",
+    ]
+
+
+def test_resolve_cards_default_tier_also_carries_extra_mounts() -> None:
+    """The default tier is not special-cased for `extra_mounts` — its list is
+    carried through like any other render's."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", extra_mounts=["/data:/app/data:ro"])
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["extra_mounts"] == ["/data:/app/data:ro"]
+
+
+def test_resolve_cards_catalog_entry_without_extra_mounts_defaults_to_empty_list() -> None:
+    """A render that sets no `extra_mounts` resolves to an empty list, not a
+    missing key."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui"}],
+        "default_tier": "gui",
+        "renders": {"gui": tier_render("gui", "demo-project-gui")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+def test_resolve_cards_extra_mounts_defensive_reads() -> None:
+    """A non-list `extra_mounts` drops to `[]`; a list with non-string/empty
+    entries keeps only the well-formed strings (colon-part syntax is lint's job)."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "a", "index": 0, "tier": "bad"},
+            {"name": "b", "index": 1, "tier": "mixed"},
+        ],
+        "default_tier": "bad",
+        "renders": {
+            "bad": tier_render("bad", "demo-project-bad", extra_mounts="not-a-list"),
+            "mixed": tier_render(
+                "mixed",
+                "demo-project-mixed",
+                extra_mounts=["/ok:/app/ok:ro", 42, "", None, "/two:/app/two"],
+            ),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    by_name = {entry["name"]: entry["extra_mounts"] for entry in result}
+    assert by_name["a"] == []
+    assert by_name["b"] == ["/ok:/app/ok:ro", "/two:/app/two"]
+
+
+def test_resolve_cards_lenient_degrade_extra_mounts_empty() -> None:
+    """An unresolvable render ref resolves to the unresolved entry, which
+    carries an empty `extra_mounts` (no catalog entry to read from)."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "ghost"}],
+        "default_tier": "cli",
+        "renders": {"cli": tier_render("cli", "demo-project-assistant")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY, strict=False)
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+    assert result[0]["image"] is None
+
+
+# ---------------------------------------------------------------------------
+# image_tag seam
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cards_image_tag_defaults_to_latest() -> None:
+    """No `image_tag` key resolves to the pre-seam `:latest` registry tag."""
+    # Arrange
+    web_terminals = {"users": ["alice"], **_CATALOG}
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
+
+
+def test_resolve_cards_image_tag_explicit_literal_is_emitted_verbatim() -> None:
+    """A plain literal `image_tag` (no env reference) is baked into the image
+    ref exactly as written, for both default and non-default tier images."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice", {"name": "gmartino", "index": 1, "tier": "gui"}],
+        "default_tier": "cli",
+        "image_tag": "v2026.7.8",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+            "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    images = {entry["name"]: entry["image"] for entry in result}
+    assert images == {
+        "alice": "registry.example.org/osprey/web-terminal:v2026.7.8",
+        "gmartino": "registry.example.org/osprey/web-terminal-gui:v2026.7.8",
+    }
+
+
+def test_resolve_cards_image_tag_expands_env_var_at_render_time(monkeypatch) -> None:
+    """A `${VAR}` reference in `image_tag` expands against the process
+    environment to a literal tag — no `${...}` survives into the image ref."""
+    # Arrange
+    monkeypatch.setenv("IMAGE_TAG", "v9.9.9")
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}", **_CATALOG}
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:v9.9.9"
+
+
+def test_resolve_cards_image_tag_unset_env_var_expands_to_empty(monkeypatch) -> None:
+    """An `image_tag` referencing an unset variable expands to the empty string
+    (not a surviving `${...}`), yielding a tagless ref that lint warns on."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}", **_CATALOG}
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
+
+
+# ---------------------------------------------------------------------------
+# resolve_cards() — seed_base opt-out
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cards_seed_base_defaults_true_for_catalog_entry() -> None:
+    """A catalog entry with no `seed_base` key resolves to the default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "gui"}],
+        "default_tier": "gui",
+        "renders": {"gui": tier_render("gui", "demo-project-gui")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+def test_resolve_cards_seed_base_false_is_carried_through() -> None:
+    """`seed_base: false` on a catalog entry resolves to False for its users."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "gui"}],
+        "default_tier": "gui",
+        "renders": {"gui": tier_render("gui", "demo-project-gui", seed_base=False)},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["seed_base"] is False
+
+
+def test_resolve_cards_seed_base_non_bool_coerces_to_true() -> None:
+    """A non-bool `seed_base` (a config typo lint reports separately) must not
+    propagate — it defensively coerces to the safe default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "gui"}],
+        "default_tier": "gui",
+        "renders": {"gui": tier_render("gui", "demo-project-gui", seed_base="false")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+# ---------------------------------------------------------------------------
+# Roster OIDC identity mapping (normalize_users / resolve_cards passthrough)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_users_carries_string_oidc_subject_through() -> None:
+    """An object entry's `oidc_subject` — the non-secret IdP claim value that
+    identifies this roster user — is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
+
+
+def test_normalize_users_omits_oidc_subject_key_when_absent() -> None:
+    """A roster declaring no OIDC mapping keeps the plain two-key shape, so a
+    password-mode (or pre-auth) config normalizes exactly as it did before."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_oidc_subject() -> None:
+    """A non-string `oidc_subject` is dropped defensively; the rest of a
+    well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ["alice@example.org"]}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), oidc_subject omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_drops_empty_oidc_subject() -> None:
+    """An empty `oidc_subject` must never become a mapping: an identity whose
+    claim is missing or empty would otherwise match this roster user. Dropping
+    it leaves the user unmapped, which the OIDC callback answers with 403."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ""}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_oidc_subject_is_independent_of_the_cosmetic_fields() -> None:
+    """The identity mapping and the cosmetic per-user fields don't interfere —
+    declaring all three keeps all three."""
+    # Arrange
+    users_raw = [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "oidc_subject": "alice@example.org",
+        }
+    ]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "oidc_subject": "alice@example.org",
+        }
+    ]
+
+
+def test_normalize_users_drops_the_retired_login_key() -> None:
+    """`login:` is no longer a roster key. Every spelling — the literal `false`
+    that once opted an entry out of the login wall included — is projected away
+    like any other unknown key, so a profile still carrying it deploys with the
+    entry behind the wall rather than served ungated."""
+    # Act / Assert
+    for spelling in (False, True, "false", "no", 0, None, ["false"]):
+        result = normalize_users([{"name": "ariel", "index": 2, "login": spelling}])
+        assert result == [{"name": "ariel", "index": 2}], repr(spelling)
+
+
+def test_no_reader_of_the_retired_login_key_survives() -> None:
+    """`entry_requires_login` was the single reading of the key that render,
+    provisioning and the `users passwd` refusal shared. With the key gone it has
+    no question left to answer, and a surviving predicate would be an invitation
+    to grow the key back."""
+    assert not hasattr(renders_module, "entry_requires_login")
+    assert not hasattr(renders_module, "unauthenticated_privileged_terminal_problems")
+
+
+def test_resolve_cards_carries_no_login_marker() -> None:
+    """Neither the default tier nor a pinned one lets the retired key ride
+    through onto a resolved entry."""
+    # Act
+    default_tier = resolve_cards(
+        {"users": [{"name": "ariel", "index": 0, "login": False}], **_CATALOG}, _REGISTRY
+    )
+    render_branch = resolve_cards(
+        {
+            "users": [{"name": "ariel", "index": 0, "tier": "gui", "login": False}],
+            "default_tier": "gui",
+            "renders": {"gui": tier_render("gui", "demo-project-gui")},
+        },
+        _REGISTRY,
+    )
+
+    # Assert
+    assert "login" not in default_tier[0]
+    assert "login" not in render_branch[0]
+
+
+def test_normalize_users_carries_access_any_through() -> None:
+    """`access: any` — the shorthand for the whole roster — rides onto the
+    normalized entry as the string it was authored as, so the render and the
+    decommission write-back both see exactly what the operator wrote."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": "any"}])
+
+    # Assert
+    assert result == [{"name": "control", "index": 3, "access": "any"}]
+
+
+@pytest.mark.parametrize(
+    "authored",
+    [
+        ["roster"],
+        ["domain:example.com"],
+        ["user:alice@example.com"],
+        ["self", "domain:example.com"],
+    ],
+)
+def test_normalize_users_carries_a_principal_list_verbatim(authored: list[str]) -> None:
+    """A list rides onto the normalized entry whole. This is the fail-open
+    being retired: the old normalizer kept only the literal `"any"`, so a card
+    admitting a domain arrived downstream looking owner-only."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": authored}])
+
+    # Assert — the authored form, and answerable as the same principal set
+    assert result == [{"name": "control", "index": 3, "access": authored}]
+    assert resolve_access_principals(result[0]) == resolve_access_principals(
+        {"name": "control", "access": authored}
+    )
+
+
+def test_normalize_users_carries_the_authored_case_not_a_folded_one() -> None:
+    """The carried value is verbatim: a domain is folded by the parser, on
+    every read, and never written back onto the entry in its folded spelling."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": ["domain:Example.Com"]}])
+
+    # Assert
+    assert result[0]["access"] == ["domain:Example.Com"]
+    assert resolve_access_principals(result[0]) == frozenset({"domain:example.com"})
+
+
+def test_normalize_users_drops_every_owner_only_spelling() -> None:
+    """`own`, an absent key, an empty `access:` and `[self]` all resolve to the
+    owner-only set, so none of them reaches the normalized entry — a roster
+    that shares nothing normalizes exactly as it did before the principal set
+    existed."""
+    # Act / Assert — each leaves the plain two-key shape
+    for spelling in ("own", None, ["self"], ["self", "self"]):
+        result = normalize_users([{"name": "control", "index": 3, "access": spelling}])
+        assert result == [{"name": "control", "index": 3}], repr(spelling)
+
+
+@pytest.mark.parametrize("spelling", ["ANY", "Any", True, 1, "", ["any"], ["group:ops"], []])
+def test_normalize_users_refuses_an_unreadable_access(spelling: Any) -> None:
+    """A value the vocabulary does not recognise stops the normalization by
+    default, naming the entry. It must never normalize into an owner-only card:
+    that is the reading the deployment guards then have nothing to say about,
+    while the surface that admits logins may read the same value as sharing."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="'control'"):
+        normalize_users([{"name": "control", "index": 3, "access": spelling}])
+
+
+def test_normalize_users_lenient_drops_the_entry_rather_than_owning_it() -> None:
+    """The lenient degrade — what the lifecycle verbs resolve with — drops the
+    offending entry whole. Its neighbours survive with their own indices, so a
+    typo on one user never blocks or rewrites the rest of the roster."""
+    # Arrange
+    users_raw = [
+        "alice",
+        {"name": "control", "index": 1, "access": "ANY"},
+        {"name": "bob", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    result = normalize_users(users_raw, strict=False)
+
+    # Assert — dropped entirely, never carried through as an owner-only card
+    assert result == [
+        {"name": "alice", "index": 0},
+        {"name": "bob", "index": 2, "access": "any"},
+    ]
+
+
+def test_shared_card_privileged_problems_names_entry_privileges_and_remedy() -> None:
+    """A shared card on a privileged tier is reported with the user, the
+    render, what it holds, and both halves of the remedy — in rich-safe
+    prose (`osprey build` renders refusals through rich, which eats `[...]`)."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "render": "admin", "access": "any"},
+        {"name": "carol", "index": 1, "render": "admin"},
+    ]
+
+    # Act
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+
+    # Assert
+    assert len(problems) == 1
+    assert "'control'" in problems[0]
+    assert "'admin'" in problems[0]
+    assert "the web Config panel" in problems[0]
+    assert "access: own" in problems[0]
+    assert "carol" not in problems[0]
+    assert "[" not in problems[0]
+
+
+def test_shared_card_privileged_problems_quotes_the_authored_access() -> None:
+    """`any` is one of four spellings that share a card, so the message quotes
+    what the entry actually carries. A list is spelled as its members, not as
+    its repr: `osprey build` renders these through rich, which eats `[...]` —
+    and the word "members" carries the list-vs-scalar cue the brackets did."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "render": "admin", "access": ["domain:example.com"]},
+    ]
+
+    # Act
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+
+    # Assert
+    assert len(problems) == 1
+    assert "access members 'domain:example.com'" in problems[0]
+    assert "access: any" not in problems[0]
+    assert "whole roster" not in problems[0]
+    assert "[" not in problems[0]
+
+
+def test_shared_card_privileged_problems_silent_for_an_unprivileged_tier() -> None:
+    """Sharing an unprivileged card is the feature, not the finding — a render
+    absent from the privilege map (or mapped to nothing) draws no message."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "render": "ariel", "access": "any"},
+        {"name": "gui", "index": 1, "render": "readonly", "access": "any"},
+    ]
+
+    # Act / Assert
+    assert shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)}) == []
+    assert shared_card_privileged_problems(resolved, {"readonly": ()}) == []
+
+
+def test_shared_card_privileged_problems_silent_for_an_owner_only_card() -> None:
+    """A privileged tier behind an owner-only card is the login rule's
+    domain, not this one's — no `access: any`, no message. An entry with no
+    render in effect has no tier to be privileged either way."""
+    # Arrange
+    privileges = {"admin": ("the web Config panel",)}
+    owner_only = [{"name": "carol", "index": 0, "render": "admin"}]
+    no_render = [{"name": "control", "index": 1, "render": None, "access": "any"}]
+
+    # Act / Assert
+    assert shared_card_privileged_problems(owner_only, privileges) == []
+    assert shared_card_privileged_problems(no_render, privileges) == []
+
+
+def test_resolve_access_principals_resolves_the_two_shorthands_and_absence() -> None:
+    """`own`, `any` and an unwritten key are sugar for one-member principal
+    sets — the equivalence every consumer reads instead of the raw value."""
+    assert resolve_access_principals({"name": "alice", "index": 0, "access": "own"}) == frozenset(
+        {"self"}
+    )
+    assert resolve_access_principals({"name": "control", "index": 3, "access": "any"}) == frozenset(
+        {"roster"}
+    )
+    assert resolve_access_principals({"name": "alice", "index": 0}) == frozenset({"self"})
+    # An authored `access:` with nothing after it reads as unwritten, not as a
+    # typo: YAML hands it over as None, and owner-only is the fail-closed answer.
+    assert resolve_access_principals({"name": "alice", "index": 0, "access": None}) == frozenset(
+        {"self"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("authored", "expected"),
+    [
+        (["self"], {"self"}),
+        (["roster"], {"roster"}),
+        (["user:alice@example.com"], {"user:alice@example.com"}),
+        (["domain:example.com"], {"domain:example.com"}),
+        (["self", "domain:example.com"], {"self", "domain:example.com"}),
+        (
+            ["user:a@example.com", "user:b@example.com"],
+            {"user:a@example.com", "user:b@example.com"},
+        ),
+        # The union is a set: a member written twice grants once.
+        (["self", "self"], {"self"}),
+    ],
+)
+def test_resolve_access_principals_unions_every_typed_principal(
+    authored: list[str], expected: set[str]
+) -> None:
+    """A list is the general form: allow-only, unioned, one member per kind."""
+    resolved = resolve_access_principals({"name": "control", "index": 3, "access": authored})
+
+    assert resolved == frozenset(expected)
+    assert isinstance(resolved, frozenset)
+
+
+def test_resolve_access_principals_lowercases_a_domain_and_leaves_a_user_byte_exact() -> None:
+    """A domain is compared case-insensitively, so it is folded once here; a
+    `user:` value is an identity string the IdP owns and is never rewritten."""
+    resolved = resolve_access_principals(
+        {"name": "control", "index": 3, "access": ["domain:Example.Com", "user:Alice@Example.com"]}
+    )
+
+    assert resolved == frozenset({"domain:example.com", "user:Alice@Example.com"})
+
+
+@pytest.mark.parametrize("member", ["domain:MÜ.de", "domain:münchen.de", "domain:example.cöm"])
+def test_resolve_access_principals_refuses_a_non_ascii_domain(member: str) -> None:
+    """An IdP asserts an internationalised domain in punycode, and nothing on
+    either side translates between the two spellings — so a Unicode-authored
+    domain is a rule that could never admit anybody. Refused at author time
+    rather than deployed as a grant that silently never fires."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    message = str(excinfo.value)
+    assert repr(member) in message
+    assert "punycode" in message
+
+
+def test_resolve_access_principals_accepts_a_punycode_domain_and_folds_its_ascii() -> None:
+    """The spelling the provider actually asserts is authorable, and folds
+    across A-Z like any other domain."""
+    resolved = resolve_access_principals(
+        {"name": "control", "index": 3, "access": ["domain:XN--Mnchen-3ya.de"]}
+    )
+
+    assert resolved == frozenset({"domain:xn--mnchen-3ya.de"})
+
+
+def test_resolve_access_principals_refuses_an_empty_list() -> None:
+    """An empty list admits nobody, not even the entry's own user — a shape
+    that can only be an editing accident, so it is refused rather than read."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": []})
+
+    assert "empty" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "authored",
+    ["ANY", "Any", "own ", "self", "roster", "user:a@example.com", "", True, 1, 0, {}, ("self",)],
+)
+def test_resolve_access_principals_refuses_a_value_outside_the_authored_forms(
+    authored: Any,
+) -> None:
+    """Only the two shorthands and a list are authored forms. A scalar that is
+    neither is refused by name rather than read as owner-only: a silent reading
+    is how an unrecognised value reaches a consumer that fails open."""
+    with pytest.raises(ValueError, match="'control'"):
+        resolve_access_principals({"name": "control", "index": 3, "access": authored})
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "own",
+        "any",
+        "everyone",
+        "SELF",
+        " self",
+        "tenant:example",
+        ":example.com",
+        "user:",
+        "user: ",
+        "user:a b@example.com",
+        "domain:",
+        "domain: ",
+        "domain:example com",
+        "domain:alice@example.com",
+        "domain:example.com:8080",
+        "domain:example.com/path",
+        "domain:.example.com",
+        "domain:example.com.",
+    ],
+)
+def test_resolve_access_principals_refuses_a_malformed_member(member: str) -> None:
+    """Every member is typed: bare `self`/`roster`, or a known prefix carrying a
+    well-formed value. Anything else names the entry and the member."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    assert repr(member) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("member", [None, True, 7, ["self"], {"user": "a@example.com"}])
+def test_resolve_access_principals_refuses_a_non_string_member(member: Any) -> None:
+    """A non-string member is a config typo (a YAML boolean, a nested list), not
+    a principal — refused with the entry named."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    assert "not a string" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "user:alice$@example.com",
+        "user:$ALICE",
+        "user:${ALICE}",
+        "domain:example$.com",
+        "domain:$SITE.com",
+    ],
+)
+def test_resolve_access_principals_refuses_a_dollar_in_a_principal(member: str) -> None:
+    """The resolved member is written into the deployment's compose file, where
+    docker compose substitutes `$NAME`/`${NAME}` before the sidecar ever reads
+    it — the card would then admit something other than what the roster says.
+    Refused at the one parser, so lint and `osprey init` say the same thing."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": [member]})
+
+    message = str(excinfo.value)
+    assert repr(member) in message
+    assert "'$'" in message
+
+
+def test_resolve_access_principals_names_group_as_not_supported_yet() -> None:
+    """`group:` is the reserved next kind: refusing it by name says the
+    vocabulary is known and unfinished, which "unknown principal" would not."""
+    with pytest.raises(ValueError, match="'control'") as excinfo:
+        resolve_access_principals({"name": "control", "index": 3, "access": ["group:operators"]})
+
+    message = str(excinfo.value)
+    assert "group:" in message
+    assert "not supported yet" in message
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({"index": 3, "access": ["group:operators"]}, "unnamed"),
+        ({"index": 3, "access": ["group:operators"]}, "index 3"),
+        ({"name": "", "index": 3, "access": "maybe"}, "index 3"),
+        ({"access": []}, "an unnamed"),
+        ({"name": 7, "index": 3, "access": ["everyone"]}, "index 3"),
+    ],
+)
+def test_resolve_access_principals_names_a_nameless_entry_by_position(
+    entry: dict[str, Any], expected: str
+) -> None:
+    """Lint reads the authored roster, where a dropped `name` is exactly the
+    kind of edit that also breaks `access` — and "entry None" would send the
+    operator looking for an entry called None. The declared index identifies it
+    instead, and an entry without one is still named as unnamed."""
+    with pytest.raises(ValueError) as excinfo:
+        resolve_access_principals(entry)
+
+    message = str(excinfo.value)
+    assert expected in message
+    assert "None" not in message
+
+
+def test_resolve_access_principals_does_not_mutate_the_entry() -> None:
+    """The parser reads the authored entry; folding a domain never writes the
+    folded form back onto the caller's config dict."""
+    entry: dict[str, Any] = {"name": "control", "index": 3, "access": ["domain:Example.com"]}
+
+    resolve_access_principals(entry)
+
+    assert entry == {"name": "control", "index": 3, "access": ["domain:Example.com"]}
+
+
+@pytest.mark.parametrize(
+    ("authored", "shared"),
+    [
+        ("own", False),
+        ("any", True),
+        (["self"], False),
+        (["roster"], True),
+        (["domain:example.com"], True),
+        (["user:alice@example.com"], True),
+        (["self", "user:alice@example.com"], True),
+    ],
+)
+def test_entry_is_shared_answers_from_the_resolved_principal_set(
+    authored: Any, shared: bool
+) -> None:
+    """Shared means "admits somebody beyond this entry's own user": the
+    resolved set is anything other than the owner-only one. The single
+    predicate for provisioning, the deploy summary, the passwd refusal, the
+    render and lint, which must never disagree about who may open an entry."""
+    assert entry_is_shared({"name": "control", "index": 3, "access": authored}) is shared
+
+
+@pytest.mark.parametrize(
+    ("principals", "expected"),
+    [
+        (frozenset({"self"}), ""),
+        (frozenset({"roster"}), "any"),
+        (frozenset({"domain:example.com"}), '["domain:example.com"]'),
+        (frozenset({"self", "user:carol@example.com"}), '["self","user:carol@example.com"]'),
+        # A `roster` member inside a set is not collapsed back to the `any`
+        # shorthand: the render spells the set it was given, and the sidecar is
+        # what decides that a roster member covers everyone.
+        (frozenset({"roster", "domain:x.org"}), '["domain:x.org","roster"]'),
+    ],
+)
+def test_access_wire_value_spells_each_set_for_the_sidecar(
+    principals: frozenset[str], expected: str
+) -> None:
+    """The inverse of the authored vocabulary, and the contract the sidecar
+    parses back: nothing for owner-only, the unchanged `any` token for the
+    whole roster, else a compact sorted JSON array of the members."""
+    assert access_wire_value(principals) == expected
+
+
+def test_entry_is_shared_is_false_for_an_entry_that_never_mentions_access() -> None:
+    """Owner-only is the default, so a roster written before the key existed
+    reads exactly as it always did."""
+    assert entry_is_shared({"name": "alice", "index": 0}) is False
+
+
+@pytest.mark.parametrize("authored", ["ANY", "own ", True, 1, ["any"], ["group:ops"], []])
+def test_entry_is_shared_refuses_an_unreadable_access(authored: Any) -> None:
+    """The predicate raises rather than answering `False`. Reading an
+    unrecognised value as an own card is the fail-open: the guards would pass a
+    deployment whose admitting surface reads that same value as sharing."""
+    with pytest.raises(ValueError, match="'control'"):
+        entry_is_shared({"name": "control", "index": 3, "access": authored})
+
+
+def test_resolve_cards_threads_access_any_through() -> None:
+    """The sharing marker survives resolution, and stays absent when never
+    declared."""
+    # Act
+    render_branch = resolve_cards(
+        {
+            "users": [{"name": "control", "index": 0, "tier": "gui", "access": "any"}],
+            "default_tier": "gui",
+            "renders": {"gui": tier_render("gui", "demo-project-gui")},
+        },
+        _REGISTRY,
+    )
+    undeclared = resolve_cards({"users": ["alice"], **_CATALOG}, _REGISTRY)
+
+    # Assert
+    assert render_branch[0]["access"] == "any"
+    assert "access" not in undeclared[0]
+
+
+def test_resolve_cards_preserves_the_resolved_principal_set() -> None:
+    """A list-valued card survives resolution whole. The
+    resolved entry is what the render and the deployment guards read, so the
+    reduction that kept only `any` here is what disarmed the shared-card rule
+    for every other form."""
+    # Arrange
+    authored = ["domain:Example.com", "user:alice@example.com"]
+
+    # Act
+    render_branch = resolve_cards(
+        {
+            "users": [{"name": "control", "index": 0, "tier": "gui", "access": authored}],
+            "default_tier": "gui",
+            "renders": {"gui": tier_render("gui", "demo-project-gui")},
+        },
+        _REGISTRY,
+    )
+
+    # Assert — carried verbatim, and still resolving to the same principals
+    assert render_branch[0]["access"] == authored
+    assert resolve_access_principals(render_branch[0]) == frozenset(
+        {"domain:example.com", "user:alice@example.com"}
+    )
+    assert entry_is_shared(render_branch[0]) is True
+
+
+def test_resolve_cards_shows_a_domain_card_to_the_shared_card_guard() -> None:
+    """The end the reduction broke: `shared_card_privileged_problems` reads
+    resolved entries, so a `domain:` card on a privileged tier is now
+    reported exactly as an `access: any` one is."""
+    # Act
+    resolved = resolve_cards(
+        {
+            "users": [
+                {
+                    "name": "control",
+                    "index": 0,
+                    "tier": "admin",
+                    "access": ["domain:example.com"],
+                }
+            ],
+            "default_tier": "admin",
+            "renders": {"admin": tier_render("admin", "demo-project-admin")},
+        },
+        _REGISTRY,
+    )
+
+    # Assert
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+    assert len(problems) == 1
+    assert "control" in problems[0]
+
+
+def test_resolve_cards_lenient_drops_an_entry_with_an_unreadable_access() -> None:
+    """The lenient resolution the lifecycle verbs use degrades by dropping the
+    entry, so a typo on one user never blocks decommissioning another. The
+    strict resolution the render uses refuses instead."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "control", "index": 0, "access": "ANY"}, {"name": "bob", "index": 1}]
+    }
+
+    # Act
+    lenient = resolve_cards(web_terminals, _REGISTRY, strict=False)
+
+    # Assert
+    assert [entry["name"] for entry in lenient] == ["bob"]
+    with pytest.raises(ValueError, match="'control'"):
+        resolve_cards(web_terminals, _REGISTRY)
+
+
+def test_freeze_user_indices_refuses_an_unreadable_access_rather_than_shortening() -> None:
+    """The decommission write-back reaches `normalize_users` at the strict
+    default, so an unreadable `access` refuses the migration. The alternative
+    is the dangerous one: a lenient drop here would write the roster back to
+    config.yml without that user, deleting a survivor from the file to remove a
+    different one."""
+    # Arrange
+    users_raw = ["alice", {"name": "control", "index": 1, "access": "ANY"}]
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="'control'"):
+        freeze_user_indices(users_raw)
+
+
+def test_freeze_user_indices_access_any_survives_a_freeze_round_trip() -> None:
+    """The decommission write-back keeps `access: any` on a survivor: freezing
+    re-attaches the authored key verbatim, so a user removal never quietly
+    un-shares another entry."""
+    # Arrange
+    users_raw = ["alice", {"name": "control", "index": 1, "access": "any"}]
+
+    # Act
+    frozen = freeze_user_indices(users_raw)
+    refrozen = freeze_user_indices(frozen)
+
+    # Assert
+    assert frozen == [
+        {"name": "alice", "index": 0},
+        {"name": "control", "index": 1, "access": "any"},
+    ]
+    assert refrozen == frozen
+
+
+def test_resolve_cards_exposes_oidc_subject_when_set() -> None:
+    """The mapping rides through to the resolved entry, so the sidecar's roster
+    context reads it off the same object as every other per-user field."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["oidc_subject"] == "alice@example.org"
+
+
+def test_resolve_cards_oidc_subject_threads_through_render_branch() -> None:
+    """The passthrough is not confined to the default tier — a user
+    resolved through a pinned render keeps its mapping too."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "alice", "index": 0, "tier": "gui", "oidc_subject": "alice@example.org"}
+        ],
+        **_CATALOG,
+        "renders": {
+            "assistant": tier_render("assistant", "demo-project-assistant"),
+            "gui": tier_render("gui", "demo-project-gui"),
+        },
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["render"] == "gui"
+    assert result[0]["oidc_subject"] == "alice@example.org"
+
+
+def test_resolve_cards_omits_oidc_subject_key_when_unset() -> None:
+    """A roster with no OIDC mapping resolves byte-identically to before the
+    field existed — no `oidc_subject: None` key appears."""
+    # Act
+    result = resolve_cards({"users": ["alice"], **_CATALOG}, _REGISTRY)
+
+    # Assert
+    assert "oidc_subject" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# env_var_suffix_collisions() over a normalized roster
+# ---------------------------------------------------------------------------
+
+
+def test_env_var_suffix_collisions_consumes_normalize_users_names() -> None:
+    """The intended call shape: the names off a normalized roster, so callers
+    holding entry dicts (lint, credential provisioning) share one check."""
+    # Arrange
+    users = normalize_users(["alice-b", {"name": "alice_b", "index": 4}, "bob"])
+
+    # Act
+    result = env_var_suffix_collisions(entry["name"] for entry in users)
+
+    # Assert
+    assert result == {"ALICE_B": ["alice-b", "alice_b"]}
+
+
+# ---------------------------------------------------------------------------
+# Panel declaration -> credential entitlement
+# ---------------------------------------------------------------------------
+
+
+def _write_render_project(tmp_path, name: str, panels: dict) -> str:
+    """Render a render project carrying ``web.panels``; return its project_path."""
+    import yaml
+
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, "web": {"panels": panels}}),
+        encoding="utf-8",
+    )
+    return name
+
+
+def _catalog_config(catalog: dict, users: list[dict]) -> dict:
+    """A rendered config whose ``renders`` holds *catalog*'s entries as tiers."""
+    renders = {name: {"kind": "tier", **entry} for name, entry in catalog.items()}
+    return {"modules": {"web_terminals": {"renders": renders, "users": users}}}
+
+
+def test_config_declares_panel_reads_the_panel_block() -> None:
+    """A declared panel counts; an absent one does not."""
+    config = {"web": {"panels": {"events": {"label": "EVENTS", "url": "http://x"}}}}
+
+    # Assert
+    assert config_declares_panel(config, EVENTS_PANEL_ID) is True
+    assert config_declares_panel(config, "bluesky") is False
+    assert config_declares_panel({}, EVENTS_PANEL_ID) is False
+
+
+def test_config_declares_panel_treats_disabled_as_undeclared() -> None:
+    """A panel switched off needs no credential, so it does not count as declared."""
+    config = {"web": {"panels": {"events": {"enabled": False}}}}
+
+    # Assert
+    assert config_declares_panel(config, EVENTS_PANEL_ID) is False
+
+
+def test_config_needs_dispatcher_token_reads_the_events_panel_declaration() -> None:
+    """A thin wrapper: it reads exactly what `config_declares_panel(config,
+    EVENTS_PANEL_ID)` reads, with no separate config key of its own."""
+    config = {"web": {"panels": {"events": {"label": "EVENTS"}}}}
+
+    # Assert
+    assert config_needs_dispatcher_token(config) is True
+    assert config_needs_dispatcher_token({}) is False
+
+
+def test_renders_needing_dispatcher_token_selects_only_the_declaring_render(tmp_path) -> None:
+    """The entitlement set is exactly the renders whose rendered project shows the
+    panel -- the readonly tier is excluded by its own config, not by a separate key."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project(tmp_path, "rw", {"events": {"label": "EVENTS"}}),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project(tmp_path, "ro", {"okf": {"enabled": True}}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_dispatcher_token(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+def test_renders_needing_dispatcher_token_skips_unrendered_render_projects(tmp_path) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    # Act / Assert
+    assert renders_needing_dispatcher_token(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# ARIEL config -> per-user database credential
+#
+# ARIEL's Postgres password is not panel-gated the way the dispatcher token is:
+# two consumers inside a web terminal need it -- the ARIEL panel's own server
+# and the `ariel` MCP server the agent calls -- and only one of them is visible
+# in `web.panels`. The `ariel:` section is what BOTH read to resolve their DSN,
+# so its presence is the entitlement.
+# ---------------------------------------------------------------------------
+
+
+def _write_render_project_config(tmp_path, name: str, config: dict) -> str:
+    """Render a render project carrying an arbitrary config; return its project_path."""
+    import yaml
+
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, **config}), encoding="utf-8"
+    )
+    return name
+
+
+def test_config_needs_ariel_password_reads_the_ariel_section() -> None:
+    """A project carrying an `ariel:` section resolves a DSN and needs the password."""
+    # Assert
+    assert (
+        config_needs_ariel_password({"ariel": {"search_modules": {"keyword": {"enabled": True}}}})
+        is True
+    )
+    assert config_needs_ariel_password({}) is False
+
+
+def test_config_needs_ariel_password_ignores_an_empty_section() -> None:
+    """A key present but empty configures nothing, so it entitles nothing."""
+    # Assert
+    assert config_needs_ariel_password({"ariel": None}) is False
+    assert config_needs_ariel_password({"ariel": {}}) is False
+
+
+def test_renders_needing_ariel_password_selects_only_the_ariel_render(tmp_path) -> None:
+    """The entitlement set is exactly the renders whose rendered project configures
+    ARIEL -- a render with no logbook gets no logbook credential."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", {"ariel": {"search_modules": {"keyword": {"enabled": True}}}}
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"web": {"panels": {"okf": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_ariel_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+def test_renders_needing_ariel_password_skips_unrendered_render_projects(tmp_path) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    # Act / Assert
+    assert renders_needing_ariel_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# Phoebus server -> per-user PHOEBUS_REQUIRE_HANDLE stamp
+#
+# Every terminal of a multi-user stack reaches the one Phoebus product, so a
+# project that runs any Phoebus server addresses displays by handle unless it
+# says `phoebus.require_handle: false`.
+# ---------------------------------------------------------------------------
+
+
+def _phoebus_servers(servers: Any) -> dict:
+    return {"claude_code": {"servers": servers}}
+
+
+def test_phoebus_server_runs_reads_the_override_tri_state() -> None:
+    """`claude_code.servers.phoebus.enabled` is an override over the registry default."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": True}})) is True
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+    assert phoebus_server_runs({}) is FRAMEWORK_SERVERS["phoebus"].default_enabled
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {}})) is (
+        FRAMEWORK_SERVERS["phoebus"].default_enabled
+    )
+
+
+def test_phoebus_server_runs_counts_an_extends_clone() -> None:
+    """A declared `extends: phoebus` clone runs unless it says `enabled: false`."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus2": {"extends": "phoebus"}})) is True
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus2": {"extends": "phoebus", "enabled": False}})
+        )
+        is False
+    )
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus": {"enabled": False}, "phoebus2": {"extends": "phoebus"}})
+        )
+        is True
+    )
+
+
+def test_config_needs_phoebus_handles_honours_an_explicit_false() -> None:
+    """Only an explicit `phoebus.require_handle: false` withholds the stamp."""
+    # Arrange
+    enabled = _phoebus_servers({"phoebus": {"enabled": True}})
+
+    # Assert
+    assert config_needs_phoebus_handles(enabled) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": True}}) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": False}}) is False
+    assert config_needs_phoebus_handles(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+
+
+def test_renders_needing_phoebus_handles_selects_only_the_phoebus_render(tmp_path) -> None:
+    """The stamp set is exactly the renders whose rendered project runs Phoebus."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", _phoebus_servers({"phoebus": {"enabled": True}})
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"web": {"panels": {"okf": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_phoebus_handles(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+# ---------------------------------------------------------------------------
+# writes + bluesky server -> per-user queue launch token
+#
+# `BLUESKY_LAUNCH_TOKEN` arms a queue start, so it is gated on the intersection
+# of the two things that make arming meaningful: writes actually enabled, and
+# the bluesky MCP server (the token's consumer -- not the panel) actually run.
+# Both reads deny on absence: `writes_enabled` must be explicitly true, and the
+# server's `enabled` key is an override over a registry default that is off.
+# ---------------------------------------------------------------------------
+
+
+def _launch_config(writes_enabled: Any = "absent", bluesky_enabled: Any = "absent") -> dict:
+    """A project config with either read spelled out, or omitted via the sentinel."""
+    config: dict = {}
+    if writes_enabled != "absent":
+        config["control_system"] = {"writes_enabled": writes_enabled}
+    if bluesky_enabled != "absent":
+        config["claude_code"] = {"servers": {"bluesky": {"enabled": bluesky_enabled}}}
+    return config
+
+
+def test_bluesky_server_enabled_reads_the_override_tri_state() -> None:
+    """`claude_code.servers.bluesky.enabled` is an override: explicit `true` runs the
+    server, explicit `false` switches it off, and absence leaves the registry default,
+    which for the opt-in bluesky server is off."""
+    # Assert
+    assert bluesky_server_enabled(_launch_config(bluesky_enabled=True)) is True
+    assert bluesky_server_enabled(_launch_config(bluesky_enabled=False)) is False
+    assert bluesky_server_enabled(_launch_config()) is False
+
+
+def test_bluesky_server_enabled_absent_key_matches_the_registry_default() -> None:
+    """The absent-key answer is the registry's own `default_enabled`, not a second
+    copy of it: the render obeys the registry, so a hand-written default here could
+    drift away from the server this project actually runs."""
+    # Assert
+    assert bluesky_server_enabled(_launch_config()) is FRAMEWORK_SERVERS["bluesky"].default_enabled
+
+
+def test_bluesky_server_enabled_reads_non_dict_sections_defensively() -> None:
+    """A config with no `claude_code` section at all, or a non-dict one, answers with
+    the default rather than raising."""
+    # Assert
+    assert bluesky_server_enabled({}) is False
+    assert bluesky_server_enabled(None) is False
+    assert bluesky_server_enabled({"claude_code": "on"}) is False
+
+
+def test_config_needs_launch_token_requires_writes_and_the_bluesky_server() -> None:
+    """Both halves of the capability present -- the readwrite tier."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(True, True)) is True
+
+
+def test_config_needs_launch_token_denies_when_the_bluesky_server_is_absent() -> None:
+    """The bluesky server is opt-in in the registry, so an absent `enabled` override
+    means it does not run here -- and a token for a server that never starts arms
+    nothing while still handing the agent a live credential."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(writes_enabled=True)) is False
+
+
+def test_config_needs_launch_token_denies_when_the_bluesky_server_is_off() -> None:
+    """Writes alone entitle nothing: with no bluesky server there is no consumer."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(True, False)) is False
+
+
+def test_config_needs_launch_token_denies_the_readonly_tier() -> None:
+    """The read-only tier is `writes_enabled: false` and still runs the bluesky
+    server for browsing -- the server alone must never arm a queue start."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(False, True)) is False
+
+
+def test_config_needs_launch_token_requires_writes_enabled_explicitly() -> None:
+    """Anything short of a literal `True` -- absent, null, or a truthy non-bool --
+    means writes were never granted."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(bluesky_enabled=True)) is False
+    assert config_needs_launch_token(_launch_config(None, True)) is False
+    assert config_needs_launch_token(_launch_config("true", True)) is False
+    assert config_needs_launch_token(_launch_config(1, True)) is False
+
+
+def test_config_needs_launch_token_denies_an_empty_config() -> None:
+    """A config configuring neither half entitles nothing, and non-dict sections
+    are read defensively rather than raising."""
+    # Assert
+    assert config_needs_launch_token({}) is False
+    assert config_needs_launch_token(None) is False
+    assert config_needs_launch_token({"control_system": "on"}) is False
+
+
+def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path) -> None:
+    """The entitlement set is exactly the renders whose rendered project both allows
+    writes and runs the bluesky server -- the read-only tier runs the same server (for
+    browsing) and must still be excluded, because it is `writes_enabled` that decides,
+    not whether the server is present. This is the tier boundary the whole feature
+    rests on: a read-only render can never end up in this set."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "rw",
+                {
+                    "control_system": {"writes_enabled": True},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "ro",
+                {
+                    "control_system": {"writes_enabled": False},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_launch_token_by_lane(config, tmp_path)
+
+    # Assert
+    assert result == {"bluesky": {"readwrite"}}
+
+
+def test_renders_needing_launch_token_skips_unrendered_render_projects(tmp_path) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    # Act / Assert
+    assert renders_needing_launch_token_by_lane(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Per-lane launch-token entitlement
+#
+# A plan lane is bound at render time to ONE control target, so the posture
+# that decides whether its token may be issued is that target's -- not the
+# deployment's. The case the whole axis exists for: a deployment whose baseline
+# is a live machine arms writes on its virtual-accelerator lane alone, and lane
+# 1 (the live one) must stay disarmed while it does.
+# ---------------------------------------------------------------------------
+
+#: A live-baseline project that arms writes on the VA connector only, and
+#: renders the VA second lane. Lane 1 has no `target:` of its own, so it takes
+#: the deployment baseline, which here is `live`.
+_VA_ARMED_LIVE_DEPLOYMENT: dict = {
+    "control_system": {
+        "type": "epics",
+        "writes_enabled": False,
+        "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+    },
+    "services": {"bluesky_va": {"target": "va", "port": 10081}},
+    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+}
+
+#: A VA-baseline project with a single lane: lane 1 declares no target and so
+#: serves `va`, the only target this deployment has.
+_VA_BASELINE_DEPLOYMENT: dict = {
+    "control_system": {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+    },
+    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+}
+
+
+def test_lane_control_target_falls_back_to_the_baseline_for_lane_one() -> None:
+    """Lane 1 on a single-lane deployment has never carried a `target:` key -- it
+    serves the only target the deployment has -- so it reads the baseline."""
+    # Assert
+    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") == "live"
+    assert lane_control_target(_VA_BASELINE_DEPLOYMENT, "bluesky") == "va"
+
+
+def test_lane_control_target_reads_a_second_lanes_declared_target() -> None:
+    """A second lane's rendered block states the target it drives."""
+    # Assert
+    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") == "va"
+
+
+def test_lane_control_target_falls_back_to_the_target_the_lane_key_names() -> None:
+    """A lane is named for the target it serves, so a block that wrote no
+    `target:` is still unambiguous -- the key itself answers."""
+    # Arrange
+    config = {"services": {"bluesky_va": {"port": 10081}, "bluesky_live": {"port": 10082}}}
+
+    # Assert
+    assert lane_control_target(config, "bluesky_va") == "va"
+    assert lane_control_target(config, "bluesky_live") == "live"
+
+
+def test_config_needs_launch_token_for_arms_only_the_lane_whose_target_allows_writes() -> None:
+    """The feature in one assertion: writes are armed for `va` and nowhere else, so
+    the VA lane's token may be issued and lane 1's -- which drives the live machine
+    -- may not."""
+    # Assert
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") is True
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") is False
+
+
+def test_config_needs_launch_token_for_denies_a_lane_this_render_does_not_carry() -> None:
+    """An undeclared second lane has no bridge to arm. The live lane is absent from
+    this render even though the deployment's baseline IS live, so it entitles
+    nothing."""
+    # Assert
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_live") is False
+
+
+def test_config_needs_launch_token_for_denies_every_lane_for_the_readonly_tier() -> None:
+    """The read-only tier disarms writes at every level, so no lane it renders can
+    issue a token -- the tier boundary the whole grant rests on."""
+    # Arrange
+    config = {
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {"epics": {"writes_enabled": False}, "virtual_accelerator": {}},
+        },
+        "services": {"bluesky_va": {"target": "va", "port": 10081}},
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+    }
+
+    # Assert
+    assert config_needs_launch_token_for(config, "bluesky") is False
+    assert config_needs_launch_token_for(config, "bluesky_va") is False
+
+
+def test_config_needs_launch_token_for_denies_every_lane_when_the_server_is_off() -> None:
+    """A token for a server that never starts arms nothing while still handing the
+    agent a live credential -- true of every lane, however armed its target is."""
+    # Arrange
+    config = {
+        **_VA_ARMED_LIVE_DEPLOYMENT,
+        "claude_code": {"servers": {"bluesky": {"enabled": False}}},
+    }
+
+    # Assert
+    assert config_needs_launch_token_for(config, "bluesky") is False
+    assert config_needs_launch_token_for(config, "bluesky_va") is False
+
+
+def test_config_needs_launch_token_is_the_lane_one_case() -> None:
+    """The pre-lane predicate is this one asked about lane 1, so a deployment that
+    arms only its VA lane does not satisfy it."""
+    # Assert
+    assert config_needs_launch_token(_VA_ARMED_LIVE_DEPLOYMENT) is False
+    assert config_needs_launch_token(_VA_BASELINE_DEPLOYMENT) is True
+
+
+def test_renders_needing_launch_token_by_lane_grants_only_the_armed_lane(tmp_path) -> None:
+    """The producer in roster form: the render holds the VA lane's token and not
+    lane 1's, and lane 1 is ABSENT from the map rather than present and empty --
+    the deployment renders no such grant at all."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "va_operator": {
+                "project": "va",
+                "project_path": _write_render_project_config(
+                    tmp_path, "va", _VA_ARMED_LIVE_DEPLOYMENT
+                ),
+            }
+        },
+        [{"name": "alice", "index": 0, "tier": "va_operator"}],
+    )
+
+    # Act
+    result = renders_needing_launch_token_by_lane(config, tmp_path)
+
+    # Assert
+    assert result == {"bluesky_va": {"va_operator"}}
+
+
+def test_renders_needing_launch_token_by_lane_grants_lane_one_on_a_va_baseline(
+    tmp_path,
+) -> None:
+    """A single-lane VA deployment arms lane 1: its lane declares no target, so lane
+    1 drives `va`, and that is the target the config arms."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "va_only": {
+                "project": "vaonly",
+                "project_path": _write_render_project_config(
+                    tmp_path, "vaonly", _VA_BASELINE_DEPLOYMENT
+                ),
+            }
+        },
+        [{"name": "alice", "index": 0, "tier": "va_only"}],
+    )
+
+    # Act
+    result = renders_needing_launch_token_by_lane(config, tmp_path)
+
+    # Assert
+    assert result == {"bluesky": {"va_only"}}
+
+
+def test_renders_needing_launch_token_by_lane_is_empty_for_the_readonly_tier(tmp_path) -> None:
+    """A roster of read-only renders entitles nothing on any lane, so the map is
+    empty rather than carrying a lane with no renders in it."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "readonly": {
+                "project": "ro",
+                "project_path": _write_render_project_config(
+                    tmp_path,
+                    "ro",
+                    {
+                        "control_system": {
+                            "type": "epics",
+                            "writes_enabled": False,
+                            "connector": {"epics": {}, "virtual_accelerator": {}},
+                        },
+                        "services": {"bluesky_va": {"target": "va", "port": 10081}},
+                        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                    },
+                ),
+            }
+        },
+        [{"name": "bob", "index": 0, "tier": "readonly"}],
+    )
+
+    # Act / Assert
+    assert renders_needing_launch_token_by_lane(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# services.graphdb + the graph server -> per-user Neo4j password
+#
+# `GRAPHDB_PASSWORD` is the graph store's ONLY credential, and Neo4j's one
+# account is write-capable, so the read-only tier gets it too: read-only-ness
+# lives in the `graph` MCP server's read transactions, not in the password. That
+# is why this predicate never reads `writes_enabled` -- the read-only operator
+# terminal is precisely the tier graph search is meant to serve. What it does
+# read is the two keys that decide whether there is a store to dial and a server
+# to dial it: the `services.graphdb` block (present-and-resolvable), and the
+# graph server's `enabled` override (an override, so absence means enabled).
+# ---------------------------------------------------------------------------
+
+
+def test_config_needs_graphdb_password_reads_the_services_block() -> None:
+    """The `services.graphdb` block IS the entitlement, exactly as the `ariel:`
+    section is for the Postgres password. A fully-defaulted empty block still
+    configures a store, so it entitles."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {}}}) is True
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": 7688}}}) is True
+    assert config_needs_graphdb_password({}) is False
+
+
+def test_config_needs_graphdb_password_denies_a_block_less_config() -> None:
+    """A bare `graphdb:` key parses as None and configures no store, and non-dict
+    sections are read defensively rather than raising."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": None}}) is False
+    assert config_needs_graphdb_password({"services": {}}) is False
+    assert config_needs_graphdb_password({"services": "graphdb"}) is False
+    assert config_needs_graphdb_password(None) is False
+
+
+def test_config_needs_graphdb_password_denies_a_malformed_block() -> None:
+    """A block this deployment could never reach entitles nothing. Refusing instead
+    would turn a typo in one render's config.yml into a failed render of the whole
+    roster."""
+    # Assert
+    assert config_needs_graphdb_password({"services": {"graphdb": {"port_host": "abc"}}}) is False
+
+
+def test_config_needs_graphdb_password_denies_when_the_graph_server_is_off() -> None:
+    """A configured store with no server to query it has no consumer."""
+    # Arrange
+    config = {
+        "services": {"graphdb": {}},
+        "claude_code": {"servers": {"graph": {"enabled": False}}},
+    }
+
+    # Assert
+    assert config_needs_graphdb_password(config) is False
+
+
+def test_config_needs_graphdb_password_defaults_the_graph_server_to_enabled() -> None:
+    """`claude_code.servers.graph.enabled` is an override over an already-enabled
+    default, so its absence must not deny the password."""
+    # Assert
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"graph": {"enabled": True}}}}
+        )
+        is True
+    )
+    assert (
+        config_needs_graphdb_password(
+            {"services": {"graphdb": {}}, "claude_code": {"servers": {"controls": {}}}}
+        )
+        is True
+    )
+
+
+def test_config_needs_graphdb_password_ignores_the_write_switch() -> None:
+    """The read-only tier searches the graph too. Gating this on `writes_enabled`
+    -- as the launch token is gated -- would leave the read-only operator terminal
+    unable to reach the store at all."""
+    # Arrange
+    config = {"services": {"graphdb": {}}, "control_system": {"writes_enabled": False}}
+
+    # Assert
+    assert config_needs_graphdb_password(config) is True
+
+
+def test_renders_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
+    """Unlike the launch token, this entitlement set deliberately includes the
+    read-only tier: the store has one account, and the read guarantee is the
+    graph server's, not the credential's. A render configuring no store is still
+    excluded."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "rw",
+                {
+                    "control_system": {"writes_enabled": True},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "ro",
+                {
+                    "control_system": {"writes_enabled": False},
+                    "services": {"graphdb": {"port_host": 7687}},
+                },
+            ),
+        },
+        "logbook": {
+            "project": "lb",
+            "project_path": _write_render_project_config(tmp_path, "lb", {"services": {}}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+            {"name": "carol", "index": 2, "tier": "logbook"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_graphdb_password(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite", "readonly"}
+
+
+def test_renders_needing_graphdb_password_skips_unrendered_render_projects(tmp_path) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    # Act / Assert
+    assert renders_needing_graphdb_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# Shipped-artifact reads: .claude/settings.json Bash deny
+# ---------------------------------------------------------------------------
+
+
+def _write_settings_json(tmp_path, name: str, body: Any) -> str:
+    """Render a render project carrying a ``.claude/settings.json``.
+
+    ``body`` is written verbatim when it is a string (so a test can ship
+    unparseable bytes) and JSON-encoded otherwise. Returns the project_path.
+    """
+    import json as _json
+
+    claude_dir = tmp_path / name / ".claude"
+    claude_dir.mkdir(parents=True)
+    text = body if isinstance(body, str) else _json.dumps(body)
+    (claude_dir / "settings.json").write_text(text, encoding="utf-8")
+    return name
+
+
+def test_settings_json_denies_for_bash_reads_the_shipped_deny_list(tmp_path) -> None:
+    """The happy path: `Bash` listed in permissions.deny is a deny."""
+    # Arrange
+    _write_settings_json(
+        tmp_path, "locked", {"permissions": {"allow": ["Read(/x/**)"], "deny": ["Bash", "Edit"]}}
+    )
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "locked", (BASH_DENY_ENTRY,)) is True
+
+
+def test_settings_json_denies_for_bash_false_when_bash_absent_from_a_well_formed_deny(
+    tmp_path,
+) -> None:
+    """A readable artifact that simply doesn't deny the shell -- the `remove_deny`
+    case this whole guard exists to catch."""
+    # Arrange
+    _write_settings_json(
+        tmp_path, "open", {"permissions": {"deny": ["Edit", "WebFetch"], "ask": ["Bash"]}}
+    )
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "open", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
+    """`Bash(rm:*)` constrains one command family and leaves the shell usable, so it
+    is not a wholesale deny -- only the exact literal counts."""
+    # Arrange
+    _write_settings_json(tmp_path, "scoped", {"permissions": {"deny": ["Bash(rm:*)"]}})
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "scoped", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
+    """An unrendered project proves nothing about its permissions."""
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "never-rendered", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_on_invalid_json(tmp_path) -> None:
+    """A truncated or hand-mangled artifact is unreadable, not safe."""
+    # Arrange
+    _write_settings_json(tmp_path, "broken", '{"permissions": {"deny": ["Bash"')
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "broken", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
+    """Valid JSON that isn't an object carries no permissions at all."""
+    # Arrange
+    _write_settings_json(tmp_path, "listy", ["Bash"])
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "listy", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
+    """No permissions block means nothing has been denied."""
+    # Arrange
+    _write_settings_json(tmp_path, "bare", {"hooks": {}})
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "bare", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
+    """A permissions block with an allow list but no deny list denies nothing."""
+    # Arrange
+    _write_settings_json(tmp_path, "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}})
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "allow-only", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
+    """A malformed deny value is unreadable, so it proves no deny -- including the
+    string "Bash", which must not be read as a one-element list."""
+    # Arrange
+    _write_settings_json(tmp_path, "stringly", {"permissions": {"deny": "Bash"}})
+    _write_settings_json(tmp_path, "nully", {"permissions": {"deny": None}})
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "stringly", (BASH_DENY_ENTRY,)) is False
+    assert settings_json_denies(tmp_path / "nully", (BASH_DENY_ENTRY,)) is False
+
+
+def test_settings_json_denies_for_bash_ignores_non_string_deny_entries(tmp_path) -> None:
+    """Junk entries alongside a real deny neither raise nor suppress the deny."""
+    # Arrange
+    _write_settings_json(tmp_path, "mixed", {"permissions": {"deny": [None, 7, {}, "Bash"]}})
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "mixed", (BASH_DENY_ENTRY,)) is True
+
+
+def test_renders_not_denying_bash_reports_only_the_permissive_render(tmp_path) -> None:
+    """The roster form: the render whose shipped settings dropped the Bash deny is
+    named; the locked-down one is not."""
+    # Arrange
+    catalog = {
+        "locked": {
+            "project": "locked",
+            "project_path": _write_settings_json(
+                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Edit"]}}
+            ),
+        },
+        "shelly": {
+            "project": "shelly",
+            "project_path": _write_settings_json(
+                tmp_path, "shelly", {"permissions": {"deny": ["Edit"]}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "locked"},
+            {"name": "bob", "index": 1, "tier": "shelly"},
+        ],
+    )
+
+    # Act
+    result = renders_not_denying_bash(config, tmp_path)
+
+    # Assert
+    assert result == {"shelly"}
+
+
+def test_renders_not_denying_bash_includes_unrendered_and_pathless_renders(tmp_path) -> None:
+    """Fail-closed at roster level too: a render whose artifact cannot be located
+    is reported as permissive rather than silently skipped."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "ghost": {"project": "ghost", "project_path": "../never-rendered"},
+            "pathless": {"project": "pathless"},
+        },
+        [
+            {"name": "alice", "index": 0, "tier": "ghost"},
+            {"name": "bob", "index": 1, "tier": "pathless"},
+        ],
+    )
+
+    # Act / Assert
+    assert renders_not_denying_bash(config, tmp_path) == {"ghost", "pathless"}
+
+
+def test_renders_not_denying_bash_covers_the_default_tier(tmp_path) -> None:
+    """`default_tier` is deployed by every roster entry that names none, so it is
+    walked alongside the explicitly referenced ones."""
+    # Arrange
+    catalog = {
+        "fallback": {
+            "project": "fallback",
+            "project_path": _write_settings_json(
+                tmp_path, "fallback", {"permissions": {"deny": ["Edit"]}}
+            ),
+        },
+    }
+    config = _catalog_config(catalog, [{"name": "alice", "index": 0}])
+    config["modules"]["web_terminals"]["default_tier"] = "fallback"
+
+    # Act / Assert
+    assert renders_not_denying_bash(config, tmp_path) == {"fallback"}
+
+
+def test_renders_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path) -> None:
+    """A render nobody deploys cannot leak a token, so it is not reported."""
+    # Arrange
+    catalog = {
+        "unused": {
+            "project": "unused",
+            "project_path": _write_settings_json(tmp_path, "unused", {"permissions": {"deny": []}}),
+        },
+    }
+    config = _catalog_config(catalog, [])
+
+    # Act / Assert
+    assert renders_not_denying_bash(config, tmp_path) == set()
+
+
+def test_renders_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -> None:
+    """`osprey up` does not rebuild, so a config edited after the last build does not
+    change what ships. Both directions of that divergence are asserted here, because
+    the function must follow the artifact whichever way the two disagree.
+
+    `intent-permissive` has a config.yml that unblocks the shell while its rendered
+    settings.json still denies it -- it must NOT be reported.
+
+    `intent-safe` is the security-relevant inverse and the entire reason this function
+    reads the artifact at all: its config.yml looks safe (it removes nothing), while the
+    shipped settings.json is stale-permissive and omits the Bash deny. A config-reading
+    implementation would clear this render for a launch token while the running image
+    still hands its agent a shell. It must be reported UNSAFE.
+    """
+    # Arrange
+    import yaml
+
+    def _write_config_yml(name: str, claude_code: dict) -> None:
+        (tmp_path / name / "config.yml").write_text(
+            yaml.safe_dump({"claude_code": claude_code}),
+            encoding="utf-8",
+        )
+
+    # Intent says the shell was unblocked; the built artifact still blocks it.
+    _write_settings_json(tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash"]}})
+    _write_config_yml("intent-permissive", {"permissions": {"remove_deny": ["Bash"]}})
+
+    # Intent says the shell is blocked; the built artifact does not block it.
+    _write_settings_json(tmp_path, "intent-safe", {"permissions": {"deny": ["Edit"]}})
+    _write_config_yml("intent-safe", {"permissions": {"remove_deny": []}})
+
+    config = _catalog_config(
+        {
+            "intent-permissive": {
+                "project": "intent-permissive",
+                "project_path": "intent-permissive",
+            },
+            "intent-safe": {"project": "intent-safe", "project_path": "intent-safe"},
+        },
+        [
+            {"name": "alice", "index": 0, "tier": "intent-permissive"},
+            {"name": "bob", "index": 1, "tier": "intent-safe"},
+        ],
+    )
+
+    # Act
+    result = renders_not_denying_bash(config, tmp_path)
+
+    # Assert -- the verdict tracks the artifact, opposite to the intent, both ways
+    assert result == {"intent-safe"}
+
+
+def test_settings_json_denies_for_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
+    """`json.load` does not strip a UTF-8 BOM, so a hand-edited artifact saved with one
+    would fail to parse and a genuinely Bash-denying render would read as permissive --
+    an opaque deploy refusal. The file is opened as utf-8-sig so the deny is seen."""
+    # Arrange
+    _write_settings_json(tmp_path, "bommed", '﻿{"permissions": {"deny": ["Bash", "Edit"]}}')
+
+    # Act / Assert
+    assert settings_json_denies(tmp_path / "bommed", (BASH_DENY_ENTRY,)) is True
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> per-user credential variables
+#
+# The archiver connector authenticates with the variables its own config block
+# names under `auth:` (`auth.token_env`, or `auth.username` + `auth.password_env`);
+# `osprey up` mints the MongoDB password into the deploy `.env` for a store the
+# project deploys. `.env.users` excludes service tokens by design and cannot say
+# "the renders whose archiver reads this", so the grant is per-user, and it
+# carries the configured NAMES because the block may point at a facility-run
+# store under any variable.
+# ---------------------------------------------------------------------------
+
+_MONGO_ARCHIVER = {
+    "type": "mongodb_archiver",
+    "mongodb_archiver": {
+        "host": "localhost",
+        "auth": {"username": "root", "password_env": "MONGO_ROOT_PASSWORD", "source": "admin"},
+    },
+}
+
+
+def test_config_archiver_credential_envs_reads_the_selected_connector_block() -> None:
+    """The variables named by the SELECTED connector's block are the entitlement."""
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
+
+
+def test_config_archiver_credential_envs_ignores_an_unselected_connector_block() -> None:
+    """The shipped config carries a `mongodb_archiver:` block under `type: mock_archiver`;
+    a block the selected type never reads entitles nothing."""
+    archiver = {**_MONGO_ARCHIVER, "type": "mock_archiver"}
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+def test_config_archiver_credential_envs_reads_no_flat_password_env() -> None:
+    """The variable is named under `auth:`; a flat `password_env` grants nothing."""
+    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "X"}}
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+def test_config_archiver_credential_envs_follows_any_connector_that_names_one() -> None:
+    """The key, not the connector name, is what is read: a future connector with an
+    `auth.password_env` is granted exactly like MongoDB's."""
+    archiver = {
+        "type": "facility_db",
+        "facility_db": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
+
+
+def test_config_archiver_credential_envs_grants_the_bearer_token_variable() -> None:
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_TOKEN",)
+
+
+def test_config_archiver_credential_envs_grants_the_login_password_variable() -> None:
+    """The username is not a secret: it is read from the container's own config.yml."""
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {
+            "url": "https://a.example",
+            "auth": {"username": "reader", "password_env": "ARCHIVER_PW"},
+        },
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_PW",)
+
+
+def test_config_archiver_credential_envs_ignores_an_unselected_epics_token() -> None:
+    archiver = {
+        "type": "mock_archiver",
+        "epics_archiver": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+@pytest.mark.parametrize("present", [True, False])
+def test_config_archiver_credential_envs_reads_no_environment(monkeypatch, present: bool) -> None:
+    """The grant names what the block names, whether or not the variable is set here."""
+    if present:
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "s3cr3t")
+    else:
+        monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
+
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
+
+
+@pytest.mark.parametrize(
+    "missing", [{}, {"archiver": None}, {"archiver": {"type": "mock_archiver"}}]
+)
+def test_config_archiver_credential_envs_is_empty_without_a_named_variable(missing: dict) -> None:
+    assert config_archiver_credential_envs(missing) == ()
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None, 7])
+def test_config_archiver_credential_envs_treats_a_blank_name_as_unset(blank: Any) -> None:
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": blank}}}
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
+@pytest.mark.parametrize("bad", ["MONGO PASSWORD", "1PASS", "PW=x", "${PW}", "pw-name"])
+def test_config_archiver_credential_envs_refuses_a_name_compose_cannot_carry(
+    bad: str, key: str
+) -> None:
+    """The name is emitted into a compose `environment:` line verbatim, so anything
+    that is not a plain identifier is refused here rather than rendered broken."""
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {key: bad}}}
+
+    with pytest.raises(ValueError, match=re.escape(f"archiver.mongodb_archiver.auth.{key}")):
+        config_archiver_credential_envs({"archiver": archiver})
+
+
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
+@pytest.mark.parametrize("padded", [" PW ", "PW\n"])
+def test_config_archiver_credential_envs_refuses_a_padded_name(padded: str, key: str) -> None:
+    """The connector reads the name as written and refuses surrounding whitespace, so
+    the grant refuses it too rather than granting a stripped name the connector never
+    looks up."""
+    block: dict[str, Any] = {"url": "https://a.example", "auth": {key: padded}}
+    if key == "password_env":
+        block["auth"]["username"] = "u"
+    archiver = {"type": "epics_archiver", "settings": block}
+
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")):
+        read_connection_settings(block, where="archiver.settings")
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")) as refused:
+        config_archiver_credential_envs({"archiver": archiver})
+    assert repr(padded) in str(refused.value)
+
+
+def test_config_archiver_credential_envs_reads_the_settings_block() -> None:
+    """A connector selected by dotted module path is configured from `archiver.settings`."""
+    archiver = {
+        "type": "my_facility.stores.Archive",
+        "settings": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
+
+
+def test_config_archiver_credential_envs_refusal_names_the_settings_key() -> None:
+    """The refusal names the block the operator wrote."""
+    archiver = {
+        "type": "my_facility.stores.Archive",
+        "settings": {"auth": {"password_env": "PW NAME"}},
+    }
+
+    with pytest.raises(ValueError, match=r"archiver\.settings\.auth\.password_env"):
+        config_archiver_credential_envs({"archiver": archiver})
+
+
+def test_renders_needing_archiver_credentials_maps_each_render_to_its_variables(
+    tmp_path,
+) -> None:
+    """The grant is a render -> variable-names map, so two renders reading two
+    different stores each get their own lines and a render with no archiver gets none."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", {"archiver": _MONGO_ARCHIVER}
+            ),
+        },
+        "facility": {
+            "project": "fac",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "fac",
+                {
+                    "archiver": {
+                        "type": "epics_archiver",
+                        "epics_archiver": {
+                            "url": "https://a.example",
+                            "auth": {"token_env": "OTHER_TOKEN"},
+                        },
+                    }
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+            {"name": "carol", "index": 2, "tier": "facility"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_archiver_credentials(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite": ("MONGO_ROOT_PASSWORD",), "facility": ("OTHER_TOKEN",)}
+
+
+def test_renders_needing_archiver_credentials_skips_unrendered_render_projects(
+    tmp_path,
+) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    assert renders_needing_archiver_credentials(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> the CA file its block names, mounted into the container
+# ---------------------------------------------------------------------------
+
+
+def _ca_block(ca: str) -> dict[str, Any]:
+    return {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+
+
+def test_ca_bundle_mounts_names_a_file_on_this_host(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == (str(ca),)
+
+
+def test_ca_bundle_mounts_skips_a_file_not_on_this_host(tmp_path) -> None:
+    """The connector in the container then refuses at connect, as on the host."""
+    ca = tmp_path / "absent.pem"
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    "tls", [{"ca_bundle": "certs/site-ca.pem"}, {"verify": False}], ids=["relative", "verify"]
+)
+def test_ca_bundle_mounts_skips_a_path_the_reader_refuses(tls: dict[str, Any]) -> None:
+    assert ca_bundle_mounts({"tls": tls}, where="archiver.settings") == ()
+
+
+def test_ca_bundle_mounts_skips_a_home_relative_path(monkeypatch, tmp_path) -> None:
+    """`~` would name a different file in each process, so it is never mounted."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "site-ca.pem").write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block("~/site-ca.pem"), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    ("connector", "key"),
+    [("epics_archiver", "epics_archiver"), ("my_facility.stores.Archive", "settings")],
+)
+def test_config_archiver_ca_bundles_reads_the_selected_block(
+    tmp_path, connector: str, key: str
+) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": connector, key: _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == (str(ca),)
+
+
+def test_config_archiver_ca_bundles_ignores_an_unselected_block(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": "mock_archiver", "epics_archiver": _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == ()
+
+
+def test_renders_needing_archiver_ca_bundles_maps_each_render_to_its_file(tmp_path) -> None:
+    """Only a render whose selected archiver names a CA file on this host is mapped."""
+    # Arrange
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    catalog = {
+        "facility": {
+            "project": "fac",
+            "project_path": _write_render_project_config(
+                tmp_path,
+                "fac",
+                {"archiver": {"type": "epics_archiver", "epics_archiver": _ca_block(str(ca))}},
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "facility"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    # Act
+    result = renders_needing_archiver_ca_bundles(config, tmp_path)
+
+    # Assert
+    assert result == {"facility": (str(ca),)}
+
+
+def test_renders_needing_archiver_ca_bundles_skips_unrendered_render_projects(
+    tmp_path,
+) -> None:
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
+
+    assert renders_needing_archiver_ca_bundles(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# effective_tier: the one roster-entry -> render answer (Task 4.2)
+#
+# Every raw-roster read that needs a resolved render routes through this
+# helper, so a `role:` binding and a `tier:` pin cannot be answered
+# differently by two surfaces. The cases below pin the helper itself; the
+# per-site wiring is pinned underneath them.
+# ---------------------------------------------------------------------------
+
+#: The role table as `resolve_authorization_roles` hands it over.
+_ROLES = {"operator": "console", "expert": "physicist"}
+
+
+def test_effective_tier_without_a_role_prefers_the_entrys_own_pin() -> None:
+    """An entry carrying no `role` resolves exactly as it did before roles
+    existed — which is what keeps every pre-roles deployment byte-identical."""
+    # Arrange
+    entry = {"name": "alice", "index": 0, "tier": "gui"}
+
+    # Act / Assert
+    assert effective_tier(entry, _ROLES, "cli") == "gui"
+
+
+def test_effective_tier_without_a_role_or_pin_falls_back_to_the_default() -> None:
+    """The pre-roles resolution order, unchanged."""
+    # Assert
+    assert effective_tier({"name": "alice"}, _ROLES, "cli") == "cli"
+
+
+def test_effective_tier_with_no_render_system_in_effect_is_none() -> None:
+    """No pin, no role, no default: no render, a roster strict resolution refuses."""
+    # Assert
+    assert effective_tier({"name": "alice"}, {}, None) is None
+
+
+def test_effective_tier_resolves_a_role_through_the_authorization_table() -> None:
+    """The whole point: a role names the catalog render its entries run as, and
+    it outranks the deployment default the entry would otherwise have taken."""
+    # Arrange
+    entry = {"name": "alice", "index": 0, "role": "expert"}
+
+    # Act / Assert
+    assert effective_tier(entry, _ROLES, "cli") == "physicist"
+
+
+def test_effective_tier_raises_on_a_role_that_is_not_declared() -> None:
+    """THE binding contract: never fall back to the default tier for a role
+    the table does not answer. Falling back would let `--no-lint` swap a
+    privilege set silently — the operator wrote a role, the deploy ran something
+    else, and nothing said so."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError) as excinfo:
+        effective_tier({"name": "alice", "role": "admin"}, _ROLES, "cli")
+
+    # Assert: the message names the offender AND what was declared, so the
+    # operator can see the typo without opening the config.
+    message = str(excinfo.value)
+    assert "'admin'" in message
+    assert "'operator'" in message and "'expert'" in message
+    assert "default tier" in message
+
+
+def test_effective_tier_raises_on_an_entry_carrying_both_a_render_and_a_role() -> None:
+    """Both bind the same slot, so which one governs is unwritten. Refusing the
+    ambiguity beats inventing a precedence nobody wrote down."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError) as excinfo:
+        effective_tier({"name": "alice", "tier": "gui", "role": "operator"}, _ROLES, "cli")
+
+    # Assert
+    assert "'gui'" in str(excinfo.value) and "'operator'" in str(excinfo.value)
+
+
+def test_effective_tier_refuses_a_tier_and_role_pair_that_agree_today() -> None:
+    """Refused even when the two name the same tier: the ambiguity is about
+    which mechanism governs TOMORROW — a later edit to the role's render would
+    silently not reach this entry."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError):
+        effective_tier({"name": "alice", "tier": "console", "role": "operator"}, _ROLES, "cli")
+
+
+def test_effective_tier_lenient_degrades_an_undeclared_role_to_the_pre_roles_answer() -> None:
+    """The reporting surfaces (lint's roster walks, the profile card) must show
+    every finding rather than die on the first bad entry; each pairs this
+    degrade with an ERROR of its own."""
+    # Assert
+    assert effective_tier({"name": "alice", "role": "admin"}, _ROLES, "cli", strict=False) == "cli"
+
+
+def test_effective_tier_lenient_degrades_a_conflicting_entry_to_its_pin() -> None:
+    """Same reason, and to the same answer the entry had before roles existed."""
+    # Assert
+    assert (
+        effective_tier(
+            {"name": "alice", "tier": "gui", "role": "operator"}, _ROLES, "cli", strict=False
+        )
+        == "gui"
+    )
+
+
+def test_effective_tier_reads_a_non_mapping_entry_defensively() -> None:
+    """A bare-string roster entry names no render of its own, so it runs the
+    default — the same defensive read the rest of this module uses."""
+    # Assert
+    assert effective_tier("alice", _ROLES, "cli") == "cli"
+
+
+def test_effective_tier_ignores_an_empty_string_role() -> None:
+    """`normalize_users` drops an empty `role` before anything downstream reads
+    one; the helper agrees, so a raw-roster read cannot disagree with a
+    normalized one."""
+    # Assert
+    assert effective_tier({"name": "alice", "role": ""}, _ROLES, "cli") == "cli"
+
+
+def test_resolve_authorization_roles_reads_the_one_parser() -> None:
+    """The accessor is a view onto `_authorization_context`, not a second parse."""
+    # Arrange
+    web_terminals = {
+        "authorization": {"roles": {"operator": {"tier": "console"}}},
+    }
+
+    # Act / Assert
+    assert resolve_authorization_roles(web_terminals) == {"operator": "console"}
+    assert resolve_authorization_roles({}) == {}
+
+
+def test_a_role_resolves_from_tier_alone() -> None:
+    """A role names its render under `tier` and nowhere else: a role stanza
+    without `tier` names no render, and an entry carrying a role that resolves
+    to nothing fails closed."""
+    # Arrange
+    named = {"authorization": {"roles": {"operator": {"tier": "console"}}}}
+    renderless = {"authorization": {"roles": {"operator": {}}}}
+    entry = {"name": "a", "role": "operator"}
+
+    # Act / Assert
+    roles = resolve_authorization_roles(named)
+    assert roles == {"operator": "console"}
+    assert effective_tier(entry, roles, None) == "console"
+    with pytest.raises(ValueError, match="operator"):
+        resolve_authorization_roles(renderless)
+    with pytest.raises(UnresolvedRoleError):
+        effective_tier(entry, {}, None, strict=True)
+
+
+def test_resolve_authorization_roles_propagates_an_incoherent_stanza() -> None:
+    """A role naming no render is the parser's refusal, not a second opinion."""
+    # Act / Assert
+    with pytest.raises(ValueError):
+        resolve_authorization_roles({"authorization": {"roles": {"operator": {}}}})
+
+
+# ---------------------------------------------------------------------------
+# Site wiring: resolve_cards
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cards_role_only_entry_resolves_like_the_equivalent_pin() -> None:
+    """A role-only roster and the `tier:`-pinned roster it stands for resolve
+    to the same entry, field for field — the property every downstream artifact
+    (compose service, volume, image tag) inherits."""
+    # Arrange
+    catalog = {
+        "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli"),
+        "gui": tier_render("gui", "demo-project-gui-assistant", project_path="profiles/gui"),
+    }
+    by_role = {
+        "users": [{"name": "gmartino", "index": 0, "role": "operator"}],
+        "default_tier": "cli",
+        "renders": catalog,
+        "authorization": {"roles": {"operator": {"tier": "gui"}}},
+    }
+    by_pin = {
+        "users": [{"name": "gmartino", "index": 0, "tier": "gui"}],
+        "default_tier": "cli",
+        "renders": catalog,
+    }
+
+    # Act / Assert
+    assert resolve_cards(by_role, _REGISTRY) == resolve_cards(by_pin, _REGISTRY)
+    assert resolve_cards(by_role, _REGISTRY)[0]["render"] == "gui"
+
+
+def test_resolve_cards_strict_refuses_an_undeclared_role() -> None:
+    """The render path fails closed rather than substituting `default_tier`."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "role": "admin"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+        "authorization": {"roles": {"operator": {"tier": "cli"}}},
+    }
+
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError):
+        resolve_cards(web_terminals, _REGISTRY)
+
+
+def test_resolve_cards_lenient_degrades_an_undeclared_role() -> None:
+    """Lifecycle verbs and lint resolve the same roster leniently: a stale role
+    never blocks `osprey down`, and lint reports it as its own finding."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "role": "admin"}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+        "authorization": {"roles": {"operator": {"tier": "cli"}}},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY, strict=False)
+
+    # Assert
+    assert result[0]["render"] == "cli"
+
+
+def test_resolve_cards_strict_refuses_an_incoherent_authorization_stanza() -> None:
+    """A roster is never resolved against a role table that was never built."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0}],
+        "default_tier": "cli",
+        "renders": {
+            "cli": tier_render("cli", "demo-project-assistant", project_path="profiles/cli")
+        },
+        "authorization": {"roles": {"operator": {}}},
+    }
+
+    # Act / Assert
+    with pytest.raises(ValueError):
+        resolve_cards(web_terminals, _REGISTRY)
+
+
+# ---------------------------------------------------------------------------
+# Site wiring: served_renders (the entitlement / post-removal walk)
+# ---------------------------------------------------------------------------
+
+
+def test_role_bound_render_counts_as_referenced_for_entitlements(tmp_path) -> None:
+    """`served_renders` stands behind every per-render credential grant
+    and behind lifecycle's post-removal privilege check. A render reached
+    through a role must count exactly as a pinned one does — otherwise a
+    role-only roster silently loses its credentials."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", {"ariel": {"search_modules": {"keyword": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(catalog, [{"name": "alice", "index": 0, "role": "expert"}])
+    config["modules"]["web_terminals"]["authorization"] = {
+        "roles": {"expert": {"tier": "readwrite"}}
+    }
+
+    # Act / Assert
+    assert renders_needing_ariel_password(config, tmp_path) == {"readwrite"}
+
+
+# ---------------------------------------------------------------------------
+# control_identity (the per-card name the control system sees this user write as)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_users_carries_string_control_identity_through() -> None:
+    """An object entry's `control_identity` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "control_identity": "alice"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "control_identity": "alice"}]
+
+
+def test_normalize_users_omits_control_identity_key_when_absent() -> None:
+    """A roster declaring no identity keeps the plain two-key shape."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+@pytest.mark.parametrize("value", ["", None, 1000, ["alice"], {"name": "alice"}, True])
+def test_normalize_users_drops_empty_or_non_string_control_identity(value: Any) -> None:
+    """An empty or non-string `control_identity` is dropped: a carried `""` would
+    render an identity switch that names nobody. The entry itself survives."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "control_identity": value}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_control_identity_is_independent_of_the_other_optional_fields() -> None:
+    """Declaring every optional string field keeps every one of them, and the
+    identity is not confused with the name, the OIDC subject or the role."""
+    # Arrange
+    users_raw = [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "tour": "never",
+            "oidc_subject": "alice@example.org",
+            "role": "operator",
+            "control_identity": "ahellert",
+        },
+        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
+    ]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result[0] == users_raw[0]
+    assert "control_identity" not in result[1]
+
+
+def test_freeze_user_indices_preserves_control_identity() -> None:
+    """The roster written back to config.yml keeps each survivor's identity; a
+    write-back that lost it would silently turn a named card anonymous."""
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "control_identity": "alice"},
+        {"name": "bob", "index": 1},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == users_raw
+
+
+def test_resolve_cards_exposes_control_identity_when_set() -> None:
+    """The identity rides through to the resolved entry the render reads."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "control_identity": "alice"}],
+        **_CATALOG,
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["control_identity"] == "alice"
+
+
+def test_resolve_cards_control_identity_threads_through_render_branch() -> None:
+    """A user resolved through a catalog render keeps its identity too."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "tier": "gui", "control_identity": "alice"}],
+        "default_tier": "gui",
+        "renders": {"gui": tier_render("gui", "demo-project-gui")},
+    }
+
+    # Act
+    result = resolve_cards(web_terminals, _REGISTRY)
+
+    # Assert
+    assert result[0]["render"] == "gui"
+    assert result[0]["control_identity"] == "alice"
+
+
+@pytest.mark.parametrize(
+    "users", [["alice"], [{"name": "alice", "index": 0, "control_identity": ""}]]
+)
+def test_resolve_cards_omits_control_identity_key_when_unset(users: list) -> None:
+    """No identity (or an empty one) resolves byte-identically to before the
+    field existed — no `control_identity: None` key appears."""
+    # Act
+    result = resolve_cards({"users": users, **_CATALOG}, _REGISTRY)
+
+    # Assert
+    assert "control_identity" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# control_identity roster builders (shared by lint and the render gate)
+# ---------------------------------------------------------------------------
+
+
+def _codes(findings: list[tuple[str, str]]) -> list[str]:
+    return [code for code, _ in findings]
+
+
+def test_is_shared_entry_reads_bare_string_and_unreadable_access_as_not_shared() -> None:
+    """The raw-roster predicate answers instead of raising on an unknown access."""
+    assert _is_shared_entry("alice") is False
+    assert _is_shared_entry({"name": "alice", "access": "sometimes"}) is False
+    assert _is_shared_entry({"name": "alice", "access": "any"}) is True
+    assert _is_shared_entry({"name": "alice"}) is False
+
+
+def test_control_identity_problems_is_empty_for_a_clean_roster() -> None:
+    """Distinct valid identities on owner-only cards raise nothing."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "control_identity": "carol", "oidc_subject": "carol@example.org"},
+        "bob",
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    assert control_identity_collision_warnings(users, claim="email") == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", 7, None, "Alice", "alice:x", "alice\n", "root", "osprey", "osprey-dispatch-0", "backup"],
+)
+def test_control_identity_problems_refuses_an_invalid_value(value: Any) -> None:
+    """Every value `validate_identity` refuses is an invalid_user_control_identity ERROR,
+    including a service name, which a roster may never claim."""
+    problems = control_identity_problems([{"name": "alice", "control_identity": value}])
+    assert _codes(problems) == ["web_terminals.invalid_user_control_identity"]
+    assert "'alice'" in problems[0][1]
+
+
+def test_control_identity_problems_ignores_entries_without_the_key() -> None:
+    """Only a present key is judged; bare strings and absent keys are silent."""
+    assert control_identity_problems(["alice", {"name": "carol"}]) == []
+
+
+@pytest.mark.parametrize("access", ["any", ["user:carol@example.org"], ["domain:example.org"]])
+def test_control_identity_problems_refuses_any_value_on_a_shared_card(access: Any) -> None:
+    """A control_identity on a shared card is an ERROR, whatever the shared form."""
+    users = [{"name": "alice", "access": access, "control_identity": "alice"}]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.shared_card_control_identity"]
+    assert "'alice'" in problems[0][1]
+
+
+def test_control_identity_problems_reports_both_an_invalid_value_and_a_shared_card() -> None:
+    """The two per-entry refusals are independent."""
+    users = [{"name": "alice", "access": "any", "control_identity": "root"}]
+    assert _codes(control_identity_problems(users)) == [
+        "web_terminals.invalid_user_control_identity",
+        "web_terminals.shared_card_control_identity",
+    ]
+
+
+def test_control_identity_problems_treats_unreadable_access_as_not_shared() -> None:
+    """An unknown access value is lint's access rule's finding, not this builder's crash."""
+    users = [{"name": "alice", "access": "sometimes", "control_identity": "alice"}]
+    assert control_identity_problems(users) == []
+
+
+def test_control_identity_problems_refuses_one_value_for_two_different_subjects() -> None:
+    """Two people on one name is a duplicate_control_identity ERROR naming both entries,
+    never echoing a subject."""
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "control_identity": "ops", "oidc_subject": "carol@example.org"},
+    ]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.duplicate_control_identity"]
+    message = problems[0][1]
+    assert "'alice'" in message and "'carol'" in message and "'ops'" in message
+    assert "@example.org" not in message
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_problems_same_subject_on_two_cards_is_no_error() -> None:
+    """One person holding two cards under one name is at most a WARN."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    warnings = control_identity_collision_warnings(users, claim="email")
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "one person" in warnings[0][1]
+
+
+def test_control_identity_problems_case_only_subject_difference_folds_under_email() -> None:
+    """Under an email claim subjects differing only in case are one person: a WARN."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "Alice@Example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    assert _codes(control_identity_collision_warnings(users, claim="email")) == [
+        CONTROL_IDENTITY_COLLISION_CODE
+    ]
+
+
+@pytest.mark.parametrize("claim", ["", "sub", "preferred_username"])
+def test_control_identity_problems_case_only_subject_difference_is_two_people_elsewhere(
+    claim: str,
+) -> None:
+    """Without a case-insensitive claim the sidecar compares exactly, so so does the rule."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "Alice"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice"},
+    ]
+    assert _codes(control_identity_problems(users, claim=claim)) == [
+        "web_terminals.duplicate_control_identity"
+    ]
+
+
+def test_control_identity_problems_strips_subject_whitespace_before_comparing() -> None:
+    """Surrounding whitespace never makes one subject two people."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": " alice "},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice"},
+    ]
+    assert control_identity_problems(users) == []
+
+
+@pytest.mark.parametrize("missing", [None, "", "   "])
+def test_control_identity_shared_value_with_a_missing_subject_is_a_warn(missing: Any) -> None:
+    """A shared value where a subject is missing cannot be proved two people: WARN only."""
+    carol: dict[str, Any] = {"name": "carol", "control_identity": "ops"}
+    if missing is not None:
+        carol["oidc_subject"] = missing
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        carol,
+    ]
+    assert control_identity_problems(users) == []
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "'alice'" in warnings[0][1] and "'carol'" in warnings[0][1]
+    assert "cannot say" in warnings[0][1]
+
+
+def test_control_identity_duplicate_among_three_is_an_error_when_any_two_differ() -> None:
+    """One missing subject does not hide two present subjects that differ."""
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        {"name": "bob", "control_identity": "ops"},
+        {"name": "carol", "control_identity": "ops", "oidc_subject": "carol@example.org"},
+    ]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.duplicate_control_identity"]
+    assert "['alice', 'bob', 'carol']" in problems[0][1]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_invalid_values_are_never_compared() -> None:
+    """Two copies of one invalid value give their per-entry ERRORs, nothing more."""
+    users = [
+        {"name": "alice", "control_identity": "root", "oidc_subject": "a"},
+        {"name": "carol", "control_identity": "root", "oidc_subject": "c"},
+    ]
+    assert _codes(control_identity_problems(users)) == [
+        "web_terminals.invalid_user_control_identity",
+        "web_terminals.invalid_user_control_identity",
+    ]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_warns_on_another_entrys_roster_name() -> None:
+    """A value naming another roster entry credits writes to that user: WARN."""
+    users = [{"name": "alice", "control_identity": "carol"}, "carol"]
+    assert control_identity_problems(users) == []
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "roster name of entry 'carol'" in warnings[0][1]
+
+
+def test_control_identity_equal_to_own_roster_name_is_silent() -> None:
+    """An entry naming itself is the expected shape."""
+    assert (
+        control_identity_collision_warnings([{"name": "alice", "control_identity": "alice"}]) == []
+    )
+
+
+def test_control_identity_warns_on_another_entrys_subject_local_part() -> None:
+    """A value equal to another entry's email local part (any case): WARN, no subject echo."""
+    users = [
+        {"name": "alice", "control_identity": "cjones", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "oidc_subject": "CJones@example.org"},
+    ]
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "entry 'carol'" in warnings[0][1]
+    assert "example.org" not in warnings[0][1]
+
+
+def test_control_identity_subject_without_at_sign_has_no_local_part() -> None:
+    """A non-email subject contributes no mailbox name to compare against."""
+    users = [
+        {"name": "alice", "control_identity": "cjones"},
+        {"name": "carol", "oidc_subject": "cjones"},
+    ]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_name_collision_is_skipped_for_one_person_on_two_cards() -> None:
+    """Another card of the SAME person carrying that name is not a collision."""
+    users = [
+        {"name": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_collision_warnings(users, claim="email") == []
+
+
+def test_control_identity_builders_tolerate_a_non_list_roster() -> None:
+    """A malformed roster is some other rule's finding; the builders return nothing."""
+    for raw in (None, "alice", {"name": "alice"}):
+        assert control_identity_problems(raw) == []
+        assert control_identity_collision_warnings(raw) == []

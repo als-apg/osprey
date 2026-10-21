@@ -47,7 +47,6 @@ from osprey.cli.reset_cmd import reset as reset_command
 from osprey.deployment import reset as reset_mod
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from osprey.deployment.reset import (
-    DERIVED_ENV_BANNER,
     MINTED_ENV_BANNERS,
     ForeignCheckoutError,
     ResetOutcome,
@@ -59,6 +58,8 @@ from osprey.deployment.reset import (
     reset_deployment,
     strip_env_blocks,
 )
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._renders import tier_render
 
 PROJECT = "als-exemplar"
 OTHER_IDENTITY = "0123456789ab"
@@ -184,7 +185,7 @@ def repo(tmp_path: Path) -> Path:
     root = tmp_path / PROJECT
     (root / "build").mkdir(parents=True)
     (root / "data").mkdir()
-    (root / "personas").mkdir()
+    (root / TIERS_DIRNAME).mkdir()
     (root / "var" / "agent_data" / "memory").mkdir(parents=True)
     (root / "var" / "audit").mkdir(parents=True)
     (root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
@@ -1057,88 +1058,61 @@ def test_the_plan_counts_the_provider_keys_it_is_keeping(repo):
 
 
 # ---------------------------------------------------------------------------
-# The build's derived section: pointers, not secrets, and every build makes them
+# Pointer lines under no banner: the operator's, whatever they name
 # ---------------------------------------------------------------------------
 
 
-def _with_derived_block(repo: Path) -> Path:
-    """Give a repo the ``.env`` section ``osprey build`` writes its pointers into."""
+def _with_unbannered_pointers(repo: Path) -> Path:
+    """Give a repo two ``VA_*`` pointer lines under no OSPREY banner."""
     env = repo / ".env"
     env.write_text(
-        env.read_text(encoding="utf-8")
-        + f"\n# {DERIVED_ENV_BANNER}\n"
-        + "VA_CHANNELS_FILE=channel_manifest.json\n"
-        + "VA_LATTICE=lattice.json\n",
+        env.read_text(encoding="utf-8") + "\nVA_NOTES=operator.txt\n" + "VA_LATTICE=lattice.json\n",
         encoding="utf-8",
     )
     return env
 
 
 @pytest.mark.usefixtures("no_down")
-def test_the_build_derived_pointers_go_with_the_deployment(repo):
-    """A discarded deployment keeps no pointer into the build tree it discarded.
-
-    The next build re-derives both from the project's own content, and a value
-    surviving the reset wins over the fresh one — the file is append-only — so
-    the stack would come back up aimed at a tree that no longer exists.
-    """
-    env = _with_derived_block(repo)
+def test_the_operators_keys_survive_beside_unbannered_pointers(repo):
+    """A line under no OSPREY banner is the operator's, and the reset keeps it."""
+    env = _with_unbannered_pointers(repo)
 
     run_reset(repo, FakeRuntime())
 
     text = env.read_text(encoding="utf-8")
-    assert "VA_LATTICE" not in text
-    assert "VA_CHANNELS_FILE" not in text
-    assert DERIVED_ENV_BANNER not in text
+    assert "ANTHROPIC_API_KEY=sk-provider-secret" in text
+    assert "VA_NOTES=operator.txt" in text
 
 
 @pytest.mark.usefixtures("no_down")
-def test_the_operators_keys_survive_the_derived_strip(repo):
-    env = _with_derived_block(repo)
-
-    run_reset(repo, FakeRuntime())
-
-    assert "ANTHROPIC_API_KEY=sk-provider-secret" in env.read_text(encoding="utf-8")
-
-
-@pytest.mark.usefixtures("no_down")
-def test_a_pointer_pinned_outside_the_builds_section_is_the_operators(repo):
-    """The banner is what makes a line the build's. A line above it is not."""
+def test_a_pointer_pinned_by_the_operator_is_the_operators(repo):
+    """No banner, no claim: OSPREY strips only the blocks it wrote."""
     (repo / ".env").write_text(
-        "VA_LATTICE=my-own-ring.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
+        "VA_LATTICE=my-own-lattice.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
     )
 
     run_reset(repo, FakeRuntime())
 
-    assert "VA_LATTICE=my-own-ring.json" in (repo / ".env").read_text(encoding="utf-8")
+    assert "VA_LATTICE=my-own-lattice.json" in (repo / ".env").read_text(encoding="utf-8")
 
 
-def test_the_plan_names_the_derived_pointers_it_will_remove(repo):
-    _with_derived_block(repo)
-
-    rendered = "\n".join(plan_reset(repo, probe=make_probe(FakeRuntime())).render())
-
-    assert "VA_LATTICE" in rendered
-    assert "VA_CHANNELS_FILE" in rendered
-
-
-def test_the_confirmation_counts_the_pointers_apart_from_the_secrets(repo):
-    """Two nouns, because the two sections cost an operator different things."""
-    _with_derived_block(repo)
+def test_the_confirmation_counts_only_the_minted_values(repo):
+    _with_unbannered_pointers(repo)
 
     summary = plan_reset(repo, probe=make_probe(FakeRuntime())).confirmation_summary()
 
     assert "2 minted values" in summary
-    assert "2 build-derived pointers" in summary
+    assert "build-derived" not in summary
 
 
-def test_the_closing_report_counts_the_pointers_apart_too(repo):
-    _with_derived_block(repo)
+def test_the_closing_report_counts_only_the_minted_values(repo):
+    _with_unbannered_pointers(repo)
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
 
     reported = "\n".join(reset_mod._condensed_outcome_lines(plan))
 
-    assert "stripped 2 minted values, 2 build-derived pointers" in reported
+    assert "stripped 2 minted values" in reported
+    assert "build-derived" not in reported
 
 
 def test_every_banner_the_deploy_writes_is_one_reset_knows_about():
@@ -1349,7 +1323,7 @@ def test_the_source_zone_is_untouched(repo):
 
     assert (repo / "profile.yml").read_text(encoding="utf-8") == "preset: control-assistant\n"
     assert (repo / "data" / "channels.json").is_file()
-    assert (repo / "personas").is_dir()
+    assert (repo / TIERS_DIRNAME).is_dir()
 
 
 @pytest.mark.usefixtures("no_down")
@@ -1459,7 +1433,7 @@ def test_a_missing_image_tag_is_not_an_error_and_not_in_the_plan(repo):
 
 
 def _with_web_terminals(repo: Path) -> None:
-    """Give the build a web-terminal roster with a local-mode persona catalog."""
+    """Give the build a web-terminal roster with a local-mode render catalog."""
     import yaml
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
@@ -1470,44 +1444,46 @@ def _with_web_terminals(repo: Path) -> None:
         "web_terminals": {
             "enabled": True,
             "image_source": "local",
-            "users": [{"name": "alice", "index": 0, "persona": "control-room"}],
-            "personas": {"control-room": {"project": "acc-control", "project_path": "/x"}},
+            "users": [{"name": "alice", "index": 0, "tier": "control-room"}],
+            "renders": {
+                "control-room": tier_render("control-room", "acc-control", project_path="/x")
+            },
         }
     }
     (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
 @pytest.mark.usefixtures("no_down")
-def test_a_web_terminal_personas_local_image_is_a_candidate(repo):
-    """Reset absorbs ``deploy nuke``, whose image half is the persona tags."""
+def test_a_web_terminal_renders_local_image_is_a_candidate(repo):
+    """Reset absorbs ``deploy nuke``, whose image half is the render tags."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control:local"
+    render_tag = "acc-control:local"
     fake = FakeRuntime(
         images={
             f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
-            persona_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+            render_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
         }
     )
     run_reset(repo, fake)
 
-    assert sorted(fake.removed_names()) == sorted([f"{PROJECT}:local", persona_tag])
+    assert sorted(fake.removed_names()) == sorted([f"{PROJECT}:local", render_tag])
 
 
 @pytest.mark.usefixtures("no_down")
-def test_a_persona_image_belonging_to_another_deployment_survives(repo):
+def test_a_render_image_belonging_to_another_deployment_survives(repo):
     """Image tags are host-global, so the project label is checked tag by tag."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control:local"
-    fake = FakeRuntime(images={persona_tag: {reset_mod.OSPREY_PROJECT_LABEL: "someone-else"}})
+    render_tag = "acc-control:local"
+    fake = FakeRuntime(images={render_tag: {reset_mod.OSPREY_PROJECT_LABEL: "someone-else"}})
     run_reset(repo, fake)
 
     assert fake.removals == []
-    assert persona_tag in fake.images
+    assert render_tag in fake.images
 
 
 @pytest.mark.usefixtures("no_down")
 def test_an_unreadable_roster_leaves_the_project_image_removable(repo):
-    """A broken persona catalog degrades reset's image half; it never blocks the reset."""
+    """A broken render catalog degrades reset's image half; it never blocks the reset."""
     import yaml
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
@@ -1653,17 +1629,17 @@ def test_an_unreadable_config_degrades_to_the_project_name_and_the_axes(repo, mo
 
 
 def _roster_of(monkeypatch, *images: str) -> None:
-    """Make the roster resolve to exactly *images*, whatever the persona rules say.
+    """Make the roster resolve to exactly *images*, whatever the render rules say.
 
-    The persona naming rules produce ``:local`` images and only ``:local``
+    The render naming rules produce ``:local`` images and only ``:local``
     images, so the filter's other half — an image the AXES named — cannot be
     reached through them. Substituting the roster is what puts that half under
-    test without asserting a persona shape the code does not produce.
+    test without asserting a render shape the code does not produce.
     """
-    from osprey.deployment.web_terminals import personas as personas_mod
+    from osprey.deployment.web_terminals import roster as renders_mod
 
     roster = [{"name": f"u{index}", "image": image} for index, image in enumerate(images)]
-    monkeypatch.setattr(personas_mod, "resolve_personas", lambda *args, **kwargs: roster)
+    monkeypatch.setattr(renders_mod, "resolve_cards", lambda *args, **kwargs: roster)
 
 
 def test_a_roster_image_the_axes_named_is_a_candidate(repo, monkeypatch):
@@ -1693,13 +1669,13 @@ def test_a_pulled_upstream_image_sharing_the_axis_tag_is_not_a_candidate(repo, m
 
 
 def test_a_local_roster_image_stays_a_candidate_under_a_set_axis(repo, monkeypatch):
-    """``:local`` is the persona convention and the axes do not move it."""
+    """``:local`` is the render convention and the axes do not move it."""
     _with_web_terminals(repo)
     _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
-    persona_tag = "acc-control:local"
-    _roster_of(monkeypatch, persona_tag)
+    render_tag = "acc-control:local"
+    _roster_of(monkeypatch, render_tag)
 
-    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, persona_tag]
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, render_tag]
 
 
 # ---------------------------------------------------------------------------

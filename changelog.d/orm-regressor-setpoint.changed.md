@@ -1,0 +1,1 @@
+The `orm` plan's response matrix is now per unit of commanded corrector current (its setpoint), the convention of MML and pySC; a `regressor` parameter chooses the readback instead, and the run records which one it used.

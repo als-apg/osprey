@@ -17,13 +17,12 @@ from .core.models import (
     ChannelFinderResult,
     ChannelInfo,
 )
-from .databases import FlatChannelDatabase, HierarchicalChannelDatabase, TemplateChannelDatabase
+from .databases import FlatChannelDatabase, HierarchicalChannelDatabase
 
 __version__ = "2.0.0"
 
 __all__ = [
     "FlatChannelDatabase",
-    "TemplateChannelDatabase",
     "HierarchicalChannelDatabase",
     "ChannelFinderResult",
     "ChannelInfo",

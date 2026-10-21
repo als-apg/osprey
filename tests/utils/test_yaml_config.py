@@ -52,16 +52,16 @@ approval:
 # ============================================================
 
 control_system:
-  type: "mock"  # Options: mock | epics
+  type: "virtual_accelerator"  # Options: virtual_accelerator | epics
   writes_enabled: false  # Master safety switch
   limits_checking:
     enabled: false
     database_path: null
-    allow_unlisted_channels: true
+    mode: optional
     on_violation: "skip"
   connector:
-    mock:
-      noise_level: 0.01
+    virtual_accelerator:
+      timeout_s: 1.0
     epics:
       timeout_s: 5.0
 
@@ -141,10 +141,10 @@ class TestCommentPreservation:
         assert "# ARTIFACT SERVER" in text
 
     def test_inline_comments_preserved(self, config_file):
-        """Inline comments like '# Options: mock | epics' must survive."""
+        """Inline comments like '# Options: virtual_accelerator | epics' must survive."""
         config_update_fields(config_file, {"control_system.type": "epics"})
         text = config_file.read_text()
-        assert "# Options: mock | epics" in text
+        assert "# Options: virtual_accelerator | epics" in text
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +168,12 @@ class TestBooleanUpdates:
             config_file,
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["enabled"] is True
-        assert data["control_system"]["limits_checking"]["allow_unlisted_channels"] is False
+        assert data["control_system"]["limits_checking"]["mode"] == "exclusive"
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +201,11 @@ class TestNumericUpdates:
         config_update_fields(
             config_file,
             {
-                "control_system.connector.mock.noise_level": 0.5,
+                "control_system.connector.virtual_accelerator.timeout_s": 0.5,
             },
         )
         data = config_read(config_file)
-        assert data["control_system"]["connector"]["mock"]["noise_level"] == 0.5
+        assert data["control_system"]["connector"]["virtual_accelerator"]["timeout_s"] == 0.5
 
     def test_deeply_nested_integer(self, config_file):
         config_update_fields(
@@ -475,8 +475,20 @@ class TestEdgeCases:
 
     def test_idempotent_update(self, config_file):
         """Updating to the same value should not change the file."""
-        config_update_fields(config_file, {"control_system.type": "mock"})
+        config_update_fields(
+            config_file,
+            {
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
+            },
+        )
         text1 = config_file.read_text()
-        config_update_fields(config_file, {"control_system.type": "mock"})
+        config_update_fields(
+            config_file,
+            {
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
+            },
+        )
         text2 = config_file.read_text()
         assert text1 == text2

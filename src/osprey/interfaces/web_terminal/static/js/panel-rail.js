@@ -3,7 +3,8 @@
  *
  * A pure DOM-rendering module for the 74px left icon rail that replaces the
  * horizontal header tab strip. It builds one entry per rail MEMBER (icon,
- * label, active accent, close corner, drag source) and exposes small
+ * label, active accent, close corner, drag source) — plus drag-to-reorder
+ * along the rail itself — and exposes small
  * imperative mutators — set active, enable, attention, append, remove — so
  * `panel-manager.js`'s state machine can drive the rail without owning any DOM
  * specifics. (The `＋` add control is NOT the rail's: the template supplies it
@@ -108,6 +109,15 @@ import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js
  * @property {(id: string, dataTransfer: DataTransfer | null) => boolean} [onDragStart]
  *   - a drag left an entry; return false to cancel it
  * @property {(id: string) => void} [onDragEnd]    - the entry's drag gesture ended (any outcome)
+ * @property {(id: string, beforeId: string | null) => void} [onReorder]
+ *   - an entry was dropped on the rail itself: move `id` directly above
+ *     `beforeId`, or to the foot of the rail when null. Never called for a
+ *     drop that would leave the entry where it is. Omit to keep the rail's
+ *     order fixed; drags into the workspace are unaffected either way.
+ * @property {(id: string) => boolean} [reorderable]
+ *   - whether an entry takes part in reordering (default: every entry). A
+ *     fixed entry is neither dragged along the rail nor a drop target, so
+ *     nothing can be moved above it — e.g. the SESSION entry at the head.
  */
 
 const BUTTON_SELECTOR = '.panel-rail-button';
@@ -231,6 +241,7 @@ function buildRailButton(panel, options = {}) {
     const onDragEnd = options.onDragEnd;
     btn.addEventListener('dragend', () => {
       btn.classList.remove('dragging');
+      if (btn.parentElement) clearDropMarks(btn.parentElement);
       onDragEnd?.(panel.id);
     });
   }
@@ -282,6 +293,7 @@ function buildCornerAffordance(className, glyph, title, panelId, handler) {
 export function createRail(railEl, panels, options = {}) {
   railEl.classList.add('panel-rail');
   railEl.setAttribute('role', 'tablist');
+  wireReorder(railEl, options);
   railEl.replaceChildren();
   for (const panel of panels) {
     railEl.appendChild(buildRailButton(panel, options));
@@ -328,6 +340,122 @@ export function removeEntry(railEl, panelId) {
     entry.dispatchEvent(new Event('dragend'));
   }
   entry.remove();
+}
+
+/**
+ * The rail's entry ids, top to bottom — the order the operator sees.
+ * @param {HTMLElement} railEl
+ * @returns {string[]}
+ */
+export function entryIds(railEl) {
+  return [...railEl.querySelectorAll(BUTTON_SELECTOR)].map((el) => el.getAttribute('data-panel-id') ?? '');
+}
+
+/**
+ * Move an entry so it sits directly above `beforeId`'s entry, or at the foot of
+ * the rail when `beforeId` is null or has no entry. Moving keeps the node, so
+ * its live state (active, health, badges) travels with it. No-op for an
+ * unknown `panelId`.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {string | null} beforeId
+ */
+export function placeEntry(railEl, panelId, beforeId) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  const before = beforeId === null ? null : getEntry(railEl, beforeId);
+  railEl.insertBefore(entry, before);
+}
+
+// ---- Reordering ----
+
+/** The options each rail was last rendered with, read by its drop listeners.
+ *  @type {WeakMap<HTMLElement, RailOptions>} */
+const reorderOptions = new WeakMap();
+
+const DROP_BEFORE = 'drop-before';
+const DROP_AFTER = 'drop-after';
+
+/**
+ * Attach the rail-level dragover / dragleave / drop listeners once per rail
+ * element; a re-render only swaps the options they read.
+ * @param {HTMLElement} railEl
+ * @param {RailOptions} options
+ */
+function wireReorder(railEl, options) {
+  const wired = reorderOptions.has(railEl);
+  reorderOptions.set(railEl, options);
+  if (wired) return;
+  railEl.addEventListener('dragover', (e) => {
+    const point = insertionPoint(railEl, e);
+    if (!point) return;
+    e.preventDefault(); // accept the drop here
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearDropMarks(railEl);
+    if (point.noop) return;
+    if (point.before) point.before.classList.add(DROP_BEFORE);
+    else point.last?.classList.add(DROP_AFTER);
+  });
+  railEl.addEventListener('dragleave', (e) => {
+    const to = /** @type {Node | null} */ (e.relatedTarget);
+    if (!to || !railEl.contains(to)) clearDropMarks(railEl);
+  });
+  railEl.addEventListener('drop', (e) => {
+    const point = insertionPoint(railEl, e);
+    if (!point) return;
+    e.preventDefault();
+    clearDropMarks(railEl);
+    if (point.noop) return;
+    const beforeId = point.before?.getAttribute('data-panel-id') ?? null;
+    reorderOptions.get(railEl)?.onReorder?.(point.id, beforeId);
+  });
+}
+
+/**
+ * Where a drag over the rail would put the dragged entry, or null when the
+ * drag is not a reorder of this rail: it did not start on one of its entries,
+ * the entry is fixed, or the caller takes no reorders. The target is the first
+ * movable entry whose midpoint lies past the pointer on the rail's axis —
+ * across under the top rail, down otherwise; none means the foot of the rail.
+ * @param {HTMLElement} railEl
+ * @param {DragEvent} e
+ * @returns {{ id: string, before: HTMLElement | null, last: HTMLElement | null, noop: boolean } | null}
+ */
+function insertionPoint(railEl, e) {
+  const options = reorderOptions.get(railEl);
+  const dragging = /** @type {HTMLElement | null} */ (
+    railEl.querySelector(`${BUTTON_SELECTOR}.dragging`)
+  );
+  if (!options?.onReorder || !dragging) return null;
+  const movable = (/** @type {Element} */ el) =>
+    !options.reorderable || options.reorderable(el.getAttribute('data-panel-id') ?? '');
+  if (!movable(dragging)) return null;
+
+  const across = document.documentElement.getAttribute('data-rail-position') === 'top';
+  const at = across ? e.clientX : e.clientY;
+  const entries = /** @type {HTMLElement[]} */ (
+    [...railEl.querySelectorAll(BUTTON_SELECTOR)].filter(movable)
+  );
+  const others = entries.filter((el) => el !== dragging);
+  const before =
+    others.find((el) => {
+      const r = el.getBoundingClientRect();
+      return (across ? r.left + r.width / 2 : r.top + r.height / 2) > at;
+    }) ?? null;
+  const next = entries[entries.indexOf(dragging) + 1] ?? null;
+  return {
+    id: dragging.getAttribute('data-panel-id') ?? '',
+    before,
+    last: others.at(-1) ?? null,
+    noop: before === next,
+  };
+}
+
+/** @param {HTMLElement} railEl */
+function clearDropMarks(railEl) {
+  for (const el of railEl.querySelectorAll(`.${DROP_BEFORE}, .${DROP_AFTER}`)) {
+    el.classList.remove(DROP_BEFORE, DROP_AFTER);
+  }
 }
 
 // ---- Mutators ----

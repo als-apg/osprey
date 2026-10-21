@@ -71,7 +71,7 @@ every deployment would police a guard that is usually not installed. The
 residual (a reload disarms the net guard silently where it *is* installed)
 adds nothing beyond the restore handle already in scope. What contains code
 deliberately attacking the boundary is the perimeter design itself — the
-deploy-time gate that refuses to grant shell-capable personas an open
+deploy-time gate that refuses to grant shell-capable renders an open
 perimeter — not this monkeypatch.
 """
 

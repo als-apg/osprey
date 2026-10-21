@@ -36,9 +36,9 @@ _EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters"}
 #: reading order the descriptions cross-reference.
 _EXPECTED_KEYS = (
     "by_description",
-    "by_field_meaning",
+    "by_quantity",
     "by_class_and_signal",
-    "by_family_role",
+    "by_group_purpose",
     "by_system",
     "by_synonym",
     "census",

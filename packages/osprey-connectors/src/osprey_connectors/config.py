@@ -22,6 +22,7 @@ import copy
 import logging
 import os
 import re
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
@@ -172,6 +173,35 @@ def is_unresolved_placeholder(value: object) -> bool:
         True when the value is exactly one unsubstituted reference.
     """
     return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
+
+
+#: The placeholder shapes :func:`resolve_env_vars` substitutes; one still
+#: present after resolution named a variable the environment does not have.
+_PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+
+
+def unresolved_placeholders(value: Any) -> list[str]:
+    """Every placeholder left in *value*, depth-first.
+
+    Where :func:`is_unresolved_placeholder` asks whether a value is exactly one
+    reference, this finds every reference anywhere in a string, and in every
+    string nested in mappings, lists and tuples — so a block a supervisor is
+    about to hand a connector can be refused whole when any part of it is still
+    unresolved.
+
+    Args:
+        value: A config value, of any type, after :func:`resolve_env_vars`.
+
+    Returns:
+        The placeholders found, in order, repeats included; empty when none.
+    """
+    if isinstance(value, str):
+        return _PLACEHOLDER.findall(value)
+    if isinstance(value, Mapping):
+        return [found for item in value.values() for found in unresolved_placeholders(item)]
+    if isinstance(value, list | tuple):
+        return [found for item in value for found in unresolved_placeholders(item)]
+    return []
 
 
 _FLAG_ON = frozenset({"true", "yes", "on", "1"})

@@ -109,7 +109,7 @@ def _patch_config(
     db_path: str | None = None,
     project_root: str | None = None,
 ) -> None:
-    """Patch `osprey.utils.config.get_config_value` for the keys the guard reads.
+    """Patch `osprey_connectors.config.get_config_value` for the keys the guard reads.
 
     Write posture is per connector type, so the guard reads the whole
     `control_system` SECTION rather than a dotted `writes_enabled` key, plus
@@ -126,9 +126,9 @@ def _patch_config(
     deployment-wide, since the deployment mounts one limits database.
 
     `_assert_limits_readable_if_writable` does its own
-    `from osprey.utils.config import get_config_value` inside the function
+    `from osprey_connectors.config import get_config_value` inside the function
     body (never at module import time), so patching the underlying
-    `osprey.utils.config` attribute — the same convention
+    `osprey_connectors.config` attribute — the same convention
     `test_epics_gateway_selection.py` uses for `EPICSConnector.connect` —
     takes effect on the next call.
     """
@@ -155,12 +155,14 @@ def _patch_config(
             return targets.get(key.split(".")[1], default)
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 def _valid_limits_db(tmp_path: Path) -> Path:
     db = tmp_path / "channel_limits.json"
-    db.write_text(json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}}))
+    db.write_text(
+        json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+    )
     return db
 
 
@@ -170,7 +172,7 @@ def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     The returned list staying empty is the assertion that a non-writable
     posture never even reached for the database.
     """
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
     probe_calls: list[str] = []
     original_load = LimitsValidator._load_limits_database
@@ -274,7 +276,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     data_dir = container_dir / "data"
     data_dir.mkdir()
     (data_dir / "channel_limits.json").write_text(
-        json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}})
+        json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
     monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
 
@@ -318,7 +320,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     message = str(excinfo.value)
     assert "control_system.limits_checking.enabled" in message
     # An ABSENT deployment-wide leaf is unset, not unreadable, so it is not named.
-    assert "control_system.limits_checking.allow_unlisted_channels" not in message
+    assert "control_system.limits_checking.mode" not in message
     assert "literal true or false" in message
     assert probe_calls == []
 

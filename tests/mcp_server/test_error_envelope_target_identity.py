@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey.mcp_server.control_system import error_handling, server_context
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.error_handling import (
@@ -32,6 +31,7 @@ from osprey.mcp_server.control_system.error_handling import (
     describe_active_target,
 )
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from tests.mcp_server.conftest import assert_raises_error
 
 IDENTITY = {"name": "live", "label": "LIVE MACHINE", "endpoint": "localhost:5064"}

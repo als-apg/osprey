@@ -49,6 +49,7 @@ against a wheel staged from this working tree — the same mechanism ``osprey up
 measure released code, not this branch). Skips cleanly without either.
 """
 
+import contextlib
 import json
 import os
 import platform
@@ -62,11 +63,12 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     container_image_context,
 )
+from tests._builds import uv_path
 from tests.e2e.profile_edits import set_pairs
 
 # ── Markers ──────────────────────────────────────────────────────────────────
@@ -332,7 +334,7 @@ def base_venv(tmp_path_factory) -> Path:
     output is then fully determined, and no incidental package can collide with
     OSPREY's own pins and fail the build for reasons unrelated to this test.
     """
-    uv = os.environ.get("UV") or shutil.which("uv")
+    uv = uv_path()
     if uv is None:
         pytest.skip("uv is required to build the fixture's base venv")
 
@@ -362,18 +364,42 @@ def base_venv(tmp_path_factory) -> Path:
     return interpreter
 
 
+def _cache_the_added_marker(venv: Path) -> None:
+    """Leave the added marker in uv's cache by one install into a throwaway venv."""
+    uv = uv_path()
+    assert uv is not None, "base_venv skips this module when uv is missing"
+    create = subprocess.run(
+        [uv, "venv", str(venv), "--quiet"], capture_output=True, text=True, timeout=120
+    )
+    assert create.returncode == 0, f"uv venv failed: {create.stdout}{create.stderr}"
+    install = subprocess.run(
+        [uv, "pip", "install", "--python", str(venv / "bin" / "python"), "--quiet", MARKER_ADDED],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert install.returncode == 0, (
+        f"caching {MARKER_ADDED} failed: {install.stdout}{install.stderr}"
+    )
+
+
 @pytest.fixture(scope="module")
-def built_render(base_venv, tmp_path_factory) -> Iterator[Path]:
+def built_render(base_venv, offline_build_env, tmp_path_factory) -> Iterator[Path]:
     """A real init + build whose profile declares the venv base + one addition.
+
+    The build installs from uv's cache alone: ``offline_build_env`` holds
+    osprey's tree there, ``base_venv`` the frozen marker, and this fixture
+    fetches the added marker into it before the build.
 
     Yields the RENDER (``<repo>/build``) — the zone that holds the project
     venv, the ``pyproject.toml`` dependency record and the ``Dockerfile``, and
     the directory the image is built from.
     """
     out_dir = tmp_path_factory.mktemp("parity-build")
+    _cache_the_added_marker(tmp_path_factory.mktemp("parity-warm") / "venv")
     repo = out_dir / PROJECT_NAME
     try:
-        yield _build_render(repo, base_venv)
+        yield _build_render(repo, base_venv, offline_build_env)
     finally:
         # The host half of every comparison runs from this venv, so it lives as
         # long as the module does and no longer. In a ``finally``, so a build
@@ -381,7 +407,7 @@ def built_render(base_venv, tmp_path_factory) -> Iterator[Path]:
         shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
 
 
-def _build_render(repo: Path, base_venv: Path) -> Path:
+def _build_render(repo: Path, base_venv: Path, offline_build_env: dict[str, str]) -> Path:
     edits = {
         "environment": {"python": str(base_venv), "packages": [MARKER_ADDED]},
         # The gallery auto-launches a web server on a fixed host port on first
@@ -411,7 +437,9 @@ def _build_render(repo: Path, base_venv: Path) -> Path:
 
     # No --skip-deps: the project venv this test measures IS the thing the deps
     # step creates.
-    build_result = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle"])
+    build_result = runner.invoke(
+        cli, ["build", "--repo", str(repo), "--skip-lifecycle"], env=offline_build_env
+    )
     assert build_result.exit_code == 0, build_result.output
 
     render = repo / "build"
@@ -506,10 +534,8 @@ def built_image(built_render):
             # Staged dev artifacts must not outlive the build that needed them:
             # a leftover wheel would silently reinstall osprey in any later
             # image built from this context.
-            try:
+            with contextlib.suppress(OSError):
                 artifact.unlink()
-            except OSError:
-                pass
 
 
 def _docker_run_argv(tag: str) -> list[str]:

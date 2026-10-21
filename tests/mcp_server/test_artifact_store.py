@@ -1032,7 +1032,7 @@ class TestArtifactGalleryApp:
 
     def test_a_configured_page_size_above_the_request_bound_is_capped(self, monkeypatch):
         import osprey.interfaces.artifacts.app as gallery_app
-        import osprey.utils.config as config
+        import osprey_connectors.config as config
 
         monkeypatch.setattr(config, "get_config_value", lambda key, default=None: 500)
 
@@ -1323,7 +1323,7 @@ class TestAutoLaunchLogging:
 
         with (
             patch(
-                "osprey.infrastructure.server_launcher.ensure_artifact_server",
+                "osprey.infrastructure.server_launcher.ensure_web_server",
                 side_effect=RuntimeError("server launch failed"),
             ),
             caplog.at_level(logging.WARNING, logger="osprey.stores.artifact_store"),
@@ -1371,11 +1371,16 @@ class TestServerLauncherRetry:
         # After crash, _launched should be reset to False
         assert launcher._launched is False
 
-    def test_server_launcher_health_check_warning(self, caplog):
-        """Health-check failure after launch produces a warning log."""
+    def test_server_launcher_health_check_warning(self, caplog, monkeypatch):
+        """A server that never answers /health is warned about once the late-health window ends."""
         import logging
+        import time
 
+        from osprey.infrastructure import server_launcher
         from osprey.infrastructure.server_launcher import ServerLauncher
+
+        monkeypatch.setattr(server_launcher, "_LATE_HEALTH_WINDOW_S", 0.5)
+        monkeypatch.setattr(server_launcher, "_LATE_HEALTH_POLL_S", 0.05)
 
         def noop_app_factory(**kwargs):
             # Return something but don't actually start a server
@@ -1389,10 +1394,16 @@ class TestServerLauncherRetry:
             pass_workspace=False,
         )
 
+        def warned() -> bool:
+            return any("health check failed" in r.getMessage().lower() for r in caplog.records)
+
         with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.server_launcher"):
             launcher.ensure_running()
+            deadline = time.monotonic() + 15.0
+            while not warned() and time.monotonic() < deadline:
+                time.sleep(0.05)
 
-        assert any("health check failed" in r.message.lower() for r in caplog.records)
+        assert warned()
 
 
 class TestArtifactStoreConcurrency:
@@ -1468,33 +1479,33 @@ class TestArtifactStoreConcurrency:
         file in place (``open(path, "w")``), a reader landing mid-write reads
         empty/partial bytes; the reload raises and is swallowed as "Could not
         load artifacts index; starting fresh", blanking the gallery until the
-        next refresh. An atomic write (temp file + ``os.replace``) keeps the
-        canonical path valid at every instant, so the concurrent reader always
-        parses a complete index.
+        next refresh. Replacing the file whole keeps the canonical path valid
+        at every instant, so the concurrent reader always parses a complete
+        index.
         """
-        from osprey.stores import base_store
         from osprey.stores.artifact_store import ArtifactStore
+        from osprey_connectors import safety_file
 
         store = ArtifactStore(workspace_root=tmp_path)
         store.save_object("# First", title="First")  # index file now exists and is valid
 
         index_file = store._index_file
         observed: dict[str, bool] = {}
-        real_dump = base_store.json.dump
+        real_write = safety_file.os.write
 
-        def dump_observing_canonical(*args, **kwargs):
-            # Runs while the new index is being serialized. Simulate the
-            # watcher (in another process) reading the canonical path with no
-            # lock at exactly this instant.
+        def write_observing_canonical(fd, data):
+            # Runs while the new index is being written. Simulate the watcher
+            # (in another process) reading the canonical path with no lock at
+            # exactly this instant.
             try:
                 with open(index_file) as fh:
                     json.load(fh)
                 observed["valid"] = True
             except Exception:
                 observed["valid"] = False
-            return real_dump(*args, **kwargs)
+            return real_write(fd, data)
 
-        with patch.object(base_store.json, "dump", dump_observing_canonical):
+        with patch.object(safety_file.os, "write", write_observing_canonical):
             store.save_object("# Second", title="Second")
 
         assert observed.get("valid") is True, (

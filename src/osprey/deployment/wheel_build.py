@@ -18,14 +18,15 @@ import and monkeypatch call sites keep resolving against it.
 """
 
 import atexit
+import contextlib
 import os
-import re
 import shutil
 from pathlib import Path
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
-from osprey.utils.logger import get_logger
+from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.compose")
 
@@ -137,11 +138,20 @@ def _wheel_base_requirements(wheel_path: str | Path) -> list[str]:
     return sorted(requirements)
 
 
-#: Requirement lines naming a workspace-local distribution. These are excluded
-#: from the manifest: the distribution is staged as a wheel in the same build
-#: context and installed by the Dockerfiles' wheel layer, so a PyPI requirement
-#: for it would fail until (and unless) a satisfying release exists there.
-_WORKSPACE_DIST_RE = re.compile(r"^osprey[-_.]connectors\b", re.IGNORECASE)
+def _is_workspace_requirement(line: str) -> bool:
+    """Whether requirement *line* names a workspace-local distribution.
+
+    Such requirements are excluded from the manifest: the distribution is
+    staged as a wheel in the same build context and installed by the
+    Dockerfiles' wheel layer, so a PyPI requirement for it would fail until
+    (and unless) a satisfying release exists there. Names compare in their
+    PEP 503 canonical form, as the resolver compares them.
+    """
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    members = {canonicalize_name(member) for member in WORKSPACE_MEMBERS}
+    return canonicalize_name(Requirement(line).name) in members
 
 
 def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) -> None:
@@ -151,7 +161,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
     and pip-install it in their toolchain-equipped deps layer): one requirement
     per line, sorted, trailing newline — byte-identical for identical wheels.
     The union of every staged wheel's base requirements, minus requirements on
-    workspace-local distributions (see :data:`_WORKSPACE_DIST_RE`), which the
+    workspace-local distributions (see :func:`_is_workspace_requirement`), which the
     wheel layer satisfies from the wheels staged beside this manifest.
 
     :param cached_wheels: The cached local wheels the manifest derives from
@@ -163,7 +173,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
     requirements: set[str] = set()
     for wheel in cached_wheels:
         requirements.update(_wheel_base_requirements(wheel))
-    lines = sorted(line for line in requirements if not _WORKSPACE_DIST_RE.match(line))
+    lines = sorted(line for line in requirements if not _is_workspace_requirement(line))
     content = "".join(f"{line}\n" for line in lines)
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(content)
@@ -172,7 +182,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
 def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
     """All dev-staging artifacts (wheels + requirements manifest) in a context.
 
-    Callers that stage into a long-lived directory (project-image and persona
+    Callers that stage into a long-lived directory (project-image and render
     builds) snapshot this before/after staging so their ``finally`` cleanup
     removes exactly what staging added — wheel AND manifest — and nothing that
     was already there.
@@ -192,7 +202,7 @@ def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
 
 # Per-process memo for the dev-wheel build: one deploy stages the SAME wheel
 # into many build contexts (every service context, the project image root, each
-# persona project), and `rebuild_deployment` even renders the compose files
+# render project), and `rebuild_deployment` even renders the compose files
 # twice — so without a memo `python -m build` (an isolated-env build taking tens
 # of seconds) runs once per staging call. Key: resolved osprey source root.
 # Value: path to the cached built wheel (in a memo-owned temp dir), or None when
@@ -295,9 +305,9 @@ def _build_dev_wheel_cached(osprey_source_root):
                         _wheel_cache_cleanup_registered = True
                 cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
                 shutil.copy2(wheel_files[0], cached_wheel)
-                # Named per distribution: this builds both the framework wheel
-                # and the connectors wheel in one deploy, and two steps wearing
-                # one label read as a stutter.
+                # Named per distribution: this builds the framework wheel and
+                # every workspace member wheel in one deploy, and several steps
+                # wearing one label read as a stutter.
                 distribution = cached_wheel.name.split("-", 1)[0].replace("_", "-")
                 report_step(f"built the {distribution} wheel from the local checkout")
 
@@ -368,24 +378,24 @@ def _copy_local_framework_for_override(out_dir):
 
         cached_wheel = _build_dev_wheel_cached(osprey_source_root)
 
-        # The framework wheel requires the osprey-connectors workspace member,
-        # which pip resolves from PyPI only once a satisfying release exists
-        # there. Build it from the same checkout and stage it beside the
-        # framework wheel: the Dockerfiles' wheel layer installs every staged
-        # wheel in one pip call, so the requirement is satisfied locally.
-        connectors_root = osprey_source_root / "packages" / "osprey-connectors"
-        if not (connectors_root / "pyproject.toml").exists():
-            raise DevModeUnavailableError(
-                f"the osprey-connectors workspace member is missing from the "
-                f"checkout ({connectors_root})",
-                "--dev stages the connectors wheel beside the framework wheel "
-                "because the framework requires it.\n"
-                "Restore packages/osprey-connectors in the checkout.",
-            )
-        cached_connectors_wheel = _build_dev_wheel_cached(connectors_root)
+        # The framework wheel requires its workspace members, which pip
+        # resolves from PyPI only once a satisfying release exists there. Build
+        # each from the same checkout and stage it beside the framework wheel:
+        # the Dockerfiles' wheel layer installs every staged wheel in one pip
+        # call, so the requirements are satisfied locally.
+        cached_wheels = [cached_wheel]
+        for member in WORKSPACE_MEMBERS:
+            member_root = osprey_source_root / "packages" / member
+            if not (member_root / "pyproject.toml").exists():
+                raise DevModeUnavailableError(
+                    f"the {member} workspace member is missing from the checkout ({member_root})",
+                    "--dev stages every workspace member wheel beside the "
+                    "framework wheel because the framework requires them.\n"
+                    f"Restore packages/{member} in the checkout.",
+                )
+            cached_wheels.append(_build_dev_wheel_cached(member_root))
 
         # Copy the cached wheels to this call's output directory
-        cached_wheels = [cached_wheel, cached_connectors_wheel]
         dest_wheels = []
         for wheel in cached_wheels:
             dest = os.path.join(out_dir, wheel.name)
@@ -402,10 +412,8 @@ def _copy_local_framework_for_override(out_dir):
             _write_local_requirements_manifest(cached_wheels, out_dir)
         except Exception as manifest_error:
             for dest in dest_wheels:
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(dest)
-                except OSError:
-                    pass
             raise DevModeUnavailableError(
                 f"could not write {LOCAL_REQUIREMENTS_FILENAME} beside the staged "
                 f"wheels ({manifest_error})",
@@ -414,10 +422,10 @@ def _copy_local_framework_for_override(out_dir):
                 "dependencies.\nCheck that the build context directory is writable.",
             ) from manifest_error
 
-        # Fires once per build context -- the deployment, each persona, each
+        # Fires once per build context -- the deployment, each render, each
         # image copy -- so as a step it would repeat one fact N times. The step
         # on the build above states it once.
-        logger.debug(f"Copied osprey wheels: {cached_wheel.name}, {cached_connectors_wheel.name}")
+        logger.debug(f"Copied osprey wheels: {', '.join(w.name for w in cached_wheels)}")
 
         return True
 

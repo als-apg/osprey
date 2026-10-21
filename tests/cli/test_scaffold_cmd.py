@@ -30,6 +30,8 @@ from osprey.cli.scaffold_cmd import (
 )
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.docs_links import SETUP_DOCS_URL
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._renders import tier_render
 
 
 @pytest.fixture()
@@ -252,7 +254,7 @@ class TestResolveClaimTarget:
         assert "rules/" in message and "skills/" in message
 
     # Names in the ownership vocabulary — what the build registers, what a
-    # persona delta excludes by. Resolving one must return it unchanged.
+    # layer excludes by. Resolving one must return it unchanged.
     OWNERSHIP_NAMES = (
         "rules/safety",
         "agents/channel-finder",
@@ -400,17 +402,17 @@ class TestClaimIntoProfile:
         assert (pair.project / MANIFEST_FILENAME).read_text(encoding="utf-8") == manifest_before
         assert "scaffold" not in pair.config()
 
-    def test_persona_delta_claims_into_its_root_profile(self, pair):
+    def test_layer_delta_claims_into_its_root_profile(self, pair):
         """Convention directories live at the root, so a delta claims there."""
-        personas = pair.profile / "personas"
-        personas.mkdir()
-        (personas / "readonly.yml").write_text("name: readonly\n", encoding="utf-8")
-        _write_manifest(pair.project, {"profile_path_abs": str(personas / "readonly.yml")})
+        tiers = pair.profile / TIERS_DIRNAME
+        tiers.mkdir()
+        (tiers / "readonly.yml").write_text("name: readonly\n", encoding="utf-8")
+        _write_manifest(pair.project, {"profile_path_abs": str(tiers / "readonly.yml")})
         pair.artifact(".claude/rules/safety.md")
 
         outcome = claim_into_profile(pair.project, "rules/safety")
 
-        assert outcome.is_persona_delta
+        assert outcome.is_layer
         assert outcome.profile_root == pair.profile
         assert outcome.profile_path == pair.profile / "rules" / "safety.md"
 
@@ -866,14 +868,24 @@ def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
     project = repo / "build"
     project.mkdir(parents=True)
     (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    # The default tier's render, which the lint reads its privileges from.
+    tier = project / "demo-assistant"
+    tier.mkdir()
+    (tier / "config.yml").write_text("project_name: demo-assistant\n", encoding="utf-8")
     config = {
-        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "facility": {"prefix": "dls"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "registry": {"url": "registry.example.org/demo"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
                 "users": [{"name": name, "index": i} for i, name in enumerate(users)],
+                "default_tier": "assistant",
+                "renders": {
+                    "assistant": tier_render(
+                        "assistant", "demo-assistant", project_path="build/demo-assistant"
+                    )
+                },
                 "landing": {"groups": [{"type": "users"}]},
             }
         },

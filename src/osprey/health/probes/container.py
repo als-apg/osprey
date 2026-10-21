@@ -45,6 +45,7 @@ Spec keys:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from collections.abc import Mapping
@@ -54,7 +55,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.container_ownership import deployment_containers, first_container_name
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
-from osprey.utils.config import get_full_configuration
+from osprey_connectors.config import get_full_configuration
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
@@ -294,10 +295,9 @@ async def _run_ps(ps_cmd: list[str], timeout_s: float) -> tuple[str, int]:
     try:
         stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
-        try:
+        # already exited
+        with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        except ProcessLookupError:
-            pass  # already exited
         await proc.wait()
         raise
     return stdout_b.decode(errors="replace"), proc.returncode or 0

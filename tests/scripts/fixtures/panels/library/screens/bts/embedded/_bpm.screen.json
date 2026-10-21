@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "bts/embedded/_bpm",
+  "metadata": {
+    "title": "_bpm",
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [
+    {
+      "name": "BPM",
+      "default": ""
+    },
+    {
+      "name": "BPM_X",
+      "default": ""
+    },
+    {
+      "name": "BPM_Y",
+      "default": ""
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 100,
+      "height": 100
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 100
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "xy-plot",
+        "props": {
+          "curves": [
+            {
+              "name": "",
+              "x_channel": "${BPM_X}",
+              "y_channel": "${BPM_Y}"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "pv-label",
+        "props": {
+          "pv": "${BPM_X}"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "text-label",
+        "props": {
+          "text": "${BPM}"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      }
+    ]
+  }
+}

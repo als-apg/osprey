@@ -537,7 +537,7 @@ class TestTheTimeseriesSizeCapIsAConfigKey:
     def test_default_when_no_config_is_primed(self, monkeypatch):
         """A standalone gallery reads no config and still has a bound."""
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no config")),
         )
 
@@ -548,14 +548,14 @@ class TestTheTimeseriesSizeCapIsAConfigKey:
 
     def test_configured_value_is_read_in_megabytes(self, monkeypatch):
         """The key is authored in MB; the handler compares bytes."""
-        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: 500)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", lambda *a, **k: 500)
 
         assert artifacts_app._max_timeseries_file_bytes() == 500 * 1024 * 1024
 
     @pytest.mark.parametrize("bad", [0, -1, True, "500", None])
     def test_an_unusable_value_falls_back_to_the_default(self, monkeypatch, bad):
         """A nonsense cap keeps the documented bound rather than removing it."""
-        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: bad)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", lambda *a, **k: bad)
 
         assert (
             artifacts_app._max_timeseries_file_bytes()

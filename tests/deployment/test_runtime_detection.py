@@ -817,3 +817,93 @@ class TestFallThroughIsAnnounced:
                 get_runtime_command({"container_runtime": "docker"})
 
         assert self._warnings(caplog) == []
+
+
+# ---------------------------------------------------------------------------
+# podman's Docker-CLI emulation (podman-docker, standard on RHEL).
+#
+# Its `docker` forwards every command to podman, so it answers both runtime
+# probes. Served as docker it put `--progress plain` in front of podman-compose,
+# which rejects the flag, and skipped every podman-only rule. These run real
+# executables on PATH so the probe's actual subprocess path is exercised.
+# ---------------------------------------------------------------------------
+
+_EMULATION_NOTICE = "Emulate Docker CLI using podman. Create /etc/containers/nodocker to quiet msg."
+
+
+def _write_exe(directory, name: str, body: str) -> None:
+    path = directory / name
+    path.write_text("#!/bin/sh\n" + body)
+    path.chmod(0o755)
+
+
+@pytest.fixture
+def podman_docker_host(tmp_path, monkeypatch):
+    """A PATH holding only podman, podman-compose behind it, and podman-docker's `docker`."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_exe(
+        bin_dir,
+        "podman",
+        """case "$1 $2" in
+  "--version "*) echo "podman version 4.9.4" ;;
+  "compose version") echo '>>>> Executing external compose provider "/usr/bin/podman-compose". <<<<' >&2
+                     echo "podman-compose version 1.0.6" ;;
+  "ps "*) echo "CONTAINER ID  IMAGE  COMMAND" ;;
+  *) exit 2 ;;
+esac
+""",
+    )
+    _write_exe(bin_dir, "docker", f'echo "{_EMULATION_NOTICE}" >&2\nexec "{bin_dir}/podman" "$@"\n')
+    monkeypatch.setenv("PATH", str(bin_dir))
+    return bin_dir
+
+
+@pytest.mark.usefixtures("podman_docker_host")
+class TestPodmanDockerEmulation:
+    def test_auto_drives_the_emulation_as_podman(self):
+        assert get_runtime_command({"container_runtime": "auto"}) == ["podman", "compose"]
+
+    def test_no_compose_argv_carries_progress_on_that_host(self):
+        cmd = get_runtime_command()
+        provider = detect_compose_provider(cmd).provider
+        assert provider is ComposeProvider.PODMAN_COMPOSE
+        assert "--progress" not in runtime_helper.with_plain_progress(cmd, provider=provider)
+
+    def test_a_docker_pin_is_refused_not_overridden(self):
+        with pytest.raises(RuntimeError, match="container_runtime: podman") as excinfo:
+            get_runtime_command({"container_runtime": "docker"})
+        assert "podman-docker" in str(excinfo.value)
+
+    def test_a_docker_pin_from_the_env_is_refused_too(self, monkeypatch):
+        monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+        with pytest.raises(RuntimeError, match="CONTAINER_RUNTIME=podman"):
+            get_runtime_command()
+
+    def test_the_emulation_is_recognised_with_its_notice_silenced(self, podman_docker_host):
+        """/etc/containers/nodocker drops the notice; the version banner still tells."""
+        _write_exe(podman_docker_host, "docker", f'exec "{podman_docker_host}/podman" "$@"\n')
+        assert get_runtime_command() == ["podman", "compose"]
+
+    def test_a_real_docker_is_still_docker(self, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "real-docker-bin"
+        bin_dir.mkdir()
+        _write_exe(
+            bin_dir,
+            "docker",
+            """case "$1 $2" in
+  "--version "*) echo "Docker version 27.3.1, build ce12230" ;;
+  "compose version") echo "Docker Compose version v2.29.7" ;;
+  "ps "*) echo "CONTAINER ID   IMAGE" ;;
+  *) exit 2 ;;
+esac
+""",
+        )
+        monkeypatch.setenv("PATH", str(bin_dir))
+        cmd = get_runtime_command({"container_runtime": "docker"})
+        assert cmd == ["docker", "compose"]
+        provider = detect_compose_provider(cmd).provider
+        assert runtime_helper.with_plain_progress(cmd, provider=provider)[-2:] == [
+            "--progress",
+            "plain",
+        ]

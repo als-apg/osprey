@@ -16,18 +16,18 @@ from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
-from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
-from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
+from osprey_connectors.identity import IDENTITY_ENV_LADDER
 from osprey_connectors.posture_store import (
     CONTROL_CONTEXT_DIR_ENV_VAR,
     CONTROL_CONTEXT_TREE_ENV_VAR,
     CONTROL_OWNER_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,12 @@ class ServerDefinition:
     # Framework template name this definition was cloned from via ``extends``
     # (set by build_extended_server); None for framework/custom definitions.
     extends_of: str | None = None
+    # Tools the server registers only when the named ctx key is truthy, by
+    # short tool name. The key gates the server's registration of the tool and
+    # the tool's ``permissions_allow`` row; an approval-gated tool's ask row and
+    # hook rule render whatever the key says, so the write floor, the deny list
+    # and the approval set never depend on it.
+    optional_tools: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +190,7 @@ PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"
 #: Like the env name above, each piece of this URL is owned elsewhere and
 #: spelled literally rather than imported — ``OSPREY_WEB_PORT`` by
 #: ``interfaces.common_middleware``, the ``events`` panel segment by
-#: ``deployment.web_terminals.personas`` (which imports THIS module, so the
+#: ``deployment.web_terminals.roster`` (which imports THIS module, so the
 #: import cannot run the other way), the ``/mcp`` tail by ``osprey.dispatch``.
 #: One test pins all of them against their owners.
 #:
@@ -299,7 +305,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
-        permissions_allow=[],
         # execute_file carries the same policy as execute, deliberately: it runs
         # arbitrary Python through the same kernels and the same execution-mode
         # gates, so a ladder that moves one and not the other (writes-off deny,
@@ -308,7 +313,23 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # it. Two explicit rules rather than one regex matcher: the hooks and the
         # SDK's disallow engine match tool names exactly, so a regex would gate
         # nothing there.
-        permissions_ask=["execute", "execute_file"],
+        #
+        # pyaml_measure steps setpoints through pyAML, so
+        # it is a pure-write tool: approval on every call and a hard deny when
+        # writes are off, never the read/write-mixed exception execute is. Its
+        # ask row and hook rule render whether or not the render carries a
+        # pyAML view; the view gates only whether the server registers the
+        # tool. A row that followed the view would make the write floor, the
+        # deny list and the approval set depend on it, and a server that
+        # registers the tool while the render left its row out would serve an
+        # ungated write. model_response_matrix only reads the model, so its
+        # allow row follows the view like its registration.
+        permissions_allow=["model_response_matrix"],
+        permissions_ask=["execute", "execute_file", "pyaml_measure"],
+        optional_tools={
+            "pyaml_measure": "pyaml_view_present",
+            "model_response_matrix": "pyaml_view_present",
+        },
         hooks_pre=[
             HookRule(
                 matcher="mcp__python__execute",
@@ -316,6 +337,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
             HookRule(
                 matcher="mcp__python__execute_file",
+                hooks=[_WRITES_CHECK, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__python__pyaml_measure",
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
         ],
@@ -326,7 +351,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
+            # osprey_connectors.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
             # so the server resolves config even when launched with a CWD other
             # than the project dir (e.g. the dispatch worker's /app WORKDIR).
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
@@ -356,7 +381,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "session_summary",
             "archiver_downsample",
             "setup_inspect",
-            "lattice_init",
             "lattice_state",
             "lattice_set_param",
             "lattice_refresh",
@@ -365,8 +389,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_get_settings",
             "lattice_update_settings",
             # Baseline and settings are the simulation's own scratch state:
-            # nothing here reaches hardware. lattice_init sets a fresh
-            # baseline, so lattice_clear_baseline is undone by re-running it;
+            # nothing here reaches hardware. lattice_set_baseline sets a fresh
+            # baseline, so lattice_clear_baseline is undone by it; the
+            # dashboard's model switch also re-initialises the state;
             # settings are carried across a re-init instead, so a settings
             # change stands until it is set back. Neither is worth a prompt.
             # lattice_clear_baseline is nonetheless auto-classified
@@ -423,7 +448,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
@@ -604,7 +629,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         default_enabled=False,
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=["health_check"],
@@ -616,7 +641,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         condition="channel_finder_pipeline",
@@ -635,7 +660,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.graph",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         # Conditional on a declared graph store: ``graphdb_configured`` is a
@@ -750,22 +775,55 @@ del _unregistered_pipelines
 # Read/write-mixed tools (the writes kill switch's documented exception)
 # ---------------------------------------------------------------------------
 
-#: Framework templates whose ``_WRITES_CHECK``-gated tools are read/write
-#: MIXED rather than pure-write.
+#: The ``_WRITES_CHECK``-gated tools that are read/write MIXED rather than
+#: pure-write, as ``(template, short tool name)``.
 #:
-#: ``python``'s ``execute`` is the one documented exception to the writes
-#: kill-switch's hard-deny default: it accepts both read-only and
-#: write-access kernels, so a readonly posture must keep it reachable and let
-#: the writes-check hook (and, server-side, the audit middleware) decide per
-#: call. Every other ``_WRITES_CHECK``-gated tool is presumed pure-write and
-#: is denied outright when writes are off.
+#: ``python``'s ``execute`` and ``execute_file`` are the documented exception
+#: to the writes kill-switch's hard-deny default: they accept both read-only
+#: and write-access kernels, so a readonly posture must keep them reachable and
+#: let the writes-check hook (and, server-side, the audit middleware) decide
+#: per call. Every other ``_WRITES_CHECK``-gated tool — ``python``'s
+#: ``pyaml_measure`` included — is pure-write and denied outright when writes
+#: are off.
 #:
 #: It lives in the registry rather than in a renderer because the registry is
 #: where ``_WRITES_CHECK`` and ``FRAMEWORK_SERVERS`` are: every consumer — the
 #: Claude Code kill switch, the rendered hook config, the MCP audit
 #: middleware's clamp set and its degraded-render floor — reads the same
-#: classification here instead of restating a set of template names.
-MIXED_READ_WRITE_TEMPLATES: frozenset[str] = frozenset({"python"})
+#: classification here instead of restating it.
+MIXED_READ_WRITE_TOOLS: frozenset[tuple[str, str]] = frozenset(
+    {("python", "execute"), ("python", "execute_file")}
+)
+
+#: Framework templates that serve at least one mixed tool — the whole-server
+#: view of :data:`MIXED_READ_WRITE_TOOLS`, for callers that reason about a
+#: server rather than one of its tools. Whether a given tool is mixed is
+#: :func:`is_mixed_matcher`'s question, never membership here.
+MIXED_READ_WRITE_TEMPLATES: frozenset[str] = frozenset(
+    template for template, _ in MIXED_READ_WRITE_TOOLS
+)
+
+
+def is_mixed_matcher(template: str, matcher: str) -> bool:
+    """Whether one ``_WRITES_CHECK``-gated tool matcher is read/write mixed.
+
+    Args:
+        template: The framework template the tool comes from — for an
+            ``extends`` clone, the template it extends, not the clone's name.
+        matcher: The tool matcher, fully qualified (``mcp__<server>__<tool>``)
+            under any server name — the template's own or a clone's re-anchored
+            prefix — or already the short tool name.
+
+    Returns:
+        True when ``(template, <short tool name>)`` is in
+        :data:`MIXED_READ_WRITE_TOOLS`.
+    """
+    tool = matcher
+    if matcher.startswith("mcp__"):
+        _server, sep, short = matcher[len("mcp__") :].partition("__")
+        if sep:
+            tool = short
+    return (template, tool) in MIXED_READ_WRITE_TOOLS
 
 
 def writes_check_matchers(template: str, server_name: str | None = None) -> list[str]:
@@ -822,6 +880,7 @@ def framework_mixed_read_write_tools() -> list[str]:
         matcher
         for template in sorted(MIXED_READ_WRITE_TEMPLATES)
         for matcher in writes_check_matchers(template)
+        if is_mixed_matcher(template, matcher)
     ]
 
 
@@ -882,10 +941,8 @@ def mixed_read_write_tools(servers: list[dict]) -> list[str]:
         if not server.get("enabled"):
             continue
         template = server.get("extends_of") or server["name"]
-        if template not in MIXED_READ_WRITE_TEMPLATES:
-            continue
         for matcher in writes_check_matchers(template, server["name"]):
-            if matcher not in tools:
+            if is_mixed_matcher(template, matcher) and matcher not in tools:
                 tools.append(matcher)
     return tools
 
@@ -912,6 +969,10 @@ class AgentDefinition:
     # cli/templates/claude_code.py) -- an enabled agent declaring a tool that
     # is neither in allow nor ask fails build validation.
     requires_ask_tools: frozenset[str] = frozenset()
+    # What the agent needs that its condition stands for. When set, an unmet
+    # condition keeps the agent out even under ``enabled: true``, and the build
+    # logs one line naming this need.
+    condition_need: str | None = None
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -961,6 +1022,9 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
     ),
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
+        # Loads each served model's deck; a render serving none has no agent.
+        condition="served_decks",
+        condition_need="a served model with a deck",
         server_dependency="python",
         description=(
             "Delegate to this agent when the user needs lattice/optics quantities "
@@ -969,7 +1033,7 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "against the deployment's configured lattice model."
         ),
         # Its only compute path is mcp__python__execute (read-only kernels), so
-        # it must keep that tool even in a writes-disabled (read-only) persona.
+        # it must keep that tool even in a writes-disabled (read-only) render.
         requires_ask_tools=frozenset({"mcp__python__execute"}),
     ),
 }
@@ -1023,7 +1087,7 @@ TOOL_PREFIX_ENV = "OSPREY_MCP_TOOL_PREFIX"
 # assignment.
 #
 # The set is spelled off its AUTHORITATIVE SOURCES, not off hand-picked
-# markers: the whole identity ladder (``osprey.utils.identity``, every rung —
+# markers: the whole identity ladder (``osprey_connectors.identity``, every rung —
 # stripping only the lower rung left the winning ``OSPREY_TERMINAL_USER``
 # pinnable, which misrouted a server's entire ledger into an unmounted
 # subdirectory) and the posture value itself (``osprey.audit.posture``). Both
@@ -1045,6 +1109,12 @@ POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
 #: Assigned beside :data:`POSTURE_SOURCE_ENV` at the same spawn sites via
 #: ``operator_session.POSTURE_SESSION_ENV``.
 POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+
+#: The launch-scoped terminal session the ledger writers fall back to when a
+#: process has no posture session (``osprey.audit.envelope.TERMINAL_SESSION_ENV``).
+#: Stamped by the launch sites only, so a server spec may never pin it: a pinned
+#: value would file a session's records under another session's name.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
@@ -1123,6 +1193,7 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
+    TERMINAL_SESSION_ENV,
     OSPREY_AGENT_DATA_ROOT,
     LAUNCH_POSTURE_ENV,
     CONTROL_OWNER_ENV,
@@ -1325,7 +1396,11 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     ``phoebus_drive`` in their permission lists. A context without
     ``ariel_attachment_view`` resolves as ``True``; with it ``False`` the
     ``ariel`` server and its ``extends`` clones come back without
-    ``attachment_view`` and ``attachment_to_artifact``.
+    ``attachment_view`` and ``attachment_to_artifact``. An optional tool's
+    allow row renders only when its ctx key is truthy
+    (:attr:`ServerDefinition.optional_tools`); without ``pyaml_view_present``
+    the ``python`` server and its clones come back without
+    ``model_response_matrix``.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1404,6 +1479,7 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     # ── Phoebus agent access ──────────────────────────────────
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
+    _withhold_optional_tools(servers, ctx)
     _withhold_ariel_attachment_view(servers, ctx.get("ariel_attachment_view", True))
 
     # ── Build output dicts ────────────────────────────────────
@@ -1423,6 +1499,20 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 )
         result.append(_server_to_dict(sdef, ctx))
     return result
+
+
+def _withhold_optional_tools(servers: dict[str, ServerDefinition], ctx: dict) -> None:
+    """Drop the allow row of each optional tool whose ctx key is not truthy.
+
+    Only ``permissions_allow`` follows the key: an optional tool that asks
+    keeps its ask row and hook rule, so its gate renders whether or not the
+    server registers it. A framework server and its ``extends`` clones carry
+    the same optional tools under their own names.
+    """
+    for sdef in servers.values():
+        for tool, key in sdef.optional_tools.items():
+            if not ctx.get(key) and tool in sdef.permissions_allow:
+                sdef.permissions_allow.remove(tool)
 
 
 def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -> None:
@@ -1911,7 +2001,11 @@ def resolve_agents(
             if spec.get("enabled") is False:
                 agents[name].default_enabled = False
             elif spec.get("enabled") is True:
-                agents[name].default_enabled = True
+                adef = agents[name]
+                if adef.condition_need and not ctx.get(adef.condition):
+                    logger.warning("Agent %r is left out: it needs %s", name, adef.condition_need)
+                else:
+                    adef.default_enabled = True
         else:
             if spec.get("enabled") is not False:
                 adef = _custom_agent_from_spec(name, spec)

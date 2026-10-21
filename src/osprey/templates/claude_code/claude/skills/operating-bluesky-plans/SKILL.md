@@ -409,6 +409,13 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   route has no OSPREY run id and is absent from it, so `queue_list` is the
   complete view of what the machine is about to do.
 
+**Reading a run back means `get_run_data`.** Once a run you launched has rows,
+read them with `get_run_data(run_id, tail=true)` before you analyse or report
+anything about it. `get_run` says where the run is (status, arguments,
+progress) and holds no measured value; the figure is a thinned view; and a
+python analysis sees the run's rows only after you have read them here. Asking
+`get_run` again is waiting, not reading.
+
 **On progress:** the denominator comes from the point count the run declares in
 its own opening metadata, so `progress` is missing altogether before a run
 starts — read that as "not started yet", never as 0%. Once it is there,
@@ -471,7 +478,7 @@ the moment someone is asking for one. Name the one you are using.
 **`queue_stop()`** requests a stop. It is ungated in every layer — no
 `writes_enabled` check, no launch token, at this tool and at the bridge —
 because halting is the safe direction and must never have a failure mode; it
-stays reachable on a machine no persona here may write to. It is still
+stays reachable on a machine no tier here may write to. It is still
 approval-gated so a human sees every stop.
 
 Know its limit before you offer it. **It stops the queue *after* the currently
@@ -547,6 +554,9 @@ know why it was requested.
   drains the whole queue, including items you did not add.
 - **Never** treat a started queue as fire-and-forget — it drives real
   hardware; watch it with `queue_list`/`get_run`/`get_run_data`/`get_run_figure`.
+- **Never** analyse or report on a run you launched without first reading its
+  rows with `get_run_data` — `get_run`'s status and a figure's points are not
+  the measurement.
 - **Never** report a figure's `reason` as a failure — it says the bridge drew
   the default view, which is real data, and `no_render` means that view is the
   plan's own.

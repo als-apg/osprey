@@ -440,7 +440,10 @@ class TestProviderEnvironment:
         """
         monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text(
             "ANTHROPIC_BASE_URL=https://elsewhere.example.org\n"
             "EPICS_CA_ADDR_LIST=10.0.0.1 10.0.0.2\n",
@@ -464,7 +467,10 @@ class TestProviderEnvironment:
         auth failure.
         """
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-the-shell")
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text("EPICS_CA_ADDR_LIST=10.0.0.1\n", encoding="utf-8")
 
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
@@ -477,7 +483,10 @@ class TestProviderEnvironment:
     ):
         """Both provenances at once: the overlay's value goes, the shell's stays."""
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example.org")
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text(
             "ANTHROPIC_BASE_URL=https://dotenv.example.org\n", encoding="utf-8"
         )
@@ -602,7 +611,10 @@ class TestProviderEnvironment:
     ):
         """With no provider injected there is nothing to agree with, so any policy
         provider key refuses."""
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example.org")
         _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://shell.example.org")
 
@@ -621,136 +633,28 @@ def _pin_policy(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     )
 
 
-def _telemetry_config(password: str, *, user: str = "ingest@example.com") -> str:
-    """A rendered config whose telemetry block names ``password`` as its secret.
-
-    Shaped like the block every bundled preset ships: an OpenObserve backend
-    with no explicit endpoint (it derives one) and a user that already has a
-    value, so the password is the only credential a test is varying.
-    """
-    return (
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  telemetry:\n"
-        "    enabled: true\n"
-        "    backend: openobserve\n"
-        "    openobserve:\n"
-        f"      user: {user}\n"
-        f"      password: {password}\n"
-        "      org: default\n"
-    )
+_GATEWAY_CONFIG = (
+    "claude_code:\n  provider: anthropic\n  telemetry:\n    enabled: true\n    backend: gateway\n"
+)
 
 
-class TestTelemetryCredentialNotIssuedYet:
-    """Chat on a deployment that has never run ``osprey up``.
+class TestTelemetryLoginMissing:
+    """Chat whose gateway login cannot be found is refused, never degraded.
 
-    The shipped telemetry block names ``${ZO_INGEST_SA_TOKEN}`` with no
-    fallback, and that token does not exist until a deploy provisions it into
-    the repo's ``.env``. Resolving the provider resolves telemetry too, so
-    without a carve-out the very first ``osprey chat`` on a fresh scaffold
-    cannot start at all — for a value the operator has no way to supply.
-
-    The carve-out is exactly as wide as the store-issued registry and no wider:
-    every other unresolved credential is an ordinary missing secret and keeps
-    refusing.
+    The gateway refuses an unauthenticated sender, so a session started without
+    the login would drop every record behind a healthy-looking session.
     """
 
-    @pytest.fixture(autouse=True)
-    def _no_ambient_store_credentials(self, monkeypatch: pytest.MonkeyPatch):
-        """A developer machine that happens to export the token would hide the bug."""
-        monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
-        monkeypatch.delenv("OPERATOR_OTLP_SECRET", raising=False)
-
-    def test_the_token_under_test_is_really_store_issued(self):
-        """Guards every assertion below from passing for the wrong reason."""
-        from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-        assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
-        assert "OPERATOR_OTLP_SECRET" not in _STORE_ISSUED_VARS
-
-    def test_an_unissued_store_credential_starts_the_session_without_telemetry(
-        self, runner, launches, lifecycle_repo
+    def test_a_missing_login_refuses_the_session(
+        self, runner, launches, lifecycle_repo, monkeypatch: pytest.MonkeyPatch
     ):
-        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
+        from osprey.build.claude_code_telemetry import TelemetryConfigError
 
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert result.exit_code == 0
-        assert len(launches) == 1
-        # Degraded, not deferred: an exporter without its auth header would post
-        # to an auth-gated store and drop every span, so the whole block goes.
-        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in launches[0].env
-        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in launches[0].env
-
-    @pytest.mark.usefixtures("launches")
-    def test_the_operator_is_told_which_verb_issues_it(self, runner, lifecycle_repo):
-        """Silence would read as "this deployment has no telemetry configured"."""
-        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert result.exit_code == 0
-        assert "ZO_INGEST_SA_TOKEN" in result.output
-        assert "osprey up" in result.output
-        assert "Traceback" not in result.output
-
-    def test_an_operator_supplied_credential_still_refuses(self, runner, launches, lifecycle_repo):
-        """The carve-out reads the registry, not "unresolved" — this one is a
-        real missing secret and starting without it would hide a broken pipeline."""
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        stub_build(lifecycle_repo, config=_telemetry_config("${OPERATOR_OTLP_SECRET}"))
+        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+        stub_build(lifecycle_repo, config=_GATEWAY_CONFIG)
 
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
 
         assert result.exit_code != 0
-        assert isinstance(result.exception, ObservabilityCredentialError)
+        assert isinstance(result.exception, TelemetryConfigError)
         assert launches == []
-
-    def test_a_mixed_refusal_is_not_deferred(self, runner, launches, lifecycle_repo):
-        """One name in the set that the operator does have to supply and the whole
-        set stands refused — a session told "nothing to do here" about half of it
-        leaves the other half to be discovered as a store that never authenticates."""
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        stub_build(
-            lifecycle_repo,
-            config=_telemetry_config("${OPERATOR_OTLP_SECRET}${ZO_INGEST_SA_TOKEN}"),
-        )
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert isinstance(result.exception, ObservabilityCredentialError)
-        # Both names reach the decision — the refusal is the mixed verdict, not
-        # an artifact of only one of them being visible.
-        assert result.exception.unresolved_vars == (
-            "OPERATOR_OTLP_SECRET",
-            "ZO_INGEST_SA_TOKEN",
-        )
-        assert launches == []
-
-    def test_a_blank_credential_still_refuses(self, runner, launches, lifecycle_repo):
-        """No variable is named at all, so there is nothing a deploy could issue."""
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        stub_build(lifecycle_repo, config=_telemetry_config('""'))
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert isinstance(result.exception, ObservabilityCredentialError)
-        assert launches == []
-
-    def test_a_resolvable_token_keeps_telemetry_on(self, runner, launches, lifecycle_repo):
-        """The deferral is about absence only — once `osprey up` has written the
-        token, the same config resolves and the session exports normally."""
-        stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
-        (lifecycle_repo / ".env").write_text(
-            "ZO_INGEST_SA_TOKEN=issued-by-the-store\n", encoding="utf-8"
-        )
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert result.exit_code == 0
-        assert launches[0].env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-        assert "Authorization=Basic " in launches[0].env["OTEL_EXPORTER_OTLP_HEADERS"]
-        assert "Telemetry is off" not in result.output

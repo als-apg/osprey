@@ -19,7 +19,7 @@ from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     load_osprey_config,
@@ -57,7 +57,7 @@ _PATCHABLE_FILES = {"config.yml", ".mcp.json"}
 _HOT_CHANGE_PATHS = {
     "config.yml": {
         "control_system.limits_checking.enabled",
-        "control_system.limits_checking.allow_unlisted_channels",
+        "control_system.limits_checking.mode",
     },
 }
 
@@ -248,7 +248,7 @@ def _unexpanded_config(config_path: Path) -> dict:
         The unexpanded document, or an empty dict when it cannot be read.
     """
     try:
-        from osprey.utils.config import get_config_builder
+        from osprey_connectors.config import get_config_builder
 
         return get_config_builder(config_path=str(config_path)).get_unexpanded_config()
     except Exception:
@@ -270,16 +270,6 @@ def _read_json_file(path: Path) -> dict | list | None:
     except (json.JSONDecodeError, OSError):
         return None
     return document
-
-
-def _read_text_file(path: Path) -> str | None:
-    """Read a text file, returning None if missing."""
-    if not path.exists():
-        return None
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
 
 
 def _list_files_in(directory: Path) -> list[str]:
@@ -419,7 +409,7 @@ def _activity_detail(file: str, key_path: str, *, blocked: bool = False) -> str:
     """Describe a patch for the activity feed — file and key only, never values.
 
     Config values are secrets: ``.mcp.json`` carries API keys and tokens, and
-    the activity ring is persistent and served over HTTP, so neither the old
+    the activity buffer is persistent and served over HTTP, so neither the old
     nor the new value may appear here. That exclusion is why the refusal path
     composes its detail here too rather than formatting its own: one function
     decides what may reach the feed, whether the patch landed or was refused.

@@ -35,6 +35,7 @@ Usage in tools:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -316,10 +317,8 @@ def _request_json(
         )
 
     body: dict | list = {}
-    try:
+    with contextlib.suppress(Exception):
         body = resp.json()
-    except Exception:
-        pass
     return resp.status_code, body
 
 

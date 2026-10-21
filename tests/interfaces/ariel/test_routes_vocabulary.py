@@ -201,6 +201,7 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
         "attachments",
         "config_panel_enabled",
         "facility_timezone",
+        "embedded_search",
     }
     assert payload["attachments"] == attachments_capability(service.config)
     assert "status" not in payload

@@ -12,9 +12,9 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Six pages break that picture down — how a tool call is guarded, how a write
-travels, how reading differs from writing, and the three subsystems with
-architecture of their own:
+Six pages break that picture down — how a write is guarded on its way to the
+machine, how reading differs from writing, how one facility description feeds
+every service, and the subsystems with architecture of their own:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -24,19 +24,13 @@ architecture of their own:
       :link-type: doc
       :shadow: md
 
-      Four ways to write to a machine through the connector — a channel
-      write, agent-written Python, a Bluesky plan, a notebook cell — the
+      Five ways to write to a machine through the connector — a channel
+      write, agent-written Python, a pyAML tool, a Bluesky plan, a notebook
+      cell — the
       Phoebus drive that does not reach it, and what stands in the way of
       each: the PreToolUse hooks, the gates below them, the connector, and
-      the audit trail.
-
-   .. grid-item-card:: Data Flow
-      :link: data-flow
-      :link-type: doc
-      :shadow: md
-
-      A control-system write from prompt to hardware, step by step — and
-      where the three safety hooks fire along the way.
+      the audit trail. A single write step by step, and the guarded run
+      two of the paths take.
 
    .. grid-item-card:: Retrieval Paths
       :link: retrieval-paths
@@ -60,9 +54,18 @@ architecture of their own:
       :link-type: doc
       :shadow: md
 
-      How agent-written Python actually runs: nine safety layers, the
+      How agent-written Python actually runs: ten safety layers, the
       readonly/readwrite execution modes, and the zones executed code may
       not touch.
+
+   .. grid-item-card:: Facility File and Its Views
+      :link: facility-file
+      :link-type: doc
+      :shadow: md
+
+      One description of the facility under ``data/facility/``, the facility
+      file the build makes of it, the view each service reads, the schema
+      behind it and the simulation models.
 
    .. grid-item-card:: Virtual Accelerator
       :link: virtual-accelerator
@@ -85,8 +88,8 @@ architecture of their own:
    :hidden:
 
    safety-chain
-   data-flow
    retrieval-paths
    mcp-servers
    python-executor
+   facility-file
    virtual-accelerator

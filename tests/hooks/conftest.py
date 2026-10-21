@@ -123,6 +123,8 @@ _SEAM_IMPORTABLE_HOOKS = frozenset(
         "osprey_memory_guard",
         "osprey_notebook_update",
         "osprey_panels_context",
+        "osprey_safety_file",
+        "osprey_workspace_delta",
         "osprey_writes_check",
     }
 )
@@ -331,7 +333,7 @@ def _curated_env(config_path=None, hook_config_path=None, cwd=None, stamped_root
     env = {name: os.environ[name] for name in _SYSTEM_VARS + _HOOK_VARS if name in os.environ}
     if config_path:
         env["OSPREY_CONFIG"] = str(config_path)
-        # Also set CONFIG_FILE so osprey.utils.config picks it up.
+        # Also set CONFIG_FILE so osprey_connectors.config picks it up.
         env["CONFIG_FILE"] = str(config_path)
     if hook_config_path is not None:
         env["OSPREY_HOOK_CONFIG"] = str(hook_config_path)
@@ -392,6 +394,7 @@ def hook_runner(tmp_path, _throwaway_repo):
         tool_response=None,
         hook_input_extra=None,
         hook_config=None,
+        args=(),
     ):
         hook_script = HOOKS_DIR / hook_name
         project_dir = _hook_project_dir(_throwaway_repo, cwd)
@@ -412,12 +415,13 @@ def hook_runner(tmp_path, _throwaway_repo):
         env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
-            [sys.executable, str(hook_script)],
+            [sys.executable, str(hook_script), *args],
             input=stdin_data,
             capture_output=True,
             text=True,
             env=env,
             cwd=str(cwd) if cwd else None,
+            timeout=120,
         )
         assert result.returncode == 0, f"Hook failed (exit {result.returncode}): {result.stderr}"
         stdout = result.stdout.strip()
@@ -489,6 +493,7 @@ def hook_runner_raw(tmp_path, _throwaway_repo):
             text=True,
             env=env,
             cwd=str(cwd) if cwd else None,
+            timeout=120,
         )
         return result.returncode, result.stdout, result.stderr
 

@@ -26,7 +26,7 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.errors import extract_error_envelope
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey.utils.workspace import reset_config_cache
+from osprey_connectors.workspace import reset_config_cache
 
 # The two-target child harness, re-exported so pytest resolves its fixtures for
 # every module in this directory. A fixture a sibling module needs has to be
@@ -186,13 +186,13 @@ def _reset_singletons(monkeypatch):
     """Reset the MCP registry, ArtifactStore, screen-capture backend and config caches.
 
     Leak guarded: the server context, artifact store, screen-capture backend,
-    the facility-knowledge bundle and the ``osprey.utils.config`` caches are all
+    the facility-knowledge bundle and the ``osprey_connectors.config`` caches are all
     process-wide singletons. Every one of them is reset both before and after
     the test, so a directory that ran earlier in the same worker cannot hand its
     state to the first test here, and this directory cannot hand its state to
     whatever runs next.
     """
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     def _reset_all():
         reset_server_context()
@@ -301,7 +301,8 @@ def mock_config(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": True,
                     "limits_checking": {"enabled": False},
                 },
@@ -320,7 +321,8 @@ def mock_config_writes_disabled(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": False,
                     "limits_checking": {"enabled": False},
                 },
@@ -353,12 +355,13 @@ def mock_config_with_limits(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": True,
                     "limits_checking": {
                         "enabled": True,
                         "database_path": str(limits_db),
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                         "on_violation": "error",
                     },
                 },

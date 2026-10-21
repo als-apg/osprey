@@ -19,7 +19,7 @@
  * invalid value at any rung is ignored and resolution falls through to the
  * next:
  *   1. the `?rail=` URL query param
- *   2. localStorage['osprey-rail-position'], per-persona scoped — see below
+ *   2. localStorage['osprey-rail-position'], per-render scoped — see below
  *   3. the data-rail-position attribute the server already rendered on
  *      <html> (web_terminal stamps it from web.rail_position config)
  *   4. 'left' — the default
@@ -27,8 +27,8 @@
  * theme (data-theme) and mode (data-ui-mode) axes are independent.
  *
  * Storage rung, scoped: localStorage is origin-scoped, so on a multi-user
- * deployment (every persona served from one origin under `/u/<user>/`) a bare
- * key is a single shared slot and the last persona to flip the rail decides
+ * deployment (every render served from one origin under `/u/<user>/`) a bare
+ * key is a single shared slot and the last render to flip the rail decides
  * where everyone else's sits. When the server stamps
  * data-osprey-storage-scope on <html>, rung 2 reads
  * `osprey-rail-position--<scope>` instead — and does NOT fall back to the bare
@@ -67,7 +67,7 @@
   // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
   // attribute value counts as unscoped: the server omits the attribute rather
   // than rendering `=""`, so this only guards against a key ending in a bare
-  // "--" that would belong to no persona.
+  // "--" that would belong to no render.
   function storageKey() {
     try {
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);

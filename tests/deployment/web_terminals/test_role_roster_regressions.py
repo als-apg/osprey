@@ -1,25 +1,25 @@
-"""Cross-surface regressions for a roster that binds personas through ``role:``.
+"""Cross-surface regressions for a roster that binds renders through ``role:``.
 
-A ``role:`` is a second way to say what ``persona:`` already said. That is the
+A ``role:`` is a second way to say what ``tier:`` already said. That is the
 whole risk: five surfaces read the roster to decide which privilege set a
 terminal runs with — the compose/nginx/landing render, the lint belt at both
-altitudes, per-persona env provisioning, and the ``osprey init`` composition
+altitudes, per-render env provisioning, and the ``osprey init`` composition
 card — and a role that reaches only four of them hands one surface a privilege
 set another never saw.
 
 So these tests do not check that roles "work". They check that a role-only
-roster and the ``persona:``-pinned roster it stands for are INDISTINGUISHABLE
+roster and the ``tier:``-pinned roster it stands for are INDISTINGUISHABLE
 downstream, by comparing the actual artifacts byte for byte rather than a
 subset of them, and each comparison is paired with a sensitivity control that
 re-binds one role and asserts the same comparison NOTICES. Without the control
 a comparison of two artifacts nothing reads would pass forever.
 
 **The one place the twins are no longer identical, and why.** A role started out
-as purely a second spelling of a ``persona:`` pin, and while that was all it was,
+as purely a second spelling of a ``tier:`` pin, and while that was all it was,
 every artifact matched byte for byte. It is now also a SECOND, independent fact:
 under ``auth.method: password`` the auth sidecar mints that user's session with
 the role as the privilege the login was granted, rendered as one
-``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>`` line per role-carrying entry. A ``persona:``
+``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>`` line per role-carrying entry. A ``tier:``
 pin conveys none of that — a pinned roster grants no session roles at all — so
 the twins are genuinely different deployments in exactly that respect, and an
 equality that still held would mean the privilege never reached the sidecar.
@@ -29,25 +29,25 @@ those lines and the compose overlay must still be byte-identical, the other two
 artifacts are still compared whole and unmodified, and the stripped lines
 themselves are asserted to be exactly one per role-carrying entry naming the
 right user and the right role. That is strictly more than ``==`` pinned before —
-it proves the persona resolution is untouched AND bounds what the roles feature
+it proves the render resolution is untouched AND bounds what the roles feature
 is allowed to add. If a future change makes a role reach any OTHER byte of any
 artifact, this still fails.
 
 Three regressions, in the order a deployment meets them:
 
 * the twins render, lint, provision and print identically (:class:`TestRoleOnlyRosterIsIndistinguishable`);
-* a shared card (``access: any``) that reaches a deployment-editing persona
+* a shared card (``access: any``) that reaches a deployment-editing render
   through a role still hits the existing guard, at lint and at materialization
   (:class:`TestRoleBoundPrivilegeStillTripsTheGuard`) — a role must not be a
   way around a refusal a pin cannot get around;
 * ``osprey users remove`` rewrites a role-only roster without touching the
   survivors' bindings (:class:`TestUsersRemoveKeepsSurvivorRoleKeys`) — the
   removal path rebuilds roster entries, and a rebuild that dropped ``role:``
-  (or replaced it with a ``persona:``) would silently re-tier everyone left.
+  (or replaced it with a ``tier:``) would silently re-tier everyone left.
 
 The bundled ``control-assistant`` preset is the exemplar throughout: its roster
 is already the shape this matters for — a privileged ``admin`` tier, an
-unprivileged ``logbook`` card shared with the roster, and a ``default_persona``
+unprivileged ``logbook`` app shared with the roster, and a ``default_tier``
 some entries inherit — so a regression that let the two spellings diverge shows
 up in a real deployment's artifacts rather than in a fixture built to show it.
 """
@@ -64,12 +64,14 @@ import pytest
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_emit import effective_web_terminals
 from osprey.cli.build_profile_model import BuildProfile
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.profile_card import format_profile_card
-from osprey.cli.profile_cmd import _parsed_persona_deltas, _persona_profile_texts
+from osprey.cli.profile_cmd import _layer_profile_texts, _parsed_layer_deltas
 from osprey.cli.users_cmd import _drop_user_from_profile_roster
 from osprey.deployment.web_terminals import env_production
 from osprey.deployment.web_terminals.lint import lint_profile_config, lint_web_terminals
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render_naming import render_projection
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
 SHARED_CARD_CODE = "web_terminals.shared_card_privileged"
@@ -133,40 +135,42 @@ _PROFILE_WEB_KEY = "modules.web_terminals"
 
 
 def _role_bound(web_terminals: dict[str, Any]) -> dict[str, Any]:
-    """The same web-terminal subtree with every ``persona:`` pin moved to a role.
+    """The same web-terminal subtree with every tier pin moved to a role.
 
-    Each pinned persona ``P`` becomes a declared role ``P-role`` bound to ``P``,
-    and the entry carries the role instead of the pin. Entries that pinned
-    nothing are left alone — they inherit ``default_persona`` in both spellings,
+    Each pinned tier ``P`` (``tier:``, or its retired spelling) becomes a
+    declared role ``P-role`` bound to ``P``, and the entry carries the role
+    instead of the pin. Entries that pinned
+    nothing are left alone — they inherit ``default_tier`` in both spellings,
     which is the pre-roles resolution these regressions must not disturb.
 
-    Deliberately NOT a rename of the persona: the role name differs from the
-    persona name in every case, so any surface that quietly reported the role
-    where it means the persona (or resolved one as the other) shows up as a
+    Deliberately NOT a rename of the tier: the role name differs from the
+    render name in every case, so any surface that quietly reported the role
+    where it means the render (or resolved one as the other) shows up as a
     difference rather than passing by coincidence.
     """
     twin = copy.deepcopy(web_terminals)
     roles: dict[str, Any] = {}
     for entry in twin.get("users", []):
-        persona = entry.pop("persona", None)
-        if not persona:
+        tier = entry.pop("tier", None)
+        render = entry.pop("render", None) or tier
+        if not render:
             continue
-        role = f"{persona}-role"
-        roles[role] = {"persona": persona}
+        role = f"{render}-role"
+        roles[role] = {"tier": render}
         entry["role"] = role
     twin["authorization"] = {"roles": roles}
     return twin
 
 
-def _rebind(web_terminals: dict[str, Any], role: str, persona: str) -> dict[str, Any]:
-    """The role-bound subtree with one role pointed at a different persona.
+def _rebind(web_terminals: dict[str, Any], role: str, render: str) -> dict[str, Any]:
+    """The role-bound subtree with one role pointed at a different render.
 
     The sensitivity control behind every byte comparison here: the artifacts
     must differ from the pinned twin's once a role binds something else. A
     comparison that could not tell these apart would be pinning nothing.
     """
     twin = copy.deepcopy(web_terminals)
-    twin["authorization"]["roles"][role] = {"persona": persona}
+    twin["authorization"]["roles"][role] = {"tier": render}
     return twin
 
 
@@ -179,15 +183,21 @@ def _profile_twins() -> tuple[dict[str, Any], dict[str, Any]]:
     return pinned, role_bound
 
 
+#: The deployment the twins render as.
+_PROJECT_NAME = "test"
+
+
 def _deploy_config(web_terminals: dict[str, Any]) -> dict[str, Any]:
     """A rendered-altitude deploy config around one web-terminal subtree.
 
     ``deploy.fqdn`` is required to render the landing URL once the roster is
     non-empty, and ``registry.url`` is what per-user image references are built
     from; both are identical for the two twins, so neither can be what makes an
-    artifact match.
+    artifact match. ``project_name`` is what the build names each render's
+    project by.
     """
     return {
+        "project_name": _PROJECT_NAME,
         "facility": {"prefix": "test"},
         "deploy": {"fqdn": "terminals.example.org"},
         "registry": {"url": "registry.example.org/test"},
@@ -197,22 +207,29 @@ def _deploy_config(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def exemplar_web_terminals() -> dict[str, Any]:
-    """The bundled ``control-assistant`` roster and catalog, as the preset ships it."""
+    """The bundled ``control-assistant`` roster and its renders, as the build writes them.
+
+    The build projects every bundled tier and app file into ``renders``, each
+    with the ``project`` and ``project_path`` it renders it under; the deploy
+    config carries them.
+    """
     resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
-    return effective_web_terminals(resolved.config)
+    web_terminals = effective_web_terminals(resolved.config)
+    web_terminals["renders"] = render_projection(_presets_dir(), _PROJECT_NAME)
+    return web_terminals
 
 
 @pytest.fixture(scope="session")
 def exemplar_deltas() -> dict[str, Any]:
-    """The parsed persona deltas the composition card reads privileges from.
+    """The parsed layers the composition card reads privileges from.
 
     Derived from the catalog, not the roster, so one set serves both twins —
     which is itself the point: moving a pin to a role must not change which
     deltas are in play.
     """
     resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
-    texts = _persona_profile_texts(resolved, "Exemplar", "", "control-assistant")
-    return _parsed_persona_deltas(texts)
+    texts = _layer_profile_texts(resolved, "Exemplar", "")
+    return _parsed_layer_deltas(texts)
 
 
 # ---------------------------------------------------------------------------
@@ -268,10 +285,8 @@ class TestRoleOnlyRosterIsIndistinguishable:
         allowance cannot quietly widen into "the compose file may differ by any
         line whose name starts with the prefix". One line per role-carrying
         entry, in roster order, each naming that user's variable and that
-        user's role — including ``logbook``, the shared card that is opened
-        with other users' credentials and whose own role is therefore inert
-        but still rendered, because the roster the sidecar keys this table
-        from lists it.
+        user's role. The shared apps carry none: an app card is no person's,
+        so it binds no role.
         """
         # Arrange
         role_bound = _deploy_config(_role_bound(exemplar_web_terminals))
@@ -283,8 +298,6 @@ class TestRoleOnlyRosterIsIndistinguishable:
         assert _session_role_lines(overlay) == [
             f'      - "{_ROLE_VAR_PREFIX}ALICE=readwrite-role"',
             f'      - "{_ROLE_VAR_PREFIX}BOB=readonly-role"',
-            f'      - "{_ROLE_VAR_PREFIX}LOGBOOK=logbook-role"',
-            f'      - "{_ROLE_VAR_PREFIX}KNOWLEDGE=knowledge-role"',
             f'      - "{_ROLE_VAR_PREFIX}CAROL=admin-role"',
         ]
 
@@ -294,7 +307,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
         """The control: re-bind one role and the artifacts must diverge.
 
         Asserted on the STRIPPED overlays as well as the whole ones. Re-binding
-        changes which persona a role names, not the role names themselves, so
+        changes which render a role names, not the role names themselves, so
         the session-role lines are identical either way — and a control that
         compared only the whole text would from now on pass on the mere presence
         of those lines, whatever happened to the images underneath them.
@@ -321,7 +334,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
         """Same findings, same severities, same wording, in the same order.
 
         The exemplar linted as a rendered deploy config reports a handful of
-        findings (its persona projects are not on this disk), which is what
+        findings (its render projects are not on this disk), which is what
         makes the comparison worth making: two empty reports would match
         whatever the roster said.
         """
@@ -340,8 +353,8 @@ class TestRoleOnlyRosterIsIndistinguishable:
     def test_the_rendered_altitude_lint_comparison_notices_a_role_bound_elsewhere(
         self, exemplar_web_terminals: dict[str, Any]
     ) -> None:
-        """The control: a role naming a persona the catalog never declared is
-        the existing unknown-persona finding, so the reports must differ."""
+        """The control: a role naming a render the catalog never declared is
+        the existing unknown-render finding, so the reports must differ."""
         # Arrange
         pinned = _deploy_config(exemplar_web_terminals)
         rebound = _deploy_config(
@@ -353,7 +366,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
 
         # Assert
         assert findings_rebound != lint_web_terminals(pinned)
-        assert "web_terminals.unknown_persona_reference" in {f.code for f in findings_rebound}
+        assert "web_terminals.unknown_tier_reference" in {f.code for f in findings_rebound}
 
     def test_the_profile_altitude_lint_report_is_identical(self) -> None:
         """``osprey profile validate`` / ``osprey build`` must read the twins the same.
@@ -370,8 +383,8 @@ class TestRoleOnlyRosterIsIndistinguishable:
                     entry["access"] = "any"
 
         # Act
-        findings_pinned = lint_profile_config(pinned)
-        findings_role_bound = lint_profile_config(role_bound)
+        findings_pinned = lint_profile_config(pinned, profile_root=_presets_dir())
+        findings_role_bound = lint_profile_config(role_bound, profile_root=_presets_dir())
 
         # Assert
         assert [f.code for f in findings_pinned] == [SHARED_CARD_CODE]
@@ -380,7 +393,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
     def test_env_provisioning_writes_a_byte_identical_env_users(self, tmp_path: Path) -> None:
         """``.env.users`` — the file every per-user container runs with.
 
-        Which secrets it carries is decided by which persona projects the roster
+        Which secrets it carries is decided by which render projects the roster
         references, so the two twins agreeing here is the statement that a role
         provisions exactly the credentials its pin did. Both files are generated
         under the SAME project root, one after the other, so nothing about the
@@ -397,13 +410,13 @@ class TestRoleOnlyRosterIsIndistinguishable:
         generated_pinned = _generate_env_users(root, pinned)
         generated_role_bound = _generate_env_users(root, role_bound)
 
-        # Assert: the roster's own personas are what put these in the file.
+        # Assert: the roster's own renders are what put these in the file.
         assert "ANTHROPIC_API_KEY=admin-secret" in generated_pinned
         assert "ALS_APG_API_KEY=readonly-secret" in generated_pinned
         assert generated_role_bound == generated_pinned
 
     def test_env_provisioning_notices_a_role_bound_elsewhere(self, tmp_path: Path) -> None:
-        """The control: the privileged persona goes unreferenced, and its
+        """The control: the privileged tier goes unreferenced, and its
         provider secret must leave the file with it."""
         # Arrange
         root = _env_project_root(tmp_path)
@@ -470,23 +483,23 @@ def _profile_for(config: dict[str, Any]) -> BuildProfile:
 
 # ── The env-provisioning fixture ─────────────────────────────────────────────
 #
-# Two persona projects authenticating to DIFFERENT providers, so which personas
+# Two render projects authenticating to DIFFERENT providers, so which renders
 # the roster references decides which secrets `.env.users` carries. With one
 # provider for both, the file would be the same whatever the roster bound and
 # the comparison above would prove nothing.
 
-_ENV_PERSONA_PROVIDERS = {"readonly": "als-apg", "admin": "anthropic"}
+_ENV_RENDER_PROVIDERS = {"readonly": "als-apg", "admin": "anthropic"}
 
 _ENV_PINNED_USERS = [
-    {"name": "alice", "index": 0, "persona": "admin"},
-    # No pin: inherits `default_persona`, in both spellings. The pre-roles
+    {"name": "alice", "index": 0, "tier": "admin"},
+    # No pin: inherits `default_tier`, in both spellings. The pre-roles
     # resolution rides along in every comparison here.
     {"name": "bob", "index": 1},
 ]
 
 
 def _env_project_root(tmp_path: Path) -> Path:
-    """A local-mode project root: one rendered project per persona, plus ``.env``.
+    """A local-mode project root: one rendered project per render, plus ``.env``.
 
     ``ensure_env_production`` reads the env chain off disk and nothing else, so
     the chain carries every provider secret in play; which of them reach the
@@ -494,11 +507,11 @@ def _env_project_root(tmp_path: Path) -> Path:
     """
     root = tmp_path / "deploy"
     root.mkdir()
-    for persona, provider in _ENV_PERSONA_PROVIDERS.items():
-        project = root / f"{persona}-proj"
+    for render, provider in _ENV_RENDER_PROVIDERS.items():
+        project = root / f"{render}-proj"
         project.mkdir()
         (project / "config.yml").write_text(
-            f"project_name: {persona}-proj\nclaude_code:\n  provider: {provider}\n",
+            f"project_name: {render}-proj\nclaude_code:\n  provider: {provider}\n",
             encoding="utf-8",
         )
     (root / ".env").write_text(
@@ -512,7 +525,7 @@ def _env_project_root(tmp_path: Path) -> Path:
 
 
 def _env_deploy_config(users: list[dict[str, Any]]) -> dict[str, Any]:
-    """A local-mode deploy config over the two-persona catalog."""
+    """A local-mode deploy config over the two-render catalog."""
     return {
         "facility": {},
         "system": {"timezone": "UTC"},
@@ -521,10 +534,14 @@ def _env_deploy_config(users: list[dict[str, Any]]) -> dict[str, Any]:
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": "readonly",
-                "personas": {
-                    persona: {"project": f"{persona}-proj", "project_path": f"{persona}-proj"}
-                    for persona in _ENV_PERSONA_PROVIDERS
+                "default_tier": "readonly",
+                "renders": {
+                    render: {
+                        "kind": "tier",
+                        "project": f"{render}-proj",
+                        "project_path": f"{render}-proj",
+                    }
+                    for render in _ENV_RENDER_PROVIDERS
                 },
                 "users": copy.deepcopy(users),
             }
@@ -551,14 +568,14 @@ def _generate_env_users(root: Path, config: dict[str, Any]) -> str:
 
 
 class TestRoleBoundPrivilegeStillTripsTheGuard:
-    """``access: any`` plus a role that reaches a deployment-editing persona.
+    """``access: any`` plus a role that reaches a deployment-editing render.
 
     The exposure the guard exists for is a card on the landing page that every
     roster login opens into a terminal holding the setup tool and the Config
     panel. It is
-    judged on the persona the entry RESOLVES to, so a binding the guard could
+    judged on the render the entry RESOLVES to, so a binding the guard could
     not follow would be a way to ship exactly that terminal past a refusal the
-    equivalent ``persona:`` pin cannot get past.
+    equivalent ``tier:`` pin cannot get past.
     """
 
     @staticmethod
@@ -571,19 +588,19 @@ class TestRoleBoundPrivilegeStillTripsTheGuard:
                 entry["access"] = "any"
         return role_bound
 
-    def test_lint_refuses_it_and_names_the_user_and_the_persona(self) -> None:
+    def test_lint_refuses_it_and_names_the_user_and_the_render(self) -> None:
         """The lint belt behind ``osprey profile validate`` and ``osprey build``."""
         # Arrange
         config = self._carol_shared_via_role()
 
         # Act
-        findings = lint_profile_config(config)
+        findings = lint_profile_config(config, profile_root=_presets_dir())
 
         # Assert
         errors = [f for f in findings if f.severity == "error" and f.code == SHARED_CARD_CODE]
         assert len(errors) == 1
-        # The message speaks of the persona, not the role: the role is how the
-        # entry got there, the persona is what it holds.
+        # The message speaks of the render, not the role: the role is how the
+        # entry got there, the render is what it holds.
         assert "'carol'" in errors[0].message
         assert "'admin'" in errors[0].message
         assert "access: own" in errors[0].message
@@ -600,7 +617,7 @@ class TestRoleBoundPrivilegeStillTripsTheGuard:
 
         # Act / Assert
         with pytest.raises(click.UsageError) as excinfo:
-            _persona_profile_texts(profile, "Test", "", "control-assistant")
+            _layer_profile_texts(profile, "Test", "")
         message = str(excinfo.value)
         assert "'carol'" in message
         assert "'admin'" in message
@@ -616,7 +633,7 @@ class TestRoleBoundPrivilegeStillTripsTheGuard:
         _pinned, role_bound = _profile_twins()
 
         # Act
-        findings = lint_profile_config(role_bound)
+        findings = lint_profile_config(role_bound, profile_root=_presets_dir())
 
         # Assert
         assert [f.code for f in findings if f.severity == "error"] == []
@@ -632,7 +649,7 @@ name: demo
 config:
   modules.web_terminals:
     enabled: true
-    default_persona: readonly
+    default_tier: readonly
     # The roster block comment, which the edit must keep.
     users:
       - name: alice
@@ -643,8 +660,8 @@ config:
       - carl
     authorization:
       roles:
-        operator: {persona: readwrite}
-        expert: {persona: admin}
+        operator: {tier: readwrite}
+        expert: {tier: admin}
 """
 
 
@@ -668,9 +685,9 @@ class TestUsersRemoveKeepsSurvivorRoleKeys:
         document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
         return document["config"][_PROFILE_WEB_KEY]["users"]
 
-    def test_survivors_keep_their_role_and_gain_no_persona(self, tmp_path: Path) -> None:
+    def test_survivors_keep_their_role_and_gain_no_render(self, tmp_path: Path) -> None:
         """The regression: bob is still bound through ``expert``, and nothing
-        wrote him a ``persona:`` — a rewrite that resolved roles on the way out
+        wrote him a ``tier:`` — a rewrite that resolved roles on the way out
         would re-tier every survivor at the next build."""
         # Arrange
         profile_path = tmp_path / "profile.yml"
@@ -682,7 +699,7 @@ class TestUsersRemoveKeepsSurvivorRoleKeys:
         # Assert
         assert [entry["name"] for entry in roster] == ["bob", "carl"]
         assert roster[0]["role"] == "expert"
-        assert not any("persona" in entry for entry in roster)
+        assert not any("tier" in entry for entry in roster)
 
     def test_the_removed_entry_is_gone_and_the_role_table_is_untouched(
         self, tmp_path: Path
@@ -705,17 +722,17 @@ class TestUsersRemoveKeepsSurvivorRoleKeys:
         # Assert
         assert all(entry["name"] != "alice" for entry in roster)
         assert document["config"][_PROFILE_WEB_KEY]["authorization"]["roles"] == {
-            "operator": {"persona": "readwrite"},
-            "expert": {"persona": "admin"},
+            "operator": {"tier": "readwrite"},
+            "expert": {"tier": "admin"},
         }
 
     def test_indices_are_frozen_without_inventing_a_binding(self, tmp_path: Path) -> None:
-        """Freezing ports must not be a way for a persona to appear.
+        """Freezing ports must not be a way for a render to appear.
 
         A bare-string entry is expanded into a mapping so an earlier removal
         cannot shift its ports. That expansion writes ``name`` and ``index`` —
         and, critically, nothing else: an expansion that filled in the
-        ``default_persona`` would pin an entry that was inheriting it, and the
+        ``default_tier`` would pin an entry that was inheriting it, and the
         pin would then survive a later change to the default.
         """
         # Arrange

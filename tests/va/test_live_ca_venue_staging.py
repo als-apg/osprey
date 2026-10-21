@@ -9,8 +9,8 @@ No CI job builds the image -- CI runs ``gate.py`` natively -- so the breakage
 only showed up the next time someone ran ``run_live_ca.sh`` by hand.
 
 Building the image here would cost an amd64 pcaspy install per run. This module
-instead pins the three assumptions the image makes about the workspace, all of
-which can be read from the repo:
+instead pins the assumptions the image makes about the workspace, all of which
+can be read from the repo:
 
 * every workspace member is a directory directly under ``packages/`` with a
   ``pyproject.toml`` and a ``src/`` layout, and every directory there is a
@@ -19,6 +19,9 @@ which can be read from the repo:
 * the sync skips the whole workspace, not only the root project;
 * the staging, digest and path wiring are globbed rather than naming members,
   so adding one needs no edit to either file.
+* the root project's entry points reach the image as metadata generated from
+  the staged ``pyproject.toml``, so a plug-in group resolves by name without
+  the project being installed.
 """
 
 from __future__ import annotations
@@ -119,6 +122,25 @@ class TestMembersAreGlobbedNotNamed:
         text = CONTAINERFILE.read_text()
         assert "/opt/osprey/packages/*/" in text
         assert '"/work/packages/$(basename "${member}")/src"' in text
+
+    def test_the_root_entry_points_are_generated_from_the_staged_pyproject(self) -> None:
+        """A plug-in group resolves by name in the image although the root
+        project is never installed: its entry points are written as metadata
+        from the staged file, not spelled in the Containerfile."""
+        code = "\n".join(
+            line
+            for line in CONTAINERFILE.read_text().splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        assert 'pathlib.Path("/opt/osprey/pyproject.toml")' in code
+        assert '"entry_points.txt"' in code
+        assert '"METADATA"' in code
+        assert "sorted(groups)" in code
+        for group in tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"][
+            "entry-points"
+        ].values():
+            for target in group.values():
+                assert target not in code
 
     def test_the_run_script_stages_every_member(self) -> None:
         assert '"${WORKTREE_ROOT}"/packages/*/; do' in RUN_SCRIPT.read_text()

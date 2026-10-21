@@ -287,6 +287,59 @@ class TestRenditionRoute:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/attachments/{id}/artifact
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceArtifactRoute:
+    def test_viewable_picture_is_copied_using_the_shared_helper(
+        self, client, service, monkeypatch
+    ) -> None:
+        row = _viewable_row()
+        entry = {"entry_id": "e-1"}
+        summary = {"attachment_id": ATT_ID, "filename": "beam.png"}
+        copied = {"artifact_id": "artifact-1", "created": True, "attachment_id": ATT_ID}
+
+        async def picture_for_artifact(actual_service, actual_id):
+            assert actual_service is service
+            assert actual_id == ATT_ID
+            return row, entry, summary
+
+        monkeypatch.setattr(routes, "_picture_for_workspace_artifact", picture_for_artifact)
+        from osprey.services.ariel_search.attachments import artifacts
+
+        monkeypatch.setattr(artifacts, "save_viewable_picture_as_artifact", lambda *args: copied)
+
+        response = client.post(f"/api/attachments/{ATT_ID}/artifact")
+
+        assert response.status_code == 200
+        assert response.json() == copied
+
+    def test_malformed_id_is_404_before_lookup(self, client, service, monkeypatch) -> None:
+        async def should_not_run(*_args):
+            raise AssertionError("a malformed attachment id must not be looked up")
+
+        monkeypatch.setattr(routes, "_picture_for_workspace_artifact", should_not_run)
+
+        response = client.post("/api/attachments/not-an-id/artifact")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "picture not available"
+        service.repository.get_rendition.assert_not_called()
+
+    def test_unavailable_picture_is_404(self, client, monkeypatch) -> None:
+        async def unavailable(*_args):
+            raise routes.HTTPException(status_code=404, detail="picture not available")
+
+        monkeypatch.setattr(routes, "_picture_for_workspace_artifact", unavailable)
+
+        response = client.post(f"/api/attachments/{ATT_ID}/artifact")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "picture not available"
+
+
+# ---------------------------------------------------------------------------
 # Serving never renders
 # ---------------------------------------------------------------------------
 

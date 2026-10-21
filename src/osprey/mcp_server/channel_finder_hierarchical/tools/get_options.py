@@ -24,9 +24,9 @@ def get_options(level: str, selections: dict | None = None) -> str:
     Then call this tool iteratively, passing previous selections to drill down.
 
     Args:
-        level: Hierarchy level name to get options for (e.g., "ring", "system", "family", "device", "field", "subfield").
+        level: Hierarchy level name to get options for (e.g., "machine", "sector", "class", "device", "leaf").
         selections: Dict mapping previous level names to selected values.
-            Example: {"ring": "SR"} when querying the "system" level.
+            Example: {"machine": "SR"} when querying the "sector" level.
 
     Returns:
         JSON with level name, list of options (name + description), and total count.

@@ -27,10 +27,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import (
+from osprey_connectors.control_system.epics_connector import (
     _ChannelSubscription,
 )
-from tests.connectors._epics_fakes import FakeDisconnected, FakeValue
+from tests.connectors._epics_fakes import (
+    FakeAioca,
+    FakeChannel,
+    FakeDisconnected,
+    FakeValue,
+    ca_reading,
+)
 from tests.connectors._epics_fakes import pva_connector as _pva_connector
 
 PVA_GLOB = "SR:CAM*:IMAGE"
@@ -133,14 +139,13 @@ class TestDisconnectClosesPvaContext:
     @pytest.mark.asyncio
     async def test_pure_ca_connector_has_no_context_to_close(self):
         """A connector that never configured PVA globs tears down as before."""
-        pv = MagicMock()
         connector = _pva_connector(context=None, globs=())
-        connector._pv_cache = {"A": pv}
+        connector._ca_ctrl = {"A": object()}
 
         await connector.disconnect()
 
         assert connector._pva_context is None
-        pv.disconnect.assert_called_once()
+        assert connector._ca_ctrl == {}
 
     @pytest.mark.asyncio
     async def test_subscriptions_close_before_the_context(self):
@@ -163,21 +168,17 @@ class TestDisconnectClosesPvaContext:
         """CA teardown is unchanged and downstream of the PVA close."""
         order: list[str] = []
         context = FakeContext(log=order)
-        cached_ok = MagicMock()
-        cached_ok.disconnect.side_effect = lambda: order.append("ca-pv")
-        cached_bad = MagicMock()
-        cached_bad.disconnect.side_effect = RuntimeError("already gone")
-        ca_pv = MagicMock()
-        ca_pv.clear_callbacks.side_effect = lambda: order.append("ca-subscription")
+        ca_monitor = MagicMock()
+        ca_monitor.close.side_effect = lambda: order.append("ca-subscription")
 
         connector = _pva_connector(context=context)
-        connector._subscriptions = {"sub1": _ChannelSubscription("ca", ca_pv)}
-        connector._pv_cache = {"A": cached_ok, "B": cached_bad}
+        connector._subscriptions = {"sub1": _ChannelSubscription("ca", ca_monitor)}
+        connector._ca_ctrl = {"A": object()}
 
         await connector.disconnect()
 
-        assert order == ["ca-subscription", "context", "ca-pv"]
-        assert connector._pv_cache == {}
+        assert order == ["ca-subscription", "context"]
+        assert connector._ca_ctrl == {}
         assert connector._connected is False
 
     @pytest.mark.asyncio
@@ -185,14 +186,13 @@ class TestDisconnectClosesPvaContext:
         """Teardown is best effort: one dead handle cannot strand the rest."""
         context = MagicMock()
         context.close.side_effect = RuntimeError("context already dead")
-        cached = MagicMock()
         connector = _pva_connector(context=context)
-        connector._pv_cache = {"A": cached}
+        connector._ca_ctrl = {"A": object()}
 
         await connector.disconnect()
 
         assert connector._pva_context is None
-        cached.disconnect.assert_called_once()
+        assert connector._ca_ctrl == {}
         assert connector._connected is False
 
 
@@ -264,22 +264,22 @@ class TestGetMetadataOverPva:
         assert metadata.timestamp is not None  # falls back to now()
 
     @pytest.mark.asyncio
-    async def test_ca_address_on_a_pva_capable_connector_uses_pyepics(self):
-        pv = MagicMock()
-        pv.connected = True
-        pv.get.return_value = 42.0
-        pv.timestamp = 1_700_000_000.0
-        pv.units = "mA"
-        pv.precision = 2
-        epics = MagicMock()
-        epics.PV.return_value = pv
+    async def test_ca_address_on_a_pva_capable_connector_uses_channel_access(self):
+        ca = FakeAioca(
+            {
+                CA_ADDRESS: FakeChannel(
+                    ca_reading(42.0, timestamp=1_700_000_000.0),
+                    ctrl=ca_reading(42.0, units="mA", precision=2),
+                )
+            }
+        )
         context = FakeContext(reply=_metadata_value())
-        connector = _pva_connector(context=context, epics=epics)
+        connector = _pva_connector(context=context, aioca=ca)
 
         metadata = await connector.get_metadata(CA_ADDRESS)
 
         assert context.gets == []  # PVA client untouched
-        assert epics.PV.call_args.args == (CA_ADDRESS,)
+        assert {c[1] for c in ca.calls} == {CA_ADDRESS}
         assert metadata.units == "mA"
         assert metadata.precision == 2
 
@@ -356,25 +356,16 @@ class TestValidateChannelOverPva:
 
     @pytest.mark.asyncio
     async def test_ca_address_validates_over_channel_access(self):
-        pv = MagicMock()
-        pv.connected = True
-        pv.get.return_value = 1.0
-        pv.timestamp = 1_700_000_000.0
-        epics = MagicMock()
-        epics.PV.return_value = pv
+        ca = FakeAioca({CA_ADDRESS: FakeChannel(ca_reading(1.0))})
         context = FakeContext(reply=_metadata_value())
-        connector = _pva_connector(context=context, epics=epics)
+        connector = _pva_connector(context=context, aioca=ca)
 
         assert await connector.validate_channel(CA_ADDRESS) is True
         assert context.gets == []
-        assert epics.PV.call_args.args == (CA_ADDRESS,)
+        assert {c[1] for c in ca.calls} == {CA_ADDRESS}
 
     @pytest.mark.asyncio
     async def test_unreachable_ca_address_validates_false(self):
-        pv = MagicMock()
-        pv.connected = False
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(context=FakeContext(), epics=epics)
+        connector = _pva_connector(context=FakeContext(), aioca=FakeAioca())
 
         assert await connector.validate_channel(CA_ADDRESS) is False

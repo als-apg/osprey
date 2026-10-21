@@ -3,7 +3,7 @@
 A normal ``osprey`` run should read as a report, not as a transcript. The
 policy that makes that true is a single :class:`logging.Filter` installed on the
 ``RichHandler`` **instance** that renders log records to stderr — never inside
-:func:`~osprey.utils.logger.configure_logging`, so the entry points that are not
+:func:`~osprey_connectors.logger.configure_logging`, so the entry points that are not
 the CLI (MCP servers, bridges, services, workers) and every external consumer of
 the ``osprey-connectors`` distribution keep today's logging behavior exactly.
 
@@ -12,26 +12,31 @@ record is still emitted, still reaches ``caplog``, and still reaches any other
 handler or sink on the root logger. Nothing is lost — it is only not painted.
 
 ``-v``/``--verbose`` lifts the gate and restores the full transcript. Levels are
-never remapped; the gate reads a record's level, plus one bit of CLI state —
-whether a lifecycle reporter currently owns the terminal, which is what tells a
-WARNING record it must arrive promoted (:func:`osprey.cli.output.warn_fact`)
-rather than as a raw transcript block through a phase column.
+never remapped; the gate reads a record's level, one mark a call site sets
+when it has already printed the warning (:func:`osprey.cli.output.warn_fact`),
+and one bit of CLI state — whether a lifecycle reporter currently owns the
+terminal, which is what tells a WARNING record it must arrive promoted rather
+than as a raw transcript block through a phase column.
 """
 
 import logging
 
 from rich.logging import RichHandler
 
-__all__ = ["gate_installed", "install_gate", "lift_gate"]
+__all__ = ["PRINTED", "gate_installed", "install_gate", "lift_gate"]
+
+#: The record attribute that marks a warning its call site has already printed
+#: in full; the gate keeps a record carrying it off the terminal.
+PRINTED = "osprey_printed"
 
 
 class _AltitudeGate(logging.Filter):
     """Drop INFO-and-below records at the handler; pass WARNING and above —
-    except while a lifecycle reporter owns the terminal, where WARNING is
-    dropped too and only ERROR and above still paint.
+    except a warning its call site already printed, and every WARNING while a
+    lifecycle reporter owns the terminal; ERROR and above always paint.
 
     The policy is deliberately level-based. Records emitted through
-    :class:`~osprey.utils.logger.ComponentLogger` also carry an
+    :class:`~osprey_connectors.logger.ComponentLogger` also carry an
     ``osprey_intent`` attribute naming the method that emitted them, but the
     shipped policy does not read it — INFO-family intents are separated by
     rewriting their call sites as report lines, not by filtering on intent.
@@ -46,6 +51,11 @@ class _AltitudeGate(logging.Filter):
     the emitted record, for ``caplog``, file sinks, and ``-v``. ERROR keeps
     painting unconditionally — a failure outranks the column's tidiness.
 
+    A record carrying :data:`PRINTED` has already reached the operator as a
+    promoted block, so painting it again would say the same thing twice. It is
+    dropped on every path, lifecycle or not, and stays in the emitted record for
+    ``caplog``, file sinks, and ``-v``.
+
     "A lifecycle reporter owns the terminal" is read off the installed reporter
     per record, through the same predicate ``lifecycle_reporter`` uses to
     decide ownership: the quiet ``NullReporter`` default means no lifecycle
@@ -58,6 +68,8 @@ class _AltitudeGate(logging.Filter):
             return True
         if record.levelno < logging.WARNING:
             return False
+        if getattr(record, PRINTED, False):
+            return False
         from osprey.cli.phase_reporter import NullReporter, current_reporter
 
         # Either NullReporter shape means no phase column is being drawn: the
@@ -69,8 +81,8 @@ class _AltitudeGate(logging.Filter):
 def _root_rich_handler() -> RichHandler | None:
     """Return the first ``RichHandler`` on the root logger, if there is one.
 
-    This is the same predicate :func:`~osprey.utils.logger.configure_logging`
-    and :func:`~osprey.utils.logger.set_handler_console` use, so all three
+    This is the same predicate :func:`~osprey_connectors.logger.configure_logging`
+    and :func:`~osprey_connectors.logger.set_handler_console` use, so all three
     resolve to the same handler instance.
     """
     for handler in logging.getLogger().handlers:

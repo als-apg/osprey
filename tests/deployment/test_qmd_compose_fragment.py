@@ -145,7 +145,7 @@ def sidecars(**kwargs) -> dict:
 
 #: The facility-knowledge bundle as it appears in config — the corpus the
 #: shipped presets index, and the one a single-sidecar test renders.
-OKF_BUNDLE = {"bundle_path": "data/facility_knowledge"}
+OKF_BUNDLE = {"bundle_path": "data/facility/knowledge"}
 
 #: An ARIEL block whose markdown export is on and names its mirror.
 ARIEL_EXPORT = {
@@ -470,7 +470,7 @@ def test_service_corpus_and_mount_are_spelled_from_one_descriptor():
 def test_each_sidecar_mounts_only_its_own_corpus():
     rendered = sidecars(**BOTH_CORPORA)
 
-    assert _corpus_mounts(rendered["qmd-okf"]) == ["./data/facility_knowledge:/corpus/okf:ro"]
+    assert _corpus_mounts(rendered["qmd-okf"]) == ["./data/facility/knowledge:/corpus/okf:ro"]
     assert _corpus_mounts(rendered["qmd-ariel"]) == ["./data/ariel_mirror:/corpus/ariel:ro"]
 
 
@@ -591,7 +591,7 @@ def test_a_relative_prebuilt_index_dir_is_spelled_for_the_compose_project_direct
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
-        pytest.param("data/facility_knowledge", "./data/facility_knowledge", id="repo-relative"),
+        pytest.param("data/facility/knowledge", "./data/facility/knowledge", id="repo-relative"),
         pytest.param("./data/kb", "./data/kb", id="already-dot-prefixed"),
         pytest.param("{repo}/data/kb", "./data/kb", id="absolute-inside-repo"),
         pytest.param("/srv/shared/kb", "/srv/shared/kb", id="absolute-outside-repo"),
@@ -787,7 +787,7 @@ def test_setup_build_dir_produces_the_sidecars_artifacts(tmp_path, monkeypatch):
     out = repo / "build" / "services" / "qmd"
     compose = yaml.safe_load((out / "docker-compose.yml").read_text())
 
-    assert "./data/facility_knowledge:/corpus/okf:ro" in compose["services"]["qmd-okf"]["volumes"]
+    assert "./data/facility/knowledge:/corpus/okf:ro" in compose["services"]["qmd-okf"]["volumes"]
     assert (out / "Dockerfile").is_file()
     assert (out / "entrypoint.sh").is_file()
     assert not (out / "index.yml").exists()
@@ -839,7 +839,7 @@ def test_no_models_dir_leaves_the_fragment_exactly_as_it_was():
     assert _build_args(service) == {"OSPREY_PROJECT_NAME": "demo"}
     assert service["volumes"] == [
         "qmd_index_okf:/var/lib/qmd",
-        "./data/facility_knowledge:/corpus/okf:ro",
+        "./data/facility/knowledge:/corpus/okf:ro",
     ]
 
 

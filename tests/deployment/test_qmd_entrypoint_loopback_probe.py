@@ -87,7 +87,8 @@ def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
         "no_proxy": no_proxy,
         "NO_PROXY": no_proxy,
     }
-    script = f'. "{library}"; start_daemon; kill "$QMD_PID"; echo "TARGET=$DAEMON_TARGET"'
+    # The stub daemon is stopped through the entrypoint's own shutdown helper, which waits for it, so the shell has no child left to reap when it writes the result line.
+    script = f'. "{library}"; start_daemon; stop_child "$QMD_PID"; echo "TARGET=$DAEMON_TARGET"'
     return subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True, timeout=60)
 
 

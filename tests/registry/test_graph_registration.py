@@ -24,7 +24,7 @@ import json
 import pytest
 
 from osprey.registry.mcp import FRAMEWORK_SERVERS, RENDERED_CONFIG_ENV_VALUE, resolve_servers
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 #: The full graph tool vocabulary, spelled as a literal so a renamed or dropped
 #: tool fails here rather than silently shrinking the allowlist.
@@ -91,7 +91,7 @@ class TestGraphCatalog:
         assert sdef.module == "osprey.mcp_server.graph"
 
     def test_carries_both_config_env_vars(self, sdef):
-        """``osprey.utils.config`` reads CONFIG_FILE; OSPREY_CONFIG only locates
+        """``osprey_connectors.config`` reads CONFIG_FILE; OSPREY_CONFIG only locates
         ``.env``. A server launched under a foreign WORKDIR without CONFIG_FILE
         falls back to ``CWD/config.yml``."""
         assert sdef.env == {

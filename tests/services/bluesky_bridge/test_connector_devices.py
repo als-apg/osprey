@@ -32,7 +32,6 @@ import pytest
 bluesky = pytest.importorskip("bluesky")
 ophyd_async = pytest.importorskip("ophyd_async")
 
-from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
 from osprey.services.bluesky_bridge.devices import connector as connector_module  # noqa: E402
 from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
     ConnectorReadable,
@@ -40,11 +39,12 @@ from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
     build_devices,
 )
 from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec  # noqa: E402
+from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
 
 
 @dataclass
 class _FakeChannelValue:
-    """Stand-in for ``osprey.connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
 
     value: Any
     timestamp: float = field(default_factory=time.time)
@@ -223,6 +223,178 @@ async def test_set_settles_within_an_authored_tolerance(
     await device.set(5.0)  # must not raise
 
     assert fake.read_calls == ["RB"]
+
+
+def _held_at(fake: FakeConnector, value: float) -> Any:
+    """A readback read that always returns ``value``, logging the call."""
+
+    async def read(channel_address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
+        fake.read_calls.append(channel_address)
+        return _FakeChannelValue(value=value)
+
+    return read
+
+
+#: A device's declared band, wider than the profile floor.
+_BAND = 0.011
+
+
+async def test_set_settles_inside_the_device_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A readback held at ``demand + 0.9 x band`` settles on its first poll."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    await device.set(-3.0)
+
+    assert fake.read_calls == ["RB"]
+
+
+async def test_set_times_out_outside_the_device_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A readback held at ``demand + 1.1 x band`` never settles."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 1.1 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    with pytest.raises(TimeoutError, match="did not settle"):
+        await device.set(-3.0)
+
+
+async def test_a_device_without_a_band_settles_within_the_profile_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No band: the profile value alone decides, so a near miss times out."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m")
+
+    with pytest.raises(TimeoutError):
+        await device.set(-3.0)
+
+
+async def test_the_profile_floor_holds_under_a_tighter_device_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A device band never tightens the profile value: the larger of the two governs."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "0.1")
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.05))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    await device.set(-3.0)
+
+
+async def test_build_devices_hands_each_settable_its_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    devices = await build_devices(
+        settables=[
+            SettableSpec(name="m", setpoint_pv="SP", readback_pv="RB", settle_tolerance=_BAND)
+        ],
+        connector=fake,
+    )
+
+    await devices["m"].set(-3.0)
+
+
+def _unrequested(monkeypatch: pytest.MonkeyPatch, readback: float, timeout_s: str) -> FakeConnector:
+    """A fake whose readback is held at ``readback``, its writes unchecked."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, timeout_s)
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, readback))
+    return fake
+
+
+async def test_a_live_lane_ignores_the_motion_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 0.9 * _BAND, "0.1")
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", motion_band=_BAND)
+
+    with pytest.raises(TimeoutError, match="did not settle"):
+        await device.set(-3.0)
+
+
+async def test_a_simulated_lane_settles_within_the_motion_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 0.9 * _BAND, "0.3")
+    device = ConnectorSettable(
+        fake, "SP", readback_pv="RB", name="m", motion_band=_BAND, simulated=True
+    )
+
+    await device.set(-3.0)
+
+    assert fake.read_calls == ["RB"]
+
+
+@pytest.mark.parametrize("simulated", [False, True], ids=["live", "simulated"])
+async def test_a_declared_tolerance_applies_on_every_lane(
+    monkeypatch: pytest.MonkeyPatch, simulated: bool
+) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 0.9 * _BAND, "0.3")
+    device = ConnectorSettable(
+        fake,
+        "SP",
+        readback_pv="RB",
+        name="m",
+        settle_tolerance=_BAND,
+        motion_band=_BAND / 100,
+        simulated=simulated,
+    )
+
+    await device.set(-3.0)
+
+
+async def test_a_relative_tolerance_scales_with_the_demand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    near = _unrequested(monkeypatch, -200.0 + 0.019, "0.3")
+    await ConnectorSettable(near, "SP", readback_pv="RB", name="m", settle_relative=1e-4).set(
+        -200.0
+    )
+
+    far = _unrequested(monkeypatch, -2.0 + 0.019, "0.1")
+    with pytest.raises(TimeoutError):
+        await ConnectorSettable(far, "SP", readback_pv="RB", name="m", settle_relative=1e-4).set(
+            -2.0
+        )
+
+
+async def test_the_floor_is_never_a_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 0.05, "0.3")
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "0.01")
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=0.1)
+
+    await device.set(-3.0)
+
+
+async def test_build_devices_hands_each_settable_its_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 0.9 * _BAND, "0.3")
+    spec = SettableSpec(name="m", setpoint_pv="SP", readback_pv="RB", motion_band=_BAND)
+
+    simulated = await build_devices(settables=[spec], connector=fake, simulated=True)
+    await simulated["m"].set(-3.0)
+
+    live = await build_devices(
+        settables=[spec], connector=_unrequested(monkeypatch, -3.0 + 0.9 * _BAND, "0.1")
+    )
+    with pytest.raises(TimeoutError):
+        await live["m"].set(-3.0)
 
 
 async def test_set_times_out_when_readback_never_settles(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -423,8 +595,50 @@ async def test_an_aliased_settable_reports_one_key() -> None:
     assert set(await device.describe()) == {"motor"}
 
 
+async def test_a_settable_with_a_distinct_readback_locates_its_demand_and_its_readback() -> None:
+    """``locate()`` answers where the device was told to go and where it is, live."""
+    fake = FakeConnector(readbacks={"SR04U___GDS1PS_AC00": 25.0, "SR04U___GDS1PS_AM00": 17.3})
+    device = ConnectorSettable(
+        fake, "SR04U___GDS1PS_AC00", readback_pv="SR04U___GDS1PS_AM00", name="gap"
+    )
+
+    assert await device.locate() == {"setpoint": 25.0, "readback": 17.3}
+    assert set(fake.read_calls) == {"SR04U___GDS1PS_AC00", "SR04U___GDS1PS_AM00"}
+    fake.readbacks["SR04U___GDS1PS_AM00"] = 25.0
+    assert await device.locate() == {"setpoint": 25.0, "readback": 25.0}
+
+
+async def test_an_aliased_settable_locates_one_channel_as_both() -> None:
+    """Its readback IS its demand: one read answers both keys."""
+    fake = FakeConnector(readbacks={"SP": 4.0})
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    assert await device.locate() == {"setpoint": 4.0, "readback": 4.0}
+    assert fake.read_calls == ["SP"]
+
+
+def test_a_connector_settable_is_bluesky_locatable() -> None:
+    """A plan written against Bluesky's protocol locates an OSPREY device."""
+    from bluesky import RunEngine
+    from bluesky import plan_stubs as bps
+    from bluesky.protocols import Locatable
+
+    fake = FakeConnector(readbacks={"SP": 2.5, "RB": 2.4})
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="hcm1")
+    located: list[Any] = []
+
+    def _plan():
+        located.append((yield from bps.locate(device)))
+
+    assert isinstance(device, Locatable)
+    RunEngine(context_managers=[])(_plan())
+    assert located == [{"setpoint": 2.5, "readback": 2.4}]
+
+
 async def test_the_demand_key_is_not_hinted_so_rd_returns_the_readback() -> None:
-    """``bps.rd`` reads the one hinted field; a second hint would make it raise."""
+    """``bps.rd`` locates the device and returns its readback; the one hinted
+    field is that readback column, and the demand key ``<name>_setpoint`` is
+    never hinted."""
     from bluesky.utils import get_hinted_fields
 
     fake = FakeConnector(readbacks={"SP": 25.0, "RB": 17.3})
@@ -518,3 +732,67 @@ async def test_set_is_async_status_wrapped() -> None:
     assert isinstance(status, AsyncStatus)
     await status
     assert fake.readbacks["SP"] == 1.0
+
+
+# --- the worker's bound is the shared settle rule ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("device", "floor", "simulated", "record", "expected"),
+    [
+        ({"settle_tolerance": _BAND}, None, False, {"absolute": _BAND}, _BAND),
+        ({"settle_relative": 1e-4}, None, False, {"relative": 1e-4}, 0.02),
+        ({"motion_band": _BAND}, None, True, None, _BAND),
+        ({"motion_band": _BAND}, None, False, None, connector_module.DEFAULT_SETTLE_TOLERANCE),
+        ({"settle_tolerance": _BAND}, "0.1", False, {"absolute": _BAND}, 0.1),
+    ],
+    ids=["absolute", "relative-of-the-demand", "motion-on-the-simulator", "motion-live", "floor"],
+)
+async def test_the_worker_bound_is_the_shared_rule(
+    monkeypatch: pytest.MonkeyPatch,
+    device: dict[str, float],
+    floor: str | None,
+    simulated: bool,
+    record: dict[str, float] | None,
+    expected: float,
+) -> None:
+    from osprey_connectors.settle import settle_bound
+
+    if floor is None:
+        monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, floor)
+    landings: list[Any] = []
+
+    async def record_landings(connector: Any, batch: Any, *, timeout_s: float) -> None:
+        del connector, timeout_s
+        landings.extend(batch)
+
+    monkeypatch.setattr(connector_module, "settle", record_landings)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    settable = ConnectorSettable(
+        fake, "SP", readback_pv="RB", name="m", simulated=simulated, **device
+    )
+
+    await settable.set(-200.0)
+
+    (landing,) = landings
+    assert (landing.setpoint, landing.readback, landing.demand) == ("SP", "RB", -200.0)
+    assert landing.bound == pytest.approx(expected)
+    assert landing.bound == pytest.approx(
+        settle_bound(
+            record,
+            -200.0,
+            motion=device.get("motion_band", 0.0),
+            simulated=simulated,
+            floor=connector_module.settle_tolerance(),
+        )
+    )
+
+
+async def test_the_timeout_names_the_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _unrequested(monkeypatch, -3.0 + 1.1 * _BAND, "0.1")
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    with pytest.raises(TimeoutError, match=rf"readback RB did not settle to -3\.0 ± {_BAND:g}"):
+        await device.set(-3.0)

@@ -29,8 +29,15 @@ from osprey.cli.build_profile import (
     _parse_profile,
     load_profile,
 )
-from osprey.errors import BuildProfileError
+from osprey.cli.build_profile_presets import (
+    PRESET_ONLY_KEYS,
+    _load_preset_raw,
+    list_apps,
+    list_presets,
+    list_tiers,
+)
 from osprey.port_layout import default_port
+from osprey_connectors.errors import BuildProfileError
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:
@@ -243,9 +250,11 @@ def test_control_assistant_profile_validates() -> None:
     """
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
-    # `app_template:` is preset-side and consumed at the single read point in
-    # `_load_preset_raw`; reading the file straight off disk has to pop it too.
-    raw.pop("app_template", None)
+    # `app_template:` and `facility:` are preset-side and consumed at the single
+    # read point in `_load_preset_raw`; reading the file straight off disk has to
+    # pop them too.
+    for key in PRESET_ONLY_KEYS:
+        raw.pop(key, None)
     profile = _parse_profile(raw)
 
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
@@ -345,7 +354,7 @@ class TestControlAssistantTurnkeyPlanControlSystem:
     turn-key plan stack, together with the live stand-in derived from it, and
     control_system.type is pinned to "virtual_accelerator" so a fresh session
     opens on the sandbox simulator, the one machine here where a write is
-    harmless -- flipping the one config line to "mock" is the documented
+    harmless -- serving the simulator in process is the documented
     fallback for environments with no containers to depend on
     (covered by tests/cli/test_va_default_config.py).
     """
@@ -373,9 +382,11 @@ def test_control_assistant_turnkey_plan_preset_validates() -> None:
     the preset's own bluesky_web block is present."""
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
-    # `app_template:` is preset-side and consumed at the single read point in
-    # `_load_preset_raw`; reading the file straight off disk has to pop it too.
-    raw.pop("app_template", None)
+    # `app_template:` and `facility:` are preset-side and consumed at the single
+    # read point in `_load_preset_raw`; reading the file straight off disk has to
+    # pop them too.
+    for key in PRESET_ONLY_KEYS:
+        raw.pop(key, None)
     profile = _parse_profile(raw)
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
@@ -897,20 +908,29 @@ def test_either_claude_code_spelling_alone_is_fine() -> None:
     assert nested.config["claude_code"]["permissions"]["deny"] == [SETUP_PATCH]
 
 
-@pytest.mark.parametrize(
-    "preset",
-    [
-        "control-assistant",
-        "control-assistant-readonly",
-        "control-assistant-readwrite",
-        "control-assistant-logbook",
-        "control-assistant-knowledge",
-        "control-assistant-admin",
-        "hello-world",
-    ],
-)
+def test_the_shipped_preset_listings_are_not_empty() -> None:
+    """Guards the two parametrizations below against running over nothing."""
+    assert {"control-assistant", "hello-world"} <= set(list_presets())
+    assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
+    assert {"logbook", "knowledge"} <= set(list_apps())
+
+
+@pytest.mark.parametrize("preset", list_presets())
 def test_the_shipped_presets_pass_both_refusals(preset: str) -> None:
     """The refusals must not cost anything the project already ships. Resolved
     through the real path, so an `extends` parent's spelling counts too."""
     profile, _ = bp.resolve_build_profile(None, preset=preset)
     assert profile.name
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+)
+def test_the_shipped_tiers_and_apps_pass_both_refusals(layer: str) -> None:
+    """Every bundled tier and app spells its ``config:`` block in a way the
+    two refusals accept: a layer's config keys are laid over the host's, so a
+    mixed spelling there would collide exactly as it would in a profile."""
+    raw, _path = _load_preset_raw(layer)
+    profile = _parse_profile({"name": raw["name"], "config": raw.get("config") or {}})
+    assert profile.name == raw["name"]

@@ -139,8 +139,8 @@ class TestClaudeCodeSDKIntegration:
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
-            "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
-            "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
+            "'SR:DIAG:BPM:01:POSITION:X', 'SR:DIAG:BPM:02:POSITION:X', "
+            "'SR:DIAG:BPM:03:POSITION:X' over the last 24 hours. "
             "Then create a timeseries plot of the data and save it as a "
             "PNG file."
         )
@@ -366,8 +366,8 @@ class TestClaudeCodeSDKIntegration:
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'DIAG:BPM[BPM18]:POSITION:X', 'DIAG:BPM[BPM19]:POSITION:X', "
-            "'DIAG:BPM[BPM20]:POSITION:X' over the last 24 hours with "
+            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
+            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
             "Then create a 3D scatter plot with BPM18 on X-axis, BPM19 on "
             "Y-axis, BPM20 on Z-axis, colored by time. "

@@ -37,9 +37,20 @@ surface reads is not a posture at all:
 The gate runs over the *rendered* config, beside
 :func:`~osprey.cli.build_cmd._incomplete_limits_errors` and for the same
 reason: what a deployment runs is the render, so a key an injector wrote, a
-persona inherited, or a preset's ``config:`` block spelled is read here the
+render inherited, or a preset's ``config:`` block spelled is read here the
 same way an operator's own line is. Each refusal names the dotted key and the
 file to add it to.
+
+Beside the floor sits one check on what the approval policies *say*. The
+guarded tools — ``execute``, ``execute_file`` and ``pyaml_measure`` — each run
+a read-write call under the target's run lock, and the executor refuses such a
+call before it is spawned unless the approval hook recorded it whenever its
+policy asks. :func:`effective_policy` and :func:`ask_capable` are the one
+reading of a tool's policy that the build and the executor share. The build
+guarantees that a render which asks selects the hook that asks: a guarded tool
+put to a human in a profile whose ``hooks:`` list lacks ``approval`` stops the
+build. So asks ⇒ hook selected, and ``config.yml`` alone answers whether a
+call of a guarded tool is asked.
 """
 
 from __future__ import annotations
@@ -50,9 +61,15 @@ from typing import Any
 __all__ = [
     "APPROVAL_HOOK",
     "CONTROLS_SERVER",
+    "GUARDED_TOOLS",
     "REQUIRED_ALWAYS",
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
+    "approval_enabled_fault",
+    "ask_capable",
+    "check_approval_enabled",
+    "check_approval_hook_selected",
+    "effective_policy",
     "missing_posture_errors",
 ]
 
@@ -66,6 +83,16 @@ CONTROLS_SERVER = "controls"
 
 #: Artifact name of the approval hook, as a profile's ``hooks:`` list spells it.
 APPROVAL_HOOK = "approval"
+
+#: The tools whose read-write call runs under the target's run lock and the
+#: executor's approved-call check.
+GUARDED_TOOLS: tuple[str, ...] = ("execute", "execute_file", "pyaml_measure")
+
+#: The approval policy that lets a call run with no prompt.
+SKIP_POLICY = "skip"
+
+#: What the approval hook does when no policy is stated at all.
+HOOK_FALLBACK_POLICY = "always"
 
 #: Required when :data:`CONTROLS_SERVER` resolves enabled, with why.
 REQUIRED_WITH_CONTROLS: tuple[tuple[str, str], ...] = (
@@ -181,9 +208,9 @@ def missing_posture_errors(rendered: Mapping[str, Any], selected_hooks: Iterable
     Args:
         rendered: The rendered ``config.yml``, read after the injectors — the
             config a deployment actually loads, so a key a preset's ``config:``
-            block, a persona's delta or an injector supplied counts as stated.
+            block, a render's delta or an injector supplied counts as stated.
         selected_hooks: The resolved profile's ``hooks:`` list. Passed rather
-            than re-derived: the build has already merged the persona's
+            than re-derived: the build has already merged the render's
             selection into it, and a second derivation could disagree with the
             hooks the render installs.
 
@@ -205,3 +232,167 @@ def missing_posture_errors(rendered: Mapping[str, Any], selected_hooks: Iterable
         for key, why in required
         if not _stated(rendered, key)
     ]
+
+
+def _approval_section(rendered: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The render's ``approval`` mapping, empty when it states none."""
+    approval = rendered.get("approval")
+    return approval if isinstance(approval, Mapping) else {}
+
+
+#: The remedy for an approval switch that is not true or false.
+_ENABLED_FIX = f"set approval.enabled to true or false in {PROFILE_FILENAME}"
+
+
+def _enabled_detail(value: Any) -> str:
+    """What is wrong with an ``approval.enabled`` that states *value*."""
+    return f"approval.enabled is {value!r}, not true or false"
+
+
+def approval_enabled_fault(rendered: Mapping[str, Any]) -> str | None:
+    """The sentence that refuses a run under a stated approval switch that is not a bool.
+
+    The run-time readers of ``config.yml`` (the approval hook and the Python
+    executor) refuse with it, and the build stops on the same detail and fix,
+    so a hand edit after the build is named the way the build names it. A
+    stated ``approval`` that is not a mapping (a bare ``approval:`` line) is a
+    fault too: it states the section and says nothing a reader can trust.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+
+    Returns:
+        ``None`` when the switch is unstated, ``true`` or ``false``; else the
+        sentence naming the value and the fix.
+    """
+    if "approval" in rendered and not isinstance(rendered["approval"], Mapping):
+        return f"approval is {rendered['approval']!r}, not a mapping; {_ENABLED_FIX} and rebuild"
+    approval = _approval_section(rendered)
+    if "enabled" not in approval or isinstance(approval["enabled"], bool):
+        return None
+    return f"{_enabled_detail(approval['enabled'])}; {_ENABLED_FIX} and rebuild"
+
+
+def _policy_key(rendered: Mapping[str, Any], tool: str) -> str:
+    """The dotted key that supplies *tool*'s approval policy in *rendered*.
+
+    ``approval.tools.<tool>`` when the render states it, else
+    ``approval.default_policy`` — the same fallback the approval hook applies.
+    """
+    tools = _approval_section(rendered).get("tools")
+    if isinstance(tools, Mapping) and tools.get(tool) is not None:
+        return f"approval.tools.{tool}"
+    return "approval.default_policy"
+
+
+def effective_policy(rendered: Mapping[str, Any], tool: str) -> str:
+    """The approval policy the hook applies to *tool* under *rendered*.
+
+    ``approval.tools.<tool>`` when stated, else ``approval.default_policy``,
+    else the hook's own fail-closed fallback.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+
+    Returns:
+        The policy name: ``always``, ``skip`` or ``selective``.
+    """
+    approval = _approval_section(rendered)
+    tools = approval.get("tools")
+    policy = tools.get(tool) if isinstance(tools, Mapping) else None
+    if policy is None:
+        policy = approval.get("default_policy")
+    return str(policy) if policy is not None else HOOK_FALLBACK_POLICY
+
+
+def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
+    """Whether a call of *tool* is put to a human before it runs.
+
+    True when ``approval.enabled`` is ``true`` or unstated (the hook reads an
+    unstated switch as on) and *tool*'s effective policy is not ``skip``. A
+    switch that is not a bool, or an ``approval`` that is not a mapping, asks
+    nobody: the approval hook and the executor refuse every call under it
+    (:func:`approval_enabled_fault`). No hook term: :func:`check_approval_hook_selected`
+    stops every build whose render asks without selecting the approval hook.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+
+    Returns:
+        ``True`` when a call of *tool* is put to a human.
+    """
+    if approval_enabled_fault(rendered) is not None:
+        return False
+    if _approval_section(rendered).get("enabled", True) is False:
+        return False
+    return effective_policy(rendered, tool) != SKIP_POLICY
+
+
+def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
+    """Stop a render whose ``approval.enabled`` is stated and is not true or false.
+
+    An empty line, a quoted ``"false"`` or a number is neither on nor off.
+    With this stop the approval hook, :func:`ask_capable` and the executor see
+    only a bool or an unstated key, which reads as asking; a value edited in
+    after the build is refused at run time with the same detail and fix.
+
+    Args:
+        rendered: The rendered ``config.yml``, read after the injectors.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` on ``approval.enabled``,
+            naming the value it states.
+    """
+    approval = _approval_section(rendered)
+    if "enabled" not in approval or isinstance(approval["enabled"], bool):
+        return
+    from osprey.facility.errors import FacilityBuildError
+
+    raise FacilityBuildError(
+        "profile-invalid",
+        "approval.enabled",
+        [PROFILE_FILENAME],
+        _ENABLED_FIX,
+        record_kind="path",
+        detail=_enabled_detail(approval["enabled"]),
+    )
+
+
+def check_approval_hook_selected(
+    rendered: Mapping[str, Any], selected_hooks: Iterable[str]
+) -> None:
+    """Stop a render that puts a guarded tool to a human with no hook to ask.
+
+    The first tool of :data:`GUARDED_TOOLS` that is :func:`ask_capable` is
+    named when :data:`APPROVAL_HOOK` is not among *selected_hooks*.
+
+    Args:
+        rendered: The rendered ``config.yml``, read after the injectors.
+        selected_hooks: The resolved profile's ``hooks:`` list.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` on ``approval.enabled``, naming
+            the guarded tool and the key that gives it its asking policy.
+    """
+    if APPROVAL_HOOK in set(selected_hooks):
+        return
+    for tool in GUARDED_TOOLS:
+        if not ask_capable(rendered, tool):
+            continue
+        from osprey.facility.errors import FacilityBuildError
+
+        raise FacilityBuildError(
+            "profile-invalid",
+            "approval.enabled",
+            [PROFILE_FILENAME],
+            f"add `{APPROVAL_HOOK}` to `hooks:` in {PROFILE_FILENAME}, or set "
+            "`config: approval.enabled: false`",
+            record_kind="path",
+            detail=(
+                f"guarded tool `{tool}` is put to a human under "
+                f"`{_policy_key(rendered, tool)}` but the profile does not select the "
+                f"`{APPROVAL_HOOK}` hook, so nothing would ask"
+            ),
+        )

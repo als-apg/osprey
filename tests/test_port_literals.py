@@ -268,9 +268,8 @@ def test_no_retired_port_literals() -> None:
 def test_guard_drops_a_retired_run_inside_a_longer_number() -> None:
     """A magnet strength is not a port: the decimal tail defeats the guard.
 
-    Shaped after the real line the throwaway scan tripped on --
-    ``src/osprey/simulation/lattice/ring.py`` ``_SD = (0.20300000, -57.9465)``
-    -- but with a genuinely retired run in the tail, so the assertion tests the
+    Shaped after a sextupole-strength line, ``_SD = (0.20300000, -57.9465)``,
+    but with a genuinely retired run in the tail, so the assertion tests the
     guard rather than the retired set.
     """
     assert _retired_on_line("_SD = (0.20300000, -57.9800)") == []

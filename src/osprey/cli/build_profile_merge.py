@@ -11,21 +11,23 @@ here leaves :mod:`osprey.cli.build_profile_presets` a leaf.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
 from .build_profile_document import _read_profile_document
 from .build_profile_presets import (
-    PRESET_DATA_BUNDLE_KEY,
+    PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
     list_presets,
     resolve_triggers_path,
 )
-from .profile_root import PERSONA_DIRNAME, ROOT_PROFILE_FILENAME, resolve_profile_root
+from .profile_root import ProfileKind, resolve_profile_root
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -250,6 +252,25 @@ def _apply_config_exclude(merged: dict[str, Any], entries: Any) -> None:
         config[key] = [item for item in current if item not in removal]
 
 
+def _refuse_excluded_helpers(names: Iterable[str]) -> None:
+    """Refuse a bare helper under ``exclude: hooks:``.
+
+    A helper is never selected, so there is nothing to subtract: it ships with
+    the hooks that need it. A profile's own copy is omitted by its qualified
+    spelling (``hooks/<name>``), which this leaves alone.
+
+    Raises:
+        BuildProfileError: Naming the first helper among *names*.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+    from osprey.cli.templates.artifact_library import helper_refusal
+
+    helpers = BuildArtifactCatalog.default().helpers()
+    for name in names:
+        if f"hooks/{name}" in helpers:
+            raise BuildProfileError(helper_refusal(f"hooks/{name}"))
+
+
 def _apply_exclude(
     merged: dict[str, Any],
     exclude: Any,
@@ -340,6 +361,8 @@ def _apply_exclude(
                 f"(got {type(entries).__name__})"
             )
         split = [_split_exclude_entry(field_name, source, entry) for entry in entries]
+        if field_name == "hooks":
+            _refuse_excluded_helpers(name for name, qualified in split if not qualified)
         if source is not None:
             for name, qualified in split:
                 # One library probe per entry: list_artifacts() walks a
@@ -439,12 +462,14 @@ def _resolve_extends(
     if preset_path is not None:
         # A bundled preset reached as a base is consumed exactly as one reached
         # by name is (:func:`~.build_profile_presets._load_preset_raw`), so an
-        # inherited ``app_template:`` never becomes part of what the child
-        # resolves to. Confined to the preset branch: the same key in a
-        # hand-written parent profile is a profile key, and is refused as one.
-        base_raw.pop(PRESET_DATA_BUNDLE_KEY, None)
-        # Consuming the key would otherwise lose the one fact it carried: which
-        # packaged data bundle this profile's tree came from. Record the preset
+        # inherited ``app_template:`` or ``facility:`` never becomes part of
+        # what the child resolves to. Confined to the preset branch: the same
+        # key in a hand-written parent profile is a profile key, and is refused
+        # as one.
+        for key in PRESET_ONLY_KEYS:
+            base_raw.pop(key, None)
+        # Consuming the keys would otherwise lose the one fact they carried:
+        # which packaged data this profile's tree came from. Record the preset
         # instead, so a reader can ask
         # :func:`~.build_profile_presets.preset_data_bundle` the same question
         # the deep merge used to answer. Recorded before the recursion, so the
@@ -474,26 +499,26 @@ def _resolve_extends(
     return merged
 
 
-def merge_persona_delta(
+def merge_layer_delta(
     root_resolved: dict[str, Any],
     delta: dict[str, Any],
     *,
     artifacts: set[str] | None = None,
     shadow_candidates: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Merge a persona delta over its resolved root profile.
+    """Merge a layer over its resolved root profile.
 
-    The implicit merge a ``personas/<name>.yml`` file stands for: it carries
+    The implicit merge a ``tiers/<name>.yml`` file stands for: it carries
     only what differs from the profile it lives under, so it is meaningless on
     its own. The sequence mirrors one ``extends`` layer exactly — the delta's
     ``exclude:`` is consumed first, then the delta wins key-by-key over the
-    root, then ``exclude:`` subtracts from the *merged* result — so a persona
+    root, then ``exclude:`` subtracts from the *merged* result — so a render
     resolves identically whether it is spelled as a delta or as an ``extends``
     child.
 
     Args:
         root_resolved: The root profile, already ``extends``-resolved.
-        delta: The persona's own layer.
+        delta: The render's own layer.
         artifacts: Set collecting the delta's convention-artifact exclusions,
             mutated in place. ``None`` skips recording.
         shadow_candidates: Set collecting the delta's bare library-selection
@@ -597,7 +622,7 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
     A misspelled shadow exclusion is otherwise a silent no-op: the artifact it
     meant to drop keeps rendering, and nothing says why. This warns rather than
     raises because a root profile may legitimately exclude something only some
-    of its personas carry.
+    of its renders carry.
 
     Args:
         root_dir: The profile root the exclusions anchor at.
@@ -616,52 +641,490 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
         )
 
 
-# Hook short names, as the built-in library spells them
-# (``_hook_short_name``). ``target-state`` is a helper library rather than a
-# wired hook: selecting it is the only thing that copies it into
-# ``.claude/hooks/`` beside the gates that import it.
-TARGET_STATE_HOOK = "target-state"
-WRITE_POSTURE_HOOKS: tuple[str, ...] = ("writes-check", "approval")
+#: The kill-switch hook every app render selects, whatever its file lists.
+_WRITES_CHECK_HOOK = "writes-check"
 
 
-def _warn_missing_target_state(root_dir: Path, resolved: dict[str, Any]) -> None:
-    """Warn when a write gate is selected without the posture helper it imports.
+#: The dotted ``config:`` key that gives a render its own web-terminal tier.
+_WEB_TERMINALS_ENABLED = "modules.web_terminals.enabled"
 
-    ``writes-check`` and ``approval`` resolve a target's write posture by
-    importing ``target-state`` from beside them in ``.claude/hooks/``. A profile
-    that selects a gate but not the helper builds and runs — the gates fall back
-    to the most restrictive answer — so the deployment comes out silently
-    write-less, with nothing in the build saying which line caused it. Warning
-    rather than refusing: the selection lists are the author's to compose, and a
-    profile may have its own reason to run a gate with no posture source.
+#: What an attached render is, whatever its file says: no services of its own,
+#: no web-terminal tier of its own. ``(key, value)`` for the top-level facts.
+_ATTACHMENT_FACTS: tuple[tuple[str, Any], ...] = (("deploy_services", False), ("services", {}))
+
+
+def _find_config_path(config: Any, parts: list[str]) -> list[Any]:
+    """Every value in ``config`` spelled at the key path ``parts``.
+
+    A ``config:`` block may spell one leaf fully dotted, partly nested or fully
+    nested; all three reach the same rendered key.
+    """
+    found: list[Any] = []
+    if not isinstance(config, dict):
+        return found
+    for key, value in config.items():
+        key_parts = str(key).split(".")
+        if key_parts != parts[: len(key_parts)]:
+            continue
+        if len(key_parts) == len(parts):
+            found.append(value)
+        elif isinstance(value, dict):
+            found.extend(_find_config_path(value, parts[len(key_parts) :]))
+    return found
+
+
+def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any]:
+    """A copy of ``config`` with every spelling of ``parts`` removed."""
+    result: dict[str, Any] = {}
+    for key, value in config.items():
+        key_parts = str(key).split(".")
+        if key_parts == parts[: len(key_parts)]:
+            if len(key_parts) == len(parts):
+                continue
+            if isinstance(value, dict):
+                value = _drop_config_path(value, parts[len(key_parts) :])
+                if not value:
+                    continue
+        result[key] = value
+    return result
+
+
+def _refuse_layer_spellings(
+    layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
+) -> None:
+    """Refuse what a tier or app file may not say: subtraction and attachment.
+
+    A tier adds by name, so ``exclude:`` has no meaning in it; the same holds
+    for an app, whose lists are its own. Attachment is a fact of the kind, set
+    by the resolver, so a file spelling it is either redundant or wrong. A
+    file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
+    attachment it gets anyway, but never contradict it.
+
+    Raises:
+        BuildProfileError: Naming the file and the offending key.
+    """
+    article = "an" if kind.value[0] in "aeiou" else "a"
+    if not legacy and "exclude" in layer:
+        raise BuildProfileError(
+            f"{layer_rel} spells 'exclude:'. A {kind.value} cannot take anything away "
+            f"from the deployment it belongs to: {article} {kind.value} adds by name; "
+            f"edit the deployment's own lists in {PROFILE_FILENAME} instead."
+        )
+    spelled: list[tuple[str, Any, Any]] = [
+        (key, layer[key], forced) for key, forced in _ATTACHMENT_FACTS if key in layer
+    ]
+    spelled.extend(
+        (_WEB_TERMINALS_ENABLED, value, False)
+        for value in _find_config_path(layer.get("config"), _WEB_TERMINALS_ENABLED.split("."))
+    )
+    for key, value, forced in spelled:
+        if legacy and value == forced:
+            continue
+        raise BuildProfileError(
+            f"{layer_rel} spells {key!r}. Every {kind.value} render is attached to its "
+            f"deployment: it runs no services and no web-terminal tier of its own, and "
+            f"dials the deployment's. The build sets that, so remove {key!r} from "
+            f"{layer_rel}; to change what the deployment runs, edit its "
+            f"{PROFILE_FILENAME}."
+        )
+
+
+def _strip_attachment(layer: dict[str, Any]) -> dict[str, Any]:
+    """A copy of ``layer`` without its (already checked) attachment spellings."""
+    stripped = {k: v for k, v in layer.items() if k not in dict(_ATTACHMENT_FACTS)}
+    if isinstance(stripped.get("config"), dict):
+        stripped["config"] = _drop_config_path(
+            stripped["config"], _WEB_TERMINALS_ENABLED.split(".")
+        )
+    return stripped
+
+
+def _attach(merged: dict[str, Any]) -> dict[str, Any]:
+    """Set the attachment facts every tier and app render carries."""
+    attached = dict(merged)
+    for key, forced in _ATTACHMENT_FACTS:
+        attached[key] = forced.copy() if isinstance(forced, dict) else forced
+    config = attached.get("config")
+    config = (
+        _drop_config_path(config, _WEB_TERMINALS_ENABLED.split("."))
+        if isinstance(config, dict)
+        else {}
+    )
+    config[_WEB_TERMINALS_ENABLED] = False
+    attached["config"] = config
+    return attached
+
+
+#: The top-level keys an app file owns outright: what the agent IS. The host's
+#: values never reach an app render, so a key the app file leaves out is
+#: absent from the render rather than inherited.
+_APP_OWNED_KEYS: tuple[str, ...] = (
+    "name",
+    "hooks",
+    "rules",
+    "skills",
+    "agents",
+    "output_styles",
+    "web_panels",
+    "default_panel",
+    "claude_md_template",
+    "channel_finder_mode",
+)
+
+#: Image-shaping keys an app file may set; absent, the render has none.
+_APP_RENDER_KEYS: tuple[str, ...] = ("extra_mounts", "seed_base", "image")
+
+_CLAUDE_CODE_SECTION = "claude_code"
+_CONTROL_SYSTEM_SECTION = "control_system"
+_CONNECTOR_TABLE_KEY = "connector"
+_WRITES_ENABLED_LEAF = "writes_enabled"
+
+
+def _flatten_section(config: dict[str, Any], section: str) -> dict[str, Any]:
+    """A copy of ``config`` with every key under ``section`` spelled fully dotted.
+
+    Keys outside ``section`` keep their spelling and order. Two configs whose
+    ``section`` entries are both flattened merge leaf by leaf — a nested
+    ``claude_code: {permissions: {deny: [...]}}`` and a dotted
+    ``claude_code.permissions.deny`` become one key whose lists union — rather
+    than surviving as two spellings of one path.
+
+    A partly-nested key such as ``claude_code: {permissions.deny: [...]}`` is
+    one more spelling of the same path and is flattened like the rest. Below
+    the second segment (``claude_code.servers``, ``claude_code.permissions``)
+    the keys are names, not paths: a mapping there whose own keys contain a
+    dot (a server named with one) is kept whole under its path, since the
+    build applies a mapping-form key verbatim and splitting it would address a
+    different, nested place.
+    """
+    result: dict[str, Any] = {}
+
+    def walk(node: dict[str, Any], prefix: list[str]) -> None:
+        if len(prefix) >= 2 and any("." in str(key) for key in node):
+            result[".".join(prefix)] = node
+            return
+        for key, value in node.items():
+            path = [*prefix, *str(key).split(".")]
+            if isinstance(value, dict) and value:
+                walk(value, path)
+            else:
+                result[".".join(path)] = value
+
+    for key, value in config.items():
+        parts = str(key).split(".")
+        if parts[0] != section:
+            result[key] = value
+        elif isinstance(value, dict) and value:
+            walk(value, parts)
+        else:
+            result[key] = value
+    return result
+
+
+def _drop_config_leaves(
+    node: dict[str, Any], drop: Any, prefix: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """A copy of a config block without the leaves whose dotted path ``drop`` accepts.
+
+    ``drop`` sees each leaf's full path as segments, whatever the spelling —
+    dotted, partly nested, nested, or a custom connector's dotted type key —
+    and mappings the drop empties are pruned.
+    """
+    result: dict[str, Any] = {}
+    for key, value in node.items():
+        path = prefix + tuple(str(key).split("."))
+        if isinstance(value, dict) and value:
+            value = _drop_config_leaves(value, drop, path)
+            if not value:
+                continue
+        elif drop(path):
+            continue
+        result[key] = value
+    return result
+
+
+def _is_server_switch(path: tuple[str, ...]) -> bool:
+    """Whether a leaf path lies under ``claude_code.servers``."""
+    return path[:2] == (_CLAUDE_CODE_SECTION, "servers")
+
+
+def _is_write_switch(path: tuple[str, ...]) -> bool:
+    """Whether a leaf path is a ``control_system.*writes_enabled`` switch."""
+    return path[0] == _CONTROL_SYSTEM_SECTION and path[-1] == _WRITES_ENABLED_LEAF
+
+
+def _is_deny_lift(path: tuple[str, ...]) -> bool:
+    """Whether a leaf path is a ``claude_code.permissions.remove_deny`` list.
+
+    A lift grants the host's own render a tool its floor denies. It is a
+    privilege of that render, not a fact of the deployment, so it never
+    reaches an app.
+    """
+    return path[:3] == (_CLAUDE_CODE_SECTION, "permissions", "remove_deny")
+
+
+def _edit_door_switches() -> tuple[tuple[str, ...], ...]:
+    """The path of every switch door in the deployment-edit door table.
+
+    Read from :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS`
+    rather than restated, imported here because that module is heavy and this
+    one is on the path of every profile read.
+    """
+    from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
+
+    return tuple(tuple(door.key.split(".")) for door in DEPLOYMENT_EDIT_DOORS if door.is_switch)
+
+
+def _is_edit_door_switch(path: tuple[str, ...]) -> bool:
+    """Whether a leaf path spells one of the deployment-edit door switches.
+
+    Every spelling counts — dotted, partly nested or nested — and so does a
+    scalar written where the door's section belongs (``web.config_panel: true``).
+    """
+    for segments in _edit_door_switches():
+        if path[: len(segments)] == segments:
+            return True
+        if len(path) >= 2 and segments[: len(path)] == path:
+            return True
+    return False
+
+
+def _drop_write_switches(config: dict[str, Any]) -> dict[str, Any]:
+    """A copy of a config block without any ``control_system.*writes_enabled`` leaf."""
+    return _drop_config_leaves(config, _is_write_switch)
+
+
+def _connector_block_types(config: dict[str, Any]) -> set[str]:
+    """The first segment of every ``control_system.connector.<type>`` leaf ``config`` spells."""
+    found: set[str] = set()
+
+    def walk(node: dict[str, Any], prefix: tuple[str, ...]) -> None:
+        for key, value in node.items():
+            path = prefix + tuple(str(key).split("."))
+            if isinstance(value, dict) and value:
+                walk(value, path)
+            elif (
+                len(path) >= 3
+                and path[0] == _CONTROL_SYSTEM_SECTION
+                and path[1] == _CONNECTOR_TABLE_KEY
+            ):
+                found.add(path[2])
+
+    walk(config, ())
+    return found
+
+
+def _connector_table_keys(config: dict[str, Any]) -> set[str]:
+    """The type keys of a ``control_system.connector`` mapping ``config`` spells whole."""
+    table = config.get(f"{_CONTROL_SYSTEM_SECTION}.{_CONNECTOR_TABLE_KEY}")
+    if not isinstance(table, dict):
+        section = config.get(_CONTROL_SYSTEM_SECTION)
+        table = section.get(_CONNECTOR_TABLE_KEY) if isinstance(section, dict) else None
+    return {str(key) for key in table} if isinstance(table, dict) else set()
+
+
+def _pin_write_switches(config: dict[str, Any], *sources: dict[str, Any]) -> dict[str, Any]:
+    """``config`` with every write switch removed and pinned ``false`` again.
+
+    The deployment-wide switch is pinned, and so is the per-type switch of
+    every single-segment connector type ``sources`` (the configs ``config``
+    was composed from) have a block for — a block that held nothing but its
+    write switch included, so it stays the configured machine it was. No
+    other block is created: a reader that finds a non-empty
+    ``control_system.connector.<type>`` block treats that machine as
+    configured, so a pin on a type no source has a block for would change
+    which targets the render has. An absent per-type switch inherits the
+    deployment-wide ``false``, which is why such a type needs no pin — and why
+    a custom connector whose type is a dotted module path gets none either,
+    since spelling it as a dotted key would address a different, nested path.
+    """
+    from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
+
+    pinned = _drop_write_switches(config)
+    layers = (pinned, *sources)
+    present = set().union(*(_connector_block_types(layer) for layer in layers))
+    dotted_types = {key for layer in layers for key in _connector_table_keys(layer) if "." in key}
+    for connector_type in sorted(present):
+        if any(key.split(".")[0] == connector_type for key in dotted_types):
+            continue
+        key = ".".join(
+            (
+                _CONTROL_SYSTEM_SECTION,
+                _CONNECTOR_TABLE_KEY,
+                connector_type,
+                TYPE_WRITES_ENABLED_LEAF,
+            )
+        )
+        pinned[key] = False
+    pinned[WRITES_ENABLED_KEY] = False
+    return pinned
+
+
+def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
+    """``config`` with every deployment-edit door set closed, dotted.
+
+    Each row of :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS`
+    is pinned: a switch door (the Config panel, gallery writes) has every
+    spelling dropped and is set to its closed value; the list door has its
+    tool appended to the dotted list, which keeps the floor denies already
+    there. The setup tool rewrites the render's own ``config.yml``, the panel
+    edits the same file and gallery writes add to what the agent reads, so an
+    app render holding any of them could change the deployment it is a guest
+    of, whatever the host or the app file set.
+    """
+    from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
+
+    pinned = _drop_config_leaves(config, _is_edit_door_switch)
+    for door in DEPLOYMENT_EDIT_DOORS:
+        if door.is_switch:
+            pinned[door.key] = door.closed
+            continue
+        entries = pinned.get(door.key)
+        entries = list(entries) if isinstance(entries, list) else []
+        if door.closed not in entries:
+            entries.append(door.closed)
+        pinned[door.key] = entries
+    return pinned
+
+
+def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) -> dict[str, Any]:
+    """Compose an app render from its host deployment and its complete app file.
+
+    The app file owns what the agent is: the keys in :data:`_APP_OWNED_KEYS`
+    and :data:`_APP_RENDER_KEYS` come from it alone. Its ``config:`` sits over
+    the host's facts — the host's config minus every ``claude_code.servers``
+    switch (the app states its own server set) and minus every
+    ``control_system.*writes_enabled`` switch; ``claude_code.permissions`` is
+    kept, so the host's floor denies union with the app's own — all but the
+    host's ``remove_deny`` lifts, which grant the host's own render. The app's
+    ``mcp_servers`` declarations are added to the host's. Every other
+    top-level key, ``provenance`` and ``data`` among them, is the host's
+    verbatim, which is what keeps the data bundle the deployment's. Nothing is
+    read from the package: the app file is a materialized, explicit copy.
+
+    Whatever either side says, the render cannot write or edit the deployment:
+    every write switch is pinned ``false``, every door in
+    :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is set
+    closed (the setup tool denied, the Config panel and gallery writes off),
+    ``writes-check`` is selected, and
+    :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks the
+    result before it is returned.
 
     Args:
-        root_dir: The profile root, named in the warning.
-        resolved: The fully resolved profile mapping.
+        host: The host's resolved root profile.
+        app: The app file's document, unresolved.
+        app_rel: The app file's repo-relative label, for messages.
+
+    Returns:
+        The composed render, before the attachment facts are set.
+
+    Raises:
+        BuildProfileError: If the composed render could still write.
     """
-    hooks = resolved.get("hooks")
-    if not isinstance(hooks, list):
-        return
-    selected = {entry for entry in hooks if isinstance(entry, str)}
-    # A profile shipping its own ``hooks/osprey_target_state.py`` renders it
-    # whether or not the short name is selected, so the import resolves.
-    if TARGET_STATE_HOOK in selected or _profile_ships(root_dir, f"hooks/{TARGET_STATE_HOOK}"):
-        return
-    triggering = [name for name in WRITE_POSTURE_HOOKS if name in selected]
-    if not triggering:
-        return
-    _LOGGER.warning(
-        "Profile %s selects %s but not %r. Those hooks import the %r helper from "
-        "beside them in .claude/hooks/, and selecting it is what puts it there — "
-        "without it the hooks resolve write posture to the most restrictive "
-        "answer and refuse writes this deployment is configured to allow. Add "
-        "%r to the profile's 'hooks:' list.",
-        root_dir,
-        ", ".join(repr(name) for name in triggering),
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
-        TARGET_STATE_HOOK,
+    render = {
+        key: value
+        for key, value in host.items()
+        if key not in _APP_OWNED_KEYS and key not in _APP_RENDER_KEYS and key != "config"
+    }
+    for key in (*_APP_OWNED_KEYS, *_APP_RENDER_KEYS):
+        if key in app:
+            render[key] = app[key]
+
+    app_servers = app.get("mcp_servers")
+    if isinstance(app_servers, dict) and app_servers:
+        host_servers = host.get("mcp_servers")
+        render["mcp_servers"] = _deep_merge(
+            host_servers if isinstance(host_servers, dict) else {}, app_servers
+        )
+
+    host_config = host.get("config")
+    host_config = dict(host_config) if isinstance(host_config, dict) else {}
+    app_config = app.get("config")
+    app_config = dict(app_config) if isinstance(app_config, dict) else {}
+    host_facts = _drop_config_leaves(
+        host_config,
+        lambda path: (
+            _is_server_switch(path)
+            or _is_write_switch(path)
+            or _is_deny_lift(path)
+            or _is_edit_door_switch(path)
+        ),
     )
+    config = _deep_merge(
+        _flatten_section(host_facts, _CLAUDE_CODE_SECTION),
+        _flatten_section(app_config, _CLAUDE_CODE_SECTION),
+    )
+    # The host's raw config counts a block that held only its write switch (it
+    # stays the configured machine it was); the app's own write switches are
+    # pins, never blocks, so they are dropped before block presence is read.
+    render["config"] = _pin_edit_doors(
+        _pin_write_switches(config, host_config, _drop_write_switches(app_config))
+    )
+
+    hooks = render.get("hooks")
+    hooks = list(hooks) if isinstance(hooks, list) else []
+    if _WRITES_CHECK_HOOK not in hooks:
+        hooks.append(_WRITES_CHECK_HOOK)
+    render["hooks"] = hooks
+
+    from osprey.deployment.web_terminals.lint import lint_app_render
+
+    findings = lint_app_render(render)
+    if findings:
+        raise BuildProfileError(f"{app_rel}: {findings[0].message}")
+    return render
+
+
+def render_document(
+    kind: ProfileKind,
+    host_resolved: dict[str, Any],
+    layer: dict[str, Any],
+    layer_rel: str,
+    *,
+    legacy: bool = False,
+    artifacts: set[str] | None = None,
+    shadow_candidates: set[str] | None = None,
+) -> dict[str, Any]:
+    """The profile document one layer renders from, decided by its kind.
+
+    The one answer to "what does this tier or app render": init, lint and the
+    build each read a render's privileges off this document, so none of them
+    can judge an app as the tier merge it never is.
+
+    * ``legacy`` — a file in the retired layer directory keeps its old
+      meaning, ``exclude:`` included, for the one release it is still read
+      (``osprey init --revalidate`` rewrites it into ``tiers/``);
+    * an app is composed from the host and its complete file
+      (:func:`compose_app_render`);
+    * a tier is merged over the host.
+
+    Args:
+        kind: The layer's kind.
+        host_resolved: The host's resolved root profile (only its ``config``,
+            ``hooks`` and ``mcp_servers`` decide what an app holds).
+        layer: The layer's document, unresolved.
+        layer_rel: The layer's repo-relative label, for messages.
+        legacy: Whether the layer sits in the retired layer directory.
+        artifacts: Passed to :func:`merge_layer_delta` for a legacy layer.
+        shadow_candidates: Passed to :func:`merge_layer_delta` for a legacy layer.
+
+    Returns:
+        The rendered document, before the attachment facts are set.
+
+    Raises:
+        BuildProfileError: If an app's composed render could still write or
+            edit the deployment.
+    """
+    if legacy:
+        return merge_layer_delta(
+            host_resolved,
+            _strip_attachment(layer),
+            artifacts=artifacts,
+            shadow_candidates=shadow_candidates,
+        )
+    if kind is ProfileKind.APP:
+        return compose_app_render(host_resolved, layer, layer_rel)
+    return _deep_merge(host_resolved, layer)
 
 
 @dataclass(frozen=True)
@@ -670,12 +1133,12 @@ class ResolvedProfileDocument:
 
     Attributes:
         raw: The fully resolved profile mapping — ``extends`` consumed and, for
-            a persona delta, merged over its root.
+            a layer, merged over its root.
         root_dir: The profile root every profile-relative path anchors at
             (``data:``, convention directories, ``.env``, hash material). For a
-            persona delta this is the directory *above* ``personas/``, never the
+            layer this is the directory *above* ``tiers/``, never the
             delta's own parent.
-        is_persona_delta: Whether the document was resolved as a persona delta.
+        is_layer: Whether the document was resolved as a layer.
         excluded_artifacts: Convention-dir artifacts the resolved profile
             excludes, as ``"<source>/<name>"`` (e.g. ``"agents/orbit-writer"``).
             The build omits these files, and ownership derivation scans the
@@ -691,7 +1154,7 @@ class ResolvedProfileDocument:
 
     raw: dict[str, Any]
     root_dir: Path
-    is_persona_delta: bool
+    is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
 
@@ -699,24 +1162,24 @@ class ResolvedProfileDocument:
 def resolve_profile_document(
     raw: dict[str, Any], profile_path: Path, *, warn: bool = True
 ) -> ResolvedProfileDocument:
-    """Resolve a profile document, following the implicit persona merge.
+    """Resolve a profile document, following the implicit render merge.
 
     The one place that decides what a profile file *means*. A file under
-    ``personas/`` beside a ``profile.yml`` carries only a delta: living there
+    ``tiers/`` beside a ``profile.yml`` carries only a delta: living there
     is its inheritance, so it is resolved against that root rather than on its
     own, and everything it names anchors at the root. Every other file resolves
     standalone through its ``extends`` chain.
 
     Both the loader and the content hash go through here, which is what keeps a
-    persona's built project and its staleness hash describing the same merge.
+    render's built project and its staleness hash describing the same merge.
 
     Args:
         raw: The profile document as read.
         profile_path: Where that document lives — the classification is made
             from its location, not its contents.
-        warn: Whether to log the resolution diagnostics — exclusions that match
-            no file, and a write gate selected without the posture helper it
-            imports. ``False`` for the hash path, which resolves the same
+        warn: Whether to log the exclusion diagnostics — exclusions that match
+            no file, and bare exclusions a profile file shadows. ``False`` for
+            the hash path, which resolves the same
             document a build already loaded — without it every build reports
             each one twice, and a warning that repeats is one people learn to
             skip. The loader is the user-facing surface, so it keeps the
@@ -726,28 +1189,30 @@ def resolve_profile_document(
         The resolved document and its anchor.
 
     Raises:
-        BuildProfileError: If a persona delta declares ``extends``, if the root
-            of a persona delta is missing or is not a YAML mapping, or if
+        BuildProfileError: If a layer declares ``extends``, if the root
+            of a layer is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
+        FacilityBuildError: ``profile-invalid`` when a layer names
+            ``data:`` (every render shares the root profile's facility tree)
+            or sets ``simulation.models`` on a VA-baselined render.
     """
-    root_dir, is_persona_delta = resolve_profile_root(profile_path)
+    root_dir, kind = resolve_profile_root(profile_path)
+    is_layer = bool(kind)
     normalized = dict(raw)
     artifacts: set[str] = set()
     shadowed: set[str] = set()
     lineage: list[str] = []
 
     def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
-        """Report the resolution diagnostics, then package the result.
+        """Report the exclusion diagnostics, then package the result.
 
         Both branches end the same way, and they must: the diagnostics read the
-        sets every layer of either branch fed — and the resolved selection lists
-        only both branches produce — so a branch that skipped one would leave
-        that whole shape of profile without the warning.
+        exclusion sets every layer of either branch fed, so a branch that
+        skipped one would leave that whole shape of profile without the warning.
         """
         if warn:
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
-            _warn_missing_target_state(root_dir, resolved)
         return ResolvedProfileDocument(
             resolved,
             root_dir,
@@ -756,7 +1221,7 @@ def resolve_profile_document(
             lineage[0] if lineage else None,
         )
 
-    if not is_persona_delta:
+    if not is_layer:
         return finish(
             _resolve_extends(
                 normalized,
@@ -768,16 +1233,37 @@ def resolve_profile_document(
             False,
         )
 
+    layer_dir = Path(profile_path).resolve().parent.name
+    layer_rel = f"{layer_dir}/{Path(profile_path).name}"
+    retired_tier = layer_dir in RETIRED_LAYER_DIRS
+
     if "extends" in normalized:
         raise BuildProfileError(
-            f"Persona delta {profile_path} declares 'extends'. A file in "
-            f"{PERSONA_DIRNAME}/ already inherits from the {ROOT_PROFILE_FILENAME} beside "
-            f"it — that is what makes it a delta — so a second base would be ambiguous. "
-            f"Remove the 'extends' key; to change what the whole stack inherits, edit "
-            f"{root_dir / ROOT_PROFILE_FILENAME} instead."
+            f"{kind.value.capitalize()} {profile_path} declares 'extends'. A file in "
+            f"{layer_dir}/ already inherits from the {PROFILE_FILENAME} beside "
+            f"it, so a second base would be ambiguous. "
+            f"Remove the 'extends' key; to change what every render of this deployment "
+            f"inherits, edit {root_dir / PROFILE_FILENAME} instead."
         )
 
-    root_path = root_dir / ROOT_PROFILE_FILENAME
+    if "data" in normalized:
+        from osprey.facility.errors import FacilityBuildError
+
+        raise FacilityBuildError(
+            "profile-invalid",
+            layer_rel,
+            [layer_rel],
+            f"remove `data:` from {layer_rel}",
+            record_kind="path",
+            detail=(
+                f"a {kind.value} names `data:`, and every render of a deployment shares "
+                f"the facility tree the root {PROFILE_FILENAME}'s `data:` names"
+            ),
+        )
+
+    _refuse_layer_spellings(normalized, layer_rel, kind, legacy=retired_tier)
+
+    root_path = root_dir / PROFILE_FILENAME
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
@@ -792,12 +1278,23 @@ def resolve_profile_document(
     # ``extends:`` of its own (rejected above), and _resolve_extends would
     # consume its ``exclude:`` against its own layer instead of against the
     # root, silently dropping the exclusion.
-    return finish(
-        merge_persona_delta(
-            root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
-        ),
-        True,
+    merged = _attach(
+        render_document(
+            kind,
+            root_resolved,
+            normalized,
+            layer_rel,
+            legacy=retired_tier,
+            artifacts=artifacts,
+            shadow_candidates=shadowed,
+        )
     )
+    from .build_profile_load import render_served_models_error
+
+    served_error = render_served_models_error(normalized, merged, layer_rel)
+    if served_error is not None:
+        raise served_error
+    return finish(merged, True)
 
 
 # ---------------------------------------------------------------------------
@@ -848,7 +1345,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []
@@ -887,7 +1384,7 @@ def profile_triggers_material(
     non-empty string yields ``None`` rather than an error.
 
     Args:
-        resolved: The profile after ``extends`` (and persona-delta) resolution.
+        resolved: The profile after ``extends`` (and layer) resolution.
         profile_dir: The profile root the trigger path anchors at.
 
     Returns:
@@ -936,31 +1433,33 @@ def _fold_profile_material(
     * the trigger file ``dispatch.triggers`` names, when it lives with the
       profile (a bundled trigger file is package content, not profile
       material);
-    * every persona delta in ``personas/`` — the files a deployment's own
-      per-persona projects are rendered from. Without them, editing a delta
+    * every layer file in ``tiers/``, ``apps/`` and the retired layer directory
+      (:func:`~osprey.cli.profile_root.layer_files`, the same listing the build
+      loop renders from) — the files a deployment's own per-layer projects are
+      rendered from. Without them, editing a delta
       moves no hash at all: the deploy-side check would call the build clean,
-      no rebuild would follow, and the persona render already on disk (which
+      no rebuild would follow, and the render already on disk (which
       ``up`` re-renders only when it is *absent*) would keep shipping the
-      superseded delta into that persona's image.
+      superseded delta into that render's image.
 
-    Personas are folded as the *direct children* of ``personas/`` and nothing
-    deeper, because that is exactly the set that can be built: a file is read
-    as a delta only when its parent directory IS ``personas/``
+    Layers are folded as the *direct children* of their layer directory and
+    nothing deeper, because that is exactly the set that can be built: a file is
+    read as a layer only when its parent directory IS a layer directory
     (:func:`~osprey.cli.profile_root.resolve_profile_root`), so a tree nested
     below it is no more build input than a ``README`` beside ``profile.yml``.
-    Suffixes are not filtered — a delta is named by the persona catalog, which
+    Suffixes are not filtered — a delta is named by the render catalog, which
     accepts any direct child — while dot-prefixed entries are skipped, matching
     the walk every other convention read uses: a ``.DS_Store`` must not report a
     deployment as stale.
 
     One consequence, accepted rather than worked around: this is folded for a
-    persona delta too (its root_dir is the profile root), so editing ONE delta
-    moves every sibling persona's hash as well. That is the same over-report as
-    a root edit reaching every persona — it costs an idempotent rebuild, where
-    subtracting siblings would cost a persona that silently no longer matches
+    layer too (its root_dir is the profile root), so editing ONE delta
+    moves every sibling render's hash as well. That is the same over-report as
+    a root edit reaching every render — it costs an idempotent rebuild, where
+    subtracting siblings would cost a render that silently no longer matches
     its source.
 
-    A convention directory, the named trigger file or ``personas/`` that is absent
+    A convention directory, the named trigger file or ``tiers/`` that is absent
     folds nothing at all, so a profile carrying none of them hashes exactly as
     it did before they existed. Creating an empty convention directory does
     move the hash — it folds its label — which is honest: the profile tree
@@ -968,7 +1467,7 @@ def _fold_profile_material(
 
     Args:
         digest: The hash object to update in place.
-        resolved: The profile after ``extends`` (and persona-delta) resolution.
+        resolved: The profile after ``extends`` (and layer) resolution.
         profile_dir: The profile root every relative path anchors at.
         conventions: Whether to fold convention material. ``False`` for a
             bundled preset, which is one file among many in a shared package
@@ -978,7 +1477,7 @@ def _fold_profile_material(
     """
     from .build_profile_model import BuildProfile
     from .profile_conventions import CONVENTION_SOURCES
-    from .profile_root import PERSONA_DIRNAME
+    from .profile_root import layer_files
 
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
     if data_root is not None:
@@ -1001,17 +1500,26 @@ def _fold_profile_material(
     # Sorted by name, which is the whole ordering rule a flat directory needs;
     # `_fold_source_tree` contributes each delta's own name beside its content
     # digest, so a rename moves the hash exactly as an edit does.
-    persona_dir = profile_dir / PERSONA_DIRNAME
-    if persona_dir.is_dir():
-        for delta in sorted(
-            (
-                entry
-                for entry in persona_dir.iterdir()
-                if entry.is_file() and not entry.name.startswith(".")
-            ),
-            key=lambda entry: entry.name,
-        ):
-            _fold_source_tree(digest, "persona", delta)
+    for _kind, layer in layer_files(profile_dir):
+        _fold_source_tree(digest, layer_fold_label(layer), layer)
+
+
+def layer_fold_label(layer: Path) -> str:
+    """The label a layer file folds under, named by its directory.
+
+    By directory rather than by kind, so a file in a retired layer directory
+    keeps the label it always folded under (:data:`~osprey.cli.build_profile_document.RETIRED_TIER_KEY`)
+    — a repo that has not moved its files into ``tiers/`` keeps its hash —
+    while ``tiers/`` and ``apps/`` files fold as ``tier`` and ``app``.
+
+    Strict: *layer* must be a layer file, one :func:`~osprey.cli.profile_root.layer_files`
+    lists. A path in any other directory raises :class:`KeyError` rather than
+    folding under a label it was never given.
+    """
+    from .build_profile_document import RETIRED_TIER_KEY
+
+    name = layer.parent.name
+    return RETIRED_TIER_KEY if name in RETIRED_LAYER_DIRS else LAYER_DIR_KINDS[name]
 
 
 def _hash_resolved_profile(
@@ -1026,18 +1534,18 @@ def _hash_resolved_profile(
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
     ``extends`` parent is not. The file inputs the resolved profile names — its
-    ``data:`` tree, convention directories, the named trigger file and the persona
-    deltas in ``personas/`` — are folded in on top by
+    ``data:`` tree, convention directories, the named trigger file and the render
+    deltas in ``tiers/`` — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.
 
     Resolution goes through :func:`resolve_profile_document`, the same call the
     loader makes: the hash can only say honestly whether a built project still
     matches its source if it resolves the *same* document the build resolved.
-    That is also what makes a root edit move every persona project's hash.
+    That is also what makes a root edit move every render project's hash.
 
     The excluded-artifact record is folded in as well. It is derived state, not
-    profile content, so the canonical JSON cannot see it — yet two personas
+    profile content, so the canonical JSON cannot see it — yet two renders
     differing only by a ``commands:`` exclusion build different projects, and
     without this they would hash identically and neither would ever read stale.
 
@@ -1103,6 +1611,15 @@ def compute_preset_hash(preset_name: str) -> str | None:
     """
     try:
         raw, path = _load_preset_raw(preset_name)
+        if "/" in preset_name:
+            # A kind-qualified tier or app (`tiers/readonly`) is a layer, not a
+            # profile: resolving it would lay it over a `profile.yml` beside it
+            # that the package does not have. Its content is its own document.
+            import hashlib
+            import json
+
+            canonical = json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+            return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
         return _hash_resolved_profile(raw, path, conventions=False)
     except Exception:
         return None
@@ -1121,7 +1638,7 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
-    a directory with no ``.env.variant`` (a persona delta's, a preset's) folds
+    a directory with no ``.env.variant`` (a layer's, a preset's) folds
     nothing.
     """
     try:

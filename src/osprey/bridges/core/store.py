@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
+from pathlib import Path
 from typing import Any
+
+from osprey_connectors.safety_file import atomic_replace
 
 
 class JsonFileStore:
@@ -56,16 +58,9 @@ class JsonFileStore:
         directory = os.path.dirname(self.path) or "."
         os.makedirs(directory, exist_ok=True)
         snapshot = dict(self._data)
-        fd, tmp = tempfile.mkstemp(
-            dir=directory, prefix=f".{os.path.basename(self.path)}.", suffix=".tmp"
+        atomic_replace(
+            Path(self.path),
+            json.dumps(snapshot, indent=2).encode("utf-8"),
+            mode=0o600,
+            sync="best_effort",
         )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(snapshot, f, indent=2)
-            os.replace(tmp, self.path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise

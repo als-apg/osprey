@@ -286,7 +286,7 @@ def _listing_items(document: dict[str, Any]) -> list[dict[str, Any]]:
 def _isolated(monkeypatch):
     """Fresh availability, offload, MCP and qmd state; a configured caption provider."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     availability.reset_availability()
     _offload.reset_offload_state()

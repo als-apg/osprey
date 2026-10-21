@@ -81,22 +81,20 @@ export const KIND_WORDS = {
   live: 'Real machine',
   standin: 'Rehearsal',
   va: 'Simulator',
-  simulated: 'Demo',
 };
 
 /**
  * The "read" capability phrase first contact and the tour put in front of an
  * operator, keyed on the same `data-target-kind` value as {@link KIND_WORDS}.
  * Keyed rather than fixed because the sentence is a promise about where the
- * numbers come from: a demo connector saying "read live machine values" would
- * be the one claim this vocabulary exists to prevent.
+ * numbers come from: the simulator saying "read live machine values" would be
+ * the one claim this vocabulary exists to prevent.
  * @type {Record<string, string>}
  */
 export const KIND_READ_PHRASES = {
   live: 'read live machine values',
   standin: 'read values from the rehearsal copy',
   va: 'read values from the simulator',
-  simulated: 'read demo data',
 };
 
 /**
@@ -109,7 +107,6 @@ const KIND_DESCRIPTORS = {
   live: 'Writes move hardware',
   standin: "Copy of the real machine's controls · nothing moves",
   va: 'Physics model · nothing moves',
-  simulated: 'Mock data · nothing moves',
 };
 
 /**
@@ -207,7 +204,6 @@ export const REASON_PHRASES = {
   probe_channel_missing: 'not set up',
   connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
-  limits_posture: 'needs strict limits',
   operator_ack_missing: 'needs gateway ack',
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',

@@ -304,10 +304,17 @@ class _Client:
     def stop_guard(self) -> None:
         """Cancel the guard task, through its own loop when called from another.
 
-        A task may be cancelled only from its loop's thread; a guard whose loop
-        is closed is left as it is.
+        A task may be cancelled only from its loop's thread, and it finishes
+        only while that loop still runs: on a loop that is closed, or never
+        runs again, the guard stays pending for good. Whoever stops the guard
+        ends the worker itself, so a guard left that way has nothing to do and
+        is collected without asyncio's destroyed-while-pending report, which
+        would otherwise be logged whenever the collector reaches it.
         """
-        if self._guard.done() or self.loop.is_closed():
+        if self._guard.done():
+            return
+        self._guard._log_destroy_pending = False  # type: ignore[attr-defined]
+        if self.loop.is_closed():
             return
         try:
             running = asyncio.get_running_loop()

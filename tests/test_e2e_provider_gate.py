@@ -418,17 +418,11 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-_TELEMETRY = "tests/e2e/test_openobserve_telemetry.py"
-_LIVE_TELEMETRY = f"{_TELEMETRY}::test_live_agent_metric_lands"
-_SYNTHETIC_TELEMETRY = (
-    "test_synthetic_otlp_roundtrip_via_computed_header",
-    "test_bad_credentials_are_rejected",
-    "test_the_deploy_provisions_a_distinct_ingest_identity",
-    "test_synthetic_otlp_roundtrip_via_the_ingest_identity",
-    "test_synthetic_trace_roundtrip_via_the_ingest_identity",
-    "test_a_wrong_token_for_the_ingest_account_is_rejected",
-    "test_the_rendered_config_names_the_ingest_identity",
-)
+#: A module whose every test drives a model, and one whose every test is
+#: ``model_free``. Selected together they are the mixed run the refusal has to
+#: split: name the first, leave the second alone.
+_MODEL_DRIVEN = "tests/e2e/test_judge.py"
+_MODEL_FREE = "tests/e2e/test_sdk_helpers.py"
 _DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single", "xdist"])
 
 
@@ -442,17 +436,62 @@ def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
 
 @_DISTRIBUTION
 def test_a_selected_model_driven_test_is_refused_by_name(dist: tuple[str, ...]) -> None:
-    result = _run_pytest(_TELEMETRY, "--setup-plan", *dist)
+    result = _run_pytest(_MODEL_DRIVEN, _MODEL_FREE, "--setup-plan", *dist)
     output = result.stdout + result.stderr
     assert result.returncode == pytest.ExitCode.USAGE_ERROR, output
-    assert _LIVE_TELEMETRY in output
+    assert f"{_MODEL_DRIVEN}::" in output
     assert f"-m {MODEL_FREE_MARKER}" in output
     assert "INTERNALERROR" not in output
-    assert not any(name in output for name in _SYNTHETIC_TELEMETRY), output
+    assert f"{_MODEL_FREE}::" not in output, output
 
 
-def test_deselecting_the_model_driven_test_lifts_the_refusal() -> None:
-    result = _run_pytest(_TELEMETRY, "--deselect", _LIVE_TELEMETRY, "--setup-plan", "-n", "2")
+def _from_the_tests_root(*keep: str) -> list[str]:
+    """Select *keep* by collecting the whole ``tests/`` directory with the rest ignored.
+
+    Naming ``tests`` is how a full-suite run is invoked, and it is the one
+    shape in which the controller never loads ``tests/e2e/conftest.py``:
+    pytest loads the conftests on the path to each argument, and the e2e
+    directory lies below the argument, not on the way to it. Naming the
+    modules directly would load that conftest on the controller and hide what
+    this shape does.
+    """
+    kept = {_REPO_ROOT / path for path in keep}
+    ignored = [
+        entry
+        for directory in (_TESTS_ROOT, _TESTS_ROOT / "e2e")
+        for entry in sorted(directory.iterdir())
+        if (entry.is_dir() or entry.name.startswith("test_"))
+        and entry not in kept
+        and not any(entry in path.parents for path in kept)
+    ]
+    return ["tests", *(f"--ignore={entry}" for entry in ignored)]
+
+
+def test_a_full_suite_run_under_xdist_ends_on_the_refusal_rather_than_crashing() -> None:
+    """A whole-``tests/`` run under xdist relays the refusal like a run of ``tests/e2e/``.
+
+    The worker that refuses ends its session right after collection, and
+    pytest reports a collection as finished even when the hook judging it
+    raised, so the controller has already handed that worker tests when it
+    hears the worker is gone. Unless the refusal is relayed, the run dies on
+    xdist's own ``INTERNALERROR`` about a crashed item and the refusal is never
+    printed.
+    """
+    result = _run_pytest(
+        *_from_the_tests_root(_MODEL_DRIVEN, _MODEL_FREE), "--setup-plan", "-n", "2"
+    )
+    output = result.stdout + result.stderr
+    assert "INTERNALERROR" not in output, output
+    assert result.returncode == pytest.ExitCode.USAGE_ERROR, output
+    assert f"{_MODEL_DRIVEN}::" in output
+    assert f"{_MODEL_FREE}::" not in output, output
+
+
+def test_selecting_by_the_marker_lifts_the_refusal() -> None:
+    """The remedy the refusal prints is the one that works."""
+    result = _run_pytest(
+        _MODEL_DRIVEN, _MODEL_FREE, "-m", MODEL_FREE_MARKER, "--setup-plan", "-n", "2"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
 
 

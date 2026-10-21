@@ -12,8 +12,8 @@ Contract:
   concatenated with the user's ``extra.md`` (or the legacy flat ``<user>.md``),
   piped into the container's ``/data/claude-config/CLAUDE.md`` (user scope —
   not gated by ``--setting-sources``, unlike skills). A user whose resolved
-  persona sets ``seed_base: false`` is seeded from its ``extra.md`` alone, with
-  no base prepend — the shared base is opt-out per persona (default on).
+  render sets ``seed_base: false`` is seeded from its ``extra.md`` alone, with
+  no base prepend — the shared base is opt-out per render (default on).
 * ``skills/`` is idempotent and non-destructive via a ``.deploy-managed``
   sentinel dropped inside the container: only sentinel-bearing skill dirs are
   ever touched. A skill dir that arrived some other way (hand-placed under
@@ -24,7 +24,7 @@ Contract:
 * A user whose container isn't up yet is skipped (logged), not fatal — the
   rest of the roster is still seeded.
 * The overlay tree's ``base.md`` is required whenever at least one
-  to-be-seeded user's persona keeps the base prepend (``seed_base: true``, the
+  to-be-seeded user's render keeps the base prepend (``seed_base: true``, the
   default); its absence then aborts the whole seed up front (a misconfiguration,
   not a per-user issue) — mirroring the bash source's ``exit 1``. When every
   seeded user opts out (``seed_base: false``), a missing base.md is not an error.
@@ -43,10 +43,10 @@ from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
-from osprey.utils.config import ConfigBuilder
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey.deployment.web_terminals.roster import as_dict, resolve_cards, roster_people
+from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.web_terminals.seeding")
 
@@ -153,7 +153,7 @@ def _context_dir(config: dict[str, Any], config_path: str | Path | None = None) 
     ``docker/web-terminal-context`` names a directory a deployment repo simply
     does not have. Resolved there, a seed either aborts on a ``base.md`` it
     reports missing from a path that never existed, or — for a roster whose
-    personas all opt out of the base prepend — reports every user seeded while
+    renders all opt out of the base prepend — reports every user seeded while
     their containers receive nothing, since an absent per-user ``extra.md`` and
     an empty ``skills/`` are both legitimate.
     """
@@ -172,7 +172,7 @@ def seed_web_terminals(config_path: str | Path, user: str | None = None) -> None
 
     Raises:
         RuntimeError: If the overlay tree's ``base.md`` is missing while
-            some to-be-seeded user's persona keeps ``seed_base`` (the default),
+            some to-be-seeded user's render keeps ``seed_base`` (the default),
             or if every ready container's seed failed (see
             :func:`seed_user_containers`).
         ValueError: If ``user`` is given but not present in
@@ -208,20 +208,19 @@ def seed_user_containers(
 
     A missing ``base.md`` is a misconfiguration too, and not a per-user
     problem, so it aborts before any user is touched — but only when at least
-    one to-be-seeded user's persona keeps the base prepend (``seed_base: true``,
+    one to-be-seeded user's render keeps the base prepend (``seed_base: true``,
     the default). When every seeded user opts out (``seed_base: false``), each
     is seeded from its ``extra.md`` alone and a missing base.md is tolerated.
     No-op if web terminals are disabled or the roster is empty (and ``user``
     was not given).
 
     Each user's skills target directory is derived from their resolved
-    persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
-    ``strict=True``) rather than a hardcoded ``<facility_prefix>-assistant``
-    path, so a user on a non-default persona gets skills seeded into their
-    own project's render zone (``<project>/build/.claude/skills``, the
+    render's ``container_project_dir`` (via :func:`renders.resolve_cards`,
+    ``strict=True``), so every user's skills land in their own render's
+    project's render zone (``<project>/build/.claude/skills``, the
     ``.claude/`` the CLI actually reads at project scope). ``CLAUDE.md`` seeding is unaffected by
-    persona — the ``base.md``/``extra.md`` overlay convention and its target
-    path are the same for every user regardless of persona.
+    render — the ``base.md``/``extra.md`` overlay convention and its target
+    path are the same for every user regardless of render.
 
     Args:
         config: Parsed facility config (a ``ConfigBuilder``
@@ -242,21 +241,23 @@ def seed_user_containers(
 
     Raises:
         RuntimeError: If the overlay tree's ``base.md`` is missing while
-            some to-be-seeded user's persona keeps ``seed_base`` (the default),
+            some to-be-seeded user's render keeps ``seed_base`` (the default),
             or if at least one container was ready and every ready container's
             seed failed.
         ValueError: If ``user`` is given but not present in
-            ``modules.web_terminals.users``, or if a roster entry's persona
+            ``modules.web_terminals.users``, or if a roster entry's render
             reference cannot be resolved against
-            ``modules.web_terminals.personas`` (see
-            :func:`personas.resolve_personas`).
+            ``modules.web_terminals.renders`` (see
+            :func:`renders.resolve_cards`).
     """
     modules = as_dict(config.get("modules"))
     web_terminals = as_dict(modules.get("web_terminals"))
     if not web_terminals.get("enabled"):
         return
 
-    roster = normalize_users(web_terminals.get("users"))
+    # People only: each target is joined to its resolved tier below, and that
+    # resolution is the people's.
+    roster = roster_people(web_terminals)
     if user is not None:
         targets = [entry for entry in roster if entry["name"] == user]
         if not targets:
@@ -270,23 +271,19 @@ def seed_user_containers(
 
     runtime = get_runtime_command(config)[0]
     run_env = env if env is not None else runtime_env(config, ignore_orphans=True)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
-    project_name = resolve_project_name(config)
+    project = resolve_project_name(config)
     registry_cfg = as_dict(config.get("registry"))
-    # strict=True: an unresolvable persona reference is a misconfiguration, not a
+    # strict=True: an unresolvable render reference is a misconfiguration, not a
     # per-user issue, so it raises here — before any container is touched — same
     # as the base.md check below.
     resolved_by_name = {
-        entry["name"]: entry
-        for entry in resolve_personas(
-            web_terminals, registry_cfg, facility_prefix, project_name=project_name, strict=True
-        )
+        entry["name"]: entry for entry in resolve_cards(web_terminals, registry_cfg, strict=True)
     }
 
-    # base.md is required only when at least one to-be-seeded user's persona
+    # base.md is required only when at least one to-be-seeded user's render
     # keeps the base prepend (seed_base=True, the default). If every seeded user
     # opts out (seed_base=False), the seed uses each user's extra.md alone and a
-    # missing base.md is not an error. This resolves after persona resolution so
+    # missing base.md is not an error. This resolves after render resolution so
     # the requirement follows the actual roster — but still before any container
     # is touched, keeping the missing-base.md abort a pre-flight misconfiguration
     # rather than a per-user failure.
@@ -297,7 +294,7 @@ def seed_user_containers(
     if needs_base and not base_md_exists:
         raise RuntimeError(
             f"{base_md_path} not found — cannot seed CLAUDE.md. Every seeded "
-            "web-terminal user whose persona keeps seed_base (the default) "
+            "web-terminal user whose render keeps seed_base (the default) "
             "requires a base.md context file."
         )
     base_content = base_md_path.read_text(encoding="utf-8") if base_md_exists else ""
@@ -316,7 +313,7 @@ def seed_user_containers(
         outcome = _seed_one_user(
             runtime,
             entry["name"],
-            project_name,
+            project,
             base_content,
             project_skills_dir,
             context_dir,
@@ -354,7 +351,7 @@ def seed_user_containers(
 def _seed_one_user(
     runtime: str,
     user: str,
-    project_name: str,
+    project: str,
     base_content: str,
     project_skills_dir: str,
     context_dir: Path,
@@ -371,7 +368,7 @@ def _seed_one_user(
 
     ``seed_base`` (default ``True``) controls whether ``base_content`` is
     prepended ahead of the user's ``extra.md``. When ``False``, the user's
-    ``CLAUDE.md`` payload is its ``extra.md`` alone — the per-persona base
+    ``CLAUDE.md`` payload is its ``extra.md`` alone — the per-render base
     opt-out. With ``seed_base=True`` the payload is the byte-for-byte
     ``base_content + extra_content`` concatenation.
 
@@ -380,7 +377,7 @@ def _seed_one_user(
         the caller's systemic-failure check); ``True`` if the seed succeeded;
         ``False`` if the container was ready but the seed failed.
     """
-    container = web_container_name(project_name, user)
+    container = web_container_name(project, user)
     if not _container_exists(runtime, container, env=env):
         logger.debug(f"  (skipped {user}: container not ready)")
         return None

@@ -34,7 +34,7 @@ setup skill does not choose it, `/osprey:contribute` does.
 None of these needs a source checkout. `osprey profile presets`, `osprey profile artifacts`,
 `osprey config --defaults` and `--help` run from any directory and take no `--repo` — the
 artifacts menu is installation-wide, not a property of a repo; `osprey scaffold list`, `osprey profile
-card`, `osprey scaffold pull`, and `osprey scaffold personas` act on a deployment repo
+card`, `osprey scaffold pull`, `osprey scaffold tiers` and `osprey scaffold apps` act on a deployment repo
 (the nearest `profile.yml` at or above the working directory, or `--repo DIR`).
 
 ## Start a deployment repo
@@ -54,7 +54,7 @@ feature port). It refuses to re-materialize an existing repo's source zone unles
 | Path | What it is |
 | --- | --- |
 | `profile.yml` | SOURCE. The manifest: everything the preset configures, written out explicitly |
-| `data/`, `personas/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit |
+| `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit |
 | `profiles/` | SOURCE. One `<name>.yml` host-variant overlay per variant the deployment has. Which one this host builds is the single line `OSPREY_PROFILE_VARIANT=<name>` in the git-ignored `.env.variant`; with none set, the tracked `profile.yml` builds |
 | `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`, `mcp_servers/`, `services/`, `project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `project/` is the catch-all mirrored onto the built project's root |
 | `.gitlab-ci.yml`, `scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
@@ -67,16 +67,19 @@ Pull one piece of a preset's packaged data bundle into this repo with `osprey sc
 pull <preset>[:path] [--list] [--force] [--with-content]`; the recipe lives in
 `references/map.md` and `references/knowledge-starter.md`.
 
-Write this repo's own persona files from another preset's catalog with
-`osprey scaffold personas --from <preset> [--force]`; the recipe (the web-terminal step
+Write this repo's own tier and app files from another preset's roster with
+`osprey scaffold tiers --from <preset> [--force]` and
+`osprey scaffold apps --from <preset> [--force]`; the recipe (the web-terminal step
 in BUILD) lives in `references/map.md`.
 
 Every verb finds the repo by walking up from the working directory, so none of them is
 given a project or config path — `--repo DIR` overrides the starting point.
 `profile.yml` is standalone and self-documenting — the preset's whole
 configuration written out explicitly, with its comments, and no `extends:`. Read it; it
-is the authoritative statement of what a profile can say. A file under `personas/` is a
-small delta merged over it implicitly.
+is the authoritative statement of what a profile can say. A file under `tiers/` is a
+small delta merged over it implicitly; a file under `apps/` is a whole agent
+definition composed over the deployment's services, data and provider, and named
+under the roster's `shared:`.
 
 Check an edited profile without building: `osprey validate`
 
@@ -105,7 +108,7 @@ roster.
 | Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |
 | Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `mcp_servers/`, `web-terminal-context/` only; the config a preset ships is in the preset file, not here |
 | The framework config template | `src/osprey/templates/project/config.yml.j2` — derived keys only (project layout, ports, `providers.yml`, profile fields) |
-| Control-system connectors | `src/osprey/connectors/` |
+| Control-system connectors | `packages/osprey-connectors/src/osprey_connectors/` |
 
 Open the preset file rather than describing it from memory: safety posture, enabled
 servers, and artifact selection all live in the file and all change.
@@ -130,9 +133,10 @@ Path(osprey.__file__).parent   # -> installed osprey package root
 Join the paths above onto that root, dropping `src/osprey/`. Two live schema examples
 that document themselves inline, worth opening verbatim:
 
-- `templates/apps/control_assistant/data/channel_databases/TEMPLATE_EXAMPLE.json`
-  — channel-database schema, including device-family template expansion.
-- `templates/apps/control_assistant/data/channel_limits.json` — channel-limits schema.
+- `facility/schema/core.yaml` — the facility record schema, every slot of a place,
+  device, channel, group and model described in place.
+- `templates/facilities/example/` — the reference example's facility sources, the
+  worked instance of that schema.
 
 ## Adjacent skills
 

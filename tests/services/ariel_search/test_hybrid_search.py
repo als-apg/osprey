@@ -1935,17 +1935,32 @@ class TestPictureLaneFailure:
         held: list[int] = []
         tasks: list[asyncio.Task[Any]] = []
 
-        async def _slow_lane(*_args: Any, **_kwargs: Any) -> dict[str, ImageHit]:
-            tasks.append(asyncio.current_task())
-            held.append(1)  # a pooled connection checked out
-            try:
-                await asyncio.sleep(30)
-            finally:
-                held.pop()
-            return {}
+        lane_coros: list[Any] = []
+
+        def _slow_lane(*_args: Any, **_kwargs: Any) -> Any:
+            async def _body() -> dict[str, ImageHit]:
+                held.append(1)  # a pooled connection checked out
+                try:
+                    await asyncio.sleep(30)
+                finally:
+                    held.pop()
+                return {}
+
+            coro = _body()
+            lane_coros.append(coro)
+            return coro
+
+        real_create_task = asyncio.create_task
+
+        def _create_task(coro: Any, *args: Any, **kwargs: Any) -> asyncio.Task[Any]:
+            task = real_create_task(coro, *args, **kwargs)
+            if any(coro is lane for lane in lane_coros):
+                tasks.append(task)
+            return task
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(image_lane, "search_images", _slow_lane)
+            mp.setattr(asyncio, "create_task", _create_task)
             client = StubClient([make_hit("a")], error=QMDClientError("sidecar broke"))
             with pytest.raises(QMDClientError):
                 await hybrid_search(

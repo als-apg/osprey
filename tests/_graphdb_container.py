@@ -268,10 +268,12 @@ def graphdb_store(
     *,
     label: str = "graphdb (neo4j + n10s)",
 ) -> Iterator[str]:
-    """Start a throwaway graph store on *plugin_dir* and yield its bolt URI.
+    """Start a throwaway graph store on *plugin_dir* and yield its bolt URI once the store answers.
 
     Skips rather than fails when the container will not start: these lanes run
     on contributor machines where an absent engine is a fact about the host.
+    A store that started but never answers fails: that is a fact about the
+    store, not the host.
     Testcontainers publishes bolt on an ephemeral port under a generated name,
     so this cannot collide with a ``graphdb`` service already deployed on the
     host.
@@ -285,10 +287,14 @@ def graphdb_store(
 
     Raises:
         Skipped: Via ``pytest.skip`` when the container will not start.
+        ContainerExitedError: When the container exits before the store answers.
+        AssertionError: When :data:`STORE_RECOVERY_S` passes with no answer.
     """
     container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
     try:
-        yield container.get_connection_url()
+        uri = container.get_connection_url()
+        _wait_for_store(container, uri, label)
+        yield uri
     finally:
         stop_quietly(container)
 
@@ -340,8 +346,9 @@ STORE_PROBE_TIMEOUT_S = 5.0
 #: Seconds between readiness probes.
 STORE_PROBE_INTERVAL_S = 1.0
 
-#: Seconds a lost store may take to answer again. The wait ends the moment the
-#: store answers, so a healthy run never pays it. The store's log is quiet once
+#: Seconds a lost store may take to answer again, and a started store may take
+#: to give its first answer. The wait ends the moment the store answers, so a
+#: healthy run and a healthy start never pay it. The store's log is quiet once
 #: it has booted, and during a stall the daemon does not answer either, so
 #: there is no progress signal to extend on: this is a plain window that ends
 #: early only on an answer or an exited container. The window, the lost read

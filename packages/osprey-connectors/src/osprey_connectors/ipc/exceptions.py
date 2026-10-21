@@ -26,9 +26,9 @@ field back onto a constructor keyword and calls the real class.
 
 The field lists are the protocol spec
 -------------------------------------
-:data:`CHANNEL_LIMITS_VIOLATION_FIELDS` and
-:data:`CHANNEL_WRITE_BLOCKED_FIELDS` enumerate, by *attribute* name, exactly
-what crosses the boundary for the two osprey-defined classes. They are
+:data:`CHANNEL_LIMITS_VIOLATION_FIELDS`, :data:`CHANNEL_WRITE_BLOCKED_FIELDS`
+and :data:`CHANNEL_NOT_FOUND_FIELDS` enumerate, by *attribute* name, exactly
+what crosses the boundary for the three osprey-defined classes. They are
 attribute names rather than constructor keywords because the attribute is what
 the parent's envelope rendering reads: ``ChannelLimitsViolationError`` is
 constructed with ``value=`` but stores it as ``.attempted_value``, so the spec
@@ -61,10 +61,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+)
 
 __all__ = [
     "CHANNEL_LIMITS_VIOLATION_FIELDS",
+    "CHANNEL_NOT_FOUND_FIELDS",
     "CHANNEL_WRITE_BLOCKED_FIELDS",
     "EXCEPTION_SPECS",
     "ExceptionSpec",
@@ -94,6 +99,10 @@ CHANNEL_LIMITS_VIOLATION_FIELDS: tuple[str, ...] = (
 #: than being re-rendered from the reason code.
 CHANNEL_WRITE_BLOCKED_FIELDS: tuple[str, ...] = ("channel_address", "reason")
 
+#: Everything ``ChannelNotFoundError`` carries across the boundary. Its text is
+#: rendered from the address, so the frame's ``message`` feeds no keyword.
+CHANNEL_NOT_FOUND_FIELDS: tuple[str, ...] = ("channel_address",)
+
 
 @dataclass(frozen=True)
 class ExceptionSpec:
@@ -113,7 +122,7 @@ class ExceptionSpec:
     message_kwarg: str | None = None
 
 
-#: The registry. Exactly four classes cross this boundary typed; everything else
+#: The registry. Exactly five classes cross this boundary typed; everything else
 #: fails closed to :class:`ConnectionError`.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
     "ConnectionError": ExceptionSpec(ConnectionError),
@@ -127,6 +136,10 @@ EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
         ChannelLimitsViolationError,
         fields=CHANNEL_LIMITS_VIOLATION_FIELDS,
         ctor_kwargs={"attempted_value": "value"},
+    ),
+    "ChannelNotFoundError": ExceptionSpec(
+        ChannelNotFoundError,
+        fields=CHANNEL_NOT_FOUND_FIELDS,
     ),
 }
 

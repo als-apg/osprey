@@ -16,8 +16,6 @@ reports a real write.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,7 +25,8 @@ from osprey.services.ariel_search.enhancement._offload import run_blocking
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
 from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
 from osprey.utils.config_paths import resolve_config_relative_path
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -64,7 +63,7 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
             ``enhancement_modules.qmd_export.mirror_path``.
         config_dir: Directory containing ``config.yml``; the project root is
             derived from it. When omitted it is derived from
-            :func:`osprey.utils.workspace.resolve_config_path`, which falls
+            :func:`osprey_connectors.workspace.resolve_config_path`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:
@@ -191,7 +190,8 @@ class QmdExportModule(BaseEnhancementModule):
         marker = self._mirror_root / TOUCH_MARKER_NAME
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
-            _atomic_write_text(marker, f"{datetime.now(UTC).isoformat()}\n")
+            text = f"{datetime.now(UTC).isoformat()}\n"
+            atomic_replace(marker, text.encode("utf-8"), mode=0o600, sync="required")
         except OSError as e:
             logger.warning(
                 f"qmd_export: could not update freshness marker {marker}: {e} — "
@@ -243,35 +243,6 @@ class QmdExportModule(BaseEnhancementModule):
         except OSError as e:
             return HealthResult(False, f"mirror path {root} is not writable: {e}", "config")
         return HealthResult(True, "OK", None)
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Write text to a path atomically, replacing any existing file.
-
-    The content goes to a temp file in the same directory (so the rename stays
-    within one filesystem), is flushed to disk, and is then moved over the
-    destination. A reader sees either the previous file or the complete new
-    one, never a partially written one.
-
-    Args:
-        path: Destination file. Its parent directory must already exist.
-        text: Full file content to write, UTF-8 encoded.
-
-    Raises:
-        OSError: If the temp file cannot be created, written, or renamed. The
-            temp file is removed on any failure, leaving the destination
-            untouched.
-    """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
 
 
 def mirror_entry_best_effort(config: Any, entry: Mapping[str, Any]) -> bool:

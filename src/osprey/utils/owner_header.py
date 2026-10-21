@@ -17,7 +17,7 @@ of names and attribute the same forged header differently.
 
 The accepted shape is the roster username charset, ``[A-Za-z0-9._-]``, bounded
 at :data:`MAX_OWNER_LENGTH` characters. That is deliberately narrower than the
-audit ladder's rule in ``osprey.utils.identity``, which rejects only what
+audit ladder's rule in ``osprey_connectors.identity``, which rejects only what
 breaks path semantics: an identity there is a local account that already
 exists, while this value arrives over the wire, is written into queue metadata
 and run records, and is read back by a browser. An allowlist is the right

@@ -3,8 +3,8 @@
 Adapted from openclaw's test-audit skill; see [LICENSE.txt](LICENSE.txt).
 
 Campaign mode prunes one subsystem's whole test surface in one PR: a
-subsystem such as `tests/connectors` with its owners in `src/osprey/connectors`
-and `packages/osprey-connectors`, or one core area. The value bar, retention
+subsystem such as `tests/connectors` with its owners in
+`packages/osprey-connectors`, or one core area. The value bar, retention
 bar, candidate evidence, and validation in [SKILL.md](SKILL.md) apply to every
 lane. This file adds the order of work and the lessons of a full campaign.
 Each step ends on its completion criterion; do not start the next step early.

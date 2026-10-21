@@ -42,7 +42,9 @@ Making Changes
 
 **2. Make changes** -- follow the code standards below, add tests, update docs.
 
-**3. Test locally** using the three-tier system:
+**3. Test locally.** ``scripts/gate.sh`` is the one local spelling of the merge gate. Run
+``./scripts/gate.sh full`` before you open a PR, and ``./scripts/gate.sh fast <test paths>``
+over the tests you touched while you work. The helper scripts serve the loops around it:
 
 .. code-block:: bash
 

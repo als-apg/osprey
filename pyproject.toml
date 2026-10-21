@@ -137,9 +137,6 @@ dependencies = [
     "python-multipart>=0.0.18",
     # Utilities
     "unique-namer>=1.6.2",
-    # EPICS Channel Access client (used by control_system connector,
-    # limits_validator, and python_executor wrapper).
-    "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.3.4,<4.0.0",
     "psycopg-pool>=3.3.1,<4.0.0",
@@ -178,7 +175,7 @@ dependencies = [
     # same reasoning as PyAT above.
     "lume-base==0.5.0",
     # pyAT physics backend implementing the LUMEModel contract above
-    # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
+    # (osprey.simulation.engines.pyat_model). Exact-pinned for the same
     # reason as lume-base: a young package whose surface is still settling, and
     # the facility adapter is written against the 0.2.0 contract specifically —
     # the persistent-lattice simulator, the multi-element writable variable a
@@ -211,6 +208,9 @@ dependencies = [
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
+    # The facility file validates through a pydantic model generated from its
+    # LinkML schema (src/osprey/facility/schema/_generated/core.py).
+    "pydantic>=2.11,<3",
     # `osprey up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
     # `--extra dev` would otherwise satisfy every other --dev precondition and
@@ -232,6 +232,18 @@ dependencies = [
     # (`--prerelease=allow`); it fails loudly with that hint, never silently
     # pairs the old stable.
     "osprey-connectors>=2026.6.2",
+    # pyAML control-system backend over the connector; versions with this repo's
+    # calendar stream exactly as osprey-connectors does, hence the same specifier.
+    "pyaml-cs-osprey>=2026.6.2",
+    # pyAML itself, installed from accelerator-middle-layer-apg: the ALS-APG
+    # staging distribution of pyAML, which carries upstream commits only and
+    # imports as `pyaml` exactly as accelerator-middle-layer does. The two ship
+    # the same `pyaml/` package directory, so this one is never installed beside
+    # accelerator-middle-layer. String-equal to the pin in
+    # packages/pyaml-cs-osprey/pyproject.toml (a test holds them together).
+    "accelerator-middle-layer-apg==0.3.1.post1",
+    # pySC, the measurement engine pyAML's tuning tools drive.
+    "accelerator-commissioning==1.5.3",
 ]
 
 [project.optional-dependencies]
@@ -284,11 +296,15 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
-    "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
+    # Generates the facility file's pydantic model and vocabulary table. Exact:
+    # the committed output is byte-compared against a regeneration, and
+    # gen-pydantic's output changes between releases.
+    "linkml==1.11.1",
     "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
     # The HTTP client starlette's TestClient is built on. Without it the test
     # client falls back to httpx, which starlette deprecates.
     "httpx2>=2.13.0",
+    "pyaml-test-lattice==0.2.0",  # pyAML's test lattices, loaded by the pyAML view tests
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -302,11 +318,6 @@ ariel = [
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
 ariel-proxy = [
     "aiohttp-socks>=0.8.0",
-]
-
-# Google Sheets database backend for channel finder
-sheets = [
-    "gspread>=6.2.1",
 ]
 
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
@@ -331,13 +342,6 @@ gchat = [
 teams = [
     "azure-servicebus>=7.11",
     "pillow>=10",
-]
-
-# Facility knowledge / ontology support (LinkML schema loading for the ontology compiler)
-knowledge = [
-    # LinkML schema loading for the ontology compiler. Known transitive baggage:
-    # prefixcommons -> pytest-logging (2015) -> pytest lands in this extra; inert, accepted.
-    "linkml-runtime>=1.11.1,<2",
 ]
 
 # Screen capture on Linux (X11) — not needed on macOS
@@ -373,7 +377,7 @@ screen-capture-linux = [
 # only through `pva`: the base package does not depend on it. Exact-pinned for
 # the same reason as lume-base and lume-pyat above -- a young package whose
 # surface is still settling, and the runner subclass is written against the
-# 0.1.4 contract specifically (the extension seams it overrides are not yet a
+# 0.1.5 contract specifically (the extension seams it overrides are not yet a
 # stable API).
 #
 # Both VA images install through the `virtual-accelerator` extra rather than
@@ -387,44 +391,36 @@ screen-capture-linux = [
 # adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
-# and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
-# one up in-process to assert the write contract from the far side of the wire;
-# without pcaspy installed both suites skip, and a skipped live suite proves
-# nothing.
-#
-# `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
-# hands `startAsyncWrite` the wrong object and aborts the server process on any
-# asynchronous write, and the client is not told: `caput -w` returns success in
-# tens of milliseconds for a value that never landed. The fix needs
-# `casClientInfo.ctx`, a binding that only exists in the 0.8.1 extension.
+# and tests/va/test_apply_fault.py stands one up in a child process to assert
+# the scenario faults from the far side of the wire; without pcaspy installed
+# that suite skips, and
+# a skipped live suite proves nothing. It arrives through lume-pva-apg's `ca`
+# extra, which carries the `>=0.8.1` floor itself, so this extra names it
+# nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
+# on any asynchronous write while `caput -w` still reports success.
 #
 # The environment marker is load-bearing. pcaspy publishes manylinux x86_64
 # wheels at every interpreter, but nothing else that loads: cp313/cp314 are
 # x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
 # macosx_11_0_arm64 wheels are broken as shipped (they link
-# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). Unmarked, this
-# requirement would send a developer's Mac into a source build that needs EPICS
-# Base plus the separate PCAS module, and fail. Marked, those hosts get the
-# honest `importorskip` skip and run the live suites in the container venue
-# under scripts/va/live_ca/ instead.
-#
-# THE SAME MARKER RIDES ON lume-pva-apg, and for the same reason rather than
-# for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
-# unmarked entry here would pull pcaspy onto every host through the back door
-# and defeat the marker above. Verified, not assumed -- resolving
-# `lume-pva-apg[ca,pva]==0.1.4` for macOS at 3.13 selects pcaspy 0.8.1, whose
-# only artifact at that interpreter and platform is the sdist. The two lines
-# must therefore stay marked together; marking one alone does nothing.
+# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). The marker rides on
+# the lume-pva-apg entry alone, because its `ca` extra requires pcaspy with no
+# marker of its own: unmarked, this entry would send a developer's Mac into a
+# pcaspy source build that needs EPICS Base plus the separate PCAS module, and
+# fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
+# macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
+# and platform is the sdist. Marked, those hosts get the honest skip and run
+# the live suites in the container venue under scripts/va/live_ca/ instead.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
-# too. That costs nothing real: `serving/runner.py` imports pcaspy first, so it
-# is unimportable on those hosts regardless of what else is installed, and the
-# suites that reach it already treat all three server roots the same way.
+# too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
+# which imports pcaspy, so it is unimportable on those hosts regardless of what
+# else is installed, and the suites that reach it already treat all three server
+# roots the same way.
 virtual-accelerator = [
-    "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "lume-pva-apg[ca,pva]==0.1.4; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    # Recorder-side (see the note above); deliberately UNMARKED, unlike the two
-    # serving entries. That marker is not a house style to copy — it exists
+    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    # Recorder-side (see the note above); deliberately UNMARKED, unlike the
+    # serving entry. That marker is not a house style to copy — it exists
     # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
@@ -440,15 +436,16 @@ optimizer = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
+    "osprey-framework[docs,dev,ariel,screen-capture-linux,gchat,teams]"
 ]
 
 [tool.uv.workspace]
-members = ["packages/osprey-connectors", "packages/osprey-optimizer"]
+members = ["packages/osprey-connectors", "packages/osprey-optimizer", "packages/pyaml-cs-osprey"]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
 osprey-optimizer = { workspace = true }
+pyaml-cs-osprey = { workspace = true }
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
@@ -479,9 +476,14 @@ webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
-# Resolver exemptions for two packages published more recently than the
+# Simulation engine plug-ins, each entry naming the module that implements the
+# plug-in contract; a facility build reaches an engine only through this group.
+[project.entry-points."osprey.simulation.engines"]
+pyat = "osprey.simulation.engines.pyat"
+
+# Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
-# "nothing newer than N days" policy). Both are exact pins this project needs
+# "nothing newer than N days" policy). Each is an exact pin this project needs
 # by name, so a window that hides them makes the lock unresolvable rather than
 # merely conservative. Each timestamp must sit after the upload time of the
 # version pinned above it: uv filters candidates by upload time BEFORE the
@@ -498,10 +500,10 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # and every CI runner picks it up automatically.
 #
 # Each entry may be dropped once the ambient window has moved past that
-# package's upload date; neither is load-bearing beyond making the resolve
+# package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-13T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z", accelerator-middle-layer-apg = "2026-10-11T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
@@ -551,9 +553,9 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src:packages/osprey-optimizer/src"
+mypy_path = "src:packages/osprey-connectors/src:packages/osprey-optimizer/src:packages/pyaml-cs-osprey/src"
 explicit_package_bases = true
-files = ["src", "packages/osprey-connectors/src", "packages/osprey-optimizer/src"]
+files = ["src", "packages/osprey-connectors/src", "packages/osprey-optimizer/src", "packages/pyaml-cs-osprey/src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
@@ -564,6 +566,7 @@ exclude = [
     "^venv/",
     "_agent_data/",
     "__pycache__/",
+    "^src/osprey/facility/schema/_generated/",
 ]
 
 # Specific modules to ignore due to optional dependencies
@@ -578,7 +581,6 @@ module = [
     "pandas.*",
     "numpy.*",
     "matplotlib.*",
-    "pyepics.*",
     "p4p.*",
     "podman.*",
     "pymongo.*",
@@ -609,6 +611,14 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["sphinx.*"]
 follow_imports = "skip"
+
+# The facility schema's generated pydantic model is gen-pydantic output, byte
+# for byte; its root class's `schema` field overrides `BaseModel.schema`. The
+# `exclude` entry above only stops discovery, and importers still reach the
+# module, so `silent` keeps its types visible to them and its own errors quiet.
+[[tool.mypy.overrides]]
+module = ["osprey.facility.schema._generated.*"]
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -660,6 +670,8 @@ markers = [
     "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
     "real_fetch: opt out of the ARIEL attachment fetch fake",
     "real_server_launch: Test of ServerLauncher's own launch — opts out of the conftest stub that keeps companion servers from starting real uvicorn daemon threads in the unit suite",
+    "wallclock: Tests that assert an absolute wall-clock budget. Deselected from every parallel run, whose other workers would distort the clock they read; each is timed in a serial step that selects this marker. tests/deployment/test_ci_workflow_wiring.py LANE_LEAVING_MARKERS names the step and fails when a marked file has none.",
+    "real_bounded_run: Test of run_captured's bounded (timeout/watch) runner itself — opts out of the conftest stub that routes bounded runs through the plain subprocess.run spool path the deploy tests fake",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 
@@ -667,7 +679,14 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src", "packages/osprey-optimizer/src"]
+src = [
+    "src",
+    "interfaces",
+    "deployment",
+    "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
+    "packages/pyaml-cs-osprey/src",
+]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and
 # cannot see them; the pre-commit hook selects by shebang and lints them.
 extend-include = ["tests/pty/stub_runtime/docker"]
@@ -677,6 +696,10 @@ extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
     "*/src/osprey_optimizer/_version.py",
+    "*/src/pyaml_cs_osprey/_version.py",
+    # Generated from the facility schema by gen-pydantic; compared byte for byte
+    # with a regeneration, so it is never reformatted.
+    "src/osprey/facility/schema/_generated/",
 ]
 
 [tool.ruff.format]
@@ -699,6 +722,7 @@ select = [
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
+    "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
@@ -734,7 +758,14 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
-source = ["src", "interfaces", "deployment", "packages/osprey-connectors/src", "packages/osprey-optimizer/src"]
+source = [
+    "src",
+    "interfaces",
+    "deployment",
+    "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
+    "packages/pyaml-cs-osprey/src",
+]
 # Hooks ship as standalone scripts and are exercised by spawning them, so most of
 # their code runs in child processes. The subprocess patcher makes those children
 # measure themselves. It force-enables parallel data files; the explicit entry

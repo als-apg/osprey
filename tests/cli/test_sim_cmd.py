@@ -17,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
+from tests._simulator_view import write_scenarios_view
 from tests.cli._lifecycle_build import STUB_CONFIG, stub_build
 
 # ``archiver`` is None here for the same reason ``load_config`` returns {}: this
@@ -26,13 +27,13 @@ _FAKE_RESULT = SimpleNamespace(active=["nominal"], logbook_seeded=0, archiver=No
 
 @pytest.fixture
 def deployment(lifecycle_repo: Path) -> Path:
-    """An exemplar repo with a render, ready for ``sim`` to discover.
+    """An exemplar repo with a render and its simulator view, ready for ``sim`` to discover.
 
     ``sim`` resolves its deployment before it parses anything, so the anchor
     passthrough under test is only reachable from inside a real repo — a bare
     directory with a ``config.yml`` in it is not a deployment.
     """
-    stub_build(lifecycle_repo)
+    write_scenarios_view(stub_build(lifecycle_repo), {"nominal": {}})
     return lifecycle_repo
 
 
@@ -77,10 +78,11 @@ def test_apply_now_is_stamped_with_the_renders_zone_not_utc(lifecycle_repo):
     and its working directory is the repo root, which holds no ``config.yml``.
     The zone therefore has to come from the render this verb resolved.
     """
-    stub_build(
+    build = stub_build(
         lifecycle_repo,
         config=STUB_CONFIG + "system:\n  timezone: America/Los_Angeles\n",
     )
+    write_scenarios_view(build, {"nominal": {}})
 
     with patch("osprey.simulation.apply.apply_scenarios", return_value=_FAKE_RESULT) as apply_mock:
         result = CliRunner().invoke(

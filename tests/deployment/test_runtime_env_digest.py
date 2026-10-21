@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import inspect
+import re
 from pathlib import Path
 
 import pytest
@@ -239,7 +240,7 @@ def test_config_digest_is_stable_across_rewrites_of_identical_bytes(tmp_path: Pa
 def test_config_digest_moves_when_a_setting_changes(tmp_path: Path) -> None:
     """The whole point, in the shape the operator hits it.
 
-    ``osprey set connector=mock`` rewrites the config and the next ``up`` has to
+    ``osprey set connector=epics`` rewrites the config and the next ``up`` has to
     recreate the containers that mount it -- otherwise the deployment keeps
     answering with the connector it started on, and the flip silently did
     nothing.
@@ -404,3 +405,101 @@ def test_the_source_scan_actually_finds_call_sites() -> None:
     the wrong reason.
     """
     assert len(_runtime_env_call_sites()) >= 10
+
+
+# ---------------------------------------------------------------------------
+# The telemetry credential digests ride the same builder.
+# ---------------------------------------------------------------------------
+
+_TELEMETRY_DIGEST_REFERENCE = re.compile(r"\$\{(OSPREY_TELEMETRY_DIGEST_[A-Za-z0-9_{} ]+?):-\}")
+_WORKER_COUNT = 3
+
+
+def _telemetry_digest_names_the_templates_reference() -> set[str]:
+    """Every ``OSPREY_TELEMETRY_DIGEST_*`` a bundled compose template interpolates.
+
+    Read from the template sources, so a service template added later is
+    covered without being listed. A per-worker name is spelled on the loop
+    index; it is expanded for every worker of the config below.
+    """
+    import osprey
+
+    templates = Path(inspect.getfile(osprey)).parent / "templates"
+    names: set[str] = set()
+    for template in sorted(templates.rglob("*.j2")):
+        for raw in _TELEMETRY_DIGEST_REFERENCE.findall(template.read_text(encoding="utf-8")):
+            if "{{" not in raw:
+                names.add(raw)
+                continue
+            assert raw.replace(" ", "").endswith("_{{i}}"), (template, raw)
+            stem = raw[: raw.index("{{")]
+            names.update(f"{stem}{i}" for i in range(1, _WORKER_COUNT + 1))
+    return names
+
+
+def test_the_templates_reference_telemetry_digests_at_all() -> None:
+    """The scan below is only a guard while it is finding something."""
+    names = _telemetry_digest_names_the_templates_reference()
+
+    assert "OSPREY_TELEMETRY_DIGEST_ARCHIVE" in names
+    assert "OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_1" in names
+
+
+@pytest.mark.parametrize("positional", [1, 2])
+@pytest.mark.parametrize("ignore_orphans", [False, True])
+def test_every_builder_call_carries_every_telemetry_digest_the_templates_read(
+    tmp_path: Path, positional: int, ignore_orphans: bool
+) -> None:
+    """A label interpolated from an unset variable reads as a document change.
+
+    So every ``OSPREY_TELEMETRY_DIGEST_*`` a rendered compose file can
+    reference is set on every builder call, whatever its argument shape — the
+    same property the env digest above has, for the same reason.
+    """
+    from osprey.deployment import telemetry_credentials as creds
+
+    config = {
+        "project_name": "proj-a",
+        "project_root": str(tmp_path),
+        "deployed_services": ["telemetry_store", "telemetry_gateway", "dispatch_worker"],
+        "services": {"dispatch_worker": {"worker_count": _WORKER_COUNT}},
+    }
+    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    args = [config] if positional == 1 else [config, {}]
+
+    env = runtime_env(*args, ignore_orphans=ignore_orphans)
+
+    referenced = _telemetry_digest_names_the_templates_reference()
+    assert referenced <= set(env), sorted(referenced - set(env))
+    for service, files in creds.owner_files(config).items():
+        assert env[creds.digest_env_name(service)] == creds.files_digest(tmp_path, files)
+
+
+def test_the_fixed_telemetry_digests_are_set_for_a_config_that_deploys_no_store(
+    tmp_path: Path,
+) -> None:
+    """Unconditional, like the env digest: no call site can blank a label."""
+    env = runtime_env({"project_name": "proj-a", "project_root": str(tmp_path)}, {})
+
+    for service in ("TELEMETRY_STORE", "TELEMETRY_GATEWAY", "ARCHIVE", "HISTORY", "NGINX"):
+        assert env[f"OSPREY_TELEMETRY_DIGEST_{service}"] == hashlib.sha256(b"").hexdigest()
+
+
+def test_a_rotated_credential_moves_its_owners_digest_and_no_other(tmp_path: Path) -> None:
+    from osprey.deployment import telemetry_credentials as creds
+
+    config = {
+        "project_name": "proj-a",
+        "project_root": str(tmp_path),
+        "deployed_services": ["telemetry_store", "telemetry_gateway"],
+    }
+    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    before = runtime_env(config, {})
+
+    (tmp_path / creds.INGEST_FILE).unlink()
+    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+    after = runtime_env(config, {})
+
+    assert {name for name in before if before[name] != after[name]} == {
+        "OSPREY_TELEMETRY_DIGEST_TELEMETRY_GATEWAY"
+    }

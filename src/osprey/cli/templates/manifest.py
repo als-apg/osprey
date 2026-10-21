@@ -18,7 +18,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -120,8 +120,8 @@ def load_template_manifest(
     # Resolved through the profile resolver, not read as raw YAML: a preset
     # that says `extends: control-assistant` declares only its DELTA, so
     # reading its file alone answers with a fraction of what it selects —
-    # the persona presets would report no skills, or web_panels with no
-    # agents. Resolving is also what applies `exclude:`, so a persona that
+    # the tier presets would report no skills, or web_panels with no
+    # agents. Resolving is also what applies `exclude:`, so a render that
     # subtracts an artifact is reported without it.
     artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
     try:
@@ -146,6 +146,8 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     Config artifacts (CLAUDE.md, .mcp.json, .claude/settings.json, .claude/statusline.py) are always included.
     For each manifest entry, prefix-matching is used against the prompt registry to
     handle multi-file artifacts (e.g. session-report -> SKILL.md + reference.md).
+    Every matched artifact brings the rows it requires, transitively, so a hook
+    ships with the helper files it imports or reads.
 
     Args:
         manifest: Parsed manifest dict (from load_template_manifest)
@@ -157,6 +159,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
 
     registry = BuildArtifactCatalog.default()
     all_artifacts = registry.all_artifacts()
+    matched: set[str] = set()
 
     for category, entries in manifest.get("artifacts", {}).items():
         prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
@@ -172,7 +175,12 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
                     artifact.canonical_name == canonical_prefix
                     or artifact.canonical_name.startswith(canonical_prefix + "/")
                 ):
-                    result.add(artifact.output_path)
+                    matched.add(artifact.canonical_name)
+
+    for name in registry.closure(matched):
+        shipped = registry.get(name)
+        if shipped is not None:
+            result.add(shipped.output_path)
 
     return result
 
@@ -384,8 +392,8 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
 
         # Skip binary and large files
         # .duckdb: a derived binary artifact that carries its own content digest in
-        # its meta table, so checksumming it would turn every `osprey knowledge
-        # build-index` into apparent render drift.
+        # its meta table, so checksumming it would turn every rebuilt index into
+        # apparent render drift.
         if file_path.suffix in [".pyc", ".pyo", ".so", ".dll", ".dylib", ".duckdb"]:
             continue
 
@@ -537,8 +545,8 @@ def generate_manifest(
         creation_block["preset_hash"] = preset_hash
 
     # Preserve the CLAUDE.md template choice so a later `osprey build` can
-    # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
-    # ARIEL standalone preset). Default is the control-system persona.
+    # re-render against the same render (e.g. CLAUDE.logbook.md.j2 for the
+    # logbook app). Default is the control-system render.
     claude_md_template = context.get("claude_md_template")
     if claude_md_template and claude_md_template != DEFAULT_CLAUDE_MD_TEMPLATE:
         creation_block["claude_md_template"] = claude_md_template
@@ -611,19 +619,19 @@ def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
 
 
 def recorded_claude_md_template(manifest: dict[str, Any] | None) -> str:
-    """Return the ``CLAUDE.md`` persona a built project's manifest records.
+    """Return the ``CLAUDE.md`` render a built project's manifest records.
 
     Reads what :func:`generate_manifest` writes: ``creation.claude_md_template``.
-    The default persona is recorded by leaving the key out, so a missing
+    The default tier is recorded by leaving the key out, so a missing
     manifest, a missing or malformed ``creation`` block, or an absent or empty
-    key all mean the default persona.
+    key all mean the default tier.
 
     Args:
         manifest: A parsed project manifest, as :func:`load_project_manifest`
             returns it, or ``None``.
 
     Returns:
-        The persona template name, e.g. ``"CLAUDE.ariel.md.j2"``.
+        The render template name, e.g. ``"CLAUDE.logbook.md.j2"``.
     """
     if manifest is None:
         return DEFAULT_CLAUDE_MD_TEMPLATE

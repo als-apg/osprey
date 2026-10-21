@@ -20,7 +20,7 @@ refuses at deploy time — but it is logged at warning level rather than swallow
 because an operator who typed the key meant to have a store and would otherwise
 see only "not configured" for what is really a typo. The third state, configured
 but *empty*, is not a failure at all: :meth:`GraphContext.is_empty` answers it so
-the caller can name ``osprey knowledge seed-graph`` instead of returning zero
+the caller can name ``osprey build && osprey up`` instead of returning zero
 rows that read as "the data is wrong".
 
 Failing fast
@@ -60,7 +60,7 @@ from typing import Any
 from osprey.deployment.graphdb_service import (
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GraphdbConnection,
     resolve_graphdb_connection,
@@ -68,8 +68,8 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.config_values import positive_int
 from osprey.port_layout import resolve_port_base
-from osprey.utils.config import get_config_value
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.config import get_config_value
+from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.graph.server_context")
 
@@ -296,7 +296,7 @@ class GraphReadOnlyViolation(GraphStoreError):
             "This server reads the graph and never writes to it — rewrite the query using "
             "MATCH / RETURN only.",
             f"The graph is rebuilt from its TTL corpus, so changes belong in that file "
-            f"followed by `{GRAPHDB_SEED_COMMAND}`.",
+            f"followed by `{GRAPHDB_REBUILD_HINT}`.",
         ]
 
 
@@ -479,7 +479,7 @@ class GraphContext:
 
         Returns:
             True when the store carries no ``:Resource`` nodes — bootstrapped
-            but never seeded. Callers name :data:`GRAPHDB_SEED_COMMAND` when it
+            but never seeded. Callers name :data:`GRAPHDB_REBUILD_HINT` when it
             is, which is why this is a separate question from "did the query
             match anything".
 

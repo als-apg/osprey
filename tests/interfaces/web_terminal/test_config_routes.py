@@ -70,22 +70,11 @@ from osprey.cli.profile_conventions import (
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
-from osprey.utils.identity import acting_identity
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from osprey_connectors.identity import acting_identity
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -106,7 +95,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -157,7 +146,7 @@ def client(built_project):
     # The lifespan resolves this tier flag; a routes-only app states it.
     app.state.config_panel_enabled = True
     # The real app carries this ring; a refusal frame is only observable with it.
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     with TestClient(app) as c:
         yield c
 
@@ -178,7 +167,7 @@ def _audit_records(zone):
 def _refusal_frames(client):
     return [
         frame
-        for frame in client.app.state.agent_activity_ring
+        for frame in client.app.state.agent_activity_buffer
         if frame["tool"] == "config_patch_refused"
     ]
 
@@ -193,7 +182,7 @@ def _backup_dir(project_dir):
     ``test_patch_backup_follows_a_relocated_agent_data_root`` is the case that
     actually separates the two.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     try:
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
@@ -296,8 +285,57 @@ PROTECTED_CASES = [
     pytest.param("approval.mode", "disabled", id="approval-gate"),
     pytest.param("claude_code.permissions.deny", [], id="permission-surface"),
     pytest.param("agent_data.base_dir", "/tmp/elsewhere", id="agent-data-root"),
-    pytest.param("control_system", {"type": "mock"}, id="ancestor-block"),
+    pytest.param(
+        "control_system",
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+        id="ancestor-block",
+    ),
 ]
+
+
+class TestGetProtectedKeys:
+    """``GET /api/config`` names the protected leaves of the sections it serves.
+
+    The Form view renders those leaves read-only and never puts them in an
+    Apply body; the list is the same segment-path walk the write gates use, so
+    the panel cannot offer a control the gate refuses.
+    """
+
+    def test_get_lists_the_protected_leaves_of_the_form_sections(self, client):
+        body = client.get("/api/config").json()
+
+        protected = body["protected"]
+        assert isinstance(protected, list)
+        assert all(isinstance(key, str) for key in protected)
+        assert protected == sorted(protected)
+        assert "approval.enabled" in protected
+        assert "control_system.type" in protected
+        assert protected == sorted(
+            ".".join(key_path) for key_path in protected_view("config.yml", body["sections"])
+        )
+
+    def test_get_protected_omits_the_exempt_and_the_unprotected(self, client):
+        protected = client.get("/api/config").json()["protected"]
+
+        assert "hooks.debug" not in protected
+        assert COSMETIC_KEY not in protected
+
+    @pytest.mark.parametrize(
+        "key,value,listed,status",
+        [
+            pytest.param("approval.enabled", False, True, 403, id="listed"),
+            pytest.param(COSMETIC_KEY, "claude-sonnet-5", False, 200, id="unlisted"),
+        ],
+    )
+    def test_get_protected_agrees_with_the_patch_gate(self, client, key, value, listed, status):
+        protected = client.get("/api/config").json()["protected"]
+
+        assert (key in protected) is listed
+        resp = client.patch("/api/config", json={"updates": {key: value}})
+        assert resp.status_code == status
 
 
 class TestPatchProtectedKeys:
@@ -765,11 +803,9 @@ class TestPutProtectedDocumentDiff:
         because ``artifacts.*`` sits beside it. The ones that are not are the
         ones whose subtree the flatten can lose, and each of today's names a
         path value that cannot be made to point anywhere by planting a block
-        there -- ``simulation.state_dir`` and ``services.*.devices_file``
-        because their readers treat a block as unset (the devices reader is
-        ``isinstance(str)``-gated and the worker's own path is baked into its
-        environment at build), the feedback store because its reader chokes on
-        it and leaves the store off. A new pattern gets neither guarantee for
+        there -- ``simulation.state_dir`` because its reader treats a block as
+        unset, the feedback store because its reader chokes on it and leaves
+        the store off. A new pattern gets neither guarantee for
         free, so if this fails the PUT gate's note needs re-deciding, not
         extending.
         """
@@ -777,7 +813,6 @@ class TestPutProtectedDocumentDiff:
         known_inert = {
             "simulation.state_dir",
             "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-            "services.*.devices_file",
         }
 
         leaky = {

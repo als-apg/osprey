@@ -29,6 +29,11 @@
  *   - the one preset, Default, is the deployment's own arrangement: applying it
  *     DELETES the operator's document and renders what the server hands back,
  *     because only the server knows what `web.bar_items` configured.
+ *
+ *   - right-clicking an item offers its own rows in BOTH modes, and a Remove
+ *     from the menu is answered with an Undo that puts back the same item —
+ *     type, options and place. A refusal outside edit mode, with no sheet
+ *     open, is still said, at the foot of the page.
  */
 
 import { test, expect, describe, afterEach } from 'vitest';
@@ -417,29 +422,68 @@ describe('the context menu', () => {
   });
 });
 
-describe('outside edit mode the menu is the way in, plus Hide on the status bar', () => {
-  /** Boot in Expert without entering edit mode. @param {Record<string, unknown>} layout */
-  async function notEditing(layout) {
-    ({ customize, sync } = await boot({ fetch: endpoint({ get: layout }) }));
-    return customize;
-  }
+/** Boot in Expert without entering edit mode. @param {Record<string, unknown>} layout */
+async function notEditing(layout) {
+  ({ customize, sync } = await boot({ fetch: endpoint({ get: layout }) }));
+  return customize;
+}
 
-  test('the header offers Customize and Hide header, and nothing else', async () => {
-    // An item's rows change the layout, and a refused change is answered in
-    // the sheet — which does not exist until edit mode has been entered. The
-    // Hide row names the bar under the pointer: offered from the top bar,
+/** The page-foot notice, or null when none is up. */
+function undoNotice() {
+  return /** @type {any} */ (document.getElementById('undo-notice'));
+}
+
+/** The labels of the context menu's rows, in order. */
+function menuLabels() {
+  return Array.from(document.querySelectorAll('.bar-context-menu .bar-context-row')).map(
+    (node) => node.textContent
+  );
+}
+
+describe('outside edit mode the menu is the way in, plus Hide on the status bar', () => {
+  test('an item offers its options and Remove, then Customize and Hide header', async () => {
+    // The Hide row names the bar under the pointer: offered from the top bar,
     // "Hide status bar" read as "hide this one".
     await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
     rightClick(shell('clock'));
 
-    expect(menuRow('customize')?.textContent).toBe('Customize bars…');
-    expect(menuRow('header')?.textContent).toBe('Hide header');
-    expect(document.querySelectorAll('.bar-context-row')).toHaveLength(2);
+    expect(menuLabels()).toEqual([
+      'Clock options…',
+      'Remove Clock',
+      'Customize bars…',
+      'Hide header',
+    ]);
     expect(menuRow('status')).toBe(null);
+  });
+
+  test('a type with no options is offered Remove but no options row', async () => {
+    await notEditing(doc(['logo', 'docs'], []));
+
+    rightClick(shell('docs'));
+
     expect(menuRow('options')).toBe(null);
-    expect(menuRow('remove')).toBe(null);
-    expect(menuRow('reset')).toBe(null);
+    expect(menuRow('remove')?.textContent).toBe('Remove Documentation');
+  });
+
+  test('options from the menu opens the popover, and an accepted edit keeps it open', async () => {
+    await notEditing(doc(['logo', 'clock'], []));
+
+    rightClick(shell('clock'));
+    menuRow('options').click();
+    await settle();
+    expect(popover()).not.toBe(null);
+    expect(popover().contains(document.activeElement)).toBe(true);
+
+    row('zone').querySelector('[data-bar-value="utc"]').click();
+    await settle();
+
+    expect(putBodies()[0].header[1].options.zone).toBe('utc');
+    expect(shell('clock').contains(popover())).toBe(true);
+    expect(customize.isEditing()).toBe(false);
+
+    escape();
+    expect(popover()).toBe(null);
   });
 
   test('Hide header withdraws the top bar and reads Show once hidden', async () => {
@@ -460,10 +504,8 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
     await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
     rightClick(shell('stopwatch'));
-    expect(menuRow('customize')?.textContent).toBe('Customize bars…');
-    expect(menuRow('status')?.textContent).toBe('Hide status bar');
+    expect(menuLabels()).toEqual(['Remove Stopwatch', 'Customize bars…', 'Hide status bar']);
     expect(menuRow('header')).toBe(null);
-    expect(document.querySelectorAll('.bar-context-row')).toHaveLength(2);
     menuRow('status').click();
     await settle();
 
@@ -473,7 +515,7 @@ describe('outside edit mode the menu is the way in, plus Hide on the status bar'
     expect(menuRow('status')?.textContent).toBe('Show status bar');
   });
 
-  test('entering edit mode brings the item rows', async () => {
+  test('entering edit mode keeps the item rows', async () => {
     await notEditing(doc(['logo', 'clock'], ['stopwatch']));
     customize.enterEditMode();
 
@@ -552,6 +594,171 @@ describe('Escape has one owner at a time', () => {
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(customize.isEditing()).toBe(false);
+  });
+});
+
+describe('Remove from the menu offers Undo', () => {
+  test('outside edit mode it removes the item and says so', async () => {
+    await notEditing(doc(['logo', 'clock', 'search'], []));
+
+    rightClick(shell('clock'));
+    menuRow('remove').click();
+    await settle();
+
+    expect(rendered('header')).toEqual(['logo', 'search']);
+    expect(undoNotice()?.querySelector('.undo-notice-text')?.textContent).toBe('Clock removed');
+    expect(undoNotice()?.querySelector('.undo-notice-btn')?.textContent).toBe('Undo');
+  });
+
+  test('Undo puts back the same type, with its options, at the same place', async () => {
+    const utc = { type: 'clock', options: { zone: 'utc', format: '12h', seconds: true } };
+    await notEditing(doc(['logo', utc, 'search'], []));
+
+    rightClick(shell('clock'));
+    menuRow('remove').click();
+    await settle();
+    undoNotice().querySelector('.undo-notice-btn').click();
+    await settle();
+
+    const restored = putBodies()[1].header;
+    expect(restored.map((/** @type {any} */ i) => i.type)).toEqual(['logo', 'clock', 'search']);
+    expect(restored[1].options).toMatchObject({ zone: 'utc', format: '12h', seconds: true });
+    expect(rendered('header')).toEqual(['logo', 'clock', 'search']);
+    expect(undoNotice()).toBe(null);
+  });
+
+  test('while editing it offers Undo too', async () => {
+    await editing(doc(['logo', 'clock'], []));
+
+    rightClick(shell('clock'));
+    menuRow('remove').click();
+    await settle();
+
+    expect(undoNotice()?.textContent).toContain('Clock removed');
+  });
+
+  test.each([
+    ['while editing', true],
+    ['outside edit mode', false],
+  ])('Remove in the options popover offers the same Undo %s', async (_mode, edit) => {
+    const utc = { type: 'clock', options: { zone: 'utc', format: '24h', seconds: true } };
+    await notEditing(doc(['logo', utc, 'search'], []));
+    if (edit) customize.enterEditMode();
+    rightClick(shell('clock'));
+    menuRow('options').click();
+    await settle();
+
+    popover().querySelector('[data-bar-action="remove"]').click();
+    await settle();
+    expect(rendered('header')).toEqual(['logo', 'search']);
+    expect(undoNotice()?.querySelector('.undo-notice-text')?.textContent).toBe('Clock removed');
+    undoNotice().querySelector('.undo-notice-btn').click();
+    await settle();
+
+    const restored = putBodies()[1].header;
+    expect(restored.map((/** @type {any} */ i) => i.type)).toEqual(['logo', 'clock', 'search']);
+    expect(restored[1].options).toMatchObject({ zone: 'utc', seconds: true });
+  });
+
+  test('a restore the layout no longer allows is refused out loud', async () => {
+    // The wordmark is a single-node item: put back somewhere else in the
+    // meantime, the Undo would place it twice.
+    await notEditing(doc(['logo', 'clock'], []));
+
+    rightClick(shell('logo'));
+    menuRow('remove').click();
+    await settle();
+    await customize.addItem('logo', 'status');
+    await settle();
+    undoNotice().querySelector('.undo-notice-btn').click();
+    await settle();
+
+    expect(putBodies()).toHaveLength(2);
+    expect(undoNotice()?.textContent).toBe('Already in the status bar');
+    expect(undoNotice()?.querySelector('.undo-notice-btn')).toBe(null);
+  });
+});
+
+describe('a refusal outside edit mode is said at the foot of the page', () => {
+  test('a Remove on a read-only layout names the refusal and issues no PUT', async () => {
+    await notEditing(doc(['logo', 'clock', 'not-a-type'], []));
+    expect(sync.isLayoutReadonly()).toBe(true);
+
+    rightClick(shell('clock'));
+    menuRow('remove').click();
+    await settle();
+
+    expect(putBodies()).toEqual([]);
+    expect(undoNotice()?.textContent).toBe('Layout not editable');
+    expect(undoNotice()?.querySelector('.undo-notice-btn')).toBe(null);
+  });
+
+  test('an accepted edit raises no notice', async () => {
+    await notEditing(doc(['logo', 'clock'], []));
+
+    rightClick(shell('clock'));
+    menuRow('header').click();
+    await settle();
+
+    expect(putBodies()).toHaveLength(1);
+    expect(undoNotice()).toBe(null);
+  });
+
+  test('while editing the refusal stays in the sheet', async () => {
+    await editing(doc(['logo', 'clock', 'not-a-type'], []));
+
+    rightClick(shell('clock'));
+    menuRow('remove').click();
+    await settle();
+
+    expect(document.querySelector('.bar-sheet-notice')?.textContent).toBe('Layout not editable');
+    expect(undoNotice()).toBe(null);
+  });
+});
+
+describe("an item's own actions lead its rows", () => {
+  test('a right-click on the stopwatch does not reset it; Reset is its first row', async () => {
+    await notEditing(doc(['logo', 'stopwatch'], []));
+    controlOf('stopwatch').click();
+    await settle();
+
+    rightClick(controlOf('stopwatch'));
+
+    expect(controlOf('stopwatch').getAttribute('aria-pressed')).toBe('true');
+    // The stopwatch declares no options, so outside edit mode it is offered
+    // none: its own action, then Remove.
+    expect(menuLabels()).toEqual([
+      'Reset stopwatch',
+      'Remove Stopwatch',
+      'Customize bars…',
+      'Hide header',
+    ]);
+    menuRow('item-action').click();
+    expect(controlOf('stopwatch').getAttribute('aria-pressed')).toBe('false');
+    expect(controlOf('stopwatch').textContent).toContain('00:00');
+    expect(document.querySelector('.bar-context-menu')).toBe(null);
+  });
+
+  test('a stopwatch with nothing to reset offers no Reset', async () => {
+    await notEditing(doc(['logo', 'stopwatch'], []));
+
+    rightClick(controlOf('stopwatch'));
+
+    expect(menuRow('item-action')).toBe(null);
+  });
+
+  test('the arrow keys reach the item rows', async () => {
+    await notEditing(doc(['logo', 'stopwatch'], []));
+    controlOf('stopwatch').click();
+    await settle();
+    rightClick(controlOf('stopwatch'));
+
+    expect(document.querySelectorAll('.bar-context-menu [role="menuitem"]')).toHaveLength(4);
+    expect(document.activeElement).toBe(menuRow('item-action'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(menuRow('remove'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(menuRow('item-action'));
   });
 });
 

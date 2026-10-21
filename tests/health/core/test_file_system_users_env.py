@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
 from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
 
@@ -72,7 +73,7 @@ def test_row_never_raises_on_an_unresolvable_config(tmp_path: Path) -> None:
     the category must still produce its other rows."""
     _dotenv(tmp_path / ".env", {"CBORG_API_KEY": "k"})
     _dotenv(tmp_path / ".env.users", {"CBORG_API_KEY": "k"})
-    broken = {**_CONFIG, "modules": {"web_terminals": {"personas": "not-a-mapping"}}}
+    broken = {**_CONFIG, "modules": {"web_terminals": {"renders": "not-a-mapping"}}}
     rows = _run(broken, tmp_path)
     assert "env_file" in rows
     assert rows.get("users_env") is None or rows["users_env"].status in (
@@ -95,12 +96,37 @@ _GATEWAY_TABLE_ENTRY = {
     "default_model": "h",
     "models": ["h", "s", "o"],
 }
+#: Where the default tier's render sits, relative to the deploy project root.
+_GATEWAY_RENDER_DIR = "demo-assistant"
+#: The terminals run the default tier's project, whose rendered config.yml
+#: (written by :func:`_render_gateway_render`) names the gateway provider.
 _GATEWAY_CONFIG = {
     "facility": {},
     "system": {"timezone": "UTC"},
     "claude_code": {"provider": _GATEWAY},
-    "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
+    "modules": {
+        "web_terminals": {
+            "enabled": True,
+            "image_source": "local",
+            "default_tier": "assistant",
+            "renders": {
+                "assistant": {
+                    "kind": RENDER_KIND_TIER,
+                    "project": "demo-assistant",
+                    "project_path": _GATEWAY_RENDER_DIR,
+                }
+            },
+        }
+    },
 }
+
+
+def _render_gateway_render(root: Path) -> None:
+    """Render the default tier's project, whose agent runs on the gateway."""
+    (root / _GATEWAY_RENDER_DIR).mkdir()
+    (root / _GATEWAY_RENDER_DIR / "config.yml").write_text(
+        f"claude_code:\n  provider: {_GATEWAY}\n", encoding="utf-8"
+    )
 
 
 def test_existing_file_missing_a_required_endpoint_is_an_error(
@@ -113,6 +139,7 @@ def test_existing_file_missing_a_required_endpoint_is_an_error(
     from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(CLAUDE_CODE_PROVIDERS, _GATEWAY, _GATEWAY_TABLE_ENTRY)
+    _render_gateway_render(tmp_path)
     _dotenv(tmp_path / ".env", {_GATEWAY_SECRET_VAR: "k"})
     _dotenv(tmp_path / ".env.users", {_GATEWAY_SECRET_VAR: "k"})
 

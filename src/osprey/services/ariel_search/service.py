@@ -14,11 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
+import tempfile
+from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import (
     ARIELException,
+    AttachmentPublishError,
     ConfigurationError,
+    IngestionError,
     PatternError,
     SearchConfigurationError,
     SearchExecutionError,
@@ -29,15 +35,17 @@ from osprey.services.ariel_search.models import (
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
+    AttachmentInfo,
     DiagnosticLevel,
     EmbeddingTableInfo,
     EnhancedLogbookEntry,
+    EntryAttachment,
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
     SearchDiagnostic,
     SyncStatus,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -47,6 +55,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.ingestion.base import FacilityAdapter
     from osprey.services.ariel_search.search.base import (
         ExpansionGroup,
         ParsedKeywordQuery,
@@ -743,19 +752,28 @@ class ARIELSearchService:
         request: FacilityEntryCreateRequest,
         *,
         local_metadata: dict[str, Any] | None = None,
+        attachments: Sequence[EntryAttachment] = (),
     ) -> FacilityEntryCreateResult:
         """Create a logbook entry through the facility adapter.
 
         Flow:
         1. Get the configured adapter
-        2. Write to facility logbook via adapter.create_entry()
+        2. Write to facility logbook via adapter.create_entry(), with the
+           entry's files when the adapter declares ``supports_attachments``
         3. Optimistic local upsert into ARIEL database
         4. For non-local adapters, attempt re-ingestion to sync
+        5. Store the files in ARIEL, unless the read-back already carried the
+           facility's own copies of them
 
         The optimistic local copy keeps ``local_metadata`` (declared values,
         ``session_metadata``, ``created_via``) so that provenance stays with the
         entry until re-ingestion; once the facility record is read back it
         replaces the local copy as the authority, with nothing merged back.
+
+        Files published to the facility are stored in ARIEL marked
+        ``published``, so the entry shows them at once; the first read-back that
+        lists the facility's attachments replaces them and deletes ARIEL's
+        copies. Files the adapter does not take are stored unmarked and stay.
 
         Args:
             request: Entry creation request
@@ -764,12 +782,16 @@ class ARIELSearchService:
                 Copied, never mutated; ``sync_status`` is always set by this
                 method. When omitted, the copy holds the request's ``logbook``,
                 ``shift`` and ``tags``.
+            attachments: The entry's files, already validated.
 
         Returns:
             FacilityEntryCreateResult with entry ID and sync status
 
         Raises:
             NotImplementedError: If the adapter doesn't support writes
+            AttachmentPublishError: If a publish carrying files failed; the
+                entry may already exist in the facility logbook without them,
+                and nothing is stored in ARIEL
         """
         from datetime import UTC, datetime, timedelta
 
@@ -782,8 +804,11 @@ class ARIELSearchService:
                 f"{adapter.source_system_name} adapter does not support creating entries"
             )
 
-        # Write to facility logbook
-        facility_entry_id = await adapter.create_entry(request)
+        publish_files = bool(attachments) and adapter.supports_attachments
+        if publish_files:
+            facility_entry_id = await _create_with_files(adapter, request, attachments)
+        else:
+            facility_entry_id = await adapter.create_entry(request)
 
         now = datetime.now(UTC)
         source_system = adapter.source_system_name
@@ -834,6 +859,14 @@ class ARIELSearchService:
                     f"Entry will sync on next poll."
                 )
 
+        # The facility's own list, once read back, is the authority for the
+        # files it took; ARIEL then keeps no copy of them.
+        if attachments and not (publish_files and entry.get("attachments")):
+            entry["attachments"] = await self._store_attachments(
+                facility_entry_id, attachments, published=publish_files
+            )
+            await self.repository.upsert_entry(entry)
+
         # Best-effort inline mirror write, so the entry is hybrid-searchable
         # within one sidecar poll instead of after the next batch enhancement
         # run. Never fails the create: the entry is already durable above.
@@ -848,7 +881,76 @@ class ARIELSearchService:
             source_system=source_system,
             sync_status=sync_status,
             message=f"Entry {facility_entry_id} created in {source_system}",
+            attachment_count=len(attachments),
+            attachments_published=publish_files,
         )
+
+    async def _store_attachments(
+        self,
+        entry_id: str,
+        attachments: Sequence[EntryAttachment],
+        *,
+        published: bool,
+    ) -> list[AttachmentInfo]:
+        """Store the entry's files in ARIEL and return their attachment items.
+
+        Args:
+            entry_id: The entry the files belong to.
+            attachments: The files.
+            published: Whether the facility logbook holds them too; the items
+                are then marked so its read-back replaces them.
+        """
+        from osprey.services.ariel_search.attachments import store_native_attachment
+
+        items: list[AttachmentInfo] = []
+        for attachment in attachments:
+            item = await store_native_attachment(
+                self.repository,
+                entry_id,
+                filename=attachment.filename,
+                declared_mime=attachment.mime_type,
+                data=attachment.data,
+            )
+            if published:
+                item["published"] = True
+            items.append(item)
+        return items
+
+    async def _native_attachments(self, entry: EnhancedLogbookEntry) -> list[EntryAttachment]:
+        """Read back the files ARIEL stores natively for an entry, in list order.
+
+        Raises:
+            IngestionError: If a listed file has no stored copy, so the entry
+                cannot be published with all of its files.
+        """
+        from osprey.services.ariel_search.attachments import attachment_id_for, is_native_item
+        from osprey.services.ariel_search.exceptions import IngestionError
+
+        files: list[EntryAttachment] = []
+        for item in entry.get("attachments") or []:
+            if not is_native_item(item):
+                continue
+            attachment_id = attachment_id_for(entry["entry_id"], item)
+            original = (
+                await self.repository.get_attachment_original(attachment_id)
+                if attachment_id
+                else None
+            )
+            filename = item.get("filename") or (original or {}).get("filename") or "attachment"
+            if not original:
+                raise IngestionError(
+                    f"Attachment {filename} of entry {entry['entry_id']} has no stored copy "
+                    "to publish",
+                    source_system="ARIEL",
+                )
+            files.append(
+                EntryAttachment(
+                    filename=filename,
+                    mime_type=item.get("type") or original.get("mime_type"),
+                    data=bytes(original["data"]),
+                )
+            )
+        return files
 
     async def publish_entry(
         self,
@@ -868,7 +970,9 @@ class ARIELSearchService:
         set is checked in full, live choices included. The adapter receives the
         declared values only; ARIEL's own keys are rebuilt, never copied. The
         local copy keeps the stored ``created_via`` and ``session_metadata``.
-        With no declared fields the request is the one built without them.
+        With no declared fields the request is the one built without them. An
+        adapter that declares ``supports_attachments`` also receives the files
+        ARIEL stores natively for the entry.
 
         Args:
             entry_id: ID of the existing ARIEL entry to publish
@@ -887,6 +991,8 @@ class ARIELSearchService:
                 undeclared, naming the field
             EntryFieldOptionsUnavailable: If a live choice check cannot list
                 the choices
+            IngestionError: If a native file of the entry has no stored copy
+                to publish; nothing is written
         """
         from osprey.services.ariel_search.entry_fields import (
             entry_field_descriptors,
@@ -945,7 +1051,11 @@ class ARIELSearchService:
             metadata=resolved.adapter_metadata,
         )
 
-        return await self.create_entry(request, local_metadata=resolved.local_metadata)
+        attachments = await self._native_attachments(entry) if adapter.supports_attachments else []
+
+        return await self.create_entry(
+            request, local_metadata=resolved.local_metadata, attachments=attachments
+        )
 
     async def health_check(self) -> tuple[bool, str]:
         """Check service health.
@@ -1026,6 +1136,67 @@ class ARIELSearchService:
         if self.readonly_pool is not None:
             await self.readonly_pool.close()
         await self.pool.close()
+
+
+_MAX_FILENAME_BYTES = 255
+
+
+def _fit_filename(name: str) -> str:
+    """*name* cut to fit a filesystem's name limit, keeping its extension."""
+    if len(name.encode()) <= _MAX_FILENAME_BYTES:
+        return name
+    stem, dot, suffix = name.rpartition(".")
+    if not dot or len(suffix.encode()) > 16:
+        stem, dot, suffix = name, "", ""
+    room = _MAX_FILENAME_BYTES - len((dot + suffix).encode())
+    return stem.encode()[:room].decode(errors="ignore") + dot + suffix
+
+
+def _stage_files(directory: Path, attachments: Sequence[EntryAttachment]) -> list[str]:
+    """Write each file to its own subdirectory under its base name; return the paths.
+
+    The subdirectory per file keeps two files of the same name apart, and the
+    base name keeps a submitted name from placing a file outside ``directory``.
+    A name no filesystem accepts (a NUL byte, more than 255 bytes) is cut to one
+    that it does, keeping the extension, so an odd name never fails the submit.
+    """
+    paths: list[str] = []
+    for index, attachment in enumerate(attachments):
+        name = attachment.filename.replace("\\", "/").rsplit("/", 1)[-1].replace("\0", "")
+        if name in ("", ".", ".."):
+            name = "attachment"
+        name = _fit_filename(name)
+        slot = directory / str(index)
+        slot.mkdir()
+        path = slot / name
+        path.write_bytes(attachment.data)
+        paths.append(str(path))
+    return paths
+
+
+async def _create_with_files(
+    adapter: FacilityAdapter,
+    request: FacilityEntryCreateRequest,
+    attachments: Sequence[EntryAttachment],
+) -> str:
+    """Create the entry with its files staged as paths for the adapter to publish.
+
+    The staged copies are removed when the call returns, whatever its outcome.
+
+    Raises:
+        AttachmentPublishError: If the adapter raised :class:`IngestionError`;
+            the entry may already exist without all of its files.
+    """
+    with tempfile.TemporaryDirectory(prefix="ariel-entry-files-") as staging:
+        paths = await asyncio.to_thread(_stage_files, Path(staging), attachments)
+        try:
+            return await adapter.create_entry(dataclasses.replace(request, attachment_paths=paths))
+        except AttachmentPublishError:
+            raise
+        except IngestionError as exc:
+            raise AttachmentPublishError(
+                exc.message, source_system=adapter.source_system_name
+            ) from exc
 
 
 async def create_ariel_service(

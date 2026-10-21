@@ -17,6 +17,7 @@ logger.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import subprocess
@@ -27,9 +28,9 @@ from typing import IO, Any
 
 from rich.text import Text
 
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import chain_files, merge_chain
-from osprey.utils.logger import get_logger
+from osprey_connectors.dotenv import chain_files, merge_chain
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .output import fail, report, warn
 from .phase_reporter import current_reporter
@@ -43,8 +44,8 @@ _SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
 _EXIT_GRACE_SECONDS = 5.0
 """Seconds a streamed step's child gets to exit once its stdout has drained.
 
-Some test frameworks (a pyepics CA context, for one) keep background threads
-alive that stop the process exiting promptly after its last line.
+Some test frameworks (a Channel Access client context, for one) keep background
+threads alive that stop the process exiting promptly after its last line.
 """
 
 _DRAIN_SHUTDOWN_SECONDS = 5.0
@@ -234,10 +235,9 @@ def _stop_drain(reader: threading.Thread, stop: threading.Event, stdout: IO[str]
         # already silent.
         logger.debug("Lifecycle drain thread outlived its step; left silenced")
         return
-    try:
+    # the pipe is at EOF by this point, so a close error is moot
+    with contextlib.suppress(OSError):
         stdout.close()
-    except OSError:  # pragma: no cover - the pipe is at EOF by this point
-        pass
 
 
 def _run_lifecycle_phase(

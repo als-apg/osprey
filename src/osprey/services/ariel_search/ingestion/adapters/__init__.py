@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from osprey.services.ariel_search.exceptions import AdapterNotFoundError
-from osprey.services.ariel_search.ingestion.base import BaseAdapter, FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig

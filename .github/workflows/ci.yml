@@ -14,7 +14,8 @@ on:
     # lanes" below), and applying a label does not start a run unless the
     # workflow subscribes to it. Any label re-runs the PR's workflow -- the
     # per-PR concurrency group cancels the superseded run, so the cost is
-    # one restart of the always-on lanes, not a duplicate.
+    # one restart of the always-on lanes, not a duplicate (hence the label-
+    # before-push rule at the `all-checks-passed` gate).
     types: [ opened, synchronize, reopened, labeled ]
   workflow_dispatch:
     inputs:
@@ -117,18 +118,7 @@ concurrency:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
-# Pull openobserve from our ghcr mirror rather than ECR Public. ECR Public
-# rate-limits anonymous pulls per source IP and GitHub-hosted runners share
-# egress IPs, so E2E deploys intermittently died on
-# "toomanyrequests: Rate exceeded". Set at workflow level because the ref is
-# identical in every deploying job; jobs that don't deploy ignore it.
-#
-# The mirror is PRIVATE, so each deploying job also needs the ghcr login step.
-# Populate/refresh it with .github/workflows/mirror-openobserve.yml, which must
-# be re-run whenever the pin in
-# src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
-  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.92.2
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
   # alike) reads its endpoint from here. This line is where a fork's own
@@ -175,43 +165,54 @@ jobs:
     # included, runs 1.5-1.7x slower on some runners than on others, so the
     # spread is the runner pool, not the suite (the coverage cell is no
     # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
-    # which costs near enough nothing). The shard axis below halves what one
-    # job runs, which is what keeps a slow runner clear of this cap. What
-    # forces the headroom on top is a known intermittent tail worth ~12 minutes:
-    # a worker wedges mid-test and its share has to be redistributed to a
-    # replacement, or the session hangs after the last test on non-daemon
-    # threads that outlive it. Both are visible in this lane's uploaded
-    # diagnostics, and neither is bounded by anything the suite controls, so
-    # a cap tight enough to catch them also reds the runs where they merely
-    # cost time. The 40-minute step cap below sat at the healthy runtime for
-    # a day and did exactly that: main timed out on the macOS cell at 99%
-    # three times on 2026-09-01 with zero test failures.
+    # which costs near enough nothing). The shard axis below splits what one
+    # cell runs three ways, which is what keeps a slow runner clear of this
+    # cap. What forces the headroom on top is a known intermittent tail worth
+    # ~12 minutes: a worker wedges mid-test and its share has to be
+    # redistributed to a replacement, or the session hangs after the last test
+    # on non-daemon threads that outlive it. Both are visible in this lane's
+    # uploaded diagnostics, and neither is bounded by anything the suite
+    # controls, so a cap tight enough to catch them also reds the runs where
+    # they merely cost time. The 40-minute step cap below sat at the healthy
+    # runtime for a day and did exactly that: main timed out on the macOS cell
+    # at 99% three times on 2026-09-01 with zero test failures.
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.14']
         os: [ubuntu-latest, macos-latest]
-        # Each cell runs as two jobs. `cli` is tests/cli alone; `rest` is
-        # everything else. Measured on the per-test event logs of a full run,
-        # tests/cli is 49% of the suite's test time on both OSes (its ~120
-        # tests that run a real `osprey build` are most of that), so the two
-        # halves finish together and a job takes half the wall clock of a
-        # whole-suite cell on the same runner. A shard is a directory, not a
-        # duration file or a hash: nothing to regenerate, and the balance is
-        # re-checked by reading `--durations` when tests/cli drifts far from
-        # half. Runner-minutes are unchanged; the macOS concurrency ceiling
-        # discussed below sees twice the jobs at half the length each.
-        shard: [cli, rest]
+        # Each cell runs as three jobs, one per set of directories. `cli` is
+        # tests/cli alone, the heaviest single directory (its ~120 tests that
+        # run a real `osprey build` are most of that). `rest-a` is
+        # tests/facility, tests/mcp_server and tests/deployment. `rest-b` is
+        # everything else, spelled as ignores in "Run unit tests" so a new test
+        # directory lands there rather than in no shard. Measured on the
+        # per-test event logs of a full run, rest-a is 43-51% of the non-cli
+        # test time across the cells (the top of that band on the slowest macOS
+        # runner), so the two rest shards finish together and each stays near
+        # half the step cap below on the slowest runner in the pool. A shard
+        # is a set of directories, not a duration file or a hash: nothing to
+        # regenerate, and the balance is re-checked by reading `--durations`
+        # when one side drifts far from half. test_ci_workflow_wiring.py holds
+        # that the three sets cover tests/ exactly once.
+        #
+        # Runner-minutes are unchanged by the split; the macOS concurrency
+        # ceiling discussed below sees more jobs at a shorter length each. A
+        # main push runs two macOS cells, so 6 macOS jobs against the ceiling
+        # of 5: one queues until the first finishes, which delays that one
+        # job's start and costs no runner-minutes.
+        shard: [cli, rest-a, rest-b]
         # Pull requests drop the 3.11/macOS cell; every other event runs the
         # full product.
         #
         # Two reasons, and neither is "macOS does not matter". The macOS
         # concurrency ceiling is 5 jobs across the whole account and does not
-        # move on Free, Pro or Team -- only on Enterprise. At two macOS cells
-        # per PR, four in-flight PRs want 8 of those 5 slots, which is why the
-        # 3.12/macOS cell was measured sitting 24.8 minutes in the queue behind
-        # other PRs. At one cell they fit. The second reason is load: the four
+        # move on Free, Pro or Team -- only on Enterprise. Every macOS cell is
+        # three jobs (the shard axis above), so at one cell per PR two in-flight
+        # PRs already want 6 of those 5 slots, and at two cells they would want
+        # 12. A 3.12/macOS cell was measured sitting 24.8 minutes in the queue
+        # behind other PRs at two cells per PR. The second reason is load: the four
         # test cells are ~101 of the ~350 job-minutes a PR run costs, the
         # largest single item in this file.
         #
@@ -226,7 +227,13 @@ jobs:
         # coverage cell: same interpreter, different OS, so a failure isolates
         # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
         # except pull requests.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"}]' || '[]') }}
+        #
+        # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
+        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
+        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
+        # cell would add three more macOS jobs to a main-push run that already
+        # queues one against the ceiling of 5.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
 
     steps:
     - name: Checkout repository
@@ -243,15 +250,14 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      # virtual-accelerator: carries the whole serving stack -- pcaspy, and
-      # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
-      # dev. The live Channel Access suites (run in their own step below, one
-      # process per module) and tests/va/test_facility_seam.py's served-boot
-      # branch need all of it. These guard their imports, so without the extra
-      # they SKIP rather than error: the lane stays green having never touched
-      # Channel Access. That is why the extra is pinned here and why
-      # tests/va/test_live_ca_venue_guard.py fails this lane outright if the
-      # server does not import on linux/x86_64.
+      # virtual-accelerator: carries the whole serving stack --
+      # lume-pva-apg[ca,pva], which brings pcaspy and p4p with it -- none of
+      # which is in dev. The live Channel Access suites (run in their own step below, one
+      # process per module) need all of it. They guard their imports, so
+      # without the extra they SKIP rather than error: the lane stays green
+      # having never touched Channel Access. That is why the extra is pinned
+      # here and why tests/va/test_live_ca_venue_guard.py fails this lane
+      # outright if the server does not import on linux/x86_64.
       #
       # The bluesky stack (bluesky/ophyd-async/tiled) is a core dependency, so
       # plain `uv sync` carries it. tests/services/bluesky_bridge/* guard their
@@ -281,9 +287,9 @@ jobs:
       # have passed anyway; the value is deliberately loose for that reason, and
       # tightening it is how this lane starts flaking. 55 was sized when a cell
       # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs half of it, so the same cap now leaves room for the slowest runner
-      # in the pool AND the tail. The previous 40 was sized for a ~18 min cell
-      # and became the healthy runtime itself.
+      # runs about half of it or less, so the same cap leaves room for the
+      # slowest runner in the pool AND the tail. The previous 40 was sized for
+      # a ~18 min cell and became the healthy runtime itself.
       timeout-minutes: 55
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
@@ -338,7 +344,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty" hands the real-terminal suite to the serial step below.
+      # -m "not pty and not wallclock": "not pty" hands the real-terminal suite
+      # to the serial step below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -348,9 +355,14 @@ jobs:
       # belongs in this lane: it scans the deploy path for runtime argv the
       # stub cannot answer, needs no terminal, and is what makes the serial
       # step's failures worth reading.
+      #
+      # `not wallclock` hands away every wall-clock budget for the same
+      # reason: a budget timed beside three loaded workers measures them. Each
+      # is timed in a serial step that selects the marker: the qmd panel
+      # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -397,13 +409,13 @@ jobs:
         # and ten minutes is well under what those lanes legitimately take.
         #
         # The two live Channel Access modules are excluded here and run in the
-        # isolated step below: libca is process-global and not thread-safe, and
-        # a pyepics PV finalized by the garbage collector — which runs on
-        # whatever thread allocates next — segfaults inside libca. In a
-        # long-lived xdist worker that shares 16k other tests, the crash lands
-        # minutes later in an unrelated test and EPICS' signal handling turns
-        # it into a silent wedge rather than a death. A live CA client/server
-        # pair is only safe in a process of its own.
+        # isolated step below: libca is process-global, a process has one CA
+        # context for its whole life, and a client torn down under a server in
+        # the same process can crash inside libca. In a long-lived xdist worker
+        # that shares 16k other tests, the crash lands minutes later in an
+        # unrelated test and EPICS' signal handling turns it into a silent
+        # wedge rather than a death. A live CA client/server pair is only safe
+        # in a process of its own.
         #
         # --durations=50: a per-cell slow-test ranking in every run is what
         # tells "one group of tests got expensive" apart from "the whole suite
@@ -423,24 +435,28 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        # The shard: `cli` narrows the path to tests/cli, `rest` keeps tests/
-        # and ignores tests/cli. Spelled as two variables on the one pytest
-        # line so the invocation test_ci_workflow_wiring.py pins stays one line.
+        # The shard: SHARD_PATH completes the first path, SHARD_ARGS names the
+        # shard's further directories or, for rest-b, ignores every directory
+        # another shard names, so rest-b is everything else by construction.
+        # Spelled as two variables on the one pytest line so the invocation
+        # test_ci_workflow_wiring.py pins stays one line; the same file holds
+        # that the shards cover tests/ exactly once.
         case "${{ matrix.shard }}" in
-          cli)  SHARD_PATH="cli"; SHARD_IGNORE="" ;;
-          rest) SHARD_PATH="";    SHARD_IGNORE="--ignore=tests/cli" ;;
+          cli)    SHARD_PATH="cli";      SHARD_ARGS="" ;;
+          rest-a) SHARD_PATH="facility"; SHARD_ARGS="tests/mcp_server tests/deployment" ;;
+          rest-b) SHARD_PATH="";         SHARD_ARGS="--ignore=tests/cli --ignore=tests/facility --ignore=tests/mcp_server --ignore=tests/deployment" ;;
         esac
-        # Two integration modules are dropped by name rather than by marker. Each
+        # Three integration modules are dropped by name rather than by marker. Each
         # renders and builds a real project, and each is run by name in a job that
-        # carries no `if:` — the boot smoke over its preset matrix, and the Tier 0
-        # static job — so collecting them here buys a second reading of the same
-        # tests at the price of a full build in every cell of this matrix. The drop
-        # is safe only while those jobs stay unconditional: put an `if:` on either
-        # one, or on the step that names the file, and the module is read on fewer
-        # events than it is here.
+        # carries no `if:` — one by the boot smoke over its preset matrix, two by
+        # the Tier 0 static job — so collecting them here buys a second reading of
+        # the same tests at the price of real builds in every cell of this matrix.
+        # The drop is safe only while those jobs stay unconditional: put an `if:`
+        # on either one, or on the step that names the file, and the module is
+        # read on fewer events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -478,9 +494,9 @@ jobs:
       # it covers is not OS-specific either: it is how OSPREY's own renderer
       # drives a terminal. Both Linux Python cells run it, so it is not
       # single-interpreter, and a developer on macOS runs it locally. One shard
-      # per cell: the suite is not part of either half and would otherwise run
-      # twice.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
+      # per cell, rest-b, the one whose directories hold tests/pty: the suite
+      # would otherwise run once per shard.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
       # Serial by construction, and no xdist flags. Each scenario allocates a
       # pty, starts a real verb on it in its own session, and asserts on what
       # the terminal showed, including that a spinner ADVANCED between two
@@ -513,19 +529,21 @@ jobs:
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
-      # rule the local certification uses. --pva asserts pcaspy/p4p/
-      # lume-pva-apg import before running, so the served-boot branch of the
-      # seam test actually executes. The gate fails unless every module exits
+      # rule the local certification uses. --pva asserts pcaspy, p4p and
+      # lume-pva-apg import before pytest runs, because the seam test skips
+      # whole at import when any is missing. The gate fails unless every module exits
       # 0 with zero skips and at least one pass, which closes the gap the
       # in-sweep venue guard cannot: a skipped live suite fails THIS step even
       # if a future marker or fixture skip slips past the import guard. One
-      # shard per cell, as for the pty suite above.
-      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
+      # shard per cell, rest-b, the one whose directories hold tests/va, as for
+      # the pty suite above.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
       run: uv run python scripts/va/live_ca/gate.py --pva
 
     - name: Upload coverage reports to Codecov
-      # Both shards of the coverage cell upload; Codecov merges reports for
-      # one commit, so the two halves add up to the whole suite's coverage.
+      # Every shard of the coverage cell uploads under its own name; Codecov
+      # merges reports for one commit, so the shards add up to the whole
+      # suite's coverage.
       uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       with:
@@ -744,30 +762,23 @@ jobs:
       # above is fetch-depth: 0, which is what makes `origin/$BASE_REF` and
       # the `A...B` merge base resolvable; deliberately no fetch here, since a
       # depth-limited one would shallow the clone and break that merge base.
+      # `python3`, not `uv run`: the script is stdlib-only and standalone, so it
+      # still reports when the dependency install is what broke.
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
+
+    - name: No tracked file is gitignored
+      # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
+      if: ${{ !cancelled() }}
       run: |
-        BASE="origin/$BASE_REF"
-        # Captured on its own line so an unresolvable base aborts the step
-        # (bash -e) instead of reading as an empty, untouched plugin tree.
-        CHANGED=$(git diff --name-only "$BASE...HEAD" -- plugins .claude-plugin .agents/plugins)
-        if [ -z "$CHANGED" ]; then
-          echo "plugin tree untouched — no version bump required"; exit 0
+        ignored=$(git ls-files -ci --exclude-standard)
+        if [ -n "$ignored" ]; then
+          echo "::error::tracked files matched by .gitignore (narrow the rule or untrack the file):"
+          echo "$ignored"
+          exit 1
         fi
-        HEAD_VER=$(python3 -c 'import json;print(json.load(open("plugins/osprey/.claude-plugin/plugin.json"))["version"])')
-        # A manifest missing on the base is a new plugin; a manifest that exists
-        # but does not parse is an error, not a free pass.
-        if BASE_JSON=$(git show "$BASE:plugins/osprey/.claude-plugin/plugin.json" 2>/dev/null); then
-          BASE_VER=$(printf %s "$BASE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])')
-        else
-          BASE_VER=NONE
-        fi
-        [ "$BASE_VER" = NONE ] && { echo "new plugin manifest — no bump required"; exit 0; }
-        if [ "$HEAD_VER" = "$BASE_VER" ]; then
-          echo "plugin tree changed without a version bump — run python scripts/plugin_version.py bump"; exit 1
-        fi
-        echo "plugin version $BASE_VER -> $HEAD_VER"
 
     - name: Run mypy (type checking)
       run: uv run python scripts/mypy_gate.py
@@ -800,23 +811,12 @@ jobs:
       run: uv sync --extra docs
 
     # Warnings are errors: an orphaned page, a duplicate label, a missing
-    # :file: include, or a broken :doc:/:ref: target fails this job.
+    # :file: include, or a broken :doc:/:ref: target fails this job. So does a
+    # redirect key with no stub page: docs/source/conf.py fails the build.
     - name: Build documentation
       run: |
         cd docs
         uv run make html SPHINXOPTS="-W --keep-going"
-
-    # sphinx_reredirects writes one stub page per `redirects` key. A stub that
-    # never got written means a moved page's old URL 404s for every reader who
-    # bookmarked it.
-    - name: Check redirect stubs were emitted
-      run: |
-        keys=$(uv run python -c "import os, runpy; os.chdir('docs/source'); print(' '.join(runpy.run_path('conf.py')['redirects']))")
-        missing=""
-        for key in $keys; do
-          [ -f "docs/build/html/$key.html" ] || missing="$missing $key"
-        done
-        [ -z "$missing" ] || { echo "redirect stubs missing from the build:$missing"; exit 1; }
 
     - name: Check for broken links
       run: |
@@ -930,8 +930,33 @@ jobs:
         print('OPTIMIZER BASE WHEEL OK')
         "
 
+    # A step of its own, after the lean check rather than inside it: the pyAML
+    # control-system wheel imports the framework (osprey.runtime)
+    # by design, so the no-framework assertion above must keep reading a venv
+    # that holds the connectors wheel alone. This venv holds all three wheels
+    # from dist/ -- the framework declares a dependency on this one, and this
+    # one needs the framework at import -- so a wheel that omits a module, or a
+    # module that imports something no wheel ships, fails here and not on a
+    # user's install.
+    - name: Build pyaml-cs-osprey wheel and import-walk it with the framework
+      run: |
+        uv build --package pyaml-cs-osprey
+        uv venv /tmp/pyaml-check --python 3.11
+        uv pip install --python /tmp/pyaml-check/bin/python \
+          dist/osprey_framework-*.whl dist/osprey_connectors-*.whl dist/pyaml_cs_osprey-*.whl
+        /tmp/pyaml-check/bin/python -c "
+        import importlib, pkgutil
+        import pyaml_cs_osprey
+        def _raise(name):
+            raise ImportError(f'failed to walk {name}')
+        modules = [m.name for m in pkgutil.walk_packages(pyaml_cs_osprey.__path__, 'pyaml_cs_osprey.', onerror=_raise)]
+        for name in modules:
+            importlib.import_module(name)
+        print(f'PYAML WHEEL OK ({len(modules)} modules)')
+        "
+
   static-checks:
-    name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency, podman-compose parse)
+    name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     # Matches the convention the other light lanes use. None of this job's work
     # can hang in principle, but it now shells out to `osprey init`, `osprey
@@ -959,7 +984,7 @@ jobs:
 
     - name: Run Tier 0 static checks
       timeout-minutes: 15
-      run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
+      run: uv run pytest tests/integration/test_preset_static.py tests/integration/test_preset_build.py -v --tb=short
 
     - name: Set up Node
       uses: actions/setup-node@v7
@@ -1071,7 +1096,7 @@ jobs:
             detect_compose_provider,
             get_runtime_command,
         )
-        from osprey.utils.config import load_config
+        from osprey_connectors.config import load_config
 
         config = load_config("build/config.yml")
         root = Path(resolve_repo_root(config)).resolve()
@@ -1212,7 +1237,9 @@ jobs:
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
+          tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
+          tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
@@ -1413,13 +1440,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -1490,6 +1510,20 @@ jobs:
         name: agentic-per-preset-${{ matrix.preset }}
         engine: docker
 
+    # Belt-and-suspenders on top of the tutorial test's own try/finally: the
+    # hello-world tutorial test deploys the telemetry store and gateway under
+    # one fixed compose project. Every name here is exact (never a prune, -a
+    # or wildcard) and matches TUTORIAL_PROJECT_NAME in
+    # tests/e2e/test_preset_agentic.py.
+    - name: Clean up any stranded tutorial-stack resources
+      if: always()
+      run: |
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-gateway || true
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-store || true
+        docker volume rm osprey-e2e-hello-world-tutorial_telemetry_store_data || true
+        docker volume rm osprey-e2e-hello-world-tutorial_gateway-state || true
+        docker network rm osprey-e2e-hello-world-tutorial_osprey-network || true
+
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -1522,13 +1556,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1609,9 +1636,9 @@ jobs:
           # split (privilege-split-e2e) each have their own job because they build
           # container images. Exclude them all here to avoid
           # double-execution — and because full-stack deploys leave
-          # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
-          # container names, the host-global openobserve data volume with
-          # root creds pinned on first init) that breaks later tests sharing
+          # host-global residue (fixed `<project>-web-<user>`/`<project>-nginx`
+          # container names, named store volumes whose credentials are
+          # pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
           # LLM lane," NOT "not tested" — every ignored file below runs in
           # its own job (the deploy-lifecycle jobs run on PRs into main
@@ -1677,6 +1704,7 @@ jobs:
             --ignore=tests/e2e/test_bump_roundtrip.py \
             --ignore=tests/e2e/test_preflight_probe.py \
             --ignore=tests/e2e/test_archiver_world_e2e.py \
+            --ignore=tests/e2e/test_graph_reseed_stamp.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_web_deploy.py \
@@ -1693,8 +1721,11 @@ jobs:
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_openobserve_telemetry.py \
+            --ignore=tests/e2e/test_telemetry_store_e2e.py \
+            --ignore=tests/e2e/test_telemetry_access_e2e.py \
             --ignore=tests/e2e/test_sdk_helpers.py \
+            --ignore=tests/e2e/test_scripted_model.py \
+            --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
             --ignore=tests/e2e/test_mcp_readiness.py \
             --ignore=tests/e2e/test_dispatch_deploy_render.py \
             --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
@@ -1702,6 +1733,7 @@ jobs:
             --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
             --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
             --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
+            --ignore=tests/e2e/web_terminals/test_render_permissions_scripted.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -1712,27 +1744,122 @@ jobs:
       with:
         name: e2e-tests
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # E2E_FILTER can run any full-stack module here, so every one is named.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
-    # Every same-repo pull request, and same-repo is the image mirror's
-    # condition rather than a credential's: this lane declares no gateway key,
-    # but the OpenObserve pin at the workflow level is a private package and
-    # the token a fork run holds cannot read it. No `full-ci` label — nothing
-    # here spends model tokens, so there is nothing for a label to protect,
-    # and a lane that only runs on labelled pull requests proves nothing on
-    # the ones that break it.
+    # Every pull request, fork pull requests included: this lane declares no
+    # gateway key and every image it pulls is public (the store from Docker
+    # Hub, the collector from public ghcr), so there is nothing a fork run's
+    # token cannot read. No `full-ci` label — nothing here spends model
+    # tokens, so there is nothing for a label to protect, and a lane that only
+    # runs on labelled pull requests proves nothing on the ones that break it.
     # No actor guard either. The lanes that exclude `dependabot[bot]` do so
     # because they resolve an Actions secret, which a Dependabot run cannot
-    # see; this one resolves none. Its only credential is the run's own
-    # GITHUB_TOKEN, read-only on a Dependabot run — and read-only is the
-    # access reading the mirror takes. Excluding Dependabot here would take
-    # the model-free proof off the pull requests that move the dependency
-    # set, which is where it is worth the most.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Not measured on a runner: no lane has run these ten files on their own.
+    # see; this one resolves none. Excluding Dependabot here would take the
+    # model-free proof off the pull requests that move the dependency set,
+    # which is where it is worth the most.
+    if: github.event_name == 'pull_request'
+    # Not measured on a runner: no lane has run these files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
     # the job cap so a hang fails THIS step and leaves the capture step below
@@ -1748,13 +1875,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1791,19 +1911,19 @@ jobs:
         # would select nothing and green it. Every test this step selects
         # carries model_free, and the wiring test holds the two equal.
         #
-        # The telemetry module is named first because it is the only one that
-        # deploys a stack, and xdist hands the first file to the first worker.
+        # The two telemetry modules are named first because they are the only
+        # ones that deploy a stack, and xdist hands the first files to the
+        # first workers; each has its own project name and port base.
         # -n 4 --dist loadfile is the mode these files already run under in
         # the shared lane: loadfile keeps a file's tests on one worker, and
         # the three real-process web-terminal modules each bind an ephemeral
         # port, so nothing here contends for a fixed one.
-        #
-        # --deselect: that one test appends a live agent turn to an otherwise
-        # synthetic round-trip and is gated on the gateway key this lane does
-        # not hold. Selected, it would skip; skipping fails this lane.
         uv run pytest \
-          tests/e2e/test_openobserve_telemetry.py \
+          tests/e2e/test_telemetry_store_e2e.py \
+          tests/e2e/test_telemetry_access_e2e.py \
           tests/e2e/test_sdk_helpers.py \
+          tests/e2e/test_scripted_model.py \
+          tests/e2e/claude_code/test_safety_gates_scripted.py \
           tests/e2e/test_mcp_readiness.py \
           tests/e2e/test_dispatch_deploy_render.py \
           tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
@@ -1811,7 +1931,7 @@ jobs:
           tests/e2e/web_terminals/test_loopback_chokepoint.py \
           tests/e2e/web_terminals/test_session_restart_e2e.py \
           tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          --deselect tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands \
+          tests/e2e/web_terminals/test_render_permissions_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
@@ -1853,6 +1973,24 @@ jobs:
       with:
         name: e2e-no-model
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # The two telemetry modules deploy a store each, under their own project.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   channel-finder-benchmarks:
@@ -1893,12 +2031,18 @@ jobs:
       # The unit lane ignores this module by path: its budgets are held to a
       # workstation's numbers, and four xdist workers on a four-vCPU runner
       # miss them by ~7x on both corpora at once — the box, not the code (see
-      # the module docstring). It runs here instead, serially and alone.
+      # the module docstring). It runs here instead, serially and alone, in
+      # two invocations: the first runs everything but the absolute budgets,
+      # the second is the serial host of the module's wallclock-marked
+      # budgets and times them with nothing else in the process. Each
+      # invocation builds the project and the hundred-thousand-row index for
+      # itself, which is a cost only an on-demand job can carry.
       # Placed ahead of the probe below deliberately: a DuckDB latency
       # measurement needs no API key, and gating it on one would mean an
       # unreachable proxy silently takes the scale guard down with it.
       run: |
-        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -v --tb=short
+        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m "not wallclock" -v --tb=short
+        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m wallclock -v --tb=short
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2050,13 +2194,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2097,13 +2234,13 @@ jobs:
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
 
-    - name: osprey up (deploys openobserve for hello-world)
+    - name: osprey up (deploys the telemetry store and gateway for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares deployed_services: [openobserve], so this
-        # verifies a single-service deploy succeeding end-to-end.
+        # hello-world declares deployed_services: [telemetry_store,
+        # telemetry_gateway], so this verifies that pair deploying end-to-end.
         uv run osprey up -d --dev
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
@@ -2131,10 +2268,10 @@ jobs:
     timeout-minutes: 60
     # Only run on PRs from same repo (secrets unavailable on forks).
     # Besides the dispatcher/worker stack, the same deploy stands up the
-    # preset's two-persona web tier (nginx + one terminal container per
-    # roster user, both persona images built locally), so this lane also
+    # preset's two-tier web layer (nginx + one terminal container per
+    # roster user, both render images built locally), so this lane also
     # carries the multi-user topology + write-posture proofs (T1-T4 in
-    # tests/e2e/test_dispatch_deploy.py). Persona image builds add
+    # tests/e2e/test_dispatch_deploy.py). Render image builds add
     # cold-cache minutes; the two builds share most layers.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
@@ -2150,13 +2287,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2213,6 +2343,18 @@ jobs:
       with:
         name: dispatch-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
 
 
   single-user-narrowing-e2e:
@@ -2242,13 +2384,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2305,6 +2440,18 @@ jobs:
       with:
         name: single-user-narrowing-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
 
 
   dispatch-overlay-e2e:
@@ -2336,13 +2483,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2402,6 +2542,18 @@ jobs:
       with:
         name: dispatch-overlay-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-deploy-e2e:
@@ -2419,13 +2571,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2453,6 +2598,18 @@ jobs:
       with:
         name: bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-web-deploy-e2e:
@@ -2474,13 +2631,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2511,6 +2661,18 @@ jobs:
       with:
         name: bluesky-web-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
 
 
   va-substrate-equivalence-e2e:
@@ -2537,13 +2699,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2574,6 +2729,18 @@ jobs:
       with:
         name: va-substrate-equivalence-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
 
 
   orm-roundtrip-e2e:
@@ -2618,13 +2785,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2672,6 +2832,33 @@ jobs:
       with:
         name: orm-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-queue-e2e:
@@ -2694,13 +2881,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2731,6 +2911,18 @@ jobs:
       with:
         name: bluesky-queue-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
 
 
   scan-agentic-e2e:
@@ -2774,13 +2966,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2835,12 +3020,11 @@ jobs:
       timeout-minutes: 70
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        # Arms the agent-transcript dump (tests/e2e/sdk_helpers.py). This lane
-        # is judged by an LLM on numbers the judge is never shown — tool
-        # results reach it previewed at 300 characters — so a verdict of
-        # "cannot be verified from the execution trace" is unadjudicable
-        # without the untruncated response and traces. The capture step below
-        # uploads this directory on failure.
+        # Arms the agent-transcript dump (tests/e2e/sdk_helpers.py). The LLM
+        # judge reads tool results cut at JUDGE_RESULT_CHARS and only the head
+        # and tail of a long trace, so a verdict it cannot fully see is settled
+        # from the untruncated response and traces in this directory, which
+        # the capture step below uploads on failure.
         OSPREY_CI_DIAG_DIR: ci-diag
       run: |
         uv run pytest tests/e2e/test_plan_stack_agentic.py -v --tb=short \
@@ -2893,6 +3077,18 @@ jobs:
       with:
         name: scan-agentic-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
 
 
   archiver-world-e2e:
@@ -2920,10 +3116,10 @@ jobs:
       with:
         fetch-depth: 0
 
-    # No ghcr login step, unlike the orm lane it is otherwise modelled on: the
-    # trimmed stack pulls nothing from ghcr. The VA image builds locally from
+    # No ghcr login step: the trimmed stack pulls nothing from a private
+    # registry. The VA image builds locally from
     # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
-    # reuses the VA image — openobserve is not deployed here at all.
+    # reuses the VA image — no telemetry store is deployed here at all.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2959,6 +3155,58 @@ jobs:
         engine: docker
 
 
+  graph-reseed-e2e:
+    name: Graph Reseed Stamp E2E (render + real Neo4j store, no model)
+    runs-on: ubuntu-latest
+    # Same-repo-PR gating, house policy for every extra Docker lane. No
+    # secrets: the file reads the render and the store, and reaches no model.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Three `osprey build`s of the control-assistant preset plus one
+    # testcontainers Neo4j store; about a minute on a workstation.
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Fetch the pinned neosemantics (n10s) jar
+      # The store fixture can download the jar itself, but a failed download
+      # there skips the test instead of failing the lane. Fetched here it fails
+      # loudly, and OSPREY_TEST_N10S_JAR points the fixture at the local copy.
+      run: |
+        set -euo pipefail
+        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
+        jar="${{ runner.temp }}/$(basename "$url")"
+        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
+        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+
+    - name: Run graph reseed stamp E2E
+      timeout-minutes: 25
+      run: |
+        uv run pytest tests/e2e/test_graph_reseed_stamp.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: graph-reseed-e2e
+        engine: docker
+
+
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
     runs-on: ubuntu-latest
@@ -2982,13 +3230,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3019,6 +3260,18 @@ jobs:
       with:
         name: tiled-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-catalog-e2e:
@@ -3041,13 +3294,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3075,6 +3321,18 @@ jobs:
       with:
         name: bluesky-catalog-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-sandbox-escape-e2e:
@@ -3099,13 +3357,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3136,6 +3387,18 @@ jobs:
       with:
         name: bluesky-sandbox-escape-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
 
 
   nextcloud-talk-bridge-e2e:
@@ -3175,7 +3438,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror + Nextcloud Talk fixture)
+    - name: Log in to ghcr (Nextcloud Talk fixture)
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
@@ -3544,7 +3807,7 @@ jobs:
     name: Privilege Split E2E (built images, stat-level ownership proof)
     runs-on: ubuntu-latest
     # Two image builds of the control-assistant preset (base + admin render);
-    # they share every layer up to the persona's own config, so the second is
+    # they share every layer up to the render's own config, so the second is
     # mostly cache — but the first is the same cold EPICS-toolchain compile
     # dockerfile-e2e pays, hence the same order of budget plus the second image.
     # A THIRD image build lives here too: the audit two-container mechanism
@@ -4002,16 +4265,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -4051,12 +4304,10 @@ jobs:
     - name: Clean up any stranded write-back-e2e resources
       if: always()
       run: |
-        for case in profile divergent orphan persona; do
+        for case in rebuild divergent render; do
           project="osprey-e2e-wb-${case}"
-          docker rm -f "${project}-openobserve" || true
           docker rm -f "${project}-ariel-postgres" || true
           docker compose -p "$project" down || true
-          docker volume rm "${project}_openobserve_data" || true
           docker volume rm "${project}_ariel_postgres_data" || true
         done
 
@@ -4128,7 +4379,11 @@ jobs:
         done
         docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-store || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         docker compose -p osprey-e2e-mus-p3 down || true
+        docker volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        docker volume rm osprey-e2e-mus-p3_gateway-state || true
 
   auth-perimeter-e2e:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
@@ -4209,10 +4464,10 @@ jobs:
         docker rm -f osprey-e2e-auth-perimeter-nginx || true
         docker compose -p osprey-e2e-auth-perimeter down || true
         docker rmi -f osprey-e2e-auth-perimeter-auth:local || true
-        docker rmi -f authe2e-operator:local || true
+        docker rmi -f osprey-e2e-auth-perimeter-readonly:local || true
 
   terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method token + none, real persona image)
+    name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
     runs-on: ubuntu-latest
     # Raised from the 60 this lane carried while it stood up ONE deployment.
     # What the second posture adds is a second render and a second `osprey up`
@@ -4234,7 +4489,7 @@ jobs:
     # volume lifecycle) against the runtime.
     #
     # DELIBERATELY ITS OWN LANE, for the same reason auth-perimeter-e2e is one.
-    # The terminal behind nginx here is the REAL `osprey web`, so the persona
+    # The terminal behind nginx here is the REAL `osprey web`, so the render
     # image is a real `pip install osprey-framework` with a C toolchain plus the
     # Claude Code CLI — minutes, cold, every run. Folding it into the all-stub
     # lifecycle lanes would make every lifecycle run pay that build; folding it
@@ -4242,17 +4497,15 @@ jobs:
     # lane (which is why the module carries the `dockerbuild` marker and is
     # --ignore'd there).
     #
-    # TWO deployments, ONE build. The module proves both sidecar-less postures:
+    # TWO deployments, ONE recipe. The module proves both sidecar-less postures:
     # `auth.method: token` (the DEFAULT, and what an absent `auth:` block
     # renders) where nginx injects nothing and each terminal's own `?token=`
     # exchange is the gate; and `auth.method: none` (OPEN, navigation-only)
     # where nginx injects each user's operator secret and executed code is
-    # refused the deployment's own web ports. Both lanes share one persona
-    # project and therefore one
-    # `:local` image, so the second `osprey up` re-runs the build against a
-    # byte-identical context and hits the runtime cache: the added cost over the
-    # single-posture lane this replaces is a second render plus a second deploy,
-    # not a second image build.
+    # refused the deployment's own web ports. A tier's `:local` image is tagged
+    # for the deployment that renders it, so each lane builds its own; the
+    # second build runs the same recipe and takes every layer up to the project
+    # copy from the runtime's cache.
     #
     # Complement, not duplicate, of auth-perimeter-e2e: that lane proves the
     # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection),
@@ -4290,7 +4543,7 @@ jobs:
       run: uv sync --extra dev
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
-    # `--dev` stages this branch's locally-built wheel into the persona image, so
+    # `--dev` stages this branch's locally-built wheel into the render image, so
     # the terminal whose gate is under test runs THIS branch's code rather than a
     # published release. No provider secret is needed: the fixture writes a fake
     # ANTHROPIC_API_KEY and the PTY never contacts a model.
@@ -4329,12 +4582,12 @@ jobs:
         done
         docker rm -f osprey-e2e-open-multiuser-nginx || true
         docker compose -p osprey-e2e-open-multiuser down || true
-        # ONE image for both lanes: the persona catalog entry names its own
-        # `project`, so the tag is `<project>:local` with no persona suffix.
-        docker rmi -f authmulti-operator:local || true
+        # Each lane's tier image, tagged `<project_name>-<tier>:local`.
+        docker rmi -f osprey-e2e-token-multiuser-readonly:local || true
+        docker rmi -f osprey-e2e-open-multiuser-readonly:local || true
 
   full-chain-auth-e2e:
-    name: Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)
+    name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
     runs-on: ubuntu-latest
     # Higher than the two single-build auth lanes (60/55) because this job does
     # strictly more of the same work: BOTH real images, cold, in one job. Two
@@ -4345,6 +4598,15 @@ jobs:
     # build_lanes` pins the RELATION (strictly more than either sibling, at both
     # caps), not these numbers; record the first cold wall clock in the PR body
     # so the margin is sized from a measurement rather than from this estimate.
+    # The telemetry store and gateway add no build (public images, a pull
+    # each) and the history service runs the project image already built, so
+    # they cost container starts only: on a developer host the whole module
+    # runs in about 5 minutes with the project image built, 1 minute warm.
+    # The history cases add a second `osprey up` (no build) and six browser
+    # runs; re-measured with them on a developer host: the whole module in
+    # 114 s warm. The cold runner time is still the three image builds, so
+    # both caps stand; `test_full_chain_auth_lane_caps_are_the_measured_ones`
+    # pins them, and moving either is a re-measurement.
     timeout-minutes: 85
     # Same PR scoping as the two auth lanes above: same-repo PRs only, since
     # this drives a real `osprey up` (container and volume lifecycle) against
@@ -4366,7 +4628,7 @@ jobs:
     # perimeter in front of a stub, terminal-auth-multiuser-e2e proves the
     # app-owned gate with auth OFF. This one proves what only both halves real
     # at once can show — that the identity the sidecar established reaches the
-    # container it authorized, that the role decides which persona that
+    # container it authorized, that the role decides which tier render that
     # container runs, and that each decision lands in its own identity's audit
     # ledger and nowhere else.
     # Base-ref clause matches the two lanes above, and for the same reason:
@@ -4400,6 +4662,11 @@ jobs:
 
     - name: Install osprey
       run: uv sync --extra dev
+
+    # The reader origin's `/play` page and the history page are proved in a
+    # real browser against this lane's stack.
+    - name: Install Playwright chromium
+      run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into both real images, so
@@ -4462,25 +4729,30 @@ jobs:
       if: always()
       run: |
         docker compose -p osprey-e2e-full-chain-auth down || true
-        for user in alice bob carol kiosk dave; do
+        for user in alice bob carol dave kiosk erin; do
           docker rm -f "osprey-e2e-full-chain-auth-web-${user}" || true
         done
         docker rm -f osprey-e2e-full-chain-auth-auth || true
         docker rm -f osprey-e2e-full-chain-auth-nginx || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-store || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-gateway || true
+        docker rm -f osprey-e2e-full-chain-auth-history || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
-        docker rmi -f fullchain-operator-operator:local || true
-        docker rmi -f fullchain-probe-probe:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-operator:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-probe:local || true
+        # The project image `osprey up` builds, which the history service runs.
+        docker rmi -f osprey-e2e-full-chain-auth:local || true
 
   jupyter-panel-e2e:
-    name: Notebook Panel E2E (deployed persona + a kernel that follows the terminal)
+    name: Notebook Panel E2E (deployed render + a kernel that follows the terminal)
     runs-on: ubuntu-latest
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. No secret is needed: the fixture writes a fake ANTHROPIC_API_KEY and
     # nothing in the module contacts a model.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # One cold persona image build (the neighbouring single-build auth lanes
+    # One cold render image build (the neighbouring single-build auth lanes
     # measure 7-11 minutes for the same work), one `osprey up --dev`, then the
     # notebook assertions and a second down/up in the last test — which reuses
     # the images the first build produced. The module caps its own `up` at
@@ -4493,16 +4765,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -4529,7 +4791,7 @@ jobs:
         docker info > /dev/null
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
-    # `--dev` stages this branch's locally-built wheel into the persona image,
+    # `--dev` stages this branch's locally-built wheel into the render image,
     # so the kernel launcher, the sidecar and the guard hook under test are all
     # THIS branch's code rather than a published release.
     - name: Run notebook panel E2E
@@ -4558,6 +4820,8 @@ jobs:
       run: |
         docker rm -f osprey-e2e-jnb-web-alice || true
         docker rm -f osprey-e2e-jnb-nginx || true
+        docker rm -f osprey-e2e-jnb-telemetry-store || true
+        docker rm -f osprey-e2e-jnb-telemetry-gateway || true
         docker compose -p osprey-e2e-jnb down || true
         docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
           | xargs -r docker volume rm -f || true
@@ -4658,13 +4922,17 @@ jobs:
       if: always()
       run: |
         for user in alice bob carol dave erin; do
-          podman rm -f "e2e-web-${user}" || true
+          podman rm -f "osprey-e2e-mus-p3-web-${user}" || true
           podman volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
           podman volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
         done
-        podman rm -f e2e-nginx || true
+        podman rm -f osprey-e2e-mus-p3-nginx || true
         podman rm -f osprey-e2e-mus-p3-registry || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-store || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         podman compose -p osprey-e2e-mus-p3 down || true
+        podman volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        podman volume rm osprey-e2e-mus-p3_gateway-state || true
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -4773,25 +5041,28 @@ jobs:
         print("✅ compose provider is podman-compose 1.0.6")
         PY
 
-    - name: Pre-flight — ports 21781 and 21791 must be free on the runner
-      # Under the host shape these are REAL binds on the runner, not
-      # publications into a VM as they were on the author's macOS host. If
-      # anything else already holds either port the module's exposure test
-      # reads a foreign socket out of the runner's own /proc/net/tcp and fails
-      # in a way that points at the feature rather than at the runner. Refusing
-      # here costs a second and names the actual cause.
+    - name: Pre-flight — the module's host ports must be free on the runner
+      # 21781 and 21791 are the dispatcher and worker. Under the host shape
+      # these are REAL binds on the runner, not publications into a VM as they
+      # were on the author's macOS host. If anything else already holds either
+      # port the module's exposure test reads a foreign socket out of the
+      # runner's own /proc/net/tcp and fails in a way that points at the
+      # feature rather than at the runner. 18151, 18152 and 18904 are the
+      # telemetry case's gateway, gateway counters and store, published on the
+      # runner's loopback from that case's own port block. Refusing here costs
+      # a second and names the actual cause.
       #
       # Fails open if `ss` is missing: an absent tool is not evidence of a busy
       # port, and the module's own preflight would still refuse below.
       run: |
-        for port in 21781 21791; do
+        for port in 21781 21791 18151 18152 18904; do
           if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
             echo "❌ port $port is already bound on this runner:"
             ss -ltnp "sport = :$port" || true
             exit 1
           fi
         done
-        echo "✅ 21781 and 21791 are free"
+        echo "✅ 21781, 21791, 18151, 18152 and 18904 are free"
 
     - name: Diagnostic — podman's inspect .State schema (health-field spelling)
       # INFORMATIONAL, not protective. The module reads the health field
@@ -4886,8 +5157,13 @@ jobs:
         podman rm -f osprey-e2e-two-shape-event-dispatcher || true
         podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
         podman rm -f osprey-e2e-two-shape-schema-probe || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-store || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-gateway || true
         podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
+        podman volume rm osprey-e2e-two-shape-telemetry_telemetry_store_data || true
+        podman volume rm osprey-e2e-two-shape-telemetry_gateway-state || true
         podman network rm osprey-e2e-two-shape_osprey-network || true
+        podman network rm osprey-e2e-two-shape-telemetry_osprey-network || true
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
@@ -5019,8 +5295,22 @@ jobs:
       # sidecar-container coverage is split across an OKF module and an ARIEL
       # one, and a lane that named a single file would silently stop covering
       # the other the day it moved. `-m dockerbuild` is what keeps the
-      # non-container integration modules (preset-static, build-boot) out.
-      run: uv run pytest tests/integration/ -m dockerbuild -k qmd -v --tb=short
+      # non-container integration modules (preset-static, build-boot) out;
+      # `not wallclock` leaves the time budgets to the step below.
+      run: uv run pytest tests/integration/ -m "dockerbuild and not wallclock" -k qmd -v --tb=short
+
+    - name: Run the wall-clock budgets serially
+      # A budget is timed in a pytest process of its own, with nothing else
+      # loading the runner, and selected by marker alone so a marked test in
+      # this directory cannot be left unrun. A selection that matches nothing
+      # exits non-zero, so an emptied marker cannot go green. The image is the
+      # one built and cached above: the cost is one sidecar start plus the
+      # budget's queries. This cap and the job cap are re-derived together
+      # from observed green runs.
+      timeout-minutes: 15
+      env:
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
+      run: uv run pytest tests/integration/ -m wallclock -v --tb=short
 
     - name: Run the multi-user shared-bundle sidecar E2E
       # The `qmd`-marked half of tests/e2e/test_deploy_lifecycle.py, which the
@@ -5238,7 +5528,7 @@ jobs:
       # losing half its tests reds the step rather than passing on what is left.
       run: |
         uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
-          tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py \
+          tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py tests/va/e2e/test_model_status_va.py \
           -v --tb=short --junitxml=junit-target-switch-e2e.xml
 
     - name: Fail the lane on any skipped test
@@ -5574,23 +5864,43 @@ jobs:
     #   - the virtual accelerator image build, which target-switch-e2e
     #     measured at 226 s cold on a host where the image is emulated, and
     #     which is amd64-native on a GitHub runner;
-    #   - six modules sharing one session-scoped container, whose boot is
+    #   - seven modules sharing one session-scoped container, whose boot is
     #     bounded by the directory conftest's `CONTAINER_BOOT_TIMEOUT_S` of
     #     120 s (tests/va/e2e/conftest.py), followed by channel reads;
-    #   - test_serving_parity.py, two module-scoped boots under that same
-    #     bound plus its 28 tests;
+    #   - test_va_put_surface.py, one module-scoped container of its own, and
+    #     test_planted_journal.py, two (one per instance), each boot under
+    #     that module's own `BOOT_TIMEOUT_S` of 180 s;
+    #   - test_substrate_parity.py, which reads the session container and
+    #     boots one module-scoped container of its own from an unstilled
+    #     render under the 120 s bound, then takes 200 runner passes at a
+    #     0.25 s tick over every served channel: about a minute on an
+    #     amd64-native runner and several times that on a host where the
+    #     image is emulated;
+    #   - test_chain_boot.py, which installs the two-model tree from its
+    #     exports twice over — import, build, render — and boots one
+    #     container of its own over the result under test_mml_trees_boot.py's
+    #     `BOOT_TIMEOUT_S` of 240 s;
+    #   - test_pyaml_measure_guarded.py, which builds the example deployment
+    #     once, with approval on, and boots one container over it under the
+    #     `BOOT_TIMEOUT_S` of 240 s in tests/va/e2e/_guarded_measure.py, then
+    #     runs about ten measurements, three of them killed and one stopped
+    #     after their first write;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
-    #     that module's own `BOOT_TIMEOUT_S` of 240 s.
-    # 60 is that with headroom, which is deliberate for a lane that has never
-    # run here: the first pull request must not be reddened by a cap tuned to
-    # a laptop. It is larger than va-substrate-equivalence-e2e and
-    # archiver-world-e2e, and than the switch lane's 30, because that lane
-    # runs four modules against containers two of its own images serve, while
-    # this one runs eight and boots six. Tighten once there are observed green
-    # timings on a runner.
-    timeout-minutes: 60
+    #     that module's own `BOOT_TIMEOUT_S` of 240 s;
+    #   - test_check_b_served.py, which installs the served export and builds
+    #     the example deployment, boots one container over each under the same
+    #     240 s bound, and measures every kind twice, served and in process;
+    #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
+    #     export — init, import, set, build — and one boot under that
+    #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
+    # A green run takes about 18–23 minutes on an ubuntu-latest runner, of which
+    # the image build is 2–5; the cap is about twice that. It is larger than
+    # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
+    # lane's 30, because that lane runs five modules against containers two of
+    # its own images serve, while this one runs fifteen and boots fourteen.
+    timeout-minutes: 50
 
     steps:
     - name: Checkout repository
@@ -5632,11 +5942,11 @@ jobs:
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 50 leaves the image build the
-      # rest of the job cap, and still bounds the realistic hang here — a read
-      # of a channel nobody serves, which the connector itself gives up on
-      # after 120 s.
-      timeout-minutes: 50
+      # that takes the container logs with it. A green run of this step takes
+      # about 11–15 minutes; the cap is about twice that, and still bounds the
+      # realistic hang here — a read of a channel nobody serves, which the
+      # connector itself gives up on after 120 s.
+      timeout-minutes: 30
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
@@ -5644,7 +5954,7 @@ jobs:
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
       # One pytest process, no xdist: the directory conftest keeps ONE
-      # session-scoped container per process, and six of these modules are
+      # session-scoped container per process, and eight of these modules are
       # written against that single endpoint.
       #
       # Named by path rather than by marker: these modules are the whole
@@ -5655,44 +5965,71 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the six that share the session container, then
-      # the parity module with its own two boots, then the harvested-tree module
-      # which installs a facility export from scratch before each of its own
-      # boots — so a failure in the cheap set is reported before the expensive
-      # work starts.
+      # Ordered cheapest first — the seven that only share the session
+      # container, then the put-surface module's one boot and the journal
+      # module's two, then the parity module, which reads the session container
+      # and boots one of its own, then the chain module, which installs the
+      # two-model tree before its one boot, then the guarded-measurement
+      # module, which builds two deployments and boots one container over
+      # each, then the harvested-tree module, which installs a facility export
+      # from scratch before each of its three boots, then the check-B module,
+      # which installs the served export and builds the example deployment
+      # before one boot each — so a failure in the cheap set is reported
+      # before the expensive work starts.
       run: |
         uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_serving_parity.py tests/va/e2e/test_mml_trees_boot.py \
+          tests/va/e2e/test_sim_apply_va.py \
+          tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
+          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
+          tests/va/e2e/test_pyaml_measure_guarded.py \
+          tests/va/e2e/test_mml_trees_boot.py tests/va/e2e/test_check_b_served.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
+
+    - name: Run the real-facility lane on the NSLS-II stand-in
+      # The real-facility lane over the committed stand-in tree: import the
+      # export through `facility import mml`, build, hold the rendered config
+      # to the virtual accelerator on loopback, boot this job's image over the
+      # build and read every wired channel of every model. A step of its own,
+      # not a path in the step above: that step runs the tests/va/e2e
+      # partition. Without the variable the module skips its lane by design,
+      # so its report goes through the zero-skip gate below. Capped under the
+      # job cap so a hang leaves the capture step room to run.
+      # A green run takes about 2–3 minutes; the cap is several times that
+      # because one slow boot alone may take the module's 240 s boot bound.
+      timeout-minutes: 10
+      env:
+        OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
+      run: |
+        uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
 
     - name: Fail the lane on any skipped test
       run: |
-        # The gate reads the report rather than pytest's exit code because the
+        # The gate reads the reports rather than pytest's exit codes because an
         # exit code cannot express the difference: a run that skipped every
-        # test it collected exits 0. And there is exactly one way this lane
-        # skips — no module in its set carries a `skipif`, an `importorskip` or
-        # a `pytest.skip` of its own, so `OSPREY_VA_E2E_ENABLE` is the whole
-        # surface. Unset, every module collects cleanly and skips in full, and
-        # the job goes green having built an image and measured nothing.
+        # test it collected exits 0. Each step skips one way: the tests/va/e2e
+        # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
+        # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
+        # and the job goes green having built an image and measured nothing.
+        # One report per step, each named here.
         uv run python - <<'PY'
         import sys
         import xml.etree.ElementTree as ET
 
-        report = "junit-va-live-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
         failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
+        for report in ("junit-va-live-e2e.xml", "junit-als-lane.xml"):
+            total = skipped = 0
+            for suite in ET.parse(report).getroot().iter("testsuite"):
+                total += int(suite.get("tests", 0))
+                skipped += int(suite.get("skipped", 0))
+            print(f"{report}: {total} test(s), {skipped} skipped")
+            if total == 0:
+                print(f"::error::{report} collected no tests")
+                failed = True
+            if skipped:
+                print(f"::error::{report} reports {skipped} skipped test(s)")
+                failed = True
         if failed:
             sys.exit(1)
         print("✅ every live virtual accelerator test ran; none skipped")
@@ -5739,17 +6076,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      # The deployment renders the observability service, and the image it
-      # pulls is the workflow-level `OSPREY_OPENOBSERVE_IMAGE` — a private
-      # mirror. Without the login `osprey up` fails on an unauthorized pull
-      # long after the container work has started.
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -5850,6 +6176,18 @@ jobs:
       with:
         name: va-bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
 
     - name: Clean up the target images
       # The image built here is the only one left to remove: the module tears
@@ -5860,10 +6198,17 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, optimizer, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
+    needs: [test, dependency-floor, optimizer, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: always()
+    # The gate runs whenever the run was not cancelled, so a failed, cancelled
+    # or timed-out need still fails it. A run superseded through
+    # `concurrency.cancel-in-progress` reports no verdict: a red gate from a
+    # run nobody finished must not stand next to the live run's verdict on
+    # the same head sha. Operational rule: add the `full-ci` label before
+    # pushing -- a label added right after a push starts a second run that
+    # cancels the first.
+    if: ${{ !cancelled() }}
 
     steps:
     - name: Check all jobs status
@@ -5967,6 +6312,7 @@ jobs:
         check_pr_lane "Bluesky queue E2E"            "${{ needs.bluesky-queue-e2e.result }}"
         check_pr_lane "Scan stack agentic E2E"       "${{ needs.scan-agentic-e2e.result }}"
         check_pr_lane "Archiver world E2E"           "${{ needs.archiver-world-e2e.result }}"
+        check_pr_lane "Graph reseed stamp E2E"       "${{ needs.graph-reseed-e2e.result }}"
         check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
         check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"

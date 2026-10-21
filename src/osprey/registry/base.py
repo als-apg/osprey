@@ -89,7 +89,7 @@ class ConnectorRegistration:
     Connectors are registered with the ConnectorFactory during registry
     initialization, providing unified management of all framework components.
 
-    :param name: Unique connector name (e.g., 'epics', 'tango', 'mock')
+    :param name: Unique connector name (e.g., 'epics', 'tango')
     :type name: str
     :param connector_type: Type of connector ('control_system' or 'archiver')
     :type connector_type: str
@@ -127,9 +127,9 @@ class ConnectorRegistration:
        the factory pattern for runtime connector creation.
 
     .. seealso::
-       :class:`osprey.connectors.factory.ConnectorFactory` : Runtime connector factory
-       :class:`osprey.connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
-       :class:`osprey.connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
+       :class:`osprey_connectors.factory.ConnectorFactory` : Runtime connector factory
+       :class:`osprey_connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
+       :class:`osprey_connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
     """
 
     name: str

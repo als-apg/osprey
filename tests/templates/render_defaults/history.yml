@@ -1,0 +1,83 @@
+# The history page: the across-users view of the agent record, served on the
+# readers' origin under /history/. nginx asks the auth sidecar who the browser
+# is (`/verify-history`), then forwards the request here with the person, the
+# store view user and that user's tables as X-Osprey-History-* headers, and
+# with this service's gate secret. The page runs every query on the telemetry
+# store as `EXECUTE AS <view user>`, so the store's grants and row policies
+# decide what a person sees.
+#
+# It is rendered exactly when the deployment runs the store and its web
+# terminals sign people in (password or oidc); it is never a
+# `deployed_services` entry.
+#
+# It runs the PROJECT image (<project>:local) that `osprey up` builds from the
+# project root, with the image's own entrypoint, which drops privileges before
+# it runs the command. OSPREY_WORKER_IMAGE overrides with a prebuilt/published
+# image. There is deliberately NO `build:` block: the project image is built
+# once by `osprey up`, and a second `build:` for the same tag would race it.
+
+services:
+  history:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can serve a history page on one host.
+    container_name: golden-project-history
+    command: ["osprey", "history", "--host", "0.0.0.0", "--port", "8000"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      # Recreates the container when its store account or its gate secret
+      # changes: both files below are read once, at start.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}"
+    restart: unless-stopped
+    depends_on:
+      telemetry_store:
+        condition: service_started
+    # Two files at the repo root and nothing else: the store password of the
+    # `history` account, and the gate secret nginx presents on every request
+    # it forwards. `osprey build` creates both before this file is rendered.
+    env_file:
+      - .env.telemetry-history
+      - .env.telemetry-history-gate
+    environment:
+      # The gate accepts the harvested OSPREY_TERMINAL_SECRET_HISTORY from the
+      # gate file as an operator secret and names it `history`. There is no
+      # OSPREY_TERMINAL_SECRET and no OSPREY_TERMINAL_BIND_HOST, so the
+      # operator secret the gate mints for itself is held by nobody: only a
+      # request nginx forwarded passes.
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+      OSPREY_TERMINAL_ROSTER_OWNERS: "HISTORY=history"
+      # The readers' origin, which browsers reach this page on.
+      OSPREY_TERMINAL_EXTERNAL_ORIGIN: ""
+      # The store's service name on the compose network.
+      OSPREY_HISTORY_STORE_URL: "http://telemetry_store:8123"
+      # Whose preflight rows the page reads: the rendered queueservers.
+      OSPREY_HISTORY_QUEUESERVERS: ""
+      # How far back the session list's "older" control steps: the store's
+      # retention.
+      OSPREY_HISTORY_MAX_DAYS: "14"
+      # WHO this page's audit records are written as (the web gate records
+      # every refused request), and the one directory it writes them to; the
+      # image's entrypoint joins that directory's group before it drops
+      # privileges.
+      OSPREY_AUDIT_IDENTITY: history
+      OSPREY_AUDIT_DIR: /app/golden-project/var/audit/history
+      TZ: UTC
+    # Published on loopback only: the web tier's nginx runs on the host
+    # network and reaches the page there; nothing else may.
+    ports:
+      - "127.0.0.1:10003:8000"
+    # This page's audit subdirectory, and only its own.
+    volumes:
+      - ./var/audit/history:/app/golden-project/var/audit/history
+    # Always on the compose network: the page dials the store by its service
+    # name, and nginx reaches it on the loopback port above.
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  osprey-network:

@@ -8,22 +8,22 @@ without a container runtime.
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from osprey.deployment import container_lifecycle
+from osprey.deployment import container_lifecycle, telemetry_config
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
     UnmetPreconditionsError,
 )
-from osprey.deployment.web_terminals import postup_hooks, provision
+from osprey.deployment.web_terminals import postup_hooks, provision, render_images
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +39,15 @@ def _inert_orphan_reconcile(monkeypatch):
     place in the sequence install their own recording stand-in on top.
     """
     monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
+
+
+def _web_terminals_on() -> dict:
+    """An enabled web-terminals stanza with no users, on its default tier."""
+    return {
+        "enabled": True,
+        "default_tier": "assistant",
+        "renders": {"assistant": {"kind": "tier", "project": "demo-assistant"}},
+    }
 
 
 def _fake_popen(record):
@@ -156,7 +165,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     p = tmp_path / ".env"
     return parse_dotenv_file(p) if p.is_file() else {}
@@ -308,7 +317,7 @@ def captured_web_runs(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": [],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             [],
         ),
@@ -515,7 +524,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["docker-compose.yml"],
         ),
@@ -669,7 +678,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            {"deployed_services": [], "modules": {"web_terminals": _web_terminals_on()}},
             [],
         ),
     )
@@ -702,8 +711,8 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
 
 # ---------------------------------------------------------------------------
 # deploy_up_web_terminals mode wiring (Task 3.3) -- image_source local vs.
-# registry branching: ensure_env_production always runs first, build_persona_images
-# is wired via resolve_personas(strict=True) in local mode only, and local mode
+# registry branching: ensure_env_production always runs first, build_render_images
+# is wired via resolve_cards(strict=True) in local mode only, and local mode
 # never emits a `pull` argv (the pull-guard: `compose pull` hard-fails on a
 # local-only tag).
 # ---------------------------------------------------------------------------
@@ -712,20 +721,21 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
 def _web_terminals_config(image_source: str, **web_terminals_overrides) -> dict:
     """A minimal web-terminals-only facility config for the given image_source.
 
-    Always carries a persona catalog + default_persona (satisfies local
-    mode's own configuration requirement, matching build_persona_images'
+    Always carries a render catalog + default_tier (satisfies local
+    mode's own configuration requirement, matching build_render_images'
     ValueError guard) even for registry-mode tests, so the same helper
     covers both branches without a second config shape.
     """
     web_terminals = {
         "enabled": True,
         "image_source": image_source,
-        "default_persona": "ops",
-        "personas": {
+        "default_tier": "ops",
+        "renders": {
             "ops": {
+                "kind": "tier",
                 "project": "ops-app",
                 "project_path": "/nonexistent/ops-app",
-                "build_profile": "control-assistant",
+                "build_profile": "tiers/ops.yml",
             }
         },
     }
@@ -753,6 +763,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(render_images, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
@@ -763,12 +774,12 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     # suite. Inert here so the mode-wiring tests exercise only the
     # local/registry step ordering.
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
-    # The persona-render check is a separate concern with its own dedicated
+    # The render-render check is a separate concern with its own dedicated
     # tests below; keep it inert here so the mode-wiring tests exercise only the
     # local/registry step ordering rather than any repo's rendered state.
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
+        "verify_renders",
         lambda config, resolved_users, repo_root=None: None,
     )
 
@@ -784,11 +795,16 @@ def test_local_mode_never_emits_a_pull_argv(monkeypatch, tmp_path, _mode_wiring_
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config("local")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
+    # The default tier is served with nobody on it, so local mode builds it;
+    # the build is recorded rather than run.
+    builds: list[list[str]] = []
+    monkeypatch.setattr(render_images, "run_captured", lambda cmd, **k: builds.append(list(cmd)))
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     cmds = [c["cmd"] for c in _mode_wiring_collab]
-    assert not any("pull" in cmd for cmd in cmds)
+    assert not any("pull" in cmd for cmd in cmds + builds)
+    assert [cmd[cmd.index("-t") + 1] for cmd in builds] == ["ops-app:local"]
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
     # ensure_env_production generated .env.users from .env since neither
     # was present -- local mode's own branch, exercised end-to-end here.
@@ -844,24 +860,24 @@ def test_registry_mode_raises_before_any_compose_call_when_env_production_missin
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
+def test_local_mode_unresolvable_render_raises_before_any_compose_call(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """A user referencing a persona absent from the catalog must raise via
-    resolve_personas(strict=True) before build_persona_images or any compose
+    """A user referencing a render absent from the catalog must raise via
+    resolve_cards(strict=True) before build_render_images or any compose
     call -- surfacing actionably instead of an opaque unbuilt-tag failure at
     `compose up` (the reviewer integration note from task 3.2).
 
     The collect-all pass now asks this question one step ahead of the
     preflight that used to raise it, so the refusal arrives in the aggregate
-    frame. The persona is still named, which is the property that matters."""
+    frame. The render is still named, which is the property that matters."""
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config(
-        "local", users=[{"name": "alice", "index": 0, "persona": "no-such-persona"}]
+        "local", users=[{"name": "alice", "index": 0, "tier": "no-such-render"}]
     )
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
-    with pytest.raises(UnmetPreconditionsError, match="no-such-persona"):
+    with pytest.raises(UnmetPreconditionsError, match="no-such-render"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
@@ -870,14 +886,14 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
 def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """The local-mode preflight order is load-bearing: check every persona has
+    """The local-mode preflight order is load-bearing: check every render has
     the render `osprey build` wrote FIRST, then ensure_env_production, then
     build the image, then compose. ensure_env_production's claude_code
-    credential sweep reads each rendered persona's config.yml, so a deploy
+    credential sweep reads each rendered render's config.yml, so a deploy
     missing one has to be refused before that sweep runs (and long before any
-    compose call). A spy on verify_persona_renders (overriding the fixture's
+    compose call). A spy on verify_renders (overriding the fixture's
     inert stub) proves the wiring line actually runs it -- and runs it BEFORE
-    build_persona_images, which needs the rendered context to exist.
+    build_render_images, which needs the rendered context to exist.
 
     The collect-all pass asks the same render question once more, ahead of the
     preflight, which is why the spy sees a third call. It only reads, so the
@@ -894,14 +910,14 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
     )
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
-        lambda cfg, resolved_users, repo_root=None: order.append("verify_persona_renders"),
+        "verify_renders",
+        lambda cfg, resolved_users, repo_root=None: order.append("verify_renders"),
     )
 
     def _fake_build(_cfg, _resolved_users, _dev_mode, _env):
-        order.append("build_persona_images")
+        order.append("build_render_images")
 
-    monkeypatch.setattr(provision, "build_persona_images", _fake_build)
+    monkeypatch.setattr(provision, "build_render_images", _fake_build)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
@@ -912,35 +928,35 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
 
     # The collect-all pass reads the renders first (and nothing else -- it
     # probes .env.users generation rather than calling ensure_env_production).
-    # The fail-fast deploy_up preflight then runs the persona check +
+    # The fail-fast deploy_up preflight then runs the render check +
     # ensure_env_production once BEFORE the image-build stage, and
     # deploy_up_web_terminals re-runs the same (idempotent) pair; then exactly
     # three compose calls (the stale-container `rm -f` preflight, the web
     # `up -d`, then the advisory nginx config reload; no deployed_services, no
     # pull in local mode).
     assert order == [
-        "verify_persona_renders",
-        "verify_persona_renders",
+        "verify_renders",
+        "verify_renders",
         "ensure_env_production",
-        "verify_persona_renders",
+        "verify_renders",
         "ensure_env_production",
-        "build_persona_images",
+        "build_render_images",
         "compose",
         "compose",
         "compose",
     ]
 
 
-def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
+def test_local_mode_passes_resolve_cards_output_to_build_render_images(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """build_persona_images must receive resolve_personas(strict=True)'s own
+    """build_render_images must receive resolve_cards(strict=True)'s own
     output, not some other user-list shape -- confirmed by asserting the
-    resolved persona/project fields it actually threads through."""
+    resolved render/project fields it actually threads through."""
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config(
         "local",
-        users=[{"name": "alice", "index": 0}],  # no explicit persona -> falls back to "ops"
+        users=[{"name": "alice", "index": 0}],  # no explicit render -> falls back to "ops"
     )
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
     # This test's roster is non-empty (unlike the other mode-wiring tests), so
@@ -953,17 +969,17 @@ def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
     def _fake_build(_cfg, resolved_users, _dev_mode, _env):
         captured_users.extend(resolved_users)
 
-    monkeypatch.setattr(provision, "build_persona_images", _fake_build)
+    monkeypatch.setattr(provision, "build_render_images", _fake_build)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert len(captured_users) == 1
     assert captured_users[0]["name"] == "alice"
-    assert captured_users[0]["persona"] == "ops"
+    assert captured_users[0]["render"] == "ops"
     assert captured_users[0]["project"] == "ops-app"
 
 
-def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _mode_wiring_collab):
+def test_registry_mode_never_calls_build_render_images(monkeypatch, tmp_path, _mode_wiring_collab):
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -971,7 +987,7 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     build_calls = []
     monkeypatch.setattr(
         provision,
-        "build_persona_images",
+        "build_render_images",
         lambda *a, **k: build_calls.append(a),
     )
 
@@ -980,10 +996,10 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     assert build_calls == []
 
 
-def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mode_wiring_collab):
-    """The persona-render check is a local-mode-only step (registry mode pulls
+def test_registry_mode_never_verifies_renders(monkeypatch, tmp_path, _mode_wiring_collab):
+    """The render-render check is a local-mode-only step (registry mode pulls
     prebuilt images and needs no render at all) -- it must never run on the
-    registry path, mirroring the build_persona_images guard. A recording spy
+    registry path, mirroring the build_render_images guard. A recording spy
     overrides the fixture's inert stub so a stray call would be caught, not
     swallowed."""
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
@@ -993,7 +1009,7 @@ def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mo
     render_calls = []
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
+        "verify_renders",
         lambda *a, **k: render_calls.append(a),
     )
 
@@ -1193,7 +1209,7 @@ def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(monk
             {
                 "deployed_services": [],
                 "modules": {
-                    "web_terminals": {"enabled": True},
+                    "web_terminals": _web_terminals_on(),
                     "shared_disk": {"enabled": True, "host_path": str(missing)},
                 },
             },
@@ -1740,14 +1756,14 @@ def test_rebuild_deployment_cleans_before_delegating_to_deploy_up(monkeypatch, t
 def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path):
     """A web-terminals project's rebuild must reach the web reconcile — the
     pre-delegation rebuild ran only the plain services path, so nginx and the
-    persona containers never came back up after clean."""
+    render containers never came back up after clean."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            {"deployed_services": [], "modules": {"web_terminals": _web_terminals_on()}},
             [],
         ),
     )
@@ -1878,7 +1894,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["build/services/docker-compose.yml"],
         ),
@@ -1933,7 +1949,7 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher", "virtual_accelerator"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["build/services/docker-compose.yml"],
         ),
@@ -1974,8 +1990,8 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
 # ---------------------------------------------------------------------------
 # _project_image_build_cmd -- com.osprey.project label + OSPREY_DEV build-arg
 # (task 2.5). The label lets a later `nuke` verify a tag belongs to this
-# deployment before removing it (matching the persona build path); OSPREY_DEV=1
-# is added iff --dev, mirroring the persona dev path.
+# deployment before removing it (matching the render build path); OSPREY_DEV=1
+# is added iff --dev, mirroring the render dev path.
 # ---------------------------------------------------------------------------
 
 
@@ -2569,22 +2585,22 @@ def test_project_image_build_cmd_carries_the_site_build_args(tmp_path):
 
 
 @pytest.mark.usefixtures("no_site_env")
-def test_project_and_persona_builds_share_one_site_arg_producer(tmp_path):
-    """Two builders, one producer: an image built for a persona and the project
+def test_project_and_render_builds_share_one_site_arg_producer(tmp_path):
+    """Two builders, one producer: an image built for a render and the project
     image must not end up trusting different CAs or resolving from different
     indexes on the same host."""
-    from osprey.deployment.web_terminals import persona_images
+    from osprey.deployment.web_terminals import render_images
 
     config = _site_config(tmp_path, offline=True)
     project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
-    persona = persona_images._persona_image_build_cmd(
+    tier = render_images._render_image_build_cmd(
         "docker", str(tmp_path), "demo:local", "myfacility", config
     )
 
     site_args = set(container_lifecycle.site_image_build_args(config, tmp_path))
     assert site_args, "the fixture config declares site axes"
     assert site_args <= set(project)
-    assert site_args <= set(persona)
+    assert site_args <= set(tier)
 
 
 # ---------------------------------------------------------------------------
@@ -2768,7 +2784,7 @@ def test_deploy_up_prints_endpoint_summary_on_web_path(_wiring_calls, monkeypatc
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"modules": {"web_terminals": {"enabled": True}}},
+            {"modules": {"web_terminals": _web_terminals_on()}},
             ["docker-compose.yml"],
         ),
     )
@@ -2792,7 +2808,7 @@ def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# deploy_up ordering: the web-terminal preflight (persona render check +
+# deploy_up ordering: the web-terminal preflight (render check +
 # .env.users credential gate) must run BEFORE the expensive project-image
 # build -- a missing provider secret aborts in seconds, not after minutes of
 # docker build.
@@ -3442,7 +3458,12 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
         if "default(osprey_images.worker)" in template.read_text(encoding="utf-8")
     }
 
-    assert on_project_image == set(container_lifecycle._PROJECT_IMAGE_SERVICES)
+    # The history page is derived from the config rather than deployed by name,
+    # so it joins the gate through its predicate (test_history_service.py).
+    assert on_project_image == {
+        *container_lifecycle._PROJECT_IMAGE_SERVICES,
+        telemetry_config.HISTORY_SERVICE,
+    }
 
 
 def test_the_switch_answers_the_build_target_question_too(monkeypatch):
@@ -3490,14 +3511,18 @@ class _FakeAdmin:
 class _FakeCollection:
     """Just enough of a pymongo collection for the staged bring-up's own calls."""
 
-    def __init__(self, fail_pings: int = 0):
+    def __init__(self, fail_pings: int = 0, name: str = "pv_history", timeline=None):
         self.admin = _FakeAdmin(fail_pings)
+        self.name = name
         self.dropped = False
+        # Shared with the compose fake, so a drop is ordered against the quiesce.
+        self.timeline = timeline if timeline is not None else []
         # collection.database.client.admin is the path the health poll walks.
         self.database = type("_Db", (), {"client": type("_Client", (), {"admin": self.admin})()})()
 
     def drop(self):
         self.dropped = True
+        self.timeline.append(f"drop {self.name}")
 
 
 ARCHIVER_CONFIG = {
@@ -3534,14 +3559,19 @@ def staged_archiver(monkeypatch, tmp_path):
     and full bring-up is assertable) plus what the seeder was asked to do.
     """
     from osprey.simulation import apply as apply_mod
-    from osprey.simulation import archiver_seed
+    from osprey_connectors.simulation import archive
 
+    timeline: list[str] = []
     state: dict = {
         "cmds": [],
-        "collection": _FakeCollection(),
+        # Every compose verb, drop and seed in the order they happened.
+        "timeline": timeline,
+        "collection": _FakeCollection(timeline=timeline),
+        # Any other collection the deploy opens, by name.
+        "collections": {},
         "seeded": [],
         "reapplied": [],
-        "fingerprint_state": archiver_seed.SeedState.ABSENT,
+        "fingerprint_state": archive.SeedState.ABSENT,
         "differences": (),
         "returncode": 0,
     }
@@ -3564,6 +3594,7 @@ def staged_archiver(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         state["cmds"].append(list(cmd))
+        state["timeline"].extend(_verbs([cmd]))
         # A real CompletedProcess, because the quiesce checks its returncode.
         # `returncode` models the *quiesce* specifically: every other compose
         # call runs under check=True, so a blanket non-zero would abort the
@@ -3573,44 +3604,53 @@ def staged_archiver(monkeypatch, tmp_path):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    # The seed inputs are a manifest read plus a machine-model load; both are
-    # exercised by their own module's tests, and neither belongs in an argv test.
+    # The seed input is the archive composite of the render's simulator view,
+    # exercised by its own module's tests; it does not belong in an argv test.
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: ([{"address": "SR:BPM1:X"}], None, {}, None, None),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X"]),
     )
     monkeypatch.setattr(
         container_lifecycle,
         "_reapply_active_scenarios",
-        lambda config, project_dir, engine: state["reapplied"].append(project_dir),
+        lambda config, project_dir: state["reapplied"].append(project_dir),
     )
 
     @contextmanager
     def _fake_collection(store):
-        state["store"] = store
-        yield state["collection"]
+        name = store["collection"]
+        if name == state["collection"].name:
+            state["store"] = store
+            yield state["collection"]
+            return
+        state.setdefault("opened_stores", []).append(store)
+        yield state["collections"].setdefault(
+            name, _FakeCollection(name=name, timeline=state["timeline"])
+        )
 
     monkeypatch.setattr(apply_mod, "archiver_collection", _fake_collection)
     monkeypatch.setattr(
-        archiver_seed,
+        archive,
         "compare_fingerprint",
-        lambda collection, fingerprint: archiver_seed.FingerprintComparison(
+        lambda collection, fingerprint: archive.FingerprintComparison(
             state["fingerprint_state"], state["differences"]
         ),
     )
 
     def _fake_seed_base(
         collection,  # noqa: ARG001 - seed_base's collection handle, the rest in **kwargs
-        channels,
+        seeded,
         knobs,
         **kwargs,
     ):
-        state["seeded"].append({"channels": list(channels), "knobs": knobs, "kwargs": kwargs})
+        channels = list(seeded.addresses)
+        state["timeline"].append("seed")
+        state["seeded"].append({"channels": channels, "knobs": knobs, "kwargs": kwargs})
         # The staged step reports on what it wrote, so hand back a real report.
-        return archiver_seed.SeedReport(documents=10, channels=len(channels))
+        return archive.SeedReport(documents=10, channels=len(channels))
 
-    monkeypatch.setattr(archiver_seed, "seed_base", _fake_seed_base)
+    monkeypatch.setattr(archive, "seed_base", _fake_seed_base)
     return state
 
 
@@ -3655,6 +3695,54 @@ def test_reseed_quiesces_the_recorder_before_dropping_the_collection(staged_arch
     assert len(staged_archiver["seeded"]) == 1
 
 
+@pytest.mark.parametrize("state", ["ABSENT", "MISMATCH"])
+def test_reseed_drops_both_collections_while_the_recorder_is_quiesced(
+    staged_archiver, tmp_path, state
+):
+    """The recorder writes traces into the waveform sibling too, so it is dropped
+    with the snapshot collection, after the quiesce and before the seed and the
+    bring-up that restarts the recorder."""
+    from osprey_connectors.simulation.archive import SeedState, waveform_collection
+
+    staged_archiver["fingerprint_state"] = getattr(SeedState, state)
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    timeline = staged_archiver["timeline"]
+    waveforms = waveform_collection("pv_history")
+    stop = timeline.index("stop archiver-recorder")
+    drop_scalar = timeline.index("drop pv_history")
+    drop_waveforms = timeline.index(f"drop {waveforms}")
+    seed = timeline.index("seed")
+    restart = timeline.index("up --remove-orphans -d")
+    assert stop < drop_scalar < seed
+    assert stop < drop_waveforms < seed
+    assert seed < restart
+    assert staged_archiver["collections"][waveforms].dropped
+
+
+def test_the_waveform_drop_opens_the_same_store(staged_archiver, tmp_path):
+    """Same server, credentials and database — only the collection differs."""
+    from osprey_connectors.simulation.archive import waveform_collection
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    (opened,) = staged_archiver["opened_stores"]
+    assert opened == {
+        **staged_archiver["store"],
+        "collection": waveform_collection(staged_archiver["store"]["collection"]),
+    }
+
+
+def test_matching_fingerprint_keeps_the_waveform_history(staged_archiver, tmp_path):
+    from osprey_connectors.simulation.archive import SeedState
+
+    staged_archiver["fingerprint_state"] = SeedState.MATCH
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert not any(event.startswith("drop") for event in staged_archiver["timeline"])
+    assert staged_archiver["collections"] == {}
+
+
 def test_absent_fingerprint_seeds_after_a_volume_wipe(staged_archiver, tmp_path):
     """`clean`/`rebuild` remove the volume, leaving no manifest — the same path a
     first deploy takes, which is what makes a wiped store re-seed."""
@@ -3667,7 +3755,7 @@ def test_absent_fingerprint_seeds_after_a_volume_wipe(staged_archiver, tmp_path)
 def test_matching_fingerprint_skips_the_seed(staged_archiver, tmp_path):
     """Unchanged knobs mean the stored archive already describes this profile:
     nothing is dropped, written, or re-applied, and the recorder keeps running."""
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archive import SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MATCH
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -3684,7 +3772,7 @@ def test_mismatched_fingerprint_rebuilds_and_reapplies(staged_archiver, tmp_path
     """Changed knobs make the stored coverage wrong, so the base is rebuilt and
     the active scenario set re-applied onto it — otherwise the deployment would
     claim a fault whose history it had just erased."""
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archive import SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MISMATCH
     staged_archiver["differences"] = (("retention_days", 30, 1),)
@@ -3705,7 +3793,7 @@ def test_drop_and_rebuild_always_implies_a_quiesced_recorder(staged_archiver, tm
     underneath it. Stopping a service that was never started is a no-op, so the
     unconditional rule is both simpler and strictly safer.
     """
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archive import SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -3730,7 +3818,7 @@ def test_keep_archiver_base_suppresses_only_the_mismatch_rebuild(
     silently leave the deployment with no history at all. This is also why
     `rebuild` needs no flag of its own: it always lands on the absent path.
     """
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archive import SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
     staged_archiver["differences"] = (("retention_days", 30, 1),)
@@ -3895,74 +3983,51 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
 
     monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: anchor)
     monkeypatch.setattr(apply_mod, "apply_scenarios", _record)
-    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+    _active_in_the_view(monkeypatch, ["rf-thermal"])
 
-    container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+    container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
+    assert forwarded["names"] == ["nominal", "rf-thermal"]
     assert forwarded["now"] == anchor
     # The logbook is a knob change's business only if the narrative changed, and
     # it did not — purging ARIEL here would destroy history nobody asked to touch.
     assert forwarded["seed_logbook"] is False
 
 
-def _manifest_channel(address: str) -> dict:
-    """One manifest entry carrying the full per-channel schema the loader demands."""
-    return {
-        "address": address,
-        "ring": "SR",
-        "system": "diagnostics",
-        "family": "BPM",
-        "device": "1",
-        "field": "X",
-        "subfield": "",
-        "partition": "static-noisy",
-        "record_type": "ai",
-        "noise": 0.01,
-    }
+def _active_in_the_view(monkeypatch, names: list[str]) -> None:
+    """A render whose simulator view exists and whose state file records ``names``."""
+    from osprey.simulation import apply as apply_mod
+    from osprey_connectors.simulation import state as state_mod
+
+    monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(state_mod, "read_active_state", lambda state_dir: (names, None))
 
 
-def test_seed_inputs_read_the_manifest_the_project_env_names(tmp_path):
-    """The seeded channel set is the manifest the VA and the recorder read, found
-    the way they find it — so seeded history covers exactly what the live half
-    serves rather than another facility's namespace.
+def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tmp_path):
+    """The seeded channel set is the view the Virtual Accelerator serves, read
+    from the RENDER (``build/data/simulator``) at the active set and anchor the
+    state file records."""
+    from tests._simulator_view import write_texture_view
 
-    The manifest lives in the RENDER's data dir (``build/data/simulation``):
-    the build generates it only there, and that is the directory the containers
-    mount as ``/data/simulation`` — the source ``data/`` zone never holds it."""
-    simulation_dir = tmp_path / "build" / "data" / "simulation"
-    simulation_dir.mkdir(parents=True)
-    (simulation_dir / "channel_manifest.json").write_text(
-        json.dumps({"channels": [_manifest_channel("SR:BPM1:X")]})
-    )
-    (tmp_path / ".env").write_text("VA_CHANNELS_FILE=channel_manifest.json\n")
+    write_texture_view(tmp_path / "build", {"SR:BPM1:X": {"nominal": 0.5}})
+    (tmp_path / "build" / "config.yml").write_text("{}\n")
 
-    channels, engine, boot_values, _, _ = container_lifecycle._archiver_seed_inputs({}, tmp_path)
+    archive = container_lifecycle._archiver_seed_inputs({}, tmp_path)
 
-    assert [c["address"] for c in channels] == ["SR:BPM1:X"]
-    # No machine model in this project: every channel is procedural, which is a
-    # valid configuration rather than a fault.
-    assert engine is None
-    assert boot_values == {}
+    assert archive.addresses == ["SR:BPM1:X"]
+    assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
 
 
-def test_seed_inputs_refuse_when_nothing_names_a_manifest(tmp_path, monkeypatch):
-    """No pointer, no seed — never the framework's bundled channel set.
-
-    The bundled manifest is the demo namespace, and an archive seeded with it
-    under a facility's name is indistinguishable from that facility's history.
-    Every other reader of the channel roster dropped this fallback; the seed is
-    the last one, and it goes the same way.
-    """
-    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
-    (tmp_path / ".env").write_text("OTHER=x\n")
-
-    with pytest.raises(RuntimeError, match="VA_CHANNELS_FILE"):
+def test_seed_inputs_refuse_a_render_without_a_simulator_view(tmp_path):
+    """No view, no seed: an archive seeded with a namespace the deployment does
+    not serve is indistinguishable from that deployment's history."""
+    with pytest.raises(RuntimeError, match="no simulator view"):
         container_lifecycle._archiver_seed_inputs({}, tmp_path)
 
 
-def test_reapply_without_a_machine_model_is_a_no_op(tmp_path):
-    """A store-only project has no scenarios to restore onto the rebuilt base."""
-    container_lifecycle._reapply_active_scenarios({}, tmp_path, None)
+def test_reapply_without_a_simulator_view_is_a_no_op(tmp_path):
+    """A render with no simulated scenarios has nothing to restore onto the rebuilt base."""
+    container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
 
 def test_exported_password_is_used_when_the_dotenv_has_none(staged_archiver, monkeypatch, tmp_path):
@@ -4096,10 +4161,10 @@ def test_a_failed_reapply_names_the_command_that_fixes_it(monkeypatch, tmp_path)
         raise RuntimeError("store went away")
 
     monkeypatch.setattr(apply_mod, "apply_scenarios", _boom)
-    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+    _active_in_the_view(monkeypatch, ["rf-thermal"])
 
     with pytest.raises(RuntimeError, match=r"osprey sim apply rf-thermal") as caught:
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
     assert "shows a clean machine" in str(caught.value)
     # The cause is chained rather than replaced — the original failure is what a
@@ -4249,7 +4314,7 @@ CHAIN_PROJECT = "demo-deployment"
 
 def _write_shared_half(repo: Path, text: str) -> Path:
     """Lay down the chain's committed-defaults file beside the local one."""
-    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+    from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
     path = repo / ENV_SHARED_FILENAME
     path.write_text(text, encoding="utf-8")
@@ -4265,7 +4330,7 @@ def _load_the_entry_point_chain(monkeypatch, repo: Path) -> None:
     because what is being measured IS that this step is what makes the shared
     half visible downstream.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(repo)
@@ -4743,19 +4808,6 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     out = capsys.readouterr().out
     assert "als-web-ariel" in out
     assert "ariel" in out
-
-
-def test_deploy_up_checks_the_store_port_right_after_the_host_port_preflight(monkeypatch, tmp_path):
-    order: list[str] = []
-    _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
-    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
-    monkeypatch.setattr(
-        container_lifecycle, "_preflight_store_address", lambda config, files: order.append("store")
-    )
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert order == ["ports", "store", "web_up"]
 
 
 def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_path):

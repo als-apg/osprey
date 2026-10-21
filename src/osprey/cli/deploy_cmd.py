@@ -20,8 +20,8 @@ import click
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
 
 from .repo_resolver import repo_option
 
@@ -360,11 +360,11 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     cannot authenticate — so a shell holding only half of what is needed is
     told what is missing instead of being handed a file.
 
-    Only the deployment's own provider, deliberately. A persona that
+    Only the deployment's own provider, deliberately. A render that
     authenticates elsewhere needs its key in the same file, but that gap belongs
     to ``.env.users`` generation further down the deploy, which names the
-    persona and the variable it is missing; anticipating it here would mean
-    re-deriving the persona sweep for a prompt whose whole job is to get the
+    render and the variable it is missing; anticipating it here would mean
+    re-deriving the render sweep for a prompt whose whole job is to get the
     file into existence.
 
     Args:
@@ -419,7 +419,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
                 f"No .env in {repo_root}. Seed one from your shell ({names})?", default=True
             )
         if seed_it:
-            from osprey.utils.dotenv import append_profile_env
+            from osprey_connectors.dotenv import append_profile_env
 
             append_profile_env(env_path, harvest, _UP_SEEDED_ENV_BANNER)
             _report_fact(f"Seeded {env_path} (mode 0600) with {names}")
@@ -609,7 +609,7 @@ def up_verb(
 
     One exception, by design: a deployment with web terminals re-renders that
     stack at every start (its compose file, nginx config, landing page, and any
-    persona whose project is missing). Those follow the user roster rather than
+    render whose project is missing). Those follow the user roster rather than
     the build, so a roster edit takes effect on the next start.
 
     It reads profile.yml for one thing: a fingerprint. If the profile has

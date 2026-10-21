@@ -59,7 +59,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     path = tmp_path / ".env"
     return parse_dotenv_file(path) if path.is_file() else {}
@@ -75,7 +75,7 @@ def test_mongodb_deploy_mints_mongo_root_password(_clean_token_env, tmp_path):
     assert len(env["MONGO_ROOT_PASSWORD"]) == 64
     # A mongodb-only deploy must not mint unrelated service tokens.
     assert "ARIEL_DB_PASSWORD" not in env
-    assert "ZO_ROOT_USER_PASSWORD" not in env
+    assert "GRAPHDB_PASSWORD" not in env
 
 
 def test_mongo_root_password_generator_is_uri_safe_every_time():

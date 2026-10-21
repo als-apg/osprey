@@ -17,6 +17,7 @@ page and waits for the panel rail and the dock grid together — and
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -129,10 +130,9 @@ def assert_page_loads_clean(
         page.on("console", _on_console)
 
     page.goto(url, wait_until="load")
-    try:
+    # best-effort settle only — see module docstring
+    with contextlib.suppress(PlaywrightTimeoutError):
         page.wait_for_load_state("networkidle", timeout=_NETWORK_IDLE_TIMEOUT_MS)
-    except PlaywrightTimeoutError:
-        pass  # best-effort settle only — see module docstring
 
     if allowlist is not None:
         surviving = [item for item in collected if not allowlist(item[0], item[1])]

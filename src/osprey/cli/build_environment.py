@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from osprey.errors import BuildProfileError
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("build")
 
@@ -51,7 +51,7 @@ def _dotenv_keys(path: Path) -> dict[str, str]:
     """
     if not path.is_file():
         return {}
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     try:
         return {key: value for key, value in parse_dotenv_file(path).items() if value}
@@ -131,7 +131,7 @@ def report_provider_credentials(
     """Log a provider-credentials summary, leading with the selected provider.
 
     Reports keys that *were* found as well as those that were not. The generic
-    ``${VAR}`` resolver in :mod:`osprey.utils.config` can only report misses —
+    ``${VAR}`` resolver in :mod:`osprey_connectors.config` can only report misses —
     and knows nothing about which provider the build selected — so a missing key
     for the selected provider would otherwise be indistinguishable from the
     handful of irrelevant misses for providers the project will never use.
@@ -447,8 +447,8 @@ def _write_project_pyproject(
     if _pins_prerelease(osprey_spec):
         lines += [
             "[tool.uv]",
-            "# The osprey pin is a pre-release, and so is the osprey-connectors release",
-            "# it ships with; a resolve from this record has to admit both.",
+            "# The osprey pin is a pre-release, and so is every workspace-member",
+            "# release it ships with; a resolve from this record has to admit them.",
             'prerelease = "allow"',
             "",
         ]
@@ -457,6 +457,50 @@ def _write_project_pyproject(
 
 
 _OSPREY_DIST_NAME = "osprey-framework"
+
+
+def _pip_member_requirements(osprey_spec: str) -> list[str]:
+    """The workspace-member requirements pip needs beside *osprey_spec*.
+
+    A framework built from the repository depends on its workspace members,
+    which uv resolves through the checkout's ``[tool.uv.sources]``. pip reads no
+    such table, so the members must come from the same place the framework
+    does: each ``packages/<member>`` directory of a local tree, or the same
+    subdirectory of a VCS URL. A plain requirement names a release, whose paired
+    member releases resolve from the index, so it needs none.
+
+    Raises:
+        BuildProfileError: The spec names a location the members cannot be
+            derived from (an archive URL, a non-git VCS), so pip would resolve
+            them by name from the index instead of from the framework's source.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    from osprey.deployment.members import WORKSPACE_MEMBERS
+
+    location: str | None
+    try:
+        # A local path becomes a file:// direct reference; a named requirement
+        # carries its direct-reference URL, or None for a release.
+        location = Requirement(_osprey_requirement(osprey_spec)).url
+    except InvalidRequirement:
+        location = osprey_spec  # A bare URL, which is no PEP 508 requirement.
+    if location is None:
+        return []
+
+    if location.startswith("file://"):
+        source_root = Path(unquote(urlparse(location).path))
+        return [str(source_root / "packages" / member) for member in WORKSPACE_MEMBERS]
+    if location.startswith("git+"):
+        base = location.split("#", 1)[0]
+        return [f"{m} @ {base}#subdirectory=packages/{m}" for m in WORKSPACE_MEMBERS]
+    raise BuildProfileError(
+        f"Cannot locate the workspace members for osprey_install {osprey_spec!r}. "
+        "pip needs each member from the same source as the framework: use a local "
+        "path, a file:// URL, a git+ URL, or a released version such as "
+        "'osprey-framework==<version>'."
+    )
+
 
 _VENV_PROBE = "import sys; print(1 if sys.prefix != sys.base_prefix else 0)"
 
@@ -750,6 +794,40 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
 # and reads as flakiness rather than as a limit set too low.
 _VENV_INSTALL_TIMEOUT_S = 1800
 
+# What an operator can do when the dependency install could not get its
+# packages from the index: every install branch that blames the link ends with it.
+_INSTALL_NETWORK_REMEDY = (
+    "        Re-running the build resumes from what already downloaded — "
+    "completed packages are served from the local cache.\n"
+    "        On a slow or restricted link, point the build at a closer "
+    "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+)
+
+# The installers' own words for "the package index was not reached": uv's
+# first, then pip's. Each appears only when a connection failed.
+_INSTALL_NETWORK_FAILURE_MARKERS = (
+    "error sending request for url",
+    "dns error",
+    "failed to lookup address",
+    "tcp connect error",
+    "nameresolutionerror",
+    "newconnectionerror",
+    "failed to establish a new connection",
+    "temporary failure in name resolution",
+)
+
+
+def _is_network_install_failure(output: str) -> bool:
+    """True when an installer's output says the package index was not reached."""
+    lowered = output.lower()
+    return any(marker in lowered for marker in _INSTALL_NETWORK_FAILURE_MARKERS)
+
+
+# An interpreter or uv that cannot create the venv fails fast with a nonzero
+# exit, so this cap never decides a failure; it bounds only a process that has
+# hung, and leaves an ordinary creation on a loaded host the room it needs.
+_VENV_CREATE_TIMEOUT_S = 300
+
 
 def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     """Create the project venv and install osprey + profile deps.
@@ -796,25 +874,46 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     logger.info("  Creating project virtual environment...")
     if base_python is not None:
         logger.debug("  Base interpreter: %s", base_python)
-    if uv_path:
-        # `--clear` because a rebuild is the ordinary case, not the exception:
-        # without it uv refuses a directory that already holds a venv, so the
-        # second build of an unchanged tree would fail where the first
-        # succeeded. The stdlib branch below already replaces what it finds, so
-        # this is also what keeps the two branches behaving alike.
-        result = subprocess.run(
-            [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet", "--clear"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    else:
-        result = subprocess.run(
-            [base_python_arg, "-m", "venv", str(venv_path)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+    creator = "uv venv" if uv_path else f"{base_python_arg} -m venv"
+    try:
+        if uv_path:
+            # `--clear` because a rebuild is the ordinary case, not the exception:
+            # without it uv refuses a directory that already holds a venv, so the
+            # second build of an unchanged tree would fail where the first
+            # succeeded. The stdlib branch below already replaces what it finds, so
+            # this is also what keeps the two branches behaving alike.
+            result = subprocess.run(
+                [
+                    uv_path,
+                    "venv",
+                    str(venv_path),
+                    "--python",
+                    base_python_arg,
+                    "--quiet",
+                    "--clear",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_VENV_CREATE_TIMEOUT_S,
+            )
+        else:
+            result = subprocess.run(
+                [base_python_arg, "-m", "venv", str(venv_path)],
+                capture_output=True,
+                text=True,
+                timeout=_VENV_CREATE_TIMEOUT_S,
+            )
+    except subprocess.TimeoutExpired as e:
+        # A bare TimeoutExpired escapes to build_cmd's catch-all, which names
+        # neither the step nor a way forward.
+        raise BuildProfileError(
+            f"creating the project venv with {creator} did not finish within "
+            f"{_VENV_CREATE_TIMEOUT_S // 60} minutes.\n"
+            "        Creating a venv takes seconds when the base interpreter starts; a run this long "
+            "means the process hung.\n"
+            f"        Check that the base interpreter starts ({base_python_arg} -c pass), then re-run "
+            "the build."
+        ) from e
     if result.returncode != 0:
         output = (result.stdout + result.stderr).strip()
         raise BuildProfileError(f"Failed to create project venv: {output}")
@@ -871,6 +970,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
         cmd += all_deps
+        cmd += _pip_member_requirements(osprey_spec)
 
     from rich.live import Live
     from rich.spinner import Spinner
@@ -889,20 +989,17 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
                 f"finish within {_VENV_INSTALL_TIMEOUT_S // 60} minutes.\n"
                 "        This install downloads osprey's full dependency tree (over a "
                 "gigabyte on a cold cache), so a slow or interrupted connection is the "
-                "usual cause.\n"
-                "        Re-running the build resumes from what already downloaded — "
-                "completed packages are served from the local cache.\n"
-                "        On a slow or restricted link, point the build at a closer "
-                "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+                "usual cause.\n" + _INSTALL_NETWORK_REMEDY
             ) from e
 
     if result.returncode == 0:
         logger.info("  ✓ Installed osprey + %d profile deps into project venv", dep_count)
     else:
         output = (result.stdout + result.stderr).strip()
-        raise BuildProfileError(
-            f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
-        )
+        message = f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
+        if _is_network_install_failure(output):
+            message += "\n" + _INSTALL_NETWORK_REMEDY
+        raise BuildProfileError(message)
 
     # --- Record deps in pyproject.toml ---
     # The recorded list is the installed list — same object, no re-derivation.

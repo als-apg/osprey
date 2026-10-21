@@ -26,7 +26,7 @@ from osprey.cli.build_profile_deploy import (
     deploy_config_overrides,
     parse_deploy_block,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 DEPLOY_BLOCK: dict[str, Any] = {
     "ci": "gitlab",
@@ -38,9 +38,6 @@ DEPLOY_BLOCK: dict[str, Any] = {
     },
 }
 
-# Paired with a `facility.prefix` wherever this is built: a terminal with no
-# persona render of its own runs in `/app/<prefix>-assistant`, and profile
-# validation refuses a roster without a prefix.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "nginx_port": 20000,
@@ -49,16 +46,17 @@ WEB_TERMINALS: dict[str, Any] = {
 }
 
 # The same stack, deployable in LOCAL mode. `image_source: local` builds each
-# persona's image, so it requires a catalog and a default to build them from —
-# `resolve_personas` raises without one at deploy time, and since the build's
+# render's image, so it requires a tier and a default to build them from —
+# `resolve_cards` raises without one at deploy time, and since the build's
 # lint reads the deploy-propagated config (`deploy_aware_config_errors`) it
 # refuses the same profile earlier. Every end-to-end case below names a local
-# deploy block, so they all build from this one.
+# deploy block, so they all build from this one, beside a `tiers/` file for
+# each name in LOCAL_TIERS.
 WEB_TERMINALS_LOCAL: dict[str, Any] = {
     **WEB_TERMINALS,
-    "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world"}},
+    "default_tier": "readwrite",
 }
+LOCAL_TIERS: tuple[str, ...] = ("readwrite",)
 
 
 @pytest.fixture
@@ -204,11 +202,20 @@ def test_the_spelling_probe_reports_only_a_real_duplicate(
 # ---------------------------------------------------------------------------
 
 
-def _build_project(runner: CliRunner, tmp_path: Path, profile_body: dict[str, Any]) -> dict:
-    """Write *profile_body* at the repo root and build it in place."""
+def _build_project(
+    runner: CliRunner,
+    tmp_path: Path,
+    profile_body: dict[str, Any],
+    tiers: tuple[str, ...] = (),
+) -> dict:
+    """Write *profile_body* at the repo root, one file per tier, and build in place."""
     profile = tmp_path / "profile.yml"
     (tmp_path / "data").mkdir(exist_ok=True)
     profile.write_text(yaml.safe_dump(profile_body, sort_keys=False), encoding="utf-8")
+    for tier in tiers:
+        tier_file = tmp_path / "tiers" / f"{tier}.yml"
+        tier_file.parent.mkdir(exist_ok=True)
+        tier_file.write_text(yaml.safe_dump({"name": f"Demo ({tier})"}), encoding="utf-8")
     result = runner.invoke(
         build,
         ["--repo", str(tmp_path), "--skip-deps", "--skip-lifecycle"],
@@ -224,11 +231,10 @@ def test_a_built_project_reads_the_mode_the_deploy_block_named(
     body["provider"] = "anthropic"
     body["model"] = "claude-haiku-4-5"
     body["config"] = {
-        "facility.prefix": "demo",
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
     }
 
-    config = _build_project(runner, tmp_path, body)
+    config = _build_project(runner, tmp_path, body, LOCAL_TIERS)
 
     assert config["modules"]["web_terminals"]["image_source"] == "local"
 
@@ -242,11 +248,10 @@ def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(
     body["provider"] = "anthropic"
     body["model"] = "claude-haiku-4-5"
     body["config"] = {
-        "facility.prefix": "demo",
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
     }
 
-    web_terminals = _build_project(runner, tmp_path, body)["modules"]["web_terminals"]
+    web_terminals = _build_project(runner, tmp_path, body, LOCAL_TIERS)["modules"]["web_terminals"]
 
     assert web_terminals["nginx_port"] == 20000
     assert web_terminals["web_base_port"] == 20100

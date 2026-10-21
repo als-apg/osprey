@@ -13,7 +13,7 @@ in the ARIEL panel; the panel opens the same view from a
 keeps a stored picture's display rendition in the artifact gallery, with the entry,
 attachment, filename and caption it came from; the same picture saved twice is one
 artifact.
-The `control-assistant` and `ariel-standalone` presets turn all three on; each
+The `control-assistant` preset turns all three on; each
 picture module runs when its server and model answer and is otherwise skipped,
 with `osprey ariel status` naming the skipped module and why.
 A simulation scenario's logbook entries can carry pictures (`attachments`), and
@@ -21,7 +21,7 @@ three of the control-assistant demo entries now do.
 
 Upgrade notes: an existing `profile.yml` does not gain the new keys, so the
 picture modules stay off until they are added (`osprey validate` lists them as
-drift; `osprey profile expand` writes them). For generic file sources, sidecar
+drift; `osprey init --revalidate` writes them). For generic file sources, sidecar
 metadata is now fetched only from relative paths under the entry's
 `source_url` directory, and an ingest without an adapter fetches no sidecar.
 The upgrade builds new full-text and trigram indexes and folds captions already

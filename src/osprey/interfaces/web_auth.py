@@ -84,18 +84,17 @@ import json
 import logging
 import os
 import secrets
-import tempfile
 import threading
 import time
 import urllib.parse
-from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.identity import TERMINAL_USER_ENV, _usable, acting_identity
 from osprey.utils.sensitive_env import guard_process_memory
+from osprey_connectors.identity import TERMINAL_USER_ENV, _usable, acting_identity
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +137,7 @@ OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
 #: own under the fixed name above; a shared sidecar that per-user terminals
 #: proxy into — the bluesky-web panel — is handed every entitled user's
 #: variable under its own name — with :data:`ROSTER_ACCEPT_ENV` beside them —
-#: and accepts any of them, so a persona presenting its own secret is let in
+#: and accepts any of them, so a render presenting its own secret is let in
 #: without the deployment-wide one ever leaving the deploy ``.env``. The one
 #: definition of the prefix: the mint
 #: (:data:`osprey.deployment.web_terminals.auth_credentials.TERMINAL_SECRET_VAR_PREFIX`)
@@ -463,32 +462,17 @@ class SessionStore:
                 self._warn(f"cannot be written: {exc}")
 
     def _write_atomic(self, payload: dict[str, Any]) -> None:
-        """Write *payload* over :attr:`path`, atomically and at mode ``0600``.
+        """Write *payload* over :attr:`path`, replaced whole and at mode ``0600``.
 
-        The same idiom as
-        :func:`osprey.interfaces.web_terminal._json_store.write_json_atomic`.
-        The explicit ``chmod`` is redundant with :func:`tempfile.mkstemp`, which
-        already creates at ``0600``; it is here so the mode the store must have
-        is stated where the file is created rather than inherited from another
-        module's default. This writer is its own rather than the shared one
-        because it states the store's ``0600`` mode where the file is created
-        and writes with sorted keys.
+        The mode is stated here, where the file is written, rather than
+        inherited from another module's default.
         """
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self._path.parent, prefix=f".{self._path.name}.", suffix=".tmp"
+        atomic_replace(
+            self._path,
+            json.dumps(payload, sort_keys=True).encode("utf-8"),
+            mode=0o600,
+            sync="best_effort",
         )
-        try:
-            with os.fdopen(fd, "w") as handle:
-                json.dump(payload, handle, sort_keys=True)
-                handle.flush()
-                with suppress(OSError):
-                    os.fsync(handle.fileno())
-            os.chmod(tmp_name, 0o600)
-            os.replace(tmp_name, self._path)
-        except BaseException:
-            with suppress(OSError):
-                os.unlink(tmp_name)
-            raise
 
     def _warn(self, reason: str) -> None:
         """Log the first store failure of this process and silence the rest."""
@@ -859,7 +843,7 @@ def _own_secret_operator() -> OperatorIdentity:
     """Who this process's OWN operator secret names, if it names anyone.
 
     Read per call rather than settled at population, for the reason
-    :func:`osprey.utils.identity.acting_identity` is: the markers are set per
+    :func:`osprey_connectors.identity.acting_identity` is: the markers are set per
     process by compose and by the entrypoint, and this module is populated by
     whichever request arrives first.
 
@@ -870,11 +854,11 @@ def _own_secret_operator() -> OperatorIdentity:
     of it: there is one account at the console and it is the process's own.
 
     Everything else is the shared sidecar reached directly with the
-    deployment-wide secret. Its :data:`~osprey.utils.identity.AUDIT_IDENTITY_ENV`
+    deployment-wide secret. Its :data:`~osprey_connectors.identity.AUDIT_IDENTITY_ENV`
     names the SERVICE, so falling through to ``acting_identity()`` there would
     file a human's work under ``bluesky-web``; it names nobody instead.
 
-    The container test asks :func:`~osprey.utils.identity._usable` rather than
+    The container test asks :func:`~osprey_connectors.identity._usable` rather than
     whether the marker is merely non-blank, because the answer comes from the
     ladder that applies that same rule: a marker the ladder rejects would
     otherwise take this branch and be answered from the rung below it, which in
@@ -1125,7 +1109,7 @@ def _roster_owners_from_env() -> dict[str, str]:
     value carrying any unreadable entry names nobody at all. Both halves are
     checked for that reason: a suffix against the shape a roster variable can
     have (see :func:`_usable_suffix`), an account against the shape
-    :mod:`osprey.utils.identity` holds an identity to — the account becomes a
+    :mod:`osprey_connectors.identity` holds an identity to — the account becomes a
     directory name under the control-target tree — with non-ASCII and
     non-printable values excluded on top, because an owner also travels as an
     HTTP header value.

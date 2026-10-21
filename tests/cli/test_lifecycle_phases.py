@@ -335,8 +335,8 @@ class TestBuildPhases:
             # No panel selection: nothing for the bar-items warning to check.
             web_panels: list[str] = []
 
-            def resolved_tier(self) -> int:
-                return 1
+            def resolved_data_root(self, profile_dir: Path) -> Path:
+                return profile_dir / "data"
 
         class _Resolved:
             profile = _Profile()
@@ -368,16 +368,13 @@ class TestBuildPhases:
 
         monkeypatch.setattr(build_cmd, "_render_project", _render)
         monkeypatch.setattr(build_cmd, "_render_compose_files", lambda *a, **k: {})
-        monkeypatch.setattr(
-            build_cmd, "_render_persona_projects", lambda *a, **k: [tmp_path / "readonly"]
-        )
+        monkeypatch.setattr(build_cmd, "_render_projects", lambda *a, **k: [tmp_path / "readonly"])
         monkeypatch.setattr(
             build_cmd, "_render_container_projects", lambda *a, **k: [tmp_path / "image"]
         )
         monkeypatch.setattr(build_cmd, "_backup_outgoing_claude_artifacts", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_prune_runtime_state_from_stage", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_swap_in_render", lambda *a, **k: None)
-        monkeypatch.setattr(build_cmd, "_wire_build_derived_env", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_warn_if_deployment_running", lambda *a, **k: None)
         return seen
 
@@ -398,9 +395,9 @@ class TestBuildPhases:
             # Named once, from the deployment's render — the other five passes
             # inject the same set and say nothing about it.
             "· services injected: event dispatch",
-            # Personas before the compose files: the services render reads the
-            # personas' rendered configs for its per-persona grants.
-            "· 1 persona render(s)",
+            # Renders before the compose files: the services render reads the
+            # renders' rendered configs for its per-render grants.
+            "· 1 render(s)",
             "· compose files",
             "· 1 image build context(s)",
         ]

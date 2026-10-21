@@ -27,20 +27,22 @@ _CONTROL_ASSISTANT: dict[str, Any] = {
     "services.postgresql.path": "./services/postgresql",
     "services.postgresql.database_name": "ariel",
     "services.postgresql.username": "ariel",
-    "services.openobserve.path": "./services/openobserve",
-    "services.openobserve.retention_days": 14,
+    "services.telemetry_store.path": "./services/telemetry_store",
+    "services.telemetry_store.retention_days": 14,
+    "services.telemetry_gateway.path": "./services/telemetry_gateway",
     "services.qmd.path": "./services/qmd",
     "services.qmd.interval": 30,
     "services.graphdb.path": "./services/graphdb",
     "services.graphdb.image": "neo4j:5.26-community",
-    "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+    "services.graphdb.ttl_path": "./data/graph/facility.ttl",
 }
 
 #: Every port the blocks above leave for the layout to fill, as
 #: ``config key -> layout slot``.
 _CONTROL_ASSISTANT_FILLS = {
     "services.postgresql.port_host": "postgres",
-    "services.openobserve.port": "openobserve",
+    "services.telemetry_store.port": "telemetry_store",
+    "services.telemetry_gateway.port": "telemetry_gateway",
     "services.qmd.port": "qmd",
     "services.graphdb.port_host": "graphdb_bolt",
     "services.graphdb.http_port_host": "graphdb_http",

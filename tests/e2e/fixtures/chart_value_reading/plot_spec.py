@@ -2,15 +2,21 @@
 
 The benchmark compares a recent partial beam loss, read out of the archive,
 with an older one that exists only as a plot on a logbook entry. The recent
-loss is two ``step`` events in ``beam-dip-recent/scenario.json``; the older one
-is this module's picture: a lifetime study with top-up off, so the current
-decays and is refilled by hand every :data:`REFILL_PERIOD_H`, and one refill
-cycle carries a loss of :data:`DIP_DEPTH_MA` that stays until the next refill.
+loss is two ``step`` events in ``scenarios/beam-dip-recent.yaml``; the older
+one is this module's picture, attached to an entry of
+``scenarios/beam-loss-decay-run.yaml``: a lifetime study with top-up off, so
+the current decays and is refilled by hand every :data:`REFILL_PERIOD_H`, and
+one refill cycle carries a loss of :data:`DIP_DEPTH_MA` that stays until the
+next refill.
 
 The axis spans :data:`YLIM` so the loss is a small feature on a tall axis; the
 title, y-label and series label name the channel and its unit and nothing
 else. ``hours_before`` counts back from the entry's own time, as every plot
 spec does (see :func:`osprey.simulation.plots.render_plot_spec`).
+
+Both scenarios are facility scenario files: :func:`install_scenarios` copies
+them into a deployment's ``data/facility/scenarios/`` and draws the spec where
+the entry's ``plot`` attachment points, in the scenario's own directory.
 """
 
 from __future__ import annotations
@@ -22,9 +28,9 @@ from typing import Any
 
 import numpy as np
 
-FIXTURE_DIR = Path(__file__).parent
-RECENT_BUNDLE = "beam-dip-recent"
-LOGBOOK_BUNDLE = "beam-loss-decay-run"
+SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+RECENT_SCENARIO = "beam-dip-recent"
+LOGBOOK_SCENARIO = "beam-loss-decay-run"
 TARGET_ENTRY_ID = "BLC-DECAY-001"
 
 DCCT_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -61,6 +67,8 @@ NOISE_MA = 0.3
 SEED = 20261012
 
 FILENAME = "dcct_decay_run.png"
+#: Where the logbook entry's ``plot`` attachment points, inside the scenario's directory.
+SPEC_PATH = "plots/dcct_decay_run.json"
 SERIES_LABEL = "DCCT"
 
 
@@ -83,7 +91,8 @@ def _dip(hours_before: float) -> float:
 
 
 def build_plot_spec() -> dict[str, Any]:
-    """The plot spec mapping, in the shape ``parse_plot_spec`` validates."""
+    """The plot spec mapping, in the shape
+    :func:`osprey_connectors.simulation.logbook.parse_plot_spec` validates."""
     hours = hours_axis()
     noise = np.random.default_rng(SEED).normal(0.0, NOISE_MA, size=len(hours))
     values = [
@@ -99,17 +108,17 @@ def build_plot_spec() -> dict[str, Any]:
     }
 
 
-def write_plot_spec(bundle_dir: Path) -> Path:
-    """Write the spec where the bundle's ``logbook.json`` points; return the path."""
-    path = bundle_dir / "plots" / "dcct_decay_run.json"
+def write_plot_spec(scenario_dir: Path) -> Path:
+    """Write the spec where the logbook scenario's entry points; return the path."""
+    path = scenario_dir / SPEC_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(build_plot_spec(), indent=1), encoding="utf-8")
     return path
 
 
-def install_bundles(scenarios_dir: Path) -> None:
-    """Copy both bundles into a deployment's ``data/simulation/scenarios/`` and draw the spec."""
+def install_scenarios(scenarios_dir: Path) -> None:
+    """Copy both scenario files into a facility ``scenarios/`` directory and draw the spec."""
     scenarios_dir.mkdir(parents=True, exist_ok=True)
-    for name in (RECENT_BUNDLE, LOGBOOK_BUNDLE):
-        shutil.copytree(FIXTURE_DIR / name, scenarios_dir / name, dirs_exist_ok=True)
-    write_plot_spec(scenarios_dir / LOGBOOK_BUNDLE)
+    for name in (RECENT_SCENARIO, LOGBOOK_SCENARIO):
+        shutil.copyfile(SCENARIOS_DIR / f"{name}.yaml", scenarios_dir / f"{name}.yaml")
+    write_plot_spec(scenarios_dir / LOGBOOK_SCENARIO)

@@ -36,21 +36,25 @@
           "items": list[dict],     # [{"label": str, "url": str, "sublabel"?: str}, ...]
           "variant": str,          # OPTIONAL, only "tray" is recognized
         }
-      ONE shared loop renders every group in this list — the `users` group is not
+      ONE shared loop renders every group in this list, in the order the operator
+      listed `modules.web_terminals.landing.groups` — no group type is
       special-cased beyond how its data arrives:
-        - The `users` group is auto-populated by the caller from the roster at
-          `modules.web_terminals.users[]`: one item per user, `{label: <username>,
+        - A `users` group is auto-populated by the caller from the people at
+          `modules.web_terminals.users[]`: one item per person, `{label: <username>,
           url: <that user's terminal origin>}`, plus an OPTIONAL `sublabel` holding
-          that user's persona name when one is in effect (a bare-string roster with
-          no persona omits the key entirely).
-        - All other groups are operator-supplied `{label, url}` lists straight out of
-          `modules.web_terminals.landing`.
+          that person's tier name, omitted when it is the same word as the user's
+          name.
+        - An `apps` group is auto-populated from `modules.web_terminals.shared`:
+          one item per shared app, `{label: <the app's name:>, url: <its
+          terminal origin>}`, with no `sublabel`, and `variant: "tray"`.
+        - A `links` group is an operator-supplied `{label, url}` list straight out
+          of `modules.web_terminals.landing`.
       `sublabel` is optional on every item: when present it renders as a secondary
-      persona badge on the card; when absent the card renders exactly as a plain
+      tier badge on the card; when absent the card renders exactly as a plain
       `{label, url}` card (bracket-subscripting a missing key yields Jinja
       `Undefined`, which is falsy — see the `{% if item["sublabel"] %}` guard).
-      `token_login` is present on every auto-populated user card and on no other
-      item: true when that user's terminal is entered by opening their own
+      `token_login` is present on every auto-populated person and app card and on
+      no other item: true when that card's terminal is entered by opening their own
       `?token=` URL rather than through a login the perimeter serves. A true card
       renders a badge and one hint line naming `osprey users login-url <name>`,
       the verb that mints the URL, and KEEPS its href (the token exchange leaves
@@ -59,22 +63,22 @@
       reading that governs `sublabel` leaves them rendering as they always did.
       `sign_in` is present, and true, only on the one item a `names: hidden`
       users section carries. That item renders as a button labelled with its
-      `label` and linking to its `url`, with no url line, no persona badge and
+      `label` and linking to its `url`, with no url line, no tier badge and
       no token badge, because it names no one. Operator link items and user
       cards carry no such key, and the same `Undefined`-is-falsy reading leaves
       them rendering as cards.
 
       A group whose `items` list is empty renders nothing — no heading, no empty
       section. This is the ONLY suppression rule, and it is generic to every group:
-      it's what makes the 0-user case disappear cleanly (an empty/omitted `users`
-      group) while any other configured group still renders normally.
+      it's what makes the 0-user case and the no-`shared:` case disappear cleanly
+      while any other configured group still renders normally.
 
       `variant` is optional on every group and drives presentation only. The one
       recognized value, "tray", renders that section inside an accent-edged panel
-      instead of flat on the page: it is how the caller marks a group as a
-      different KIND of destination — a standalone service the deployment runs
-      (a logbook terminal, a dashboard app) rather than a person's login. The
-      page then reads as people on top, services below. Any other value, and the
+      instead of flat on the page: it is how the caller marks the `apps` group as
+      a different KIND of destination — a shared app the deployment runs (a
+      logbook, a knowledge base) rather than a person's login. The page then
+      reads as people on top, apps below. Any other value, and the
       absent case, render the plain section, so a caller that never sets it
       produces exactly the markup this template produced before the key existed.
       Compared against the literal "tray" rather than tested for truthiness, so
@@ -288,7 +292,7 @@
     }
     /* The two marks a card carries when its terminal is entered by opening
        that user's own `?token=` URL rather than through a login the perimeter
-       serves. Deliberately quieter than the persona chip beside it — muted
+       serves. Deliberately quieter than the tier chip beside it — muted
        border and text rather than the accent — because it is a fact about how
        the door opens, not a category the page is sorting people into. Both
        colors are theme tokens, so the mark follows the page into either mode.
@@ -482,14 +486,19 @@
                Only on the navigable branch — an inert card's link cannot be
                followed at all, so a note about which door it is would be noise
                under a card whose real problem is its scheme.
-               `item["label"]` IS the roster name (`_user_card` builds the card
-               from it), so the command names this card's own user; escaped like
-               every other user-sourced value here. A `landing.groups` link item
-               carries no `token_login` key, so the subscript is Undefined —
-               falsy — and the group renders exactly as it did before. #}
+               The command names `item["login_name"]`, the roster name, never
+               `item["label"]`: an app card's label is the app's title, which
+               names no roster entry. Only a person's card carries `login_name`
+               (`osprey users login-url` addresses people), so an app card shows
+               the badge without the hint. Escaped like every other
+               user-sourced value here. A `landing.groups` link item carries no
+               `token_login` key, so the subscript is Undefined — falsy — and the
+               group renders exactly as it did before. #}
             {%- if item["token_login"] %}
             <span class="landing-card-token">login link</span>
-            <span class="landing-card-token-hint">entered via a login link — <code>osprey users login-url {{ item["label"]|e }}</code></span>
+            {%- if item["login_name"] %}
+            <span class="landing-card-token-hint">entered via a login link — <code>osprey users login-url {{ item["login_name"]|e }}</code></span>
+            {%- endif %}
             {%- endif %}
             <span class="landing-card-url">{{ safe_url|e }}</span>
           </a>

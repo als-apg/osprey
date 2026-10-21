@@ -11,18 +11,11 @@
   ----------------------------------------------------------------------------
 
     project_name: str
-      The deployment's compose project, `resolve_project_name()` of the as-built
-      config. Every container name here is `<project_name>-…`
-      (`<project_name>-web-<user>`, `<project_name>-nginx`,
-      `<project_name>-auth`), as is the sidecar's local image tag, so two
-      deployments on one host contend for a name only when they share a compose
-      project. naming.py spells the same pattern for Python consumers.
-
-    facility_prefix: str
-      `facility.prefix` from the deployed project's config (e.g. "ex"). Not read
-      by this template: no container or image name carries it. The per-user
-      agent-data mount path comes from each service's own
-      `container_agent_data_dir` (below).
+      The deployment's project name, as resolve_project_name() returns it
+      (e.g. "my-assistant"). Used for container_name (`<project>-web-<user>`,
+      `<project>-nginx`, `<project>-auth`) and the sidecar's local image tag
+      only — the per-user agent-data mount path comes from each service's own
+      `container_agent_data_dir` (below), not this field.
 
     registry_url: str
       `registry.url` from the deployed project's config. NOT read directly by this
@@ -33,8 +26,8 @@
 
     services: list[dict], required (may be empty — the 0-user case)
       ONE entry per configured user, PRE-BUILT by render.py from
-      `resolve_personas()` (deployment/web_terminals/ports.py) +
-      `allocate_ports()` — persona resolution and port arithmetic both stay
+      `resolve_cards()` (deployment/web_terminals/roster.py) +
+      `allocate_ports()` — card resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
       "container_agent_data_dir": str, "extra_mounts": list,
@@ -42,9 +35,9 @@
       **allocate_ports(base_ports, index)}`:
         {
           "user": str,                  # bare username, e.g. "alice"
-          "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
-          "project": str,               # resolved by resolve_personas() (not read by this template)
-          "container_project_dir": str, # resolved by resolve_personas(); the in-container
+          "image": str,                 # resolved by resolve_cards() -> per-svc `image:`
+          "project": str,               # resolved by resolve_cards() (not read by this template)
+          "container_project_dir": str, # resolved by resolve_cards(); the in-container
                                         #   project root (not read directly by this template)
           "container_agent_data_dir": str,
                                         # where this user's agent-data volume mounts, i.e. the
@@ -52,30 +45,30 @@
                                         #   Built by render._container_agent_data_dir() from
                                         #   `agent_data.base_dir` anchored on container_project_dir,
                                         #   so the mount follows the same key the agent resolves,
-                                        #   whenever the deployed config and the persona image's
+                                        #   whenever the deployed config and the render image's
                                         #   config agree on it.
                                         #   Joined in Python, not here: an ABSOLUTE base_dir must
                                         #   not be re-anchored under the project directory.
           "container_bundle_dir": str | None,
                                         # where the DEPLOYMENT's facility-knowledge bundle
                                         #   mounts for this user, or None when the user is not
-                                        #   entitled (its persona's project names no
+                                        #   entitled (its render's project names no
                                         #   `facility_knowledge.bundle_path`) or the deployment
                                         #   configures no bundle at all. Built by
                                         #   render._container_bundle_dir() from that key anchored
                                         #   on container_project_dir — per service, because two
-                                        #   personas read the bundle at two different paths.
+                                        #   renders read the bundle at two different paths.
                                         #   Joined in Python for the same reason as
                                         #   container_agent_data_dir above.
                                         #   Pairs with the file-level `facility_bundle_source`.
           "container_mirror_dir": str | None,
                                         # where the DEPLOYMENT's ARIEL qmd mirror mounts for
                                         #   this user, or None when the user is not entitled
-                                        #   (its persona's project runs no qmd export) or the
+                                        #   (its render's project runs no qmd export) or the
                                         #   deployment writes no mirror. Built by
                                         #   render._container_mirror_dir() from
                                         #   `qmd_export.mirror_path` anchored on
-                                        #   container_project_dir — the path this persona's own
+                                        #   container_project_dir — the path this render's own
                                         #   exporter writes. Pairs with the file-level
                                         #   `ariel_mirror_source`.
           "phoebus_require_handle": bool,
@@ -83,7 +76,7 @@
                                         #   server and does not set
                                         #   `phoebus.require_handle: false`; emits
                                         #   PHOEBUS_REQUIRE_HANDLE=1. Resolved by render.py
-                                        #   from the persona set or the deploy config.
+                                        #   from the render set or the deploy config.
           "audit_identity": str,        # WHO this container's audit records are written as —
                                         #   the roster user name (OSPREY_AUDIT_IDENTITY).
           "container_audit_dir": str,   # where those records are written inside the container
@@ -92,7 +85,7 @@
           "audit_mount_source": str,    # the host directory backing it, spelled as a compose
                                         #   bind source (`./var/audit/<identity>`,
                                         #   render._audit_mount_source()).
-          "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
+          "extra_mounts": [str, ...],   # resolved by resolve_cards() from the render's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
                                         #   Empty list (the default) emits none.
@@ -108,10 +101,7 @@
       (allocate_ports() also merges each companion family's port under its
       family name — e.g. "artifact": int — for callers/tests; this template
       reads only "web" and "panel_env".)
-      A no-personas config resolves every entry's `image` to
-      `<registry_url>/web-terminal:latest` and every entry's
-      `container_project_dir` to `/app/<facility_prefix>-assistant` (see
-      resolve_personas()'s docstring). render.py MUST NOT include an entry
+      render.py MUST NOT include an entry
       whose "user" is "nginx" (reserved service name; enforced by the lint
       against the roster).
       This template ALSO refuses to render such a `services` list (see the
@@ -122,11 +112,11 @@
 
     facility_bundle_source: str, required (may be "")
       The deployment's facility-knowledge bundle on the HOST, spelled as a compose
-      bind source (`./data/facility_knowledge`, or an absolute path verbatim).
+      bind source (`./data/facility/knowledge`, or an absolute path verbatim).
       ONE directory for every user — the corpus is shared, not copied per user —
       paired with each service's own `container_bundle_dir` target. `""` when the
       deployment configures no `facility_knowledge.bundle_path`, which emits no
-      mount for anyone. Note this mount SHADOWS whatever the persona image baked
+      mount for anyone. Note this mount SHADOWS whatever the render image baked
       at that path; the reasoning is at the mount line itself.
 
     ariel_mirror_source: str, required (may be "")
@@ -135,6 +125,24 @@
       service's own `container_mirror_dir` target. ONE directory for every user
       and for the host's own exporter — the sidecar indexes the union. `""` when
       the deployment runs no qmd export, which emits no mount for anyone.
+
+    simulator_log_source: str, required (may be "")
+      The deployment's simulator model-log directory on the HOST (`var/simulator`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/simulator` target, where the in-process
+      composite appends its logs. `""` when no simulated target is configured,
+      which emits no mount for anyone.
+
+    simulator_log_relpath: str, required
+      `var/simulator`, the target's spelling under each service's
+      `container_project_dir`, handed down from the workspace constant.
+
+    guarded_run_source: str, required
+      The deployment's guarded-run directory on the HOST (`var/guarded_run`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/guarded_run` target, where a guarded run
+      keeps its per-target lock. Always set: every terminal runs
+      the agent.
 
     ariel_mirror_gid: str, required (may be "")
       Group id of that host directory, for the same `group_add:` reason as
@@ -249,7 +257,7 @@
       gate is the one left standing and this number, not the sidecar's, is
       what expires it; under every other method it is inert and harmless.
       Emitted unconditionally because the container cannot know at build time
-      which it is, and it cannot ride in the persona's `config.yml`, which is
+      which it is, and it cannot ride in the render's `config.yml`, which is
       baked into the image at build time and so cannot see a deploy-time edit.
     auth_throttle: dict[str, int | float], required (possibly empty)
       -> OSPREY_AUTH_THROTTLE_{INITIAL_DELAY,MULTIPLIER,MAX_DELAY,FORGET_AFTER}
@@ -259,11 +267,13 @@
       or written with no value — emits nothing and the sidecar's own default
       applies.
     auth_image: str | None
-      Registry-mode image for the sidecar. When unset, the local-build tag
+      The sidecar's image from render.py's `resolve_auth_image()`: the pinned
+      `auth.image`, else in registry mode
+      `<registry_url>/<project_name>-auth:<image_tag>`. When unset, the local-build tag
       `<project_name>-auth:local` is referenced instead (provision.py's
       `auth_sidecar_local_tag()` spells the same tag). Its `-auth` suffix keeps
       it clear of the dispatch worker's `<project_name>:local` and of every
-      persona render's tag. Producing that image is the runtime build's job;
+      tier or app render's tag. Producing that image is the runtime build's job;
       this template only names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
@@ -289,18 +299,19 @@
     services[].oidc_subject: str, optional — this user's expected IdP identity
       (the non-secret half of the roster->identity mapping; the credential half
       lives in `.env.auth`, keyed by the same suffix). Resolved from the roster
-      by resolve_personas() and carried through render.py's per-service dicts
+      by resolve_cards() and carried through render.py's per-service dicts
       like `display_name`/`theme`.
     services[].control_identity: str, optional — the account name the control
       system sees this card's writes arrive under, straight off the roster
       entry, validated by render.py's `_check_roster_control_identities`.
       Read only when `walled` is true; it then emits OSPREY_CONTROL_IDENTITY,
       OSPREY_CONTROL_IDENTITY_MODULE and the read-only bind of the staged
-      module. Absent, or unwalled, emits nothing, so a roster without the key
+      identity directory. Absent, or unwalled, emits nothing, so a roster without the key
       renders byte-identically.
     control_identity_container_path: str, required — where the staged identity
-      module sits inside the container; both the bind target and the
-      OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
+      module sits inside the container: the OSPREY_CONTROL_IDENTITY_MODULE value.
+    control_identity_container_dir: str, required — where the staged identity
+      directory is bound inside the container; the module path lies inside it.
     services[].oidc_subject_env: str — the env-var name the above is emitted
       under, pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
@@ -312,11 +323,11 @@
       BOTH login methods, unlike the group binding above, because it does two
       jobs: under `password` it IS the session role, and under `oidc` it is the
       cross-check the sidecar refuses a disagreeing ID token against — a `role:`
-      is what the render resolved this user's persona from, so it already
+      is what the render resolved this user's tier from, so it already
       decided which container their login lands in.
       Absent (no `role:` on the entry) emits no line at all, and the sidecar
       resolves "" — no privileges — for that user. Note this is the role NAME,
-      not the persona it binds: the persona already reached this file as the
+      not the tier it binds: the tier already reached this file as the
       service's image and project.
     services[].role_env: str — the env-var name the above is emitted under,
       pre-resolved by render.py through roster_env.env_var_suffix(). Always
@@ -327,11 +338,11 @@
       OSPREY_AUTH_ROLE_ prefix would have read that binding as their own role.
     services[].shared: bool, required — whether this entry is a shared card,
       i.e. whether its `access` admits anyone beyond the one user it belongs
-      to, read through personas.entry_is_shared(). Nothing below is emitted
+      to, read through roster.entry_is_shared(). Nothing below is emitted
       from it; it is the boolean form of the same answer `access_value`
       carries, kept for readers that only need the yes/no.
     services[].access_value: str, required — that entry's resolved principal
-      set, spelled by personas.access_wire_value() for the sidecar to parse
+      set, spelled by roster.access_wire_value() for the sidecar to parse
       back: "" for an owner-only entry, the literal `any` for the whole
       roster, else a compact sorted JSON array of the members
       (`["domain:example.org"]`, `["self","user:carol@example.org"]`). One
@@ -550,8 +561,22 @@ services:
     container_name: {{ project_name }}-nginx
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
+{%- if nginx_history_gate_file %}
+      {#- Recreates nginx when the history page's gate secret is minted anew: a
+         container reads its `env_file` once, when it is created. #}
+      {{ telemetry_cred_digest_label }}: "${{ "{" }}{{ nginx_cred_digest_env }}:-}"
+    {#- The history page's gate secret, the one value nginx presents to the
+       history app on every request it forwards there. The variable passes the
+       envsubst filter below, which writes it into the history location's
+       snippet; nothing else in this service reads it. Repo-root-relative, like
+       every env file (see MOUNT PATHS in the header); `osprey build` and
+       `osprey up` create it before any compose command reads this document. #}
+    env_file:
+      - {{ nginx_history_gate_file }}
+{%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
       {#- Where the base image's entrypoint writes the envsubst'd snippets, and
@@ -650,14 +675,16 @@ services:
 {%- if sidecar_active %}
 
   auth:
-    {#- Registry mode pins `auth.image`; local mode leaves it unset and the
-       runtime build produces this tag (see AUTH SIDECAR contract above). A
-       registry-mode deployment that forgot `auth.image` is caught by the
-       deploy preflight, not by silently building here. #}
+    {#- Registry mode names the sidecar under registry.url (or the pinned
+       `auth.image`); local mode leaves it unset and the runtime build produces
+       this tag (see AUTH SIDECAR contract above). A registry-mode deployment
+       with no name for it is caught by the deploy preflight, not by silently
+       building here. #}
     image: {{ auth_image | default(project_name ~ "-auth:local", true) }}
     container_name: {{ project_name }}-auth
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     {#- Single process, deliberately: the revocation list and the brute-force
        throttle are in-memory, so a second worker would answer with a different
        view of both. Bound to `bind_host` for the same reason the per-user apps
@@ -864,7 +891,7 @@ services:
      * password — the roster IS the session role. No third party is involved,
        so the entry's `role:` is the whole answer.
      * oidc — the roster is the CROSS-CHECK TARGET. A `role:` is what the render
-       resolved this user's persona from, so it already decided which container
+       resolved this user's tier from, so it already decided which container
        the login lands in; the sidecar refuses a login whose validated ID token
        maps to a different role, because that session would name one role while
        sitting in another's container. Where the deployment binds no `claims:`
@@ -895,6 +922,15 @@ services:
       - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
 {%- endif %}
 {%- endfor %}
+{#- The history page's carriers (render.history_carriers): the readers' origin,
+   each roster entry's `history`, the roles marked `history: all`, and the
+   readers with their tables and IdP identities. Empty unless the page is
+   deployed. Inline rather than in `.env.auth` because none is a secret, and a
+   changed line is a changed service definition, which recreates the sidecar.
+   tojson quotes each whole `KEY=value`, as the role table above does. #}
+{%- for line in history_carriers %}
+      - {{ line | tojson }}
+{%- endfor %}
 {#- The roster's shared cards -> OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<set>:
    one line per entry that admits anybody beyond its own user, telling the
    sidecar WHO may open this card. An owner-only entry (the default) emits
@@ -902,7 +938,7 @@ services:
    value named "".
 
    The value arrives pre-spelled as `svc.access_value`
-   (personas.access_wire_value(), off the set personas.resolve_access_principals()
+   (roster.access_wire_value(), off the set roster.resolve_access_principals()
    read from the roster): the literal `any` for the whole roster, byte-identical
    to what this line has always emitted for `access: any`, and otherwise a
    compact sorted JSON array of the principals — `["domain:example.org"]`,
@@ -925,6 +961,17 @@ services:
 {%- for svc in services %}
 {%- if svc.access_value %}
       - {{ (svc.access_env ~ "=" ~ svc.access_value) | tojson }}
+{%- endif %}
+{%- endfor %}
+{#- The shared app cards' titles -> OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>=<title>:
+   one line per app card, the app's `name:`, which the sidecar's chooser lists
+   the card under. A person's card emits nothing and is listed under its
+   roster name. The NAME arrives pre-resolved as `svc.label_env` (render.py,
+   via roster_env's prefix and env_var_suffix()); tojson quotes the whole
+   `KEY=value`, so a title with spaces or a `: ` stays one YAML string. #}
+{%- for svc in services %}
+{%- if svc.card_label %}
+      - {{ (svc.label_env ~ "=" ~ svc.card_label) | tojson }}
 {%- endif %}
 {%- endfor %}
     volumes:
@@ -957,9 +1004,31 @@ services:
     container_name: {{ project_name }}-web-{{ svc.user }}
     restart: unless-stopped
     network_mode: host
+    security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
+{%- if telemetry_sender_file_prefix and telemetry_cred_digests.get(svc.audit_identity) %}
+      {#- The sha256 of this terminal's telemetry login file, for the reason
+         the login service carries one for `.env.auth`: a container reads an
+         `env_file` when it is created, so a login minted anew reaches the
+         terminal only if its definition changed. One file per terminal, so
+         one terminal is recreated. Absent on a render outside the deploy
+         path, which has no repo root to read. #}
+      {{ telemetry_cred_digest_label }}: "{{ telemetry_cred_digests[svc.audit_identity] }}"
+{%- endif %}
+{%- if telemetry_sender_file_prefix %}
+    {#- The terminal's telemetry login rides beside the shared runtime
+       secrets as a file of its own: one login and nothing else, named after
+       this terminal's audit identity, so the name the gateway stamps on what
+       it sends is the name its ledger is filed under. Listed whenever the
+       gateway is deployed — `osprey build` and `osprey up` both create the
+       file before any compose command reads this document. #}
+    env_file:
+      - .env.users
+      - {{ telemetry_sender_file_prefix }}{{ svc.audit_identity }}
+{%- else %}
     env_file: .env.users
+{%- endif %}
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -1036,6 +1105,14 @@ services:
          can see. #}
       - OSPREY_ARIEL_MIRROR_DIR={{ svc.container_mirror_dir }}
 {%- endif %}
+{%- if simulator_log_source %}
+      {#- The simulator log mount's target, for the same contract: the composite
+         appending to it runs as the DROPPED user. #}
+      - OSPREY_SIMULATOR_LOG_DIR={{ svc.container_project_dir }}/{{ simulator_log_relpath }}
+{%- endif %}
+      {#- The guarded-run mount's target, for the same contract: the lock
+         under it is written by the DROPPED user. #}
+      - OSPREY_GUARDED_RUN_DIR={{ svc.container_project_dir }}/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -1054,7 +1131,7 @@ services:
          emitted unconditionally.
 
          It travels as an environment variable rather than through this
-         persona's `config.yml` because that file is BAKED INTO the persona
+         render's `config.yml` because that file is BAKED INTO the render
          image at build time — a deploy-time edit of `auth.session_lifetime`
          re-renders this overlay but not the image, so env is the only carrier
          that tracks the edit.
@@ -1098,20 +1175,17 @@ services:
          entry: it is not a secret. #}
       - PHOEBUS_REQUIRE_HANDLE=1
 {%- endif %}
-      {#- Where the telemetry store is from inside this container. The agent's
-         launch derives its OTLP endpoint from `claude_code.telemetry` with the
-         host chosen for the running context, and the context it would sniff
-         here is wrong: `/.dockerenv` says "container", which selects the
-         compose DNS name `openobserve` — a name that resolves to nothing under
-         `network_mode: host`, so every metric and log would be dropped with no
-         error anywhere. Under host networking this container's loopback IS
-         the deployment host's, and the store answers there on the port it
-         PUBLISHES — which the emitter reads from `services.openobserve.port`
-         in this persona's own config (inherited from the hosting profile), so
-         no port is declared here. Same convention, same reason, as the
-         dispatch worker's compose. Inert unless telemetry is enabled with
-         backend: openobserve. #}
-      - OSPREY_OTEL_OPENOBSERVE_HOST={{ bind_host }}
+{%- if telemetry_gateway_address %}
+      {#- Where the telemetry gateway is from inside this container. Under
+         `network_mode: host` the gateway answers where it PUBLISHES — the
+         interface `deployment.bind_address` names (loopback for a wildcard),
+         on the published port — never at its compose service name. The pair
+         declares the shape; nothing in the container sniffs for it
+         (`telemetry_config.runtime_gateway_url`). Same macro arm as the
+         dispatch worker's host-networked compose. #}
+      - OSPREY_OTEL_GATEWAY_HOST={{ telemetry_gateway_address[0] }}
+      - OSPREY_OTEL_GATEWAY_PORT={{ telemetry_gateway_address[1] }}
+{%- endif %}
       {#- This user's operator secret, in the container-shape variable the app
          pops at construction (web_auth.OPERATOR_SECRET_ENV). The per-user
          variable it is interpolated FROM is the same one nginx exports and this
@@ -1119,8 +1193,7 @@ services:
          minted under one spelling and read under another — see the OPERATOR
          SECRET section in the header.
 
-         `${VAR:-}` rather than a rendered value, exactly as ZO_INGEST_SA_TOKEN
-         above and for the same reason: the secret stays in the deploy .env and
+         `${VAR:-}` rather than a rendered value: the secret stays in the deploy .env and
          out of this file, out of `git status`, and out of every image layer. It
          is NOT out of `docker inspect` — compose interpolates this at
          container-create time and the result is stored in the container's
@@ -1149,44 +1222,10 @@ services:
          same reason OSPREY_TERMINAL_LANDING_URL above is not — a URL holds no
          `": "` and so is a plain YAML scalar. #}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN={{ svc.external_origin }}
-      {#- The telemetry ingest identity's SECRET. Every persona's rendered
-         config.yml carries `password: ${ZO_INGEST_SA_TOKEN}` verbatim (the
-         build defers it — the store mints the token, so no build can resolve
-         it), and the agent this container starts re-resolves that reference
-         against its own environment. Without this line the placeholder is
-         still a placeholder inside the container and the terminal refuses to
-         start: `_openobserve_auth_header` is strict at runtime, so a web
-         terminal that cannot resolve it crash-loops behind the proxy.
-
-         Unconditional, unlike the three credentials below: this is not a
-         per-persona entitlement. Every terminal runs an agent that emits
-         telemetry as the same ingest account, so there is no tier to express
-         here — which is also why gating it on a persona set would only
-         produce terminals that fail to start.
-
-         NOT in `.env.users`, though, and that exclusion is deliberate
-         (`env_production._build_env_production_subset`): the account reads
-         back every log and metric in the store, and `.env.users` is a
-         rendered, operator-facing file that `osprey users env` re-writes
-         whole. `${VAR:-}` keeps the secret out of every rendered artifact
-         instead — compose interpolates it at container-create time from the
-         deploy `.env` (the pinned --env-file, see
-         provision.web_stack_compose_cmd), which is where `osprey up` harvests
-         it to (`container_lifecycle._stage_openobserve_identity`, which runs
-         before this stack is brought up).
-
-         The `:-` default only suppresses compose's unset-variable warning. An
-         empty value does NOT quietly half-authenticate: the same strict check
-         refuses a blank credential, so a deploy that never provisioned the
-         token fails where it is visible rather than shipping an agent whose
-         telemetry is silently dropped. #}
-      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
 {%- for name in svc.telemetry_vars %}
-      {#- The variables this persona's telemetry block needs: the collector's
+      {#- The variables this render's telemetry block needs: the collector's
          bearer token (`claude_code.telemetry.auth.token_env`) plus every
-         variable the block references, except the two every terminal already
-         receives by a fixed route (the ingest token above, the account name
-         through `.env.users`). Per-user because the names are the persona's
+         variable the block references. Per-user because the names are the render's
          own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
          rendered file. An empty token is refused at agent start by name, and a
          defaulted reference falls back to its default inside the container
@@ -1228,7 +1267,7 @@ services:
          (`_check_roster_control_identities`); tojson quotes the WHOLE
          `KEY=value` the same way as OSPREY_WEB_APP_NAME above. The module
          path is render.py's `control_identity_container_path`, the module's
-         own constant, so it is the same string as the bind target below. #}
+         own constant, so it lies inside the directory bound below. #}
       - {{ ("OSPREY_CONTROL_IDENTITY=" ~ svc.control_identity) | tojson }}
       - {{ ("OSPREY_CONTROL_IDENTITY_MODULE=" ~ control_identity_container_path) | tojson }}
 {%- endif %}
@@ -1236,14 +1275,14 @@ services:
       - {{ env.name }}={{ env.port }}
 {%- endfor %}
 {%- if svc.wants_dispatcher %}
-      {#- The event dispatcher's bearer, for a persona that declares the EVENTS
+      {#- The event dispatcher's bearer, for a render that declares the EVENTS
          panel. Every dashboard DATA endpoint is bearer-gated, and the web
          terminal's panel proxy injects this server-side (routes/proxy.py) so the
          browser never holds it; without it the tab renders empty.
 
          Deliberately HERE and not in `.env.users`: that file is handed to
          every user's container alike, so a token in it would reach read-only
-         personas too — and this one credential can fire triggers. Per-user is
+         tiers too — and this one credential can fire triggers. Per-user is
          the only placement that can express the tier boundary.
 
          `${VAR:-}` is resolved by compose from the deploy `.env` (the pinned
@@ -1254,7 +1293,7 @@ services:
       - EVENT_DISPATCHER_TOKEN=${EVENT_DISPATCHER_TOKEN:-}
 {%- endif %}
 {%- if svc.wants_ariel_db %}
-      {#- The ARIEL Postgres password, for a persona that configures ARIEL. Two
+      {#- The ARIEL Postgres password, for a render that configures ARIEL. Two
          consumers in this container authenticate with it — the ARIEL panel's own
          server and the `ariel` MCP server the agent calls — and both derive the
          DSN the same way (services.ariel_search.config.resolve_ariel_dsn), from
@@ -1263,7 +1302,7 @@ services:
          and the ARIEL tab reports the database as unavailable.
 
          Per-user for the same reason as the dispatcher token above: a shared
-         `.env.users` cannot say "the personas that configure ARIEL".
+         `.env.users` cannot say "the renders that configure ARIEL".
 
          `:-ariel` mirrors the postgresql service template's own default, so a
          project deploying no minted password behaves here exactly as it does on
@@ -1282,17 +1321,17 @@ services:
       - ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}
 {%- endif %}
 {%- if svc.wants_launch_token %}
-      {#- The Bluesky queue's launch token, for a persona entitled to arm a queue
+      {#- The Bluesky queue's launch token, for a render entitled to arm a queue
          start. The consumer is the `bluesky` MCP server inside this container:
          holding this token is what lets the agent start the queue on the
          operator's approval of that one tool call, with no second confirmation
-         step anywhere else. A persona without it is refused by the bridge, and
+         step anywhere else. A render without it is refused by the bridge, and
          the operator starts the queue from the BLUESKY panel themselves.
 
          Per-user for the same reason as the two credentials above, and more
-         sharply: this one arms physical hardware motion. A read-only persona
+         sharply: this one arms physical hardware motion. A read-only tier
          reads the same `.env.users` as everyone else, so a token placed
-         there would hand queue-start capability to exactly the personas that
+         there would hand queue-start capability to exactly the tiers that
          must never have it.
 
          `${VAR:-}` is resolved by compose from the deploy `.env`, so the secret
@@ -1307,14 +1346,14 @@ services:
          whole bridge stack armed by its own token — one shared token would
          let a launch approved against one machine be replayed against
          another. Per lane rather than per deployment for the same reason: a
-         persona whose writes are armed on one lane alone is handed that
+         render whose writes are armed on one lane alone is handed that
          lane's token alone, and every other lane's stays out of its
          container entirely. #}
       - {{ var }}={{ '${' ~ var ~ ':-}' }}
 {%- endfor %}
 {%- endif %}
 {%- if svc.wants_graphdb %}
-      {#- The graph store's Neo4j password, for a persona that configures one.
+      {#- The graph store's Neo4j password, for a render that configures one.
          The consumer is the `graph` MCP server in this container, which resolves
          what to dial and with which password through
          deployment.graphdb_service.resolve_graphdb_connection — from
@@ -1323,8 +1362,8 @@ services:
          password `osprey up` minted, and every graph query fails on auth.
 
          Per-user for the same reason as the credentials above: a shared
-         `.env.users` cannot say "the personas that configure a graph store".
-         Read-only personas ARE among them, unlike the launch token: Neo4j has a
+         `.env.users` cannot say "the renders that configure a graph store".
+         Read-only tiers ARE among them, unlike the launch token: Neo4j has a
          single write-capable account, so read-only-ness is enforced by the
          graph server's read transactions rather than by withholding this.
 
@@ -1337,18 +1376,18 @@ services:
          string. #}
       - GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}
 {%- endif %}
-      {#- The archiver's credential variables, for a persona whose archiver
+      {#- The archiver's credential variables, for a render whose archiver
          connector authenticates. The consumer is the connector inside this
          container — the `control_system` MCP server's archiver tools and the
          Python executor's `read_archiver` both open it — and it reads the
          variables its own block names under `auth:` (`auth.token_env`, or
          `auth.password_env`), one line per name, which is why these lines
-         carry per-persona NAMES rather than fixed ones: the
+         carry per-render NAMES rather than fixed ones: the
          control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
          `osprey up`), a facility-run store may spell it anything.
 
          Per-user for the same reason as the four credentials above: a
-         shared `.env.users` cannot say "the personas whose archiver reads
+         shared `.env.users` cannot say "the renders whose archiver reads
          this", and it excludes service tokens by design.
 
          `${VAR:-}` is resolved by compose from the deploy `.env`, so the
@@ -1446,11 +1485,11 @@ services:
         read_only: true
 {%- endfor %}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
-      {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
+      {#- THE DEPLOYMENT BUNDLE SHADOWS THE RENDER'S BAKED COPY. BY DESIGN.
 
-         If you are here because a concept you baked into a persona image is not
-         showing up: this line is why. The persona image may ship its own
-         `data/facility_knowledge/` — `osprey build` renders one into the project
+         If you are here because a concept you baked into a render image is not
+         showing up: this line is why. The render image may ship its own
+         `data/facility/knowledge/` — `osprey build` renders one into the project
          — and this bind mount covers that directory entirely. The container sees
          the DEPLOYMENT's bundle at that path and nothing of the image's own.
 
@@ -1458,10 +1497,10 @@ services:
          bundle is operational knowledge: it is edited by operators and drafted
          into by the agents themselves, between image builds and without one.
          A container reading its baked copy would be reading a snapshot frozen at
-         build time, and two personas built at different times would disagree
+         build time, and two renders built at different times would disagree
          about the facility. To change what a container sees, edit the
          deployment's bundle; to change what a fresh deployment STARTS from,
-         edit the persona's.
+         edit the render's.
 
          Read-WRITE, unlike the qmd sidecar's `:ro` mount of the same directory.
          The agent drafts concepts here; the sidecar only indexes them. The
@@ -1472,8 +1511,8 @@ services:
          Source is the ONE deployment bundle for every user, so the corpus is
          genuinely shared rather than per-user copies. The target is per service:
          it comes from render._container_bundle_dir(), which anchors
-         `facility_knowledge.bundle_path` on THIS persona's
-         container_project_dir, because two personas built from different
+         `facility_knowledge.bundle_path` on THIS render's
+         container_project_dir, because two renders built from different
          projects read the bundle at two different in-container paths.
 
          The short form below is a YAML comment, not a Jinja one, so it survives
@@ -1481,10 +1520,10 @@ services:
          operator on the deploy host actually opens when a baked concept has
          gone missing. #}
       # The DEPLOYMENT's facility-knowledge bundle, shared by every entitled
-      # user. This SHADOWS the copy baked into the persona image at this path,
+      # user. This SHADOWS the copy baked into the render image at this path,
       # by design: the bundle is edited between image builds, and a container
       # reading its baked copy would serve a snapshot frozen at build time.
-      # Edit the deployment's bundle to change what runs; edit the persona's to
+      # Edit the deployment's bundle to change what runs; edit the render's to
       # change what a fresh deployment starts from.
       #
       # SHARING: the deploy makes this directory setgid + group-writable, so
@@ -1507,11 +1546,11 @@ services:
       - {{ facility_bundle_source }}:{{ svc.container_bundle_dir }}
 {%- endif %}
 {%- if ariel_mirror_source and svc.container_mirror_dir %}
-      {#- THE DEPLOYMENT'S ARIEL MIRROR, at the path THIS persona's exporter
-         writes. The `qmd_export` enhancement module runs inside every persona
+      {#- THE DEPLOYMENT'S ARIEL MIRROR, at the path THIS render's exporter
+         writes. The `qmd_export` enhancement module runs inside every render's
          container that enables it — an entry enhanced from a terminal is
          mirrored by that terminal's own process — and it resolves `mirror_path`
-         against the project root, which in here is this persona's
+         against the project root, which in here is this render's
          container_project_dir (render._container_mirror_dir, the same
          derivation as the bundle target above). Without this bind the mirror
          it writes is a directory in the container's writable layer: the qmd
@@ -1532,17 +1571,32 @@ services:
       # the next recreate discards.
       - {{ ariel_mirror_source }}:{{ svc.container_mirror_dir }}
 {%- endif %}
+{%- if simulator_log_source %}
+      # The DEPLOYMENT's simulator model logs, read-write: the in-process
+      # composite appends `<model>.log` here, beside the records the Virtual
+      # Accelerator writes, and `osprey sim status` prints these paths. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
+      - {{ simulator_log_source }}:{{ svc.container_project_dir }}/{{ simulator_log_relpath }}
+{%- endif %}
+      # The DEPLOYMENT's guarded-run directory, read-write: one lock per
+      # control target, shared with every other container that runs the
+      # agent, so a run started here contends for the same lock. The deploy
+      # provisions it setgid +
+      # group-writable, and the entrypoint joins its group
+      # (OSPREY_GUARDED_RUN_DIR above).
+      - {{ guarded_run_source }}:{{ svc.container_project_dir }}/var/guarded_run
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
 {%- if walled and svc.control_identity %}
-      {#- The identity module the entrypoint runs, read-only, under the same
-         guard as its env lines above. Its source is render output: the
-         render writes `build/control_identity/control_identity.py` from the
-         packaged module whenever a card emits this line, so the bind never
-         names a missing file (which the runtime would replace with an empty
-         directory). #}
-      - ./build/control_identity/control_identity.py:{{ control_identity_container_path }}:ro
+      {#- The identity script the entrypoint runs, with its catalog closure
+         beside it, read-only, under the same guard as its env lines above.
+         The directory is render output: the render writes the script and its
+         closure into `build/control_identity/` whenever a card emits this
+         line, so the bind never names a missing source (which the runtime
+         would replace with an empty directory). #}
+      - ./build/control_identity:{{ control_identity_container_dir }}:ro
 {%- endif %}
 {#- Every shared host directory bound above, and the group each was provisioned
     with: the bundle and the mirror, where this service is entitled to them.

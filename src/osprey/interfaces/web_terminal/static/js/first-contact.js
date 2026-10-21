@@ -11,9 +11,9 @@
  * control-target chip's kind for the machine this session stands on
  * ({@link module:control-target-facts.KIND_READ_PHRASES}), and the rest comes
  * from what the server published about this deployment ({@link setFacts}).
- * Nothing here is a claim the server cannot back — in particular a deployment
- * whose numbers are mock data says "read demo data", and a session standing on
- * no known machine gets no read phrase at all rather than a plausible guess.
+ * Nothing here is a claim the server cannot back — in particular a session on
+ * the simulator says "read values from the simulator", and a session standing
+ * on no known machine gets no read phrase at all rather than a plausible guess.
  *
  * The functions above {@link setFacts} are pure and take their inputs
  * explicitly; the module state below them exists only so the surfaces and the

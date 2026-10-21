@@ -16,10 +16,10 @@ from __future__ import annotations
 import re
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._renders import tier_render
 
 _CONFIG: dict = {
     "facility": {
-        "name": "Demo Light Source",
         "prefix": "dls",
     },
     "system": {"timezone": "America/Los_Angeles"},
@@ -29,6 +29,8 @@ _CONFIG: dict = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_tier": "assistant",
+            "renders": {"assistant": tier_render("assistant", "demo-assistant")},
         }
     },
 }

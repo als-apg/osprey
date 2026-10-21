@@ -81,6 +81,7 @@ them is a reason to declare the axis untested.
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import json
 import os
@@ -200,10 +201,8 @@ def _runtime_cli_safe(*args: str, timeout: int = 60) -> None:
     failure with a cleanup failure. Every caller names an exact resource, so a
     swallowed error means "already gone / never created".
     """
-    try:
+    with contextlib.suppress(subprocess.SubprocessError, OSError):
         _runtime_cli(*args, timeout=timeout)
-    except (subprocess.SubprocessError, OSError):
-        pass
 
 
 def _run_osprey(
@@ -681,10 +680,8 @@ def _teardown_shape(osprey_bin: Path, repo: Path) -> None:
     more here than in a single-boot test: under ``host`` these containers hold
     real host ports, and the next shape cannot start until they are released.
     """
-    try:
+    with contextlib.suppress(subprocess.SubprocessError, OSError):
         _run_osprey(osprey_bin, ["down"], repo, timeout=DOWN_TIMEOUT_SEC)
-    except (subprocess.SubprocessError, OSError):
-        pass
     for container in (WORKER_CONTAINER, DISPATCHER_CONTAINER):
         _runtime_cli_safe("rm", "-f", container)
 
@@ -952,3 +949,30 @@ def test_bind_addresses_and_exposure_follow_the_shape(booted_shape: tuple[Path, 
         assert [entry.get("HostIp") for entry in bindings[f"{DISPATCHER_PORT}/tcp"]] == [
             "127.0.0.1"
         ], f"dispatcher must publish on the host's loopback only: {bindings}"
+
+
+# --------------------------------------------------------------------------- #
+# The telemetry gateway under this lane's runtime
+# --------------------------------------------------------------------------- #
+
+#: The telemetry case deploys a stack of its own beside the dispatch pair's
+#: fixture, so it takes a project name and a port block of its own.
+TELEMETRY_PROJECT_NAME = "osprey-e2e-two-shape-telemetry"
+TELEMETRY_PORT_BASE = 18100
+
+
+def test_telemetry_gateway_under_the_lane_runtime(tmp_path: Path) -> None:
+    """The gateway reads its files, survives a forced recreate, and inserts by password alone.
+
+    Under podman-compose 1.0.6 in CI, the runtime that recreates the whole
+    project on a label change (``tests/e2e/_telemetry_runtime.py``).
+    """
+    from tests.e2e._telemetry_runtime import run_gateway_runtime_case
+
+    run_gateway_runtime_case(
+        runtime=RUNTIME,
+        project_name=TELEMETRY_PROJECT_NAME,
+        port_base=TELEMETRY_PORT_BASE,
+        workdir=tmp_path,
+        osprey_env={"CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
+    )

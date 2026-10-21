@@ -24,6 +24,7 @@ from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""
@@ -531,12 +532,6 @@ class DispatchConfig:
     single-shot summaries lowers it. A trigger may still name its own
     ``max_turns``; this is what a trigger that names none is given."""
 
-    facility_name: str = ""
-    """Display name the dispatcher dashboard shows.
-
-    Empty means the deployment's ``facility.name``; set it only when the
-    dashboard should say something else."""
-
     channel_strip_prefix: str = ""
     """Leading prefix trimmed off a channel address before the dashboard shows it.
 
@@ -547,8 +542,8 @@ class DispatchConfig:
     name has nothing to trim and is unaffected.
 
     Spelled without a protocol noun deliberately: the key sits on the
-    protocol-neutral dispatch block beside :attr:`facility_name`, and any later
-    source that carries a channel uses this same trim."""
+    protocol-neutral dispatch block, and any later source that carries a
+    channel uses this same trim."""
 
     network: NetworkMode = DEFAULT_NETWORK_MODE
     """Network attachment for the dispatcher and its workers, one of
@@ -578,6 +573,127 @@ class DispatchConfig:
     what it saw needs too. Names only, never values: each is emitted as a bare
     ``NAME: ${NAME}`` the deploy env chain fills in.
     """
+
+    tier: str | None = None
+    """The tier the dispatch workers run at — the name of a file in ``tiers/``
+    beside ``profile.yml`` (``presets/tiers/`` when the profile is a bundled
+    preset).
+
+    ``None`` (unset) means the workers run the deployment's own render, as they
+    did before the key existed. A named tier is checked by
+    :func:`dispatch_tier_errors`: a dispatched run is headless, so a tier that
+    lifts a base deny or turns on an approval surface is refused. The build
+    records the name as ``services.dispatch_worker.tier``, never as an image
+    string. The bridges carry no tier of their own: they only post to the
+    dispatcher, so theirs is this one."""
+
+
+def headless_refused_flags() -> tuple[str, ...]:
+    """Dotted keys a tier may not turn on when the dispatch workers run it.
+
+    Every switch door of
+    :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS`: each
+    is a surface that exists so a person can edit what the agent does, and a
+    dispatched run has no person in front of it. Read off the table rather than
+    restated, and imported here because that module is heavy and this one is
+    read by every profile load.
+    """
+    from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
+
+    return tuple(door.key for door in DEPLOYMENT_EDIT_DOORS if door.is_switch)
+
+
+#: The dotted key a tier lifts an inherited deny with.
+_REMOVE_DENY_KEY = "claude_code.permissions.remove_deny"
+
+
+def _dotted_leaves(mapping: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Every leaf of a ``config:`` mapping, keyed by its dotted path.
+
+    A profile's ``config:`` may spell a key dotted (``web.config_panel.enabled``)
+    or nested (``web: {config_panel: {enabled: ...}}``); both name the same key,
+    so both are folded onto one dotted spelling here. Lists are leaves.
+    """
+    leaves: dict[str, Any] = {}
+    for key, value in mapping.items():
+        dotted = f"{prefix}{key}"
+        if isinstance(value, Mapping) and value:
+            leaves.update(_dotted_leaves(value, f"{dotted}."))
+        else:
+            leaves[dotted] = value
+    return leaves
+
+
+def _tier_dirs(profile_dir: Path) -> list[Path]:
+    """Where a tier named by ``dispatch.tier`` may live, in lookup order."""
+    # Deferred: the presets module sits above this leaf in the import graph.
+    from osprey.cli.build_profile_presets import _presets_dir, is_bundled_preset_dir
+
+    if is_bundled_preset_dir(profile_dir):
+        return [_presets_dir() / TIERS_DIRNAME]
+    return [profile_dir / d for d in LAYER_DIRNAMES if layer_dir_kind(d) == "tier"]
+
+
+def dispatch_tier_errors(
+    tier: Any, profile_dir: Path, base_config: Mapping[str, Any] | None = None
+) -> list[str]:
+    """Why ``dispatch.tier`` may not run the dispatch workers, or ``[]`` if it may.
+
+    The tier must name a file in ``tiers/`` (``presets/tiers/`` in preset mode),
+    and its render must hold nothing a headless run could use without an
+    approver: no ``claude_code.permissions.remove_deny`` (which lifts a deny the
+    base sets), and none of :func:`headless_refused_flags` true. A flag the tier
+    does not spell takes the deployment's own value from ``base_config``, since
+    that is what the tier's render inherits. The bundled ``admin`` tier holds all
+    three, so ``dispatch.tier: admin`` is refused.
+
+    Args:
+        tier: ``dispatch.tier`` as authored; ``None`` is the unset key.
+        profile_dir: The profile root (the directory holding ``profile.yml``,
+            or the bundled presets directory).
+        base_config: The deployment's own rendered ``config.yml``, or ``None``
+            when there is none to inherit from.
+
+    Returns:
+        One message per problem, each naming ``dispatch.tier``.
+    """
+    if tier is None:
+        return []
+    if not isinstance(tier, str) or not tier.strip():
+        return [f"dispatch.tier must name a tier in tiers/ (got {tier!r})"]
+
+    from osprey.cli.build_profile_document import _read_profile_document
+
+    dirs = _tier_dirs(profile_dir)
+    path = next((d / f"{tier}.yml" for d in dirs if (d / f"{tier}.yml").is_file()), None)
+    if path is None:
+        known = sorted({p.stem for d in dirs if d.is_dir() for p in d.glob("*.yml")})
+        listed = ", ".join(known) if known else "none"
+        return [
+            f"dispatch.tier {tier!r} names no tier: there is no {dirs[0].name}/{tier}.yml "
+            f"(tiers available: {listed})"
+        ]
+
+    document = _read_profile_document(path, f"{path.parent.name}/{path.name}")
+    raw_config = document.get("config") if isinstance(document, Mapping) else None
+    tier_config = _dotted_leaves(raw_config) if isinstance(raw_config, Mapping) else {}
+    base = _dotted_leaves(base_config) if isinstance(base_config, Mapping) else {}
+
+    held: list[str] = []
+    lifted = tier_config.get(_REMOVE_DENY_KEY)
+    if isinstance(lifted, list) and any(isinstance(e, str) and e for e in lifted):
+        held.append(f"lifts a base deny ({_REMOVE_DENY_KEY})")
+    for flag in headless_refused_flags():
+        value = tier_config[flag] if flag in tier_config else base.get(flag)
+        if value is True:
+            held.append(f"enables {flag}")
+    if not held:
+        return []
+    return [
+        f"dispatch.tier {tier!r} {' and '.join(held)}: a headless run has no approver. "
+        f"Name a tier that holds none of these (the bundled 'readonly'), or leave dispatch.tier "
+        f"unset to run the deployment's own render"
+    ]
 
 
 #: Host-port distance between a two-lane deploy's first and second bluesky lane.
@@ -764,20 +880,6 @@ class BlueskyConfig:
     enabled (dev/local convenience). Production uses the
     ``BLUESKY_EXCLUDED_PLANS`` env var instead.
     """
-    devices_file: str = "data/bluesky_devices.yml"
-    """Where the plan device file is AUTHORED — the YAML/JSON document naming
-    the devices Bluesky plans may address.
-
-    A RELATIVE path (the default) is resolved against the RENDERED CONFIG's own
-    directory, so it names a file that lives inside the built project and
-    travels with it. An ABSOLUTE path is operator-owned: the build reads it
-    as-is and never rewrites, relocates or copies it.
-
-    Unlike :attr:`plan_dir` and :attr:`excluded_plans`, this key is written to
-    every lane's service block on every deploy — a deployment always addresses
-    devices, so the only question is which file names them, and an unwritten
-    key would leave the staging step re-deriving this default for itself.
-    """
     device_page_size: int = 500
     """How many devices one page of the bridge's device listing carries.
 
@@ -817,12 +919,13 @@ class BlueskyConfig:
     """
 
     settle_tolerance: float = 1e-9
-    """How close the readback must come to the demand to count as settled.
+    """The floor on how close the readback must come to the demand to count as settled.
 
-    An ABSOLUTE bound on ``abs(readback - demand)``. The default is a
-    float-noise bound: the right value for a setpoint/readback pair the IOC
-    keeps in exact software sync, and far too strict for a device that
-    physically moves, which is exactly why a facility authors it.
+    An ABSOLUTE bound on ``abs(readback - demand)``, the same for every device.
+    The default is a float-noise bound: the floor for a setpoint/readback pair
+    kept in exact software sync. A device whose readback declares motion in
+    the facility settles within that motion's band where the band is wider;
+    this value is the floor under it.
 
     At the default value this key renders NOTHING into the compose file, and
     the bridge falls back to the same default when the env var is absent.

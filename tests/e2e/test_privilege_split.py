@@ -8,7 +8,7 @@ line landed on the file it names, in the layer order that makes it stick.
 
 Two renders of the ``control-assistant`` preset are built (one ``osprey init``
 + ``osprey build``, which renders the deployment's own project AND one per
-persona delta):
+layer):
 
 * the **base render** — the single-user, restricted tier. Its permission render
   denies ``setup_patch``, so the Dockerfile's ``is_setup_patch_capable`` branch
@@ -64,8 +64,8 @@ root-owned so a session cannot edit the skills the next session reads, while
 the claude-config volume is handed to the runtime uid.
 
 ``TestControlIdentity`` — a card's control identity. A container started with
-``OSPREY_CONTROL_IDENTITY=alice`` and the rewrite module mounted read-only
-resolves uid 1000 to ``alice`` while every file stays owned by number and
+``OSPREY_CONTROL_IDENTITY=alice`` and the rewrite script's staged directory
+bound read-only resolves uid 1000 to ``alice`` while every file stays owned by number and
 ``osprey`` still names uid 1000; both ``gosu`` spellings keep the mounts'
 groups; a restart leaves one identity line; ``BASE_IMAGE_ACCOUNTS`` lists the
 image's accounts. The wire proof runs ``_ca_client_name_sniffer.py`` in the
@@ -108,14 +108,16 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
-from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from osprey_connectors.workspace import container_image_context
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests.e2e._telemetry_sender import sender_env_file_args
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
@@ -317,13 +319,13 @@ def rendered_config(preset_repo: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def admin_project(rendered_config: dict) -> str:
-    """The admin persona's project name, read from the render's own catalog.
+    """The admin render's project name, read from the render's own catalog.
 
     Derived rather than spelled: the catalog is what ``osprey build`` renders a
     project per, so a hand-written ``<repo>-admin`` here would be a second
     source of truth that a naming change could silently desynchronize.
     """
-    catalog = rendered_config["modules"]["web_terminals"]["personas"]
+    catalog = rendered_config["modules"]["web_terminals"]["renders"]
     return catalog["admin"]["project"]
 
 
@@ -389,11 +391,30 @@ def admin_image(preset_repo: Path, admin_project: str):
         _docker("rmi", "-f", tag, timeout=120)
 
 
-def _run_web(tag: str, *extra: str) -> str:
-    """Start a container on the image's own CMD, port published on loopback."""
+@pytest.fixture(scope="module")
+def sender_args(preset_repo: Path, rendered_config: dict) -> list[str]:
+    """The env-file arguments that hand ``osprey web`` its telemetry sender login."""
+    return sender_env_file_args(preset_repo, rendered_config)
+
+
+def _run_web(tag: str, sender_args: list[str], *extra: str) -> str:
+    """Start a container on the image's own CMD, port published on loopback.
+
+    *sender_args* hand the server its sender login the way a deployment does:
+    the image's pre-flight refuses a gateway-telemetry launch without one.
+    """
     name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
     run = _docker(
-        "run", "-d", "--name", name, "-p", f"127.0.0.1:0:{_WEB_SLOT}", *extra, tag, timeout=120
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-p",
+        f"127.0.0.1:0:{_WEB_SLOT}",
+        *sender_args,
+        *extra,
+        tag,
+        timeout=120,
     )
     assert run.returncode == 0, f"docker run failed: {run.stderr}"
     return name
@@ -403,7 +424,7 @@ def _run_web(tag: str, *extra: str) -> str:
 
 
 @pytest.fixture(scope="class")
-def ro_container(ro_image):
+def ro_container(ro_image, sender_args):
     """The base image, running its real CMD (``osprey web``), healthy.
 
     The real CMD and not ``sleep infinity``: the uid assertion below is about
@@ -416,7 +437,7 @@ def ro_container(ro_image):
     and the second one's health wait is where that shows up.
     """
     tag, project = ro_image
-    cid = _run_web(tag)
+    cid = _run_web(tag, sender_args)
     try:
         _wait_for_health(f"http://127.0.0.1:{_host_port(cid)}", cid)
         yield SimpleNamespace(cid=cid, project=project, root=f"/app/{project}")
@@ -479,7 +500,7 @@ class TestReadOnlyRenderZone:
 
 
 @pytest.fixture(scope="module")
-def admin_state(admin_image):
+def admin_state(admin_image, sender_args):
     """Drive the admin tier's whole config-write lifecycle once, and snapshot it.
 
     One container, one restart, four assertions — because the restart is the
@@ -499,6 +520,7 @@ def admin_state(admin_image):
 
     cid = _run_web(
         tag,
+        sender_args,
         "-v",
         f"{volume}:{CLAUDE_CONFIG_DIR}",
         "-e",
@@ -735,7 +757,7 @@ class TestScaffoldRestoreReservedGate:
             f"render = Path({admin_state.root!r}) / 'build'\n"
             "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
             "from osprey.audit.writer import ledger_path\n"
-            "from osprey.utils.identity import acting_identity\n"
+            "from osprey_connectors.identity import acting_identity\n"
             f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
             "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
@@ -857,7 +879,7 @@ class TestScaffoldRestoreReservedGate:
             ")\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
             "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
-            "from osprey.utils.identity import acting_identity\n"
+            "from osprey_connectors.identity import acting_identity\n"
             f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
             "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
@@ -959,42 +981,41 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     """Seed one roster user's live container, exactly as ``osprey up`` does.
 
     The admin image is reused rather than a third one built: carol is the
-    roster's admin-persona user, so her resolved ``container_project_dir`` IS
+    roster's admin-render user, so her resolved ``container_project_dir`` IS
     this image's project by construction — which keeps the seeding assertions
     on the real catalog and the real roster instead of a hand-made config.
 
     The container is named the way the compose service names it, because
     ``seed_user_containers`` finds its target by that name and nothing else —
     so the name is made unique by giving the seeding a config whose
-    ``project_name`` is unique to this run. The render carries the repo's
-    FIXED name, which means the compose-dictated ``<project>-web-carol``
-    collides with any real deployment of this repo on the developer's own
-    machine; a developer running one would otherwise silently lose this whole
+    ``project_name`` is unique to this run. The render's own project name is
+    the one a real deployment of this preset on the developer's machine may
+    already use, so the compose-dictated ``<project>-web-carol`` could collide
+    with it; a developer running one would otherwise silently lose this whole
     class to a skip. Overriding the project name keeps both properties: the
     test never touches a container it did not create, and it always runs.
 
-    Only carol's persona is seeded, and the rendered catalog names its
-    ``project``, so the override cannot reach the project path —
-    ``project_name`` feeds ``resolve_personas`` solely as the default for a
-    persona that names none. Asserted below rather than assumed.
+    Only carol's render is seeded, and it names its own ``project``, so the
+    override cannot reach the project path — the project name feeds
+    ``resolve_cards`` solely as the default for a render that names none.
+    Asserted below rather than assumed.
     """
     tag, project = admin_image
     user = "carol"
     rendered_config = copy.deepcopy(rendered_config)
     web_terminals = rendered_config["modules"]["web_terminals"]
-    persona = next(u for u in web_terminals["users"] if u["name"] == user)["persona"]
-    assert web_terminals["personas"][persona]["project"] == project, (
+    tier = next(u for u in web_terminals["users"] if u["name"] == user)["tier"]
+    assert web_terminals["renders"][tier]["project"] == project, (
         "this fixture reuses the admin image for the seeding target; the "
         "roster no longer maps carol onto it"
     )
 
-    project_name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
-    rendered_config["project_name"] = project_name
-    assert web_terminals["personas"][persona]["project"] == project, (
-        "the project_name override changed the persona's project; it is only "
-        "supposed to be the default for a persona that names none"
+    rendered_config["project_name"] = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
+    assert web_terminals["renders"][tier]["project"] == project, (
+        "the project-name override changed the render's project; it is only "
+        "supposed to be the default for a render that names none"
     )
-    name = web_container_name(project_name, user)
+    name = web_container_name(resolve_project_name(rendered_config), user)
     skill = "e2e-privsplit-probe"
 
     context_dir = preset_repo / "build" / "docker" / "web-terminal-context"
@@ -1008,7 +1029,7 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     volume = f"{TAG_PREFIX}-seed-{uuid.uuid4().hex[:8]}"
     # Still refuse to reclaim a name that is somehow taken -- `docker rm -f`
     # here would delete somebody's running terminal to make room for a test --
-    # but with a run-unique project name this is now a genuine "should never happen",
+    # but with a run-unique project name this is a genuine "should never happen",
     # so it fails rather than skipping. A skip here used to hide the entire
     # class on any host running this preset.
     existing = _docker("ps", "-aq", "--filter", f"name=^{name}$", timeout=60)
@@ -1213,30 +1234,41 @@ def _group_volume(tag: str, gid: int) -> str:
 
 
 @pytest.fixture(scope="class")
-def identity_containers(ro_image):
+def identity_containers(ro_image, tmp_path_factory):
     """An identity container (``alice``) and a plain one, from the same image.
 
     The identity container is started by hand with the env/mount contract the
     walled web-terminal compose emits for a card that carries a
     ``control_identity``: ``OSPREY_CONTROL_IDENTITY``, the module path in
-    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the module itself bind-mounted
-    read-only. The module is mounted from THIS tree, so the rewrite under test
-    is the local one whatever the image carries. Two group-shared binds with
-    foreign gids stand in for the audit and control-context directories, so
-    the join-then-rewrite order is exercised on real memberships.
+    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the script with its catalog
+    closure staged into one directory and bound read-only. The directory is
+    staged from THIS tree, so the rewrite under test is the local one whatever
+    the image carries, and the script's sibling import resolves from that
+    read-only directory alone. Two
+    group-shared binds with foreign gids stand in for the audit and
+    control-context directories, so the join-then-rewrite order is exercised
+    on real memberships.
 
     ``sleep infinity`` rather than the server CMD: every assertion here is about
     the account database the entrypoint left behind and the name a dropped
     process resolves, and the entrypoint wraps any command identically.
     """
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
+    from osprey.cli.templates.manager import TemplateManager
     from osprey.deployment import control_identity
 
     tag, project = ro_image
     root = f"/app/{project}"
     audit_dir = f"{root}/var/audit/{IDENTITY}"
     context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
-    module_host_path = Path(control_identity.__file__).resolve()
+    staged_dir = tmp_path_factory.mktemp("control-identity")
+    files = BuildArtifactCatalog.default().files_beside(
+        "control-identity", TemplateManager().template_root
+    )
+    for name, source in files.items():
+        (staged_dir / name).write_bytes(source.read_bytes())
     module_path = control_identity.CONTROL_IDENTITY_CONTAINER_PATH
+    staged_path = control_identity.CONTROL_IDENTITY_CONTAINER_DIR
 
     volumes: list[str] = []
     names: list[str] = []
@@ -1251,7 +1283,7 @@ def identity_containers(ro_image):
                 "-e",
                 f"OSPREY_CONTROL_IDENTITY_MODULE={module_path}",
                 "-v",
-                f"{module_host_path}:{module_path}:ro",
+                f"{staged_dir}:{staged_path}:ro",
                 "-v",
                 f"{volumes[0]}:{audit_dir}",
                 "-e",

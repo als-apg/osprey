@@ -1,14 +1,14 @@
 """The ``BuildProfile`` dataclass — the parsed shape of a profile and its validator.
 
-Holds the 37 profile fields, the paradigm-aware tier default, and the
-consistency checks a profile must pass before a build touches disk. Kept
-separate from the YAML loader so the shape and its rules can be imported (and
-constructed in tests) without pulling in preset resolution or ``extends``
-merging.
+Holds the 36 profile fields and the consistency checks a profile must pass
+before a build touches disk. Kept separate from the YAML loader so the shape
+and its rules can be imported (and constructed in tests) without pulling in
+preset resolution or ``extends`` merging.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import warnings
 from collections.abc import Iterator
@@ -18,11 +18,7 @@ from typing import Any
 
 import yaml
 
-from osprey.build.build_tiers import (
-    VALID_CHANNEL_FINDER_MODES,
-    default_tier_for_mode,
-    tier_mode_conflict,
-)
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
@@ -32,11 +28,11 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
-from osprey.errors import BuildProfileError
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_archiver import (
     VAArchiverConfig,
@@ -83,11 +79,18 @@ DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 network by construction, so ``dispatch.network:`` is their only network knob
 and a per-half ``network:`` is rejected rather than honored."""
 
+SERVICE_AXES = frozenset({"path", "image", "port", "network", "http", "listens", "bind_env", "env"})
+"""The generic keys any ``services.<name>`` block may carry, whatever the service.
+``path``, ``image`` and ``port`` are read off every block by the compose
+generator and the port layout; ``network``, ``http``, ``listens``, ``bind_env``
+and ``env`` are the per-service axes the scans below validate. A bundled
+service's closed key set is its manifest rows plus these."""
+
 _GRAPH_MODE = "graph"
 """The one channel-finder paradigm that answers from a graph store rather than a
 channel-database file, and so the one with a service prerequisite. A member name
 of :data:`VALID_CHANNEL_FINDER_MODES`, not a second enumeration — the rule below
-is about this paradigm alone, exactly as ``tier_mode_conflict`` is."""
+is about this paradigm alone."""
 
 _GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
 """Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
@@ -96,7 +99,7 @@ _QMD_CONFIG_PREFIX = f"services.{QMD_SERVICE_NAME}"
 """Dotted-key spelling of the qmd sidecar's block on a profile's ``config:`` surface."""
 
 _CHANNEL_FINDER_SERVER_ENABLED_KEY = "claude_code.servers.channel-finder.enabled"
-"""The switch a persona flips to take the channel finder out of its render."""
+"""The switch a render flips to take the channel finder out of its render."""
 
 _HYBRID_SEARCH_BLOCK_KEY = "ariel.search_modules.hybrid"
 """The ARIEL search module the qmd sidecar answers; ``None`` here removes it."""
@@ -194,7 +197,7 @@ def _config_service_block(config: Any, service: str) -> Any:
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
         service: The service's key in the rendered ``services:`` section
-            (``openobserve``, ``graphdb``, …), not its compose name.
+            (``telemetry_store``, ``graphdb``, …), not its compose name.
 
     Returns:
         :data:`_MISSING` when no spelling addresses that service; ``None`` when
@@ -284,46 +287,37 @@ def project_name_errors(project_name: Any) -> list[str]:
     return []
 
 
-def persona_render_key_errors(config: Any) -> list[str]:
-    """Refuse a persona catalog entry that spells the render the build derives.
+def render_key_errors(config: Any) -> list[str]:
+    """Refuse a profile that spells the render projection the build derives.
 
-    A catalog entry with a ``build_profile`` is a persona ``osprey build``
-    renders from a delta, and the build names that render from the top-level
-    ``project_name:`` (:func:`~osprey.deployment.web_terminals.persona_naming.
-    persona_project`) and writes its ``project`` / ``project_path`` into
-    ``build/config.yml``. A profile spelling of either is a second home for one
-    fact. An entry without ``build_profile`` points at a render the build does
-    not make, so its ``project_path`` is the operator's to state.
+    ``modules.web_terminals.renders`` is the build's account of every tier and
+    app it renders — each entry's ``kind``, ``project`` and ``project_path``
+    derived from the file's location and the top-level ``project_name:``
+    (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
+    its ``extra_mounts``, ``seed_base`` and ``image`` read from the file's top
+    level. A profile spelling of any of it is a second home for one fact.
 
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
 
     Returns:
-        One error per offending entry, naming its keys; empty when none.
+        One error naming the key when the profile spells it; empty otherwise.
     """
     modules = _expand_dotted(config).get("modules")
     web_terminals = modules.get("web_terminals") if isinstance(modules, dict) else None
-    personas = web_terminals.get("personas") if isinstance(web_terminals, dict) else None
-    if not isinstance(personas, dict):
+    if not isinstance(web_terminals, dict) or "renders" not in web_terminals:
         return []
-    errors: list[str] = []
-    for persona, entry in personas.items():
-        if not isinstance(entry, dict) or not entry.get("build_profile"):
-            continue
-        spelled = [key for key in ("project", "project_path") if key in entry]
-        if not spelled:
-            continue
-        named = ", ".join(f"modules.web_terminals.personas.{persona}.{key}" for key in spelled)
-        errors.append(
-            f"config: {named} {'is' if len(spelled) == 1 else 'are'} rendered by the build; "
-            f"the build derives them from project_name. Delete these lines from profile.yml."
-        )
-    return errors
+    return [
+        "config: modules.web_terminals.renders is written by the build, which derives "
+        "every entry from the files in tiers/ and apps/ and from project_name; set "
+        "extra_mounts, seed_base or image at the top of the tier or app file instead. "
+        "Delete modules.web_terminals.renders from profile.yml."
+    ]
 
 
-# VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
-# imported from the build-time kernel (osprey.build.build_tiers) so the
-# validators below can use them while the definitions live below the cli layer.
+# VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
+# (osprey.build.modes) so the validators below can use it while the definition
+# lives below the cli layer.
 
 
 @dataclass
@@ -335,8 +329,8 @@ class BuildProfile:
     """The deployment's own name (``project_name:``), tracked in the profile.
 
     Every host-visible name derives from it: the compose project, the volume
-    prefix, the ``<project>:local`` image tags, and each persona render
-    ``build/<project_name>-<persona>``. Distinct from :attr:`name`, which is a
+    prefix, the ``<project>:local`` image tags, and each render
+    ``build/<project_name>-<render>``. Distinct from :attr:`name`, which is a
     display label, and from the checkout's folder name, which ``osprey init``
     reads once to propose a value. :meth:`validate` holds it to the spelling
     compose itself would use. ``None`` only for a document no repo holds — a
@@ -345,7 +339,7 @@ class BuildProfile:
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
     profile directory (``data`` for a materialized profile, ``../data`` for a
-    sibling persona profile that shares its parent's tree; may therefore
+    sibling render profile that shares its parent's tree; may therefore
     resolve above the profile dir). The build copies this tree and no other:
     it is the whole source of the project's ``data/``, with no packaged
     fallback behind it, so :meth:`validate` requires it of every profile file.
@@ -380,16 +374,6 @@ class BuildProfile:
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
-    tier: int | None = None
-    """Channel-database tier (1|3) selecting which preset `tiers/tier{N}` DB
-    is materialized at build time to the flat `data/channel_databases/<name>.json`
-    location. Tier 1 is in_context-only; tier 3 carries all three paradigms.
-    When ``None``, the build resolves a paradigm-aware default via
-    :meth:`resolved_tier` (in_context → 1, hierarchical/middle_layer → 3).
-    This is build-time only and is NOT rendered into `config.yml`; the runtime
-    config carries no tier knob. Facility profiles can ignore it because the
-    DB they overlay overwrites whatever the preset put there.
-    """
     config: dict[str, Any] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
     services: dict[str, ServiceDef] = field(default_factory=dict)
@@ -427,8 +411,8 @@ class BuildProfile:
     """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
-    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
-    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). This is the
+    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate render
+    (e.g. "CLAUDE.logbook.md.j2" for the logbook-research bundle). This is the
     one channel for the rendered CLAUDE.md: the project copy is build-owned, so
     the ``project/`` mirror rejects a hand-written one.
     """
@@ -493,18 +477,6 @@ class BuildProfile:
         of raising.
         """
         self.inherited_preset: str | None = None
-
-    def resolved_tier(self) -> int:
-        """Resolve the build-time tier, applying a paradigm-aware default.
-
-        Returns ``self.tier`` if set; otherwise picks tier 1 for ``in_context``
-        and tier 3 for ``hierarchical``/``middle_layer``.  Callers that need a
-        concrete integer (the build pipeline, the materializer) MUST go through
-        this method rather than reading ``self.tier`` directly.
-        """
-        if self.tier is not None:
-            return self.tier
-        return default_tier_for_mode(self.channel_finder_mode)
 
     def resolved_data_root(self, profile_dir: Path) -> Path | None:
         """Resolve the profile's ``data:`` tree against its profile directory.
@@ -877,12 +849,12 @@ class BuildProfile:
     def _runs_the_channel_finder(self) -> bool:
         """Whether this profile keeps the channel-finder MCP server switched on.
 
-        A persona narrows the deployment it is rendered from by switching
+        A tier or app narrows the deployment it is rendered from by switching
         servers off in its ``config:`` overlay, and one of them takes the whole
         channel finder — server, tools and subagent — out of that render. Such a
-        persona still inherits ``channel_finder_mode`` from the profile it
-        extends, because the mode belongs to the deployment rather than to the
-        login; it simply has no channel finder for the mode to configure.
+        layer still inherits ``channel_finder_mode`` from the root profile,
+        because the mode belongs to the deployment rather than to the login; it
+        simply has no channel finder for the mode to configure.
 
         Only an explicit ``false`` counts. The key is absent from every profile
         that keeps the server, so absence reads as on.
@@ -1154,7 +1126,7 @@ class BuildProfile:
 
         Args:
             service: The service's key in the rendered ``services:`` section
-                (``openobserve``, ``postgresql``, …), not its compose name.
+                (``telemetry_store``, ``postgresql``, …), not its compose name.
 
         Returns:
             Whether the rendered ``config.yml`` will carry that block.
@@ -1249,15 +1221,15 @@ class BuildProfile:
         """
         # Imported here rather than at module scope: build_profile_emit would
         # close an import cycle, and the render stack pulls in the registry and
-        # the persona layer, which a profile parse that never asks about ports
+        # the tier layer, which a profile parse that never asks about ports
         # should not pay for.
-        from osprey.deployment.web_terminals.personas import normalize_users
         from osprey.deployment.web_terminals.ports import (
             allocate_ports,
             base_ports_from_config,
             resolve_nginx_port,
         )
         from osprey.deployment.web_terminals.render import _auth_tls_context
+        from osprey.deployment.web_terminals.roster import normalize_users
 
         from .build_profile_emit import effective_web_terminals
 
@@ -1267,13 +1239,11 @@ class BuildProfile:
 
         seed: dict[str, int] = {}
         wrapped = {"deployment": {"port_base": base}, "modules": {"web_terminals": web_terminals}}
-        try:
+        # A non-port `nginx_port` is the stanza's own fault to report; the
+        # lint names it, and guessing a number for it here would put a
+        # wrong port in a collision report.
+        with contextlib.suppress(ValueError):
             seed["modules.web_terminals.nginx_port"] = resolve_nginx_port(wrapped)
-        except ValueError:
-            # A non-port `nginx_port` is the stanza's own fault to report; the
-            # lint names it, and guessing a number for it here would put a
-            # wrong port in a collision report.
-            pass
 
         # The auth sidecar is a container only under the two methods that put a
         # wall in front of the terminals; `token` and `none` bind nothing on the
@@ -1428,26 +1398,15 @@ class BuildProfile:
         # one fact, and the render wins silently, so the second spelling is
         # refused here naming the field that supplies it.
         errors.extend(derived_key_errors(self.config))
-        # The persona catalog's render coordinates, which the build derives
+        # The render catalog's render coordinates, which the build derives
         # from `project_name` for every entry it renders from a delta.
-        errors.extend(persona_render_key_errors(self.config))
+        errors.extend(render_key_errors(self.config))
         # And the one derived branch whose source is a sibling FILE rather than
         # a field or the build's own layout.
         errors.extend(provider_catalog_key_errors(self.config))
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
-
-        if self.tier is not None and self.tier not in (1, 3):
-            errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
-
-        # Tier 1 ships only the in_context paradigm DB; reject a tier/paradigm
-        # mismatch here with a rule-naming message (see tier_mode_conflict) so
-        # the failure is legible on every configuration path rather than an
-        # opaque FileNotFoundError deep in materialize_tier_artifacts.
-        conflict = tier_mode_conflict(self.tier, self.channel_finder_mode)
-        if conflict:
-            errors.append(conflict)
 
         if (
             self.channel_finder_mode is not None
@@ -1467,7 +1426,7 @@ class BuildProfile:
         # none of its tools. Named here instead, on every configuration path.
         #
         # Skipped for a profile that switches the channel-finder server off — a
-        # persona rendered as a logbook terminal, say. It inherits the mode from
+        # rendered as a logbook terminal, say. It inherits the mode from
         # the deployment it narrows, because the mode is the deployment's, but
         # it ships no channel finder for the mode to leave toolless. Requiring a
         # store there would make every graph deployment configure one for a
@@ -1497,7 +1456,7 @@ class BuildProfile:
         # fails, by design, with "no qmd sidecar is configured". Named here
         # instead, on every configuration path, because where it would surface
         # otherwise is the worst place for it: inside a per-user web-terminal
-        # container, on the first logbook question, for a persona whose render
+        # container, on the first logbook question, for a render whose render
         # emptied `services:` on purpose.
         #
         # Skipped for a profile that switches the module off, whichever way it
@@ -1516,7 +1475,7 @@ class BuildProfile:
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
-        # The data tree may legitimately sit above the profile dir (persona
+        # The data tree may legitimately sit above the profile dir (render
         # profiles share their parent's tree via ``data: ../data``), so only
         # existence and shape are checked, never containment.
         #
@@ -1527,7 +1486,7 @@ class BuildProfile:
         # resolved out of the packaged presets directory and has no profile
         # directory to anchor a tree against (``--preset`` refuses ``data:``
         # outright), and it is ``osprey init`` that materializes the tree and
-        # writes the key into the profile it emits. A persona delta needs no
+        # writes the key into the profile it emits. A layer needs no
         # exemption: it resolves over the ``profile.yml`` it lives under, and
         # inherits that file's ``data:`` before this runs.
         if self.data is None:
@@ -1945,7 +1904,6 @@ class BuildProfile:
                         va.port,
                         claimed,
                         self.config,
-                        profile_dir,
                     )
                 )
 

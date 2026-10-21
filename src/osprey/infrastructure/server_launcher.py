@@ -28,12 +28,18 @@ from osprey.registry.web import (
     resolve_web_server_address,
     web_server_config_section,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
+
+#: How long a launched server that missed the launch window's three probes is
+#: still watched for its first /health answer, and how often it is asked. Its
+#: own thread does the asking, so neither number holds up the caller.
+_LATE_HEALTH_WINDOW_S = 30.0
+_LATE_HEALTH_POLL_S = 1.0
 
 #: Every wait the launcher makes goes through this name, and a test that counts
 #: those waits replaces it here. ``time.sleep`` itself is shared by every thread
@@ -569,7 +575,7 @@ class ServerLauncher:
                 import uvicorn
 
                 if self._pass_workspace:
-                    from osprey.utils.workspace import resolve_shared_data_root
+                    from osprey_connectors.workspace import resolve_shared_data_root
 
                     # Launched servers are daemons serving the shared store (they
                     # may be auto-launched from a session-scoped MCP process on
@@ -594,6 +600,7 @@ class ServerLauncher:
 
         t = threading.Thread(target=_run, daemon=True, name=self._name.lower().replace(" ", "-"))
         t.start()
+        launched_at = time.monotonic()
         logger.info("%s launched at http://%s:%s", self._name, host, port)
 
         # Brief health-check to verify *our* server came up. Liveness is checked
@@ -611,16 +618,55 @@ class ServerLauncher:
                 self._launched = True
                 return
 
-        # Thread still alive but /health never answered — mark launched to avoid
-        # busy-retry loops; the crash handler in _run() resets _launched if the
-        # thread later dies.
-        logger.warning(
-            "%s health check failed after launch — server may not be reachable at %s:%s",
+        # Thread still alive but /health has not answered yet — mark launched to
+        # avoid busy-retry loops; the crash handler in _run() resets _launched if
+        # the thread later dies. On a loaded host a server that is merely slow
+        # misses this window, so the verdict is left to a watcher that keeps
+        # asking for a while and logs whichever answer comes.
+        logger.info(
+            "%s not answering at %s:%s yet; still checking for up to %.0fs",
             self._name,
             host,
             port,
+            _LATE_HEALTH_WINDOW_S,
         )
         self._launched = True
+        threading.Thread(
+            target=self._await_late_health,
+            args=(t, host, port, launched_at),
+            daemon=True,
+            name=f"{self._name.lower().replace(' ', '-')}-health",
+        ).start()
+
+    def _await_late_health(
+        self, server: threading.Thread, host: str, port: int, launched_at: float
+    ) -> None:
+        """Keep asking a launched server's /health past the launch window, and say what came.
+
+        A first answer is logged as the health check passing, with how long it
+        took; a server thread that exits, or a window that ends with no answer,
+        is the warning the launch window used to give on its own.
+        """
+        started = time.monotonic()
+        while time.monotonic() - started < _LATE_HEALTH_WINDOW_S:
+            time.sleep(_LATE_HEALTH_POLL_S)
+            if not server.is_alive():
+                logger.warning("%s thread exited before health check passed", self._name)
+                return
+            if self._is_running(host, port):
+                logger.info(
+                    "%s health check passed (%.0fs after launch)",
+                    self._name,
+                    time.monotonic() - launched_at,
+                )
+                return
+        logger.warning(
+            "%s health check failed within %.0fs of launch — server may not be reachable at %s:%s",
+            self._name,
+            _LATE_HEALTH_WINDOW_S,
+            host,
+            port,
+        )
 
     def ensure_running(self) -> None:
         """Ensure the server is running; launch if needed.
@@ -818,34 +864,3 @@ def is_auto_launch_enabled(key: str) -> bool:
     a live panel that 502s.
     """
     return _auto_launch_checkers[key]()
-
-
-# Backward-compatible named aliases (used by web_terminal/app.py, artifact_store.py)
-def ensure_artifact_server() -> None:
-    """Ensure the artifact server is running; launch if needed."""
-    ensure_web_server("artifact")
-
-
-def ensure_ariel_server() -> None:
-    """Ensure the ARIEL server is running; launch if needed."""
-    ensure_web_server("ariel")
-
-
-def ensure_channel_finder_server() -> None:
-    """Ensure the Channel Finder web server is running; launch if needed."""
-    ensure_web_server("channel_finder")
-
-
-def ensure_lattice_dashboard_server() -> None:
-    """Ensure the lattice dashboard server is running; launch if needed."""
-    ensure_web_server("lattice_dashboard")
-
-
-def ensure_okf_server() -> None:
-    """Ensure the OKF knowledge panel server is running; launch if needed."""
-    ensure_web_server("okf")
-
-
-def ensure_system_health_server() -> None:
-    """Ensure the system-health dashboard server is running; launch if needed."""
-    ensure_web_server("system_health")

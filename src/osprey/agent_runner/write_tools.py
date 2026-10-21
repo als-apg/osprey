@@ -32,6 +32,7 @@ _FALLBACK_WRITE_TOOLS = [
     "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
+    "mcp__python__pyaml_measure",
 ]
 
 

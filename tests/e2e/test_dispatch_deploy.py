@@ -15,21 +15,21 @@ It inits + builds a control-assistant deployment repo, deploys the stack with
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
 
 The same deploy also stands up the preset's multi-user web tier (local image
-mode): the build renders one persona project per ``personas/`` delta into
-``build/<repo>-<persona>/``, ``up`` builds one ``:local`` image per persona and
+mode): the build renders one render project per ``tiers/`` file into
+``build/<repo>-<render>/``, ``up`` builds one ``:local`` image per render and
 brings up nginx + one web-terminal container per roster user. Four more things
 are asserted on top:
 
   T1 topology:      nginx + both per-user containers come up healthy and the
                     landing page lists both roster users.
-  T2 readonly tier:  the rendered READ-ONLY persona project arms writes for no
+  T2 readonly tier:  the rendered READ-ONLY render project arms writes for no
                      control target and its rendered ``settings.json`` denies
                      the channel-write tool.
-  T3 readwrite tier: the rendered READ-WRITE persona project arms writes on the
+  T3 readwrite tier: the rendered READ-WRITE render project arms writes on the
                      simulator only and keeps the tool on the ask
                      (human-approval) path — the positive control that T2 is a
                      real posture difference.
-  T4 same surface:   both persona projects declare the IDENTICAL ``.mcp.json``
+  T4 same surface:   both render projects declare the IDENTICAL ``.mcp.json``
                      server set — the tier boundary is enforcement, never a
                      quietly different tool surface.
 
@@ -63,16 +63,16 @@ enqueue, the bridge lifts the name onto the item, and the item outlives the run
                          wire that stamps every enqueue with one name.
 
 COEXISTENCE: every host-published web port, the virtual accelerator's Channel
-Access port (the one ``port_base`` does not move), the web-container name
-prefix (``facility.prefix``) and the compose PROJECT NAME are e2e-unique,
+Access port (the one ``port_base`` does not move) and the compose PROJECT NAME
+are e2e-unique,
 so this deploy can run beside a real control-assistant stack on the same host
 without colliding on ports or container names. The project name is part of that
 promise and not a cosmetic choice: every container is named ``<project>-<service>``
 and teardown addresses the stack BY PROJECT NAME, so a module sharing another's
 project name would tear down that module's running containers as well as its
-own. The persona ``:local`` image
+own. The render ``:local`` image
 tags are namespaced by the repo's own name (``osprey init`` writes each catalog
-entry's ``project`` as ``<repo>-<persona>``), which keeps them off a real
+entry's ``project`` as ``<repo>-<render>``), which keeps them off a real
 deployment's tags for free. Teardown names exact resources only — never a
 prune or wildcard.
 
@@ -112,6 +112,8 @@ from osprey.deployment.compose_generator import (
     ensure_control_target_dir,
     resolve_project_name,
 )
+from osprey.deployment.web_terminals.render_naming import render_project
+from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
@@ -137,10 +139,10 @@ DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}
 TOKEN = "dev-token"  # matches the .env tokens written below
 
 # Container image builds (Node + Claude CLI install; project + dispatch + two
-# persona images) are slow on a cold cache. Four images on a cold cache have been
+# render images) are slow on a cold cache. Four images on a cold cache have been
 # measured past 30 minutes on a developer machine, where `up` then died on its own
 # budget rather than on anything wrong with the deployment — and the module's
-# teardown removes both persona tags, so every run pays that cold cache. The
+# teardown removes both render tags, so every run pays that cold cache. The
 # budget is a harness ceiling, not an assertion: too low turns a slow host into a
 # red suite, while too high only delays a genuinely wedged deploy, which the
 # per-service health waits below report on their own much sooner.
@@ -162,25 +164,35 @@ CONTAINER_HEALTH_TIMEOUT_SEC = 180.0
 PROJECT_NAME = "osprey-e2e-dispatch"
 DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
-# Where the worker's agent-data volume mounts inside the project image: the
-# repo's durable state zone, named by ``agent_data.base_dir`` in the config the
-# compose generator renders the mount from.
-WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
+#: The tier this lane runs the dispatch workers at (``dispatch.tier``). The
+#: preset ships ``readonly``, under which a worker has no write or queue tool
+#: to call; the owner rows prove narrowing, the ceiling and plan enqueue, so
+#: their worker is one that may write. A tiered worker runs that tier's image,
+#: whose project is rooted at ``/app/<project_name>-<tier>``; the build is held
+#: to it before the deploy.
+WORKER_TIER = "readwrite"
+WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
+# Where the worker's agent-data volume mounts inside the tier image: the
+# project's durable state zone, named by ``agent_data.base_dir`` in the config
+# the compose generator renders the mount from.
+WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
 
 # ---------------------------------------------------------------------------
-# Multi-user web tier (T1-T4). Prefix and ports are remapped off the preset
+# Multi-user web tier (T1-T4). Ports are remapped off the preset
 # defaults to e2e-unique values (see COEXISTENCE in the module docstring); the
 # roster itself (alice→readwrite, bob→readonly) is the preset's own and is
-# asserted, not configured, here. The persona project names are the repo's, not
+# asserted, not configured, here. The render project names are the repo's, not
 # this test's: `osprey init` writes every catalog entry as
-# ``<repo>-<persona>`` at ``build/<repo>-<persona>``, and `project` must equal
+# ``<repo>-<render>`` at ``build/<repo>-<render>``, and `project` must equal
 # `project_path`'s basename for the render to land where the deploy mounts it.
 # ---------------------------------------------------------------------------
-WEB_PREFIX = "dde"  # facility.prefix override; container names follow PROJECT_NAME
+#: The compose project name every web-tier container is named by:
+#: ``<project>-nginx`` and ``<project>-web-<user>``.
+WEB_PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 # Which roster user holds which tier is the preset's decision, not this
-# module's: ``modules.web_terminals.users`` binds each name to a persona, and
-# the persona is what decides the tier. Pinned against the render by
-# :func:`_assert_roster_personas` in the fixture, because the two names are
+# module's: ``modules.web_terminals.users`` binds each name to a render, and
+# the render is what decides the tier. Pinned against the render by
+# :func:`_assert_roster_renders` in the fixture, because the two names are
 # otherwise interchangeable everywhere they are used in pairs — an inverted
 # label costs nothing until a row reaches for a surface only one tier has, and
 # then it fails an hour into a deploy as a 404 on that surface rather than as a
@@ -239,10 +251,10 @@ VA_CA_PORT = 15068
 
 
 def _web_container(user: str) -> str:
-    return f"{PROJECT_NAME}-web-{user}"
+    return f"{WEB_PROJECT}-web-{user}"
 
 
-NGINX_CONTAINER = f"{PROJECT_NAME}-nginx"
+NGINX_CONTAINER = f"{WEB_PROJECT}-nginx"
 
 # hello-dispatch / triage-event / save-report should complete; denied-tool-demo
 # must be rejected by the server-side denylist.
@@ -260,12 +272,12 @@ _DEMO_PAYLOAD = {
 # Owner attribution on the dispatcher wire (O1-O4).
 #
 # The firing user is the READ-WRITE roster user, not the read-only one. Two
-# things follow the persona's EVENTS panel declaration and nothing else: the
+# things follow the render's EVENTS panel declaration and nothing else: the
 # `web.panels.events` entry the terminal resolves a `/panel/events/*` hop
-# against (projected into a persona render only for a profile that selects the
+# against (projected into a render only for a profile that selects the
 # panel — osprey.deployment.reach.project_attached_overrides), and the
 # EVENT_DISPATCHER_TOKEN its container receives (web_terminals/render.py). That
-# split IS the tier boundary: a read-only persona must not hold a credential
+# split IS the tier boundary: a read-only render must not hold a credential
 # that can fire triggers, and its terminal answers the hop 404 because it
 # carries no events panel to resolve. So these rows drive the hop in the
 # read-write user's container, and only there.
@@ -275,7 +287,7 @@ _DEMO_PAYLOAD = {
 FIRING_USER = READWRITE_USER
 
 #: The ``.mcp.json`` key of the dispatcher wire — the framework server entry a
-#: persona's render carries exactly when that persona selects the EVENTS panel.
+#: render's render carries exactly when that render selects the EVENTS panel.
 DISPATCHER_MCP_SERVER = "event_dispatcher"
 
 #: Triggers this module appends to the deployment's own ``triggers.yml`` before
@@ -489,11 +501,11 @@ def _narrow_on_the_host(repo: Path, identity: str) -> Path:
     return write_record(record, path=record_path)
 
 
-def _assert_roster_personas(repo: Path) -> None:
-    """Hold this module's two roster names to the personas the preset binds them to.
+def _assert_roster_renders(repo: Path) -> None:
+    """Hold this module's two roster names to the renders the preset binds them to.
 
     Everything the owner rows do downstream is decided by the FIRING user's
-    persona rather than by their name: which container holds the dispatcher
+    render rather than by their name: which container holds the dispatcher
     bearer, and which one carries a ``web.panels.events`` entry for the terminal
     to resolve the ``/panel/events/*`` hop against. Both names appear in pairs
     everywhere else in this module, so an inverted label is invisible until a
@@ -506,7 +518,7 @@ def _assert_roster_personas(repo: Path) -> None:
     """
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     roster = {
-        str(entry.get("name")): str(entry.get("persona"))
+        str(entry.get("name")): str(entry.get("tier"))
         for entry in (rendered["modules"]["web_terminals"]["users"] or [])
     }
     expected = {READONLY_USER: "readonly", READWRITE_USER: "readwrite"}
@@ -514,19 +526,19 @@ def _assert_roster_personas(repo: Path) -> None:
     assert actual == expected, (
         f"this module's roster labels contradict the render: expected {expected}, "
         f"the deployment binds {actual} (whole roster: {roster}). The tier follows "
-        f"the persona, not the name — swap READONLY_USER/READWRITE_USER to match."
+        f"the render, not the name — swap READONLY_USER/READWRITE_USER to match."
     )
 
-    # The read-write persona's own render must carry the events panel, because
+    # The read-write render's own render must carry the events panel, because
     # that entry is the whole of what the terminal resolves the dispatcher hop
     # against. Absent here means every owner row below gets a 404 that is the
     # terminal answering correctly about a panel it was never told.
-    persona_config = yaml.safe_load(
-        (_persona_dir(repo, READWRITE_PROJECT) / "config.yml").read_text(encoding="utf-8")
+    render_config = yaml.safe_load(
+        (_layer_dir(repo, READWRITE_PROJECT) / "config.yml").read_text(encoding="utf-8")
     )
-    events = ((persona_config.get("web") or {}).get("panels") or {}).get("events") or {}
+    events = ((render_config.get("web") or {}).get("panels") or {}).get("events") or {}
     assert events.get("enabled") and events.get("url"), (
-        f"the read-write persona render declares no reachable EVENTS panel "
+        f"the read-write render declares no reachable EVENTS panel "
         f"(web.panels.events = {events!r}), so /panel/events/mcp cannot resolve in "
         f"{READWRITE_USER}'s terminal. The entry is projected from the hosting "
         f"deployment for a profile that selects the panel — see "
@@ -546,23 +558,22 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # The preset's multi-user web tier deploys as shipped; only its
     # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring): the facility prefix, and the
-    # one port base every published port of the stack derives from. Dotted LEAF
-    # keys on purpose -- each edit states only its own leaf and leaves its
+    # COEXISTENCE in the module docstring): the one port base every published
+    # port of the stack derives from. A dotted LEAF key on purpose -- an edit
+    # states only its own leaf and leaves its
     # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).
-    # The persona catalog's own `project` / `project_path` are deliberately
+    # The render catalog's own `project` / `project_path` are deliberately
     # NOT stated: `osprey init` writes them from the repo's name, and the
-    # build renders each persona exactly there.
+    # build renders each render exactly there.
     edits = {
         "config": {
-            "facility.prefix": WEB_PREFIX,
             PORT_BASE_CONFIG_KEY: PORT_BASE,
         }
     }
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
-    # persona project per `personas/` delta.
+    # render project per ``tiers/`` file.
     init = _run(
         [
             str(osprey_bin),
@@ -581,6 +592,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
             f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
+            "--set",
+            f"dispatch.tier={WORKER_TIER}",
         ],
         cwd=base,
         timeout=300,
@@ -607,9 +620,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         )
 
     # Before anything is deployed: the render must agree with this module about
-    # which roster user holds which tier, and the read-write persona must carry
+    # which roster user holds which tier, and the read-write render must carry
     # the events panel the owner rows hop through.
-    _assert_roster_personas(repo)
+    _assert_roster_renders(repo)
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    assert dispatch_tier_name(rendered) == WORKER_TIER, (
+        f"the build runs the dispatch workers at {dispatch_tier_name(rendered)!r}, not "
+        f"{WORKER_TIER!r}: every worker-side path below is rooted at the tier's project"
+    )
 
     # The repo root's .env is the deployment's whole secret store — the file the
     # worker's env_file (compose template) delivers to the container so
@@ -625,10 +643,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         if os.environ.get("ALS_APG_BASE_URL")
         else ""
     )
-    # APPENDED, never rewritten: `osprey init` seeded this file and `osprey
-    # build` appended the keys the virtual-accelerator containers boot from
-    # (VA_CHANNELS_FILE, VA_LATTICE). Rewriting it would drop those, and both
-    # VA instances would refuse to start against an unnamed manifest.
+    # APPENDED, never rewritten: `osprey init` seeded this file, and a rewrite
+    # would drop what it put there.
     with (repo / ".env").open("a", encoding="utf-8") as handle:
         handle.write(
             "\n# ── e2e fixture ──\n"
@@ -688,7 +704,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # deliberately kept by `down`, so this project's own — the per-user
         # terminal volumes and the dispatch workspace alike — are removed
         # exact-named via the shared label-scoped sweep (tests/e2e/_volumes.py);
-        # the persona image tags are namespaced by this repo's name (see
+        # the render image tags are namespaced by this repo's name (see
         # COEXISTENCE), so removing them cannot untag a real deployment's
         # images.
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
@@ -851,7 +867,7 @@ def _worker_mcp_surface() -> str:
             WORKER_CONTAINER,
             "sh",
             "-c",
-            f"find /app/{PROJECT_NAME} -maxdepth 2 -name .mcp.json -print -exec cat {{}} +",
+            f"find /app/{WORKER_PROJECT} -maxdepth 2 -name .mcp.json -print -exec cat {{}} +",
         ],
         capture_output=True,
         text=True,
@@ -863,7 +879,7 @@ def _worker_mcp_surface() -> str:
     found = proc.stdout.strip()
     if not found:
         return (
-            f"CAUSE = provisioning: no .mcp.json anywhere under /app/{PROJECT_NAME}, so "
+            f"CAUSE = provisioning: no .mcp.json anywhere under /app/{WORKER_PROJECT}, so "
             "mcp__osprey_workspace__artifact_register never existed and the agent's Write "
             "fallback was denied by the allowlist."
         )
@@ -1046,8 +1062,8 @@ def test_full_stack_dispatch() -> None:
 
 # ---------------------------------------------------------------------------
 # Multi-user web tier (T1-T4) — the same deploy stands up nginx + one terminal
-# container per roster user from the preset's persona catalog. T1 exercises the
-# running topology; T2-T4 are render-layer assertions on the persona projects
+# container per roster user from the preset's render catalog. T1 exercises the
+# running topology; T2-T4 are render-layer assertions on the render projects
 # `osprey build` rendered into the repo's build/ zone.
 # ---------------------------------------------------------------------------
 
@@ -1110,18 +1126,16 @@ def _fetch_in_container(container: str, url: str, timeout: float) -> str:
     )
 
 
-def _persona_dir(repo: Path, persona_project: str) -> Path:
-    """The rendered persona project directory.
+def _layer_dir(repo: Path, render_project: str) -> Path:
+    """The rendered tier project directory.
 
-    The catalog pins each ``project_path`` to ``build/<repo>-<persona>``, which
-    is where the build renders it: a persona project is build output like every
+    The catalog pins each ``project_path`` to ``build/<repo>-<render>``, which
+    is where the build renders it: a render project is build output like every
     other render, so it lives in the repo's OUTPUT zone.
     """
-    persona_dir = repo / "build" / persona_project
-    assert persona_dir.is_dir(), (
-        f"persona project {persona_project!r} was not rendered at {persona_dir}"
-    )
-    return persona_dir
+    layer_dir = repo / "build" / render_project
+    assert layer_dir.is_dir(), f"render project {render_project!r} was not rendered at {layer_dir}"
+    return layer_dir
 
 
 def _write_posture(render: Path) -> dict[str, bool]:
@@ -1152,13 +1166,13 @@ def _pre_tool_hooks(render: Path, matcher: str) -> list[str]:
 
 
 def test_web_tier_topology(deployed_stack: Path) -> None:
-    """T1: nginx + both per-user containers come up healthy off the overridden
-    prefix, both persona images were built locally, and the landing page lists
+    """T1: nginx + both per-user containers come up healthy under the project
+    name, both render images were built locally, and the landing page lists
     both roster users."""
     config = yaml.safe_load((deployed_stack / "build" / "config.yml").read_text(encoding="utf-8"))
-    prefix = ((config.get("facility") or {}).get("prefix") or "").strip()
-    assert prefix == WEB_PREFIX, (
-        f"facility.prefix override did not land in the rendered config: {prefix!r}"
+    project = resolve_project_name(config)
+    assert project == WEB_PROJECT, (
+        f"the rendered config names project {project!r}, not {WEB_PROJECT!r}"
     )
 
     expected = [NGINX_CONTAINER, _web_container(READONLY_USER), _web_container(READWRITE_USER)]
@@ -1167,30 +1181,30 @@ def test_web_tier_topology(deployed_stack: Path) -> None:
     for name in expected:
         _wait_for_container_health(name, CONTAINER_HEALTH_TIMEOUT_SEC)
 
-    # Both per-user images were built locally as `<persona-project>-<persona>:local`
-    # (build_persona_images) — the readonly and readwrite tiers are genuinely two
-    # distinct images, the core promise of the local-mode persona build.
+    # Both per-user images were built locally as `<render-project>-<render>:local`
+    # (build_render_images) — the readonly and readwrite tiers are genuinely two
+    # distinct images, the core promise of the local-mode render build.
     for image in (READONLY_IMAGE, READWRITE_IMAGE):
         inspect = subprocess.run(
             ["docker", "image", "inspect", image], capture_output=True, text=True, timeout=15
         )
-        assert inspect.returncode == 0, f"persona image {image} was not built by 'osprey up'"
+        assert inspect.returncode == 0, f"render image {image} was not built by 'osprey up'"
 
     landing = _fetch_in_container(NGINX_CONTAINER, LANDING_URL, HEALTH_TIMEOUT_SEC)
     for user in (READONLY_USER, READWRITE_USER):
         assert user in landing, f"landing page does not list roster user {user!r}"
 
 
-def test_readonly_persona_denies_writes(deployed_stack: Path) -> None:
-    """T2: the rendered read-only persona project pins writes off and its rendered
+def test_readonly_tier_denies_writes(deployed_stack: Path) -> None:
+    """T2: the rendered read-only render project pins writes off and its rendered
     settings.json carries the channel-write tool in permissions.deny — the
     render-time layer that actually enforces the read-only posture. The
     deployment's provider must also have reached the render (the up-time
     credential preflight already depends on it)."""
-    readonly_dir = _persona_dir(deployed_stack, READONLY_PROJECT)
+    readonly_dir = _layer_dir(deployed_stack, READONLY_PROJECT)
     config = yaml.safe_load((readonly_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("claude_code") or {}).get("provider") == "als-apg", (
-        "the deployment's `--set provider=als-apg` did not reach the rendered persona project"
+        "the deployment's `--set provider=als-apg` did not reach the rendered tier project"
     )
     assert _write_posture(readonly_dir) == dict.fromkeys(CONTROL_TARGETS, False), (
         f"readonly tier must arm writes for no target: {_write_posture(readonly_dir)}"
@@ -1202,7 +1216,7 @@ def test_readonly_persona_denies_writes(deployed_stack: Path) -> None:
     )
 
 
-def test_readwrite_persona_arms_writes(deployed_stack: Path) -> None:
+def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
     """T3: positive control for T2 — the same render pipeline does NOT deny the
     write tool for the readwrite tier (so T2's deny is a real posture
     difference, not a render that denied the tool everywhere), and the write
@@ -1210,7 +1224,7 @@ def test_readwrite_persona_arms_writes(deployed_stack: Path) -> None:
     targets disagree and the render carries no static ``ask`` entry for the
     tool (one would prompt for a write the live target refuses); the
     per-call writes check and the approval hook gate it instead."""
-    readwrite_dir = _persona_dir(deployed_stack, READWRITE_PROJECT)
+    readwrite_dir = _layer_dir(deployed_stack, READWRITE_PROJECT)
     assert _write_posture(readwrite_dir) == {
         TARGET_LIVE: False,
         TARGET_VA: True,
@@ -1234,13 +1248,13 @@ def test_readwrite_persona_arms_writes(deployed_stack: Path) -> None:
 
 
 def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
-    """T4: both persona projects declare the IDENTICAL control-system server
+    """T4: both render projects declare the IDENTICAL control-system server
     set — that tier boundary is enforcement (``writes_enabled``), never a
     quietly different tool surface.
 
     The dispatcher wire is the one entry that differs, and it must: it follows
-    the persona's EVENTS panel (see the owner-attribution note above), so the
-    persona that may fire triggers declares it and the read-only persona — which
+    the render's EVENTS panel (see the owner-attribution note above), so the
+    render that may fire triggers declares it and the read-only render — which
     holds no panel to reach it through and no credential to present — does not.
     Both halves are asserted, so neither an extra difference nor a dispatcher
     entry leaking into the read-only render can pass.
@@ -1251,14 +1265,14 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
         assert mcp_path.is_file(), f"no .mcp.json rendered at {mcp_path}"
         return set(json.loads(mcp_path.read_text(encoding="utf-8")).get("mcpServers", {}))
 
-    readonly_keys = mcp_server_keys(_persona_dir(deployed_stack, READONLY_PROJECT))
-    readwrite_keys = mcp_server_keys(_persona_dir(deployed_stack, READWRITE_PROJECT))
+    readonly_keys = mcp_server_keys(_layer_dir(deployed_stack, READONLY_PROJECT))
+    readwrite_keys = mcp_server_keys(_layer_dir(deployed_stack, READWRITE_PROJECT))
     assert DISPATCHER_MCP_SERVER in readwrite_keys, (
-        "the read-write persona selects the EVENTS panel, so its render must declare "
+        "the read-write render selects the EVENTS panel, so its render must declare "
         f"the dispatcher wire: readwrite={sorted(readwrite_keys)}"
     )
     assert DISPATCHER_MCP_SERVER not in readonly_keys, (
-        "the read-only persona carries no EVENTS panel, so a dispatcher entry in its "
+        "the read-only render carries no EVENTS panel, so a dispatcher entry in its "
         f"render is a server it cannot reach: readonly={sorted(readonly_keys)}"
     )
     assert readonly_keys == readwrite_keys - {DISPATCHER_MCP_SERVER}, (
@@ -1910,20 +1924,20 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
     """``grid_scan`` arguments naming this deployment's OWN devices.
 
     Read back from the device file the build staged and from the deployment's
-    own ``channel_limits.json`` rather than authored here: the enqueue is
+    own limits table rather than authored here: the enqueue is
     validated against the names the worker registered, so a plan composed from
     a hardcoded facility channel would be refused ``unknown_device`` and these
     rows would fail on an address rather than on the owner. The sweep is the
     middle half of the axis's own band, and two points, because nothing here
     ever runs the plan.
 
-    The device NAMES come from the roster the build derived
+    The device NAMES come from the view the build staged
     (``_orm_stack.staged_devices``); the band VALUES come from the limits
-    projection, which gates a subset of those channels and enumerates none of
-    them (see ``_orm_stack.channel_limits``). The two are not the same set, so
-    the axis is the first staged corrector the limits file actually BOUNDS —
-    indexing the projection by the first staged name would raise deep inside a
-    deploy, naming nothing about the owner.
+    table, which holds the records the facility tree authors and names no
+    other channel (see ``_orm_stack.channel_limits``). The two are not the same
+    set, so the axis is the first staged corrector a record BOUNDS — indexing
+    the table by the first staged name would raise deep inside a deploy, naming
+    nothing about the owner.
     """
     correctors, bpms = _orm_stack.staged_devices(repo)
     assert correctors and bpms, (
@@ -1942,7 +1956,7 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
         None,
     )
     assert axis is not None, (
-        "no staged corrector carries a channel_limits band, so this plan has no "
+        "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(correctors)})"
     )
     axis_name, entry = axis

@@ -1191,7 +1191,6 @@ describe('switching', () => {
   test('every published refusal code has an operator phrase', async () => {
     const phrases = {
       target_unresolvable: 'unavailable',
-      limits_posture: 'needs strict limits',
       operator_ack_missing: 'needs gateway ack',
       archive_belongs_to_standin: 'archive conflict',
       invented_history: 'no archive',
@@ -1272,7 +1271,7 @@ describe("don't ask again", () => {
     confirmBtn()?.click();
     await flush();
 
-    // The waiver is per gesture per machine, persona-scoped (bare key here:
+    // The waiver is per gesture per machine, user-scoped (bare key here:
     // no data-osprey-storage-scope on a single-user page).
     expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBe('1');
     expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:live')).toBeNull();

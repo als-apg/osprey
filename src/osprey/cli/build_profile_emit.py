@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import io
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -35,17 +35,17 @@ from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
-from osprey.errors import BuildProfileError
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, _load_preset_raw
+from .build_profile_presets import PRESET_ONLY_KEYS, _load_preset_raw
 from .build_profile_resolve import apply_cli_edits
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
-from .profile_root import PERSONA_DIRNAME
 
 # Every BuildProfile field belongs to exactly one of the three sets below. The
 # sets differ in *synthesis* policy, not in whether a carried value survives —
@@ -94,7 +94,6 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "provider",  # every bundled preset sets this one, so it emits active
         "model",  # the bundled presets carry it as a commented example
         "channel_finder_mode",
-        "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
@@ -115,7 +114,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
 # should not inherit build plumbing it did not ask for) and never offered as a
 # commented template. It does NOT mean stripped when carried — `claude_md_template`
 # is a preset-author primitive that two bundled presets rely on, and dropping it
-# would silently swap their CLAUDE.md persona and break emitted-vs-preset parity.
+# would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
         "osprey_install",
@@ -199,7 +198,7 @@ _ANNOTATIONS: dict[str, tuple[str, ...]] = {
 # is a display label, the other the name every container, volume and image of
 # the deployment is derived from on the host.
 _PROJECT_NAME_COMMENT = (
-    "# Names the compose project, volumes, images, persona renders; not the folder."
+    "# Names the compose project, volumes, images, tier and app renders; not the folder."
 )
 
 # The stamp is always written, so it carries its explanation rather than a
@@ -218,7 +217,7 @@ _PROVENANCE_COMMENT = [
     "# preset that no `# DEVIATION: <why>` comment above the line claims (tag set",
     "# by `deviation_marker:`). This profile is the source of truth either way.",
     "# `providers_hash` is the same record for providers.yml beside this file;",
-    "# `osprey profile expand --providers` refreshes the packaged entries in it.",
+    "# `osprey init --revalidate` refreshes the packaged entries in it.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same
@@ -304,7 +303,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies. `osprey
 # init` materializes one from the preset's packaged tree and sets this key; a
-# persona delta under personas/ inherits it and resolves it against this
+# layer under tiers/ inherits it and resolves it against this
 # profile's directory. Full replacement, not a fallback.
 #
 # data: data
@@ -347,20 +346,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up the facility's channels. One of:
 # {_CHANNEL_FINDER_MODE_LIST}.
-# Most of them build a channel database into the project at the tier below;
+# Most of them build a channel-finder index into the project from the facility;
 # one reads the store named by services.graphdb instead and writes no database
 # of its own. The channel-finder guide compares what each one costs and answers.
 #
 # channel_finder_mode: <paradigm>
-""",
-    "tier": """
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 is the flat whole-database view, so it serves one paradigm only.
-#
-# tier: 3
 """,
     "default_panel": """
 # --- Default web-terminal panel ----------------------------------------------
@@ -375,14 +365,13 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
-# gives each run its own copy of the project. The dashboard shows
-# `config: facility.name`; facility_name overrides it there alone.
+# gives each run its own copy of the project. The dashboard shows the facility
+# name the build's identity records.
 #
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
-#   facility_name: Example Research Facility
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
@@ -535,7 +524,6 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "provider",
     "model",
     "channel_finder_mode",
-    "tier",
     "default_panel",
     "deploy",
     "mcp_servers",
@@ -577,7 +565,8 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     Names come from the same sources the profile validator trusts — the
     artifact library for the five .claude kinds, the web-panel registry for
     panels — so this menu can never disagree with what a profile may name.
-    Universal panels (always served) are excluded: they are not opt-ins.
+    Universal panels (always served) and hook helpers (shipped with the hooks
+    that need them) are excluded: they are not opt-ins.
     """
     from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
     from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
@@ -585,10 +574,13 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
     catalog = BuildArtifactCatalog.default()
+    helpers = catalog.helpers()
     menu: dict[str, list[tuple[str, str]]] = {}
     for artifact_type, subdir in _TYPE_TO_SUBDIR.items():
         entries: list[tuple[str, str]] = []
         for name in list_artifacts(artifact_type):
+            if f"{subdir}/{name}" in helpers:
+                continue
             artifact = catalog.get(f"{subdir}/{name}")
             entries.append((name, _first_sentence(artifact.description) if artifact else ""))
         menu[artifact_type] = entries
@@ -712,11 +704,7 @@ def _collapse_config_prefixes(config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-# The ``config:`` subtree the multi-user web-terminal stack lives under. A
-# profile that turns this module on with a non-empty persona catalog owns its
-# personas too, so ``osprey init`` materializes a sibling profile per
-# catalog entry (D7a) instead of leaving the catalog pointed at bundled preset
-# names that would ignore the facility's own data tree.
+# The ``config:`` subtree the multi-user web-terminal stack lives under.
 _WEB_TERMINALS_PATH: tuple[str, ...] = ("modules", "web_terminals")
 
 
@@ -762,7 +750,7 @@ def effective_config_subtree(
                 _merge_subtree(subtree, value)
         elif path[:depth] == subtree_path:
             # A key addressing INSIDE the subtree, e.g.
-            # `modules.web_terminals.personas.ops.build_profile`.
+            # `modules.web_terminals.renders.ops.build_profile`.
             node = subtree
             for part in path[depth:-1]:
                 child = node.get(part)
@@ -788,7 +776,7 @@ def effective_config_subtree(
 def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
     """The single ``modules.web_terminals`` subtree a ``config:`` block sets.
 
-    The bundled persona presets inherit their parent's whole
+    The bundled tier presets inherit their parent's whole
     ``modules.web_terminals:`` subtree (``enabled: true``, catalog and all)
     while switching the module off with a separate
     ``modules.web_terminals.enabled: false`` — the pair whose folding order
@@ -797,38 +785,20 @@ def effective_web_terminals(config: Mapping[str, Any]) -> dict[str, Any]:
     return effective_config_subtree(config, _WEB_TERMINALS_PATH)
 
 
-def emits_persona_profiles(config: Mapping[str, Any]) -> bool:
-    """Whether ``config`` stands up a persona stack of its own (D7a trigger).
+def emits_layer_profiles(config: Mapping[str, Any]) -> bool:
+    """Whether ``config`` stands up a web-terminal stack with renders of its own.
 
     True exactly when the effective ``modules.web_terminals`` subtree (see
     :func:`effective_web_terminals`) is enabled AND carries a non-empty
-    ``personas`` mapping — a profile that deploys per-persona terminals. False
-    for the persona presets themselves, which inherit the catalog but disable
-    the module: emitting personas from one of those would produce
-    personas-of-a-persona.
+    ``renders`` projection — which only a rendered ``build/config.yml`` does:
+    the build writes it, a profile never spells it, and the retired
+    render catalog is dropped when a profile is read. False for a tier
+    or app render, which disables the module: a render never carries
+    renders-of-a-render.
     """
     web_terminals = effective_web_terminals(config)
-    personas = web_terminals.get("personas")
-    return bool(web_terminals.get("enabled")) and isinstance(personas, Mapping) and bool(personas)
-
-
-def persona_catalog(config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """The persona entries a sibling profile is emitted for — ``{}`` when the
-    profile does not trigger.
-
-    Shares :func:`emits_persona_profiles`'s verdict rather than re-deriving it,
-    so the trigger and the thing triggered can never disagree. Entries that are
-    not name→mapping pairs are dropped: catalog well-formedness is deploy lint's
-    job, and emission has nothing to write for them.
-    """
-    if not emits_persona_profiles(config):
-        return {}
-    personas = effective_web_terminals(config)["personas"]
-    return {
-        name: dict(entry)
-        for name, entry in personas.items()
-        if isinstance(name, str) and isinstance(entry, Mapping)
-    }
+    renders = web_terminals.get("renders")
+    return bool(web_terminals.get("enabled")) and isinstance(renders, Mapping) and bool(renders)
 
 
 def _to_plain(value: Any) -> Any:
@@ -1096,122 +1066,133 @@ def _replace_header(text: str, header: str) -> str:
     return header.rstrip("\n") + "\n\n" + "\n".join(lines[body_start:]).rstrip("\n") + "\n"
 
 
-def emit_persona_delta_yaml(
+def _layer_header(
+    kind: str, stem: str, title: str, profile_filename: str, host: str, preset_hash: str
+) -> str:
+    """The leading comment block of an emitted tier or app file.
+
+    The two kinds say different things about the host because they ARE
+    different things: a tier is a delta that only adds to the host, while an
+    app is a whole agent definition that brings its own lists and borrows only
+    the host's services, data, provider and config.
+    """
+    if kind == TIERS_DIRNAME:
+        lead = (
+            f"# {title} — one access level of this deployment's agent\n"
+            f"#\n"
+            f"# A tier adds to {host} and never subtracts from it: the build lays this\n"
+            f"# file over that one, picking up any edit you make there. Services, data and\n"
+            f"# ports stay {host}'s. To see the combined result:\n"
+        )
+    else:
+        lead = (
+            f"# {title} — an app this deployment offers on a shared card\n"
+            f"#\n"
+            f"# A complete agent definition of its own: the lists below are its whole\n"
+            f"# selection, and nothing is inherited from {host}'s lists or subtracted\n"
+            f"# from them. Services, data, provider and model are {host}'s, and its\n"
+            f"# config: keys are laid over {host}'s. To see the combined result:\n"
+        )
+    word = LAYER_DIR_KINDS[kind]
+    return (
+        lead + f"#   osprey validate {profile_filename}\n"
+        f"#\n"
+        f"# Made from the bundled `{stem}` {word}. Everything it sets is written out\n"
+        f"# below and is yours to edit. Nothing is hidden or inherited from the package.\n"
+        f"#\n"
+        f"#   emitted by OSPREY {__version__}\n"
+        f"#   content hash: {preset_hash}"
+    )
+
+
+def emit_layer_delta_yaml(
     preset_name: str,
     profile_name: str,
     profile_filename: str,
     host_filename: str = "profile.yml",
 ) -> str:
-    """Render a persona sibling as a pure DELTA over the materialized host profile.
+    """Materialize one bundled tier or app as the explicit file a repo holds.
 
-    The bundled persona presets are already deltas — a handful of keys over
-    their base preset, each carrying its own explanatory comment. This emission
-    keeps exactly that shape: the preset's raw text is reused comments-and-all,
-    with the ``extends`` line REMOVED and the display ``name`` retitled.
-    Nothing else is added or subtracted, so the emitted file is the preset's own
-    layer and nothing more.
+    The same explicit emission ``profile.yml`` gets: everything the bundled
+    file sets is written out, with its comments, under a header saying what
+    the file is and a ``provenance:`` block naming what it was made from. No
+    ``extends:`` and no pointer into the package — the materialized repo never
+    carries one, so nothing a deployment runs is hidden in an installed file.
 
-    There is no ``extends:`` because a file under ``personas/`` beside a
-    ``profile.yml`` is merged over that profile implicitly (FR-10), and the
-    merge anchors every profile-relative path — ``data:``, the trigger config,
-    the convention dirs — at the host profile's directory. A delta that
-    re-anchored them itself would fight that.
-
-    Callers must only pass a ``preset_name`` whose ``extends`` names the host
-    profile's source preset: the emitted delta drops every layer between the
-    two, so a preset that sits anywhere else would resolve to something the
-    caller never asked for. ``osprey init`` rejects such catalog entries
-    outright rather than emitting an approximation.
-
-    The ``extends`` removal is line surgery on the preset's raw text — that is
-    what preserves its comments — so it assumes the key is written on ONE line
-    with its value beside the colon (``extends: control-assistant``). A preset
-    spelling it across lines is rejected rather than cut in half, since dropping
-    only the ``extends:`` line would leave its value behind as a stray document
-    fragment.
+    The bundled tiers and apps are already written as the layer a repo holds,
+    each key carrying its own explanatory comment, so the body is the bundled
+    file's raw text, comments and all. Two things change: the leading comment
+    block, which addresses package readers, is replaced by the header; and a
+    tier's ``name:`` is retitled after the deployment (``<profile> (<tier>)``),
+    since it is one access level of that deployment's agent. An app keeps its
+    own ``name:``: it is the title of the shared card it runs behind.
 
     Args:
-        preset_name: Bundled persona preset whose raw text is the delta body.
-        profile_name: Display name for the emitted persona profile.
-        profile_filename: Display path (``my-profile/personas/readonly.yml``)
-            for the header's validate hint.
-        host_filename: The host profile's file name one directory up, named in
-            the generated header.
+        preset_name: The bundled layer, kind-qualified: ``tiers/<name>`` or
+            ``apps/<name>``.
+        profile_name: The deployment's display name, which a tier is titled
+            after.
+        profile_filename: The path the header's validate hint names
+            (``tiers/readonly.yml``).
+        host_filename: The deployment's own profile file, which the header
+            explains the file's relation to.
 
     Returns:
-        Complete persona delta text: the preset's own commented overrides,
-        retitled, with no ``extends:``.
+        The complete file text.
 
     Raises:
-        BuildProfileError: If the preset is unknown, declares no ``extends``
-            line — it is then not a delta over anything, and emitting its raw
-            layer would silently drop the base it was written against — or
-            writes ``extends`` across more than one line.
+        BuildProfileError: If ``preset_name`` is not kind-qualified, names no
+            bundled layer, or the bundled file declares ``extends`` — a layer
+            materialized with a parent it does not carry would be neither the
+            bundled definition nor explicit.
     """
-    raw, preset_path = _load_preset_raw(preset_name)
-    if not isinstance(raw.get("extends"), str) or not raw["extends"]:
+    kind, _sep, stem = preset_name.partition("/")
+    if kind not in LAYER_DIR_KINDS or not stem or "/" in stem:
         raise BuildProfileError(
-            f"Preset {preset_name!r} declares no extends chain — it cannot be "
-            f"emitted as a delta over a host profile."
+            f"{preset_name!r} names no tier or app: a layer is named "
+            f"'tiers/<name>' or 'apps/<name>'."
         )
+    word = LAYER_DIR_KINDS[kind]
+    raw, preset_path = _load_preset_raw(preset_name)
+    if "extends" in raw:
+        raise BuildProfileError(
+            f"Bundled {word} {stem!r} declares extends, so it cannot be "
+            f"materialized as an explicit file: a {word} is laid over "
+            f"{host_filename} by its location, never by a parent it names."
+        )
+    preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
+    title = f"{profile_name} ({stem})" if kind == TIERS_DIRNAME else str(raw.get("name") or stem)
     body: list[str] = []
     titled = False
-    dropped_extends = False
     for line in preset_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("extends:"):
-            # The inheritance is positional now, so the key goes away entirely.
-            # Only a one-line spelling can go away by dropping this line: with
-            # the value on a following line, cutting here would leave that value
-            # behind as a stray fragment, and the emitted delta would be neither
-            # the preset's layer nor valid.
-            if not line.split(":", 1)[1].strip():
-                raise BuildProfileError(
-                    f"Preset {preset_name!r} writes 'extends' across more than one line. "
-                    f"A persona delta is emitted by removing that line from the preset's "
-                    f"own text, which only works when the value sits beside the colon "
-                    f"(extends: {raw['extends']}) — rewrite it that way."
-                )
-            dropped_extends = True
-            continue
-        if dropped_extends and not line.strip():
-            # Swallow only the blank line the dropped key left behind, so the
-            # spacing around the neighbouring blocks is the preset's own.
-            dropped_extends = False
-            continue
-        dropped_extends = False
-        if line.startswith("name:"):
-            body.append(f"name: {profile_name}")
+        if kind == TIERS_DIRNAME and line.startswith("name:"):
+            body.append(f"name: {title}")
             titled = True
         else:
             body.append(line)
-    text = "\n".join(body).rstrip("\n") + "\n"
-
-    preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
-    header = (
-        f"# {profile_name} — settings for one web login\n"
-        f"#\n"
-        f"# Only the differences from {host_filename} belong here. The build merges this\n"
-        f"# file over that one, picking up any edit you make there. To see the combined\n"
-        f"# result:\n"
-        f"#   osprey validate {profile_filename}\n"
-        f"#\n"
-        f"# Made from the bundled `{preset_name}` preset.\n"
-        f"#\n"
-        f"#   emitted by OSPREY {__version__}\n"
-        f"#   preset content hash: {preset_hash}"
+    text = _replace_header(
+        "\n".join(body),
+        _layer_header(kind, stem, title, profile_filename, host_filename, preset_hash),
     )
-    text = _replace_header(text, header)
+    if kind == TIERS_DIRNAME and not titled:
+        text = text.rstrip("\n") + "\n\n" + f"name: {title}\n"
 
-    if titled:
-        return text
-    return text.rstrip("\n") + "\n\n" + f"name: {profile_name}\n"
+    provenance = (
+        f"# What this file was materialized from. Emitted, not hand-written: `osprey\n"
+        f"# validate` compares it against the installed {word} and reports every\n"
+        f"# difference as drift. This file is the source of truth either way.\n"
+        f"provenance:\n"
+        f"  preset: {stem}\n"
+        f"  preset_hash: {preset_hash}\n"
+    )
+    return text.rstrip("\n") + "\n\n" + provenance
 
 
 # The zone map at the top of a materialized profile: what the repo holds, which
 # parts of it are the operator's and which the build owns, and the loop between
 # them. No box-drawing glyphs and <= 80 columns, so it survives any editor a
 # facility opens config files in. Emitted only into the main profile.yml —
-# persona siblings share the mental model and repeating the picture three times
+# tier and app files share the mental model and repeating the picture in each
 # per repo would just be noise.
 _ZONE_MAP = """\
 # This file is your assistant's settings. Edit it, then run `osprey build`.
@@ -1224,40 +1205,10 @@ _ZONE_MAP = """\
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-#   SOURCE   yours to edit, kept in git: this file, data/, personas/
+#   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept"""
-
-
-def persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
-    """A raw profile fragment repointing each persona's ``build_profile`` at its
-    emitted sibling profile.
-
-    The catalog stores the SOURCE of each render and nothing about where it
-    lands: ``osprey build`` derives every persona's ``project`` and
-    ``project_path`` from the profile's ``project_name:`` and writes them into
-    ``build/config.yml``
-    (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`),
-    and :meth:`~osprey.cli.build_profile_model.BuildProfile.validate` refuses a
-    profile that spells them for an entry with a ``build_profile``.
-
-    Written at the DEEPEST spelling on purpose. ``_collapse_config_prefixes``
-    resolves a prefix pair deeper-key-wins, so these keys survive whatever
-    shallower spelling the preset used for the module subtree
-    (``modules.web_terminals:``, or even a nested ``modules:``) and land inside
-    it — while a shallower fragment of ours would instead be overwritten
-    wholesale by the preset's own subtree.
-
-    Args:
-        persona_names: Personas the profile's catalog declares.
-    """
-    layer: dict[str, str] = {}
-    for name in persona_names:
-        layer[f"modules.web_terminals.personas.{name}.build_profile"] = (
-            f"{PERSONA_DIRNAME}/{name}.yml"
-        )
-    return {"config": layer}
 
 
 def triggers_layer() -> dict[str, Any]:
@@ -1271,6 +1222,25 @@ def triggers_layer() -> dict[str, Any]:
     return {"dispatch": {"triggers": PROFILE_TRIGGERS_FILENAME}}
 
 
+def materialized_profile_text(preset_name: str, *, project_name: str, profile_name: str) -> str:
+    """The text of the profile ``osprey init`` writes for *preset_name* today.
+
+    One layering for every reader of the reference: :func:`materialized_profile`
+    parses it as data, and the revalidate fill parses it with its comments.
+
+    Raises:
+        BuildProfileError: When the preset is unknown or will not emit.
+    """
+    raw, anchor = _load_preset_raw(preset_name)
+    resolved = _resolve_extends(dict(raw), anchor)
+    layers: tuple[Mapping[str, Any], ...] = (
+        (triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()
+    )
+    return emit_standalone_profile_yaml(
+        preset_name, (), profile_name, project_name=project_name, extra_layers=layers
+    )
+
+
 def materialized_profile(
     preset_name: str, *, project_name: str, profile_name: str
 ) -> dict[str, Any]:
@@ -1280,8 +1250,8 @@ def materialized_profile(
     (:func:`~osprey.cli.build_profile_drift.preset_drift_report`): not the
     preset's raw layer, which no repo ever holds, but the document the emitter
     makes of it — ``extends`` resolved, defaults synthesized, ``config:``
-    prefixes collapsed, the persona catalog and ``dispatch.triggers`` repointed
-    at the files the repo owns. Produced by the emitter itself, so a
+    prefixes collapsed, ``dispatch.triggers`` repointed at the file the repo
+    owns. Produced by the emitter itself, so a
     difference between this and the profile on disk is either an operator's
     edit or a change in the preset, never an artifact of how ``osprey init``
     spells things.
@@ -1301,16 +1271,8 @@ def materialized_profile(
     """
     from .build_profile_document import _parse_profile_document
 
-    raw, anchor = _load_preset_raw(preset_name)
-    resolved = _resolve_extends(dict(raw), anchor)
-    config = resolved.get("config")
-    personas = persona_catalog(config if isinstance(config, Mapping) else {})
-    layers: tuple[Mapping[str, Any], ...] = (
-        *((persona_catalog_layer(personas),) if personas else ()),
-        *((triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()),
-    )
-    text = emit_standalone_profile_yaml(
-        preset_name, (), profile_name, project_name=project_name, extra_layers=layers
+    text = materialized_profile_text(
+        preset_name, project_name=project_name, profile_name=profile_name
     )
     # Parsed the way the profile on disk is, so the comparison downstream sees
     # exactly the keys a build would load from this text.
@@ -1342,12 +1304,12 @@ def emit_standalone_profile_yaml(
             through the :func:`_deep_merge` channel — so they win over the
             user's, and so nothing here is a second path into the resolved
             content. ``osprey init`` uses
-            this to repoint the emitted persona catalog at the sibling profiles
-            it is about to write: those values are derived from the resolved
-            catalog, so they cannot come from a file the caller passes.
+            this to repoint keys at the files it is about to write: those
+            values are derived from the resolved preset, so they cannot come
+            from a file the caller passes.
         include_flow_diagram: Embed the four-zone map and the edit → build → up
             loop in the generated header. Set for the main ``profile.yml``
-            only; persona siblings keep the compact header.
+            only; render siblings keep the compact header.
         providers_hash: Content hash of the ``providers.yml`` the caller is
             about to write beside this profile. ``osprey init`` passes the hash
             of the catalog it materialized — which on a ``--force`` re-init
@@ -1429,11 +1391,12 @@ def emit_standalone_profile_yaml(
     if doc is None:  # pragma: no cover - _load_preset_raw already validated
         doc = CommentedMap()
 
-    # `app_template:` is preset-side only: it names the packaged data tree
-    # `osprey init` copies, and is not a profile key (a profile spelling it is
-    # refused). Its comment goes with it — left behind, it would read as the
-    # introduction to whichever key followed.
-    _drop_key_and_pre_comment(doc, PRESET_DATA_BUNDLE_KEY)
+    # `app_template:` and `facility:` are preset-side only: they name the
+    # packaged data tree `osprey init` copies, and are not profile keys (a
+    # profile spelling one is refused). Each comment goes with its key — left
+    # behind, it would read as the introduction to whichever key followed.
+    for key in PRESET_ONLY_KEYS:
+        _drop_key_and_pre_comment(doc, key)
 
     # `project_name` sits directly below `name:`, the field it is most easily
     # mistaken for. No preset carries it (the emitter sets it), so the sync

@@ -1,0 +1,1 @@
+The lattice dashboard launches without a `lattice_dashboard:` config section and loads the first served model's deck from the render's simulator view, with `GET /api/models` and `POST /api/models/select` to switch models. A single-pass model shows optics only; its other figures answer 409 "not available for a single-pass model".

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the live Channel Access suites and fail unless they really ran.
 
-The suites this drives guard their pcaspy import with ``pytest.importorskip``.
+The suites this drives skip their live classes when pcaspy is not installed.
 That is the right behaviour on a host that cannot load pcaspy -- an honest,
 loud skip beats a hollow pass -- but it means the ordinary pytest exit code
 cannot distinguish "the Channel Access contract holds" from "nothing was
@@ -60,6 +60,7 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import math
@@ -72,26 +73,20 @@ import tempfile
 import pytest
 
 #: The suites whose assertions are only observable over a real CA wire.
-LIVE_SUITES = (
-    "tests/va/test_record_factory.py",
-    "tests/va/test_apply_fault.py",
-)
+LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 
-#: Added in --pva mode. Its served-boot branch needs the PVA transport and the
-#: serving package on top of pcaspy.
-PVA_SUITES = ("tests/va/test_facility_seam.py",)
+#: Added in --pva mode: the model runner's seam, which serves a composite on
+#: both transports.
+PVA_SUITES = ("tests/va/test_lume_pva_seam.py",)
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.
 #:
-#: test_facility_seam.py's boot test passes on either of two outcomes: the boot
-#: served, or it stopped on a missing server extension. Both are legitimate --
-#: on a host lacking the transport, stopping there is the honest result -- so
-#: a green tells you nothing about which branch ran, and the served branch is
-#: the one that had never executed. Asserting these import first is what makes
-#: the fallback unreachable, and therefore what makes the green mean "the
-#: served path ran". Without it, --pva mode would quietly re-certify the same
-#: fallback the CA-only venue already covers.
+#: tests/va/test_lume_pva_seam.py skips at module level when pcaspy, p4p or
+#: lume_pva_apg is missing, so on a host lacking any of them the whole module
+#: skips. Asserting the imports before pytest runs turns that skip into
+#: a failure here, with the missing module named, rather than leaving it to the
+#: skip check after the run.
 PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")
 
 #: ``-o addopts=`` drops the repo's default ``-v``; ``-p no:cacheprovider``
@@ -167,10 +162,8 @@ def _run_one(target: str) -> int:
 
 def _kill_session(proc: subprocess.Popen[bytes]) -> None:
     """Kill every process in the session ``proc`` leads, then reap ``proc``."""
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
     proc.wait()
 
 
@@ -312,11 +305,9 @@ def main(argv: list[str]) -> int:
             print("=" * 72)
             print("live Channel Access gate (--pva)")
             print(f"  VERDICT: FAIL -- cannot import {', '.join(missing)}.")
-            print("           The served-boot branch cannot run without these, and the")
-            print("           seam test PASSES on the fallback branch instead, so")
-            print("           continuing would certify the served path without")
-            print("           exercising it. The `virtual-accelerator` extra installs")
-            print("           all three, so this image is not what it claims to be.")
+            print("           The seam suite skips whole without these. The")
+            print("           `virtual-accelerator` extra installs all three, so")
+            print("           this image is not what it claims to be.")
             print("=" * 72)
             return 1
 

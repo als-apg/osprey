@@ -44,6 +44,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_AGENTS,
     FRAMEWORK_SERVERS,
 )
+from tests._preset_data import bundle_data_root
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,18 +52,6 @@ from osprey.registry.mcp import (
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures give ``create_project`` as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the same content the render used to
-    reach for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -111,15 +100,19 @@ def _apply_preset_config(manager: TemplateManager, project: Path, preset: str) -
 
     A project's declarative config — its control system, its services, the
     servers it enables — is its preset's, and the framework template renders
-    none of it. So a build overlays the resolved ``config:`` onto config.yml
-    and regenerates ``.claude/`` from the result, and a fixture that stops at
-    the render is holding half a project.
+    none of it. So a build overlays the resolved ``config:`` onto config.yml,
+    writes the facility views and regenerates ``.claude/`` from the result, and
+    a fixture that stops at the render is holding half a project.
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
+    from tests._facility_file import write_facility_views
 
     profile, _profile_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
+    # The build writes the facility views before it regenerates, so the
+    # agent facts name the models the render serves.
+    write_facility_views(project, preset.replace("-", "_"))
     manager.regenerate_claude_code(project)
     return project
 
@@ -134,7 +127,7 @@ def _build_control_assistant(tmp_path_factory) -> Path:
         output_dir=out_dir,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     return _apply_preset_config(manager, project, "control-assistant")
 
@@ -147,7 +140,7 @@ def _build_hello_world(tmp_path_factory) -> Path:
         project_name="hw-contract",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
     return _apply_preset_config(manager, project, "hello-world")
 
@@ -510,7 +503,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
     before the copy, so for all three the manifest can only ever remove. Skills
     are plain ``.md`` files copied whenever the manifest names them, so a
     manifest built from anything other than the caller's own selection decides
-    the skill set on its own — which is how a persona that drops a skill by name
+    the skill set on its own — which is how a render that drops a skill by name
     still ended up shipping it.
 
     Pins a selection strictly smaller than the ``control_assistant`` bundle's,
@@ -524,13 +517,13 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
-            "hooks": ["hook-log", "hook-config", "memory-guard"],
+            "hooks": ["memory-guard"],
             "rules": ["safety", "timezone"],
             "skills": ["session-report"],
             "output_styles": ["control-operator"],
             "web_panels": ["ariel"],
         },
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     skills_dir = project / ".claude" / "skills"
@@ -554,7 +547,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     # Drop a custom agent file with a known frontmatter shape.
@@ -612,7 +605,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     from osprey.utils.config_writer import config_update_fields
@@ -699,7 +692,7 @@ def test_hook_config_write_tools_dedupe(tmp_path):
         project_name="write-tools-dedupe",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     baseline = _read_hook_config(project)["write_tools"]
@@ -751,7 +744,7 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         project_name="no-servers",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     enabled = _server_names_from_prefixes(_read_hook_config(project))
@@ -778,6 +771,8 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
+        # The render carries no pyAML view.
+        "measurement": {},
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 
@@ -798,7 +793,7 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
         project_name="lane-addressed-tools",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     hook_cfg = _read_hook_config(project)
@@ -820,9 +815,9 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
 # (which hook layer sees the call). A server present in one and absent from
 # another is a build that renders without complaint and misbehaves at runtime.
 #
-# The two app templates that ship no ``services.graphdb`` block are the negative
-# half: ``hello_world`` below, and ``channel_finder_standalone`` in
-# ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
+# The negative half is a render with no ``services.graphdb`` block:
+# ``hello_world`` below, and a control_assistant render with its store removed
+# in ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
 # module's single control_assistant fixture does not provide.
 # ---------------------------------------------------------------------------
 
@@ -961,7 +956,7 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     bogus = project / ".claude" / "agents" / "bogus.md"
@@ -995,7 +990,7 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     wild = project / ".claude" / "agents" / "wild.md"
@@ -1132,7 +1127,7 @@ def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(project / "config.yml", fields)
@@ -1546,7 +1541,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(
@@ -1566,16 +1561,16 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
 # ---------------------------------------------------------------------------
 
 #: The agent's deployment-editing tool. The ``control-assistant`` base denies it
-#: for every tier built on it; ``control-assistant-admin`` is the one profile
-#: that subtracts the deny back off with ``permissions.remove_deny``.
+#: for every tier built on it; the ``admin`` tier is the one layer that
+#: subtracts the deny back off with ``permissions.remove_deny``.
 SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
 
 
-def _render_preset_project(tmp_path_factory, preset: str) -> Path:
-    """A project rendered the way a real build of ``preset`` renders one.
+def _render_profile_project(tmp_path_factory, profile_path: Path, label: str) -> Path:
+    """A project rendered the way a real build of ``profile_path`` renders one.
 
     The module's other fixtures build straight from a ``data_bundle``, which is
-    the template layer alone — a preset's ``config:`` block never reaches them.
+    the template layer alone — a profile's ``config:`` block never reaches them.
     That layer is exactly what the tier floor lives in, so pinning it needs the
     second half of the pipeline as well: apply the resolved ``config:``
     overrides to the project's config.yml (through ``config_update_fields``,
@@ -1585,19 +1580,20 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.build_profile_presets import preset_data_bundle
     from osprey.utils.config_writer import config_update_fields
+    from tests.fixtures.lifecycle_repo import EXEMPLAR_PRESET
 
-    profile, _profile_dir = resolve_build_profile(None, preset=preset)
+    profile, _profile_dir = resolve_build_profile(profile_path, preset=None)
+    # The bundle is a fact about the preset the deployment was materialized
+    # from, not a key on the resolved profile.
+    bundle = preset_data_bundle(EXEMPLAR_PRESET)
     manager = TemplateManager()
     project = _create_project(
         manager,
-        project_name=f"{preset}-floor",
+        project_name=f"{label}-floor",
         output_dir=tmp_path_factory.mktemp("floor_build"),
-        # The bundle is a fact about the preset, not a key on the resolved
-        # profile: it is read back from the preset chain, the way the build
-        # reads it.
-        data_bundle=preset_data_bundle(preset),
+        data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root(preset_data_bundle(preset)),
+        data_root=bundle_data_root(bundle),
     )
     config_update_fields(project / "config.yml", profile.config)
     manager.regenerate_claude_code(project)
@@ -1606,15 +1602,20 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
 
 @pytest.fixture(scope="module")
 def tier_floor_projects(tmp_path_factory) -> dict[str, Path]:
-    """The base and admin renders, built once for the whole module.
+    """The base and admin-tier renders of one deployment, built once per module.
 
     Both halves of the floor contract need a real render — the base to show the
     privilege is gone, the admin tier to show it comes back — and neither is
-    readable off the profile alone.
+    readable off the profile alone. Both come from the exemplar deployment
+    materialized from ``control-assistant``: its ``profile.yml`` and the
+    ``tiers/admin.yml`` that resolves over it.
     """
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("floor_repo") / "repo")
     return {
-        name: _render_preset_project(tmp_path_factory, name)
-        for name in ("control-assistant", "control-assistant-admin")
+        "base": _render_profile_project(tmp_path_factory, repo / "profile.yml", "base"),
+        "admin": _render_profile_project(tmp_path_factory, repo / "tiers" / "admin.yml", "admin"),
     }
 
 
@@ -1631,9 +1632,7 @@ def test_tier_floor_denies_setup_patch_in_the_base_render(tier_floor_projects):
     the path, and deny outranks ask, so both are asserted together: a render
     that lost the deny would still look supervised and would in fact be open.
     """
-    settings = json.loads(
-        (tier_floor_projects["control-assistant"] / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((tier_floor_projects["base"] / ".claude" / "settings.json").read_text())
     permissions = settings["permissions"]
     assert SETUP_PATCH_TOOL in permissions["deny"]
     assert SETUP_PATCH_TOOL in permissions["ask"]
@@ -1653,9 +1652,7 @@ def test_admin_render_lifts_the_setup_patch_deny(tier_floor_projects):
     that family pins a real ``osprey init`` + ``osprey build``; this one pins
     the ``regenerate_claude_code`` half of the pipeline this module owns.
     """
-    settings = json.loads(
-        (tier_floor_projects["control-assistant-admin"] / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((tier_floor_projects["admin"] / ".claude" / "settings.json").read_text())
     permissions = settings["permissions"]
     assert SETUP_PATCH_TOOL not in permissions["deny"]
     assert SETUP_PATCH_TOOL in permissions["ask"]
@@ -1673,29 +1670,29 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
     family pins a real ``osprey init`` + ``osprey build``; this one pins the
     ``config_update_fields`` half of the pipeline this module owns.
     """
-    base_web = _rendered_config(tier_floor_projects["control-assistant"])["web"]
+    base_web = _rendered_config(tier_floor_projects["base"])["web"]
     assert base_web["config_panel"]["enabled"] is False
     assert base_web["scaffold_gallery"]["write_enabled"] is False
 
-    admin_web = _rendered_config(tier_floor_projects["control-assistant-admin"])["web"]
+    admin_web = _rendered_config(tier_floor_projects["admin"])["web"]
     assert admin_web["config_panel"]["enabled"] is True
     assert admin_web["scaffold_gallery"]["write_enabled"] is True
 
 
-# Hook helper libraries: selected everywhere, wired nowhere
+# Hook helper files: shipped with the hooks that need them, wired nowhere
 # ---------------------------------------------------------------------------
 
 
-def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
-    """Selection COPIES a hook file; docstring frontmatter WIRES it to an event.
+def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
+    """Selecting a hook COPIES the helpers it needs; nothing WIRES them.
 
-    ``osprey_hook_log.py`` and ``osprey_target_state.py`` are shared libraries
-    the real hooks import — a JSONL logger and the control-target state reader.
-    They ship in every deployment because the hooks that import them do, which
-    is why profiles name them in ``hooks:`` like any other artifact. But neither
-    declares an ``event`` in its docstring, so neither may appear in
-    ``settings.json``: a registration for a module with no handler is a hook
-    Claude Code would run on every matching tool call to no effect.
+    ``osprey_hook_log.py``, ``osprey_target_state.py`` and
+    ``osprey_safety_file.py`` are libraries the real hooks import, and
+    ``hook_config.json`` is the file the logger reads beside itself. A profile
+    names none of them: the build ships the closure of the hooks it does name.
+    None of them declares an ``event``, so none may appear in ``settings.json``:
+    a registration for a module with no handler is a hook Claude Code would run
+    on every matching tool call to no effect.
 
     Pinning both halves together is the point. Either half alone passes while
     the feature is broken — copied-but-wired fires a no-op hook, and
@@ -1713,15 +1710,20 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
             # build's write-gate lint: a profile whose PreToolUse chain never
             # matches `Write` refuses to build at all, and a test that pins
             # copied-vs-wired needs a profile that builds.
-            "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
+            "hooks": ["approval", "memory-guard"],
             "rules": ["safety"],
         },
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
-    helpers = ("osprey_hook_log.py", "osprey_target_state.py")
+    helpers = (
+        "osprey_hook_log.py",
+        "osprey_target_state.py",
+        "osprey_safety_file.py",
+        "hook_config.json",
+    )
 
-    # Half one: the files are on disk beside the hook that imports them.
+    # Half one: the files are on disk beside the hook that needs them.
     hooks_dir = project / ".claude" / "hooks"
     for helper in helpers:
         assert (hooks_dir / helper).is_file(), f"{helper} was not copied into .claude/hooks/"
@@ -1806,7 +1808,7 @@ def _project_with_hooks(
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
         artifacts=_selection_without(manager, *dropped),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
@@ -1932,7 +1934,7 @@ def test_build_refuses_an_unselected_write_gate(tmp_path):
     at a script the manifest gate had not installed — a write gate that was
     silently not there.
     """
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     with pytest.raises(BuildProfileError) as excinfo:
         _project_with_hooks(
@@ -2005,7 +2007,7 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
         project_name="hw-textbooks",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
     _apply_preset_config(manager, project, "hello-world")
 

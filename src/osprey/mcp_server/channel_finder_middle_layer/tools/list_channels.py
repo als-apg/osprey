@@ -24,22 +24,24 @@ def list_channels(
     family: str,
     field: str,
     subfield: str | None = None,
-    sectors: list[int] | None = None,
+    place: str | None = None,
     devices: list[int] | None = None,
     protocol: Literal["ca", "tango"] | None = None,
 ) -> str:
     """Get channel names for a specific system/family/field path.
 
     Navigate the hierarchy (System -> Family -> Field -> Subfield) to get
-    the channel addresses. Optionally filter by sector and/or device number.
+    the channel addresses. Optionally filter by place and/or device ordinal.
 
     Args:
         system: System name, as returned by list_systems().
         family: Family name, as returned by list_families().
         field: Field name (e.g., "Monitor", "Setpoint").
         subfield: Optional subfield name for nested structures (e.g., "X", "Y").
-        sectors: Optional list of sector numbers to filter by.
-        devices: Optional list of device numbers to filter by.
+        place: Optional place id or path prefix: that place and every place
+            below it. run_sql's device_map lists each device's place. A
+            database that states no places takes the bare place index.
+        devices: Optional list of device ordinals inside their place.
         protocol: Optional channel protocol: "ca" for Channel Access names,
             "tango" for Tango device attributes. Omit it to get the field's
             first listed names (Channel Access when a field has both).
@@ -51,7 +53,7 @@ def list_channels(
         registry = get_cf_ml_context()
         extra = {} if protocol is None else {"protocol": protocol}
         channels = registry.database.list_channel_names(
-            system, family, field, subfield, sectors, devices, **extra
+            system, family, field, subfield, place, devices, **extra
         )
 
         result = {"channels": channels, "total": len(channels)}

@@ -51,8 +51,8 @@ from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.status")
 
@@ -474,7 +474,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     if not (web_terminals_cfg.get("enabled") and user_names):
         return
 
-    project_name = resolve_project_name(config)
+    project = resolve_project_name(config)
 
     by_name = {}
     for container in all_containers:
@@ -500,7 +500,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     output.report("")
     output.section("Web Terminal Users:", ())
     for user in user_names:
-        container = by_name.get(web_container_name(project_name, user))
+        container = by_name.get(web_container_name(project, user))
         claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
         # Only for a container that EXISTS: a marker names why a launch refused,
         # and there is no launch to explain for a user whose container was never
@@ -842,7 +842,7 @@ def _print_endpoints_section(config, compose_files, repo_root=None):
 
     *repo_root* is the LIVE checkout, and it is passed for the same reason
     :func:`_absolute_compose_files` anchors the compose files on it: the panel
-    rows are narrowed against each persona's rendered project, and a checkout
+    rows are narrowed against each render's rendered project, and a checkout
     that was moved or copied records a ``project_root`` pointing at the other
     copy. ``None`` leaves ``endpoint_entries`` on that recorded key, which is
     the right answer for a caller with no root to offer.
@@ -879,7 +879,7 @@ def _auth_availability(secret_env, repo_root):
     """
     import os
 
-    from osprey.utils.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
+    from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
 
     if os.environ.get(secret_env):
         return True, "exported in this shell"
@@ -1032,7 +1032,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
-    from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
+    from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []
@@ -1073,9 +1073,11 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 (
                     "telemetry: the observability backend's credentials are missing or "
                     "unresolved, so the provider could not be resolved",
-                    "Set claude_code.telemetry.openobserve.user and .password — or the "
-                    f"environment variables they reference — in {repo_root / '.env'}, "
-                    "then rerun. The provider configuration itself is not the problem.",
+                    "Run `osprey build` to write each sender's gateway login "
+                    "(.env.telemetry-sender.<identity>), or set the variable "
+                    "claude_code.telemetry.auth.token_env names in "
+                    f"{repo_root / '.env'}, then rerun. The provider configuration "
+                    "itself is not the problem.",
                 )
             )
         except Exception as exc:
@@ -1358,7 +1360,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         _env_file_args(repo_root, provider) if (repo_root / COMPOSE_ENV_FILENAME).exists() else []
     )
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         env_file_args,

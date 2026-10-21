@@ -16,7 +16,7 @@ and safe to delete and rebuild at any time.
    :icon: book
 
    - Creating a deployment repository and rendering its ``build/`` zone
-   - What lives in a profile: the convention directories, ``data/``, secrets, personas
+   - What lives in a profile: the convention directories, ``data/``, secrets, tiers and apps
    - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
    - Keeping a profile and its build in step
@@ -33,8 +33,8 @@ Preset → Profile → Build
    :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
-  (``src/osprey/profiles/presets/``). Examples: ``hello-world``,
-  ``control-assistant``, ``ariel-standalone``, ``channel-finder-standalone``.
+  (``src/osprey/profiles/presets/``). The two presets are ``hello-world`` and
+  ``control-assistant``.
   Run ``osprey profile presets`` to list them.
 - **Profile** — the ``profile.yml`` at the root of your deployment repository,
   with the material it names beside it. Created once from a preset, then edited
@@ -87,13 +87,14 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
-     data/           facility content: channel databases, knowledge, lattice
+     data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (only when your shell had keys to seed)
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
-     personas/       one delta per web-terminal persona (persona presets only)
+     tiers/          one delta per web-terminal access level (multi-user presets only)
+     apps/           one complete agent per shared card (multi-user presets only)
      web-terminal-context/  the shared base.md baseline, plus one seeded
                      directory per operator on the roster
      ci-extra.yml    the facility's own CI jobs; never regenerated
@@ -101,7 +102,7 @@ What ``osprey init`` writes
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``personas/`` and ``web-terminal-context/`` appear only when
+``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear only when
 the preset calls for them — a ``hello-world`` deployment has none of them.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
@@ -109,13 +110,34 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-A preset with a simulated machine carries it under ``data/simulation/``:
-``machine.json`` and one directory per scenario under ``scenarios/``. What those
-files hold is the :doc:`/reference/contracts/simulation-bundle`.
-
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.
+
+The facility tree
+-----------------
+
+``data/facility/`` holds every source of the facility file: the authored files
+and the ``imported/<layer>/`` directories the importers write.
+:doc:`describe-your-facility` walks the tree file by file.
+
+``osprey build`` reads the tree and writes the facility file and its views into
+the render, never back into ``data/facility/``:
+
+.. code-block:: text
+
+   build/
+     facility.json                    the facility file
+     data/channel_limits.json         the limits view
+     data/facility_facts.json         the facts view
+     data/simulator/                  the simulator view and its decks
+     data/pyaml/<model>/              the pyAML view, per served model with a measurement file
+     data/graph/facility.ttl          the graph view
+     data/channel_finder/<mode>.json  the channel-finder view the profile selects
+     data/bluesky_devices.yml         the device view, when Bluesky is configured
+
+``osprey facility show`` prints the facility the tree builds and each view's
+path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
 
 
 Convention directories
@@ -173,7 +195,7 @@ re-renders never overwrite it, and cleanup never removes it. Name a file after
 something the framework also renders (``rules/safety.md``) and yours wins.
 
 Ownership is *derived* from what the build actually copied, after exclusions
-are applied — there is no list to maintain. An artifact a persona delta
+are applied — there is no list to maintain. An artifact the profile
 excludes is not copied and therefore not owned, so the framework's own version
 renders in its place.
 
@@ -213,8 +235,11 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_manifest.json``, ``channel_limits.json``
-     - the profile's ``data/`` directory
+   * - ``data/simulation/channel_limits.json``
+     - the build, from ``data/facility/limits.yaml``
+   * - ``data/pyaml/<model>/``
+     - the build: the pyAML view, per served model with a measurement file
+       (``data/facility/measurement/<model>.yaml``)
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).
@@ -253,13 +278,13 @@ Three layers stack, in this order:
   becomes their ``CLAUDE.md``.
 
 Unlike the per-operator directories, the baseline is **not** roster-derived. It
-is copied on every build, including a persona render that has no roster at all,
+is copied on every build, including a tier or app render that has no roster at all,
 and ``osprey init`` writes it whenever the profile stands up web terminals
 (``modules.web_terminals.enabled``) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
 profile with no web-terminal module gets no ``web-terminal-context/``.
 
-A persona drops it with the ordinary convention vocabulary, qualified like any
+The profile drops it with the ordinary convention vocabulary, qualified like any
 other profile-shipped file:
 
 .. code-block:: yaml
@@ -268,15 +293,12 @@ other profile-shipped file:
      web-terminal-context:
        - web-terminal-context/base.md   # the framework fallback renders instead
 
-The baseline is the only part of this tree a persona has to exclude. A persona
-delta switches the web-terminal module off, so its render resolves an empty
-roster and copies no operator directories in the first place — naming one here
-matches nothing and is silently ignored.
+A tier or app render has no web terminals of its own, so it resolves an empty
+roster and copies no operator directories.
 
-To keep the baseline in the deployment but leave it out of one persona's
-terminals, set ``seed_base: false`` on that persona's catalog entry
-(``modules.web_terminals.personas.<name>``): its users are seeded from their
-own ``extra.md`` alone.
+To keep the baseline in the deployment but leave it out of one tier's or app's
+terminals, set ``seed_base: false`` at the top of that file in ``tiers/`` or
+``apps/``: its users are seeded from their own ``extra.md`` alone.
 
 .. admonition:: ``base.md`` is the only loose file
    :class: important
@@ -299,7 +321,7 @@ what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.
 
 That includes its name. The compose project, the volumes, the images and the
-persona renders are all named from the tracked ``project_name:`` field, never
+tier and app renders are all named from the tracked ``project_name:`` field, never
 from the folder the clone sits in, so a clone under any folder name renders and
 deploys the same deployment. The flip side is that two clones on one host are
 the same deployment until one of them says otherwise. A second clone that runs
@@ -444,12 +466,17 @@ A declaration is refused at build time, with the reason, if it names a hook the
 resolved profile does not ship, a built-in hook whose wiring the framework
 already owns, or anything outside ``hooks/``.
 
+OSPREY's own helper files ship beside the hooks that need them and are not named
+in ``hooks:``. A facility hook that wants a helper ships its own copy under
+``hooks/``, or claims the rendered one with ``osprey scaffold claim
+hooks/hook-log`` after a build that rendered it.
+
 .. _profile-unwire-hook:
 
-Unwiring a hook in a persona
-----------------------------
+Unwiring a hook in a tier
+-------------------------
 
-The wiring is a ``config:`` key, so a persona delta overrides it — but you have
+The wiring is a ``config:`` key, so a tier overrides it — but you have
 to use the right spelling:
 
 .. code-block:: yaml
@@ -463,15 +490,16 @@ Either form leaves the script itself in place: unwired, not unshipped.
 .. admonition:: An empty list does nothing
    :class: important
 
-   Persona lists merge **additively** with the profile's, so
+   A tier's lists merge **additively** with the profile's, so
    ``claude_code.hooks.PreToolUse: []`` adds no entries and leaves the hook
    wired — silently. ``null`` is the spelling that works.
 
-   This matters because a persona that ``exclude:``\ s a shipped hook **must**
-   unwire it in the same delta: the build refuses a declaration pointing at a
-   hook the persona dropped. That refusal prints the exact ``null`` line to
-   paste, so if you reach for ``[]`` on an excluded hook the build hands you the
-   correction rather than letting it pass.
+   The same holds for a profile or variant overlay that ``exclude:``\ s a
+   shipped hook: it **must** unwire it in the same file, because the build
+   refuses a declaration pointing at a hook that was dropped. That refusal
+   prints the exact ``null`` line to paste, so if you reach for ``[]`` on an
+   excluded hook the build hands you the correction rather than letting it
+   pass.
 
 Replacing a built-in hook
 -------------------------
@@ -489,52 +517,55 @@ twice. Select or unselect a built-in through ``hooks:``; never through
 ``claude_code.hooks``.
 
 
-Personas
-========
+Tiers and Apps
+==============
 
-Some presets give each operator their own web terminal, and each terminal runs
-with a persona — usually a capability posture, such as read-only versus
-write-capable, though a persona can just as well be a different product
-sharing the deployment. For those presets (``control-assistant``),
-``osprey init`` writes one file per persona:
+Some presets give each operator their own web terminal. Each operator's
+terminal runs the deployment's agent at a **tier** — an access level such as
+read-only, write-capable or admin. Cards everyone on the roster can open run an
+**app** — a second, complete agent, such as the logbook research assistant.
+For those presets (``control-assistant``), ``osprey init`` writes one file per
+tier and per app:
 
 .. code-block:: text
 
    my-facility/
      profile.yml
      data/
-     personas/
+     tiers/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
        admin.yml          # the one terminal that may edit the deployment
-       ariel.yml          # the standalone ARIEL logbook terminal
+     apps/
+       logbook.yml        # logbook research
+       knowledge.yml      # facility knowledge
+       channel-finder.yml # channel search
 
-Each file holds only that persona's **differences** — for the read-only persona,
-chiefly ``control_system.writes_enabled: false``; for the admin one, the
-privileges the profile below it deliberately withholds. Sitting in ``personas/`` beside
-``profile.yml`` is what makes it a persona: the build merges it over that profile
-automatically. There is no ``extends:`` line to maintain, and no second data tree
-or set of convention directories — everything else comes from the profile above
-and stays in one place.
+A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
+chiefly ``control_system.writes_enabled: false``; for ``admin``, the
+privileges the profile deliberately withholds. The build lays it over the
+profile: lists are added by name, ``config:`` keys win. A tier never subtracts
+and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
+``data:`` or ``services:``.
 
-Edit a delta to change what that persona's terminal can do, and see the merged
+An app is a whole agent definition — its own skills, rules, brief and tool
+servers — composed over the deployment's services, data and provider. Every app
+render is read-only on the machine.
+
+Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
+the file. Edit a file to change what its terminals can do, and see the merged
 result with:
 
 .. code-block:: bash
 
-   osprey validate personas/readonly.yml
+   osprey validate tiers/readonly.yml
 
-``profile.yml`` points at these files by path — its web-terminal catalog carries
-``build_profile: personas/<name>.yml`` for each one — so keep the names in step
-if you rename one. That line is the whole entry. The build derives where each
-persona renders, ``build/<project_name>-<name>``, and writes that into
-``build/config.yml`` itself; a ``project:`` or ``project_path:`` line beside a
-``build_profile`` would be a second copy of that fact, and the build refuses it
-with "delete these lines" as the remedy. ``osprey up`` reads the same catalog but renders nothing: a
-persona project missing from ``build/`` stops the start and points at
-``osprey build`` as the remedy. A bundled preset
-name in that field is rejected, because a persona built from a preset of its own
-would not share this profile's data tree, secrets or artifacts.
+The file name is the name: ``users[].tier`` and ``default_tier`` pick a file in
+``tiers/``, ``shared:`` picks one in ``apps/``. Each renders to
+``build/<project_name>-<name>``. ``osprey up`` renders nothing: a tier or app
+missing from ``build/`` stops the start and points at ``osprey build``.
+``osprey scaffold tiers`` and ``osprey scaffold apps`` write the preset's
+files again, leaving any you edited alone.
 
 
 .. _profile-exclude:
@@ -554,7 +585,7 @@ Removing something a profile brings
 
 A **bare** name unselects a built-in artifact, so it is no longer installed. A
 **qualified** name (``<directory>/<name>``) omits the profile's own file for that
-name — which is how a persona that wants the stock version back gets it: drop
+name — which is how a profile that wants the stock version back gets it: drop
 your shadowing copy, and the still-selected built-in renders again.
 
 Bare exclusion accepts ``skills``, ``rules``, ``hooks``, ``agents``,
@@ -573,27 +604,29 @@ spelling and lists what to take out of it:
        deployed_services:
          - mongodb                    # this layer deploys everything else
 
-This is how a layer deploys fewer services than the profile it sits on. Lists
+This is how a profile deploys fewer services than the one it extends. Lists
 under ``config:`` union across ``extends`` and across a host-variant overlay,
-so a layer cannot state a shorter list; it names the entries it drops instead.
+so an overlay cannot state a shorter list; it names the entries it drops instead.
+``exclude:`` belongs to ``profile.yml`` and its variant overlays; a tier or app
+that spells it is refused.
 A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.
 
-An excluded ``web_panels`` entry renders no tab, whatever the persona still
+An excluded ``web_panels`` entry renders no tab, whatever the render still
 inherits about that panel under ``config:``. ``exclude:`` takes entries out of
 lists, never scalars — a ``web.panels.lattice.label`` or a custom panel's
-``web.panels.<id>.url`` the base profile set is still in the persona's render —
+``web.panels.<id>.url`` the base profile set is still in the render —
 but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
 ``false`` for any other, and the web terminal, the health probe and the
 credential grants all read that one flag. The facts stay so the Reach Contract
-can keep copying a host's addresses into the personas that *do* select the tab.
+can keep copying a host's addresses into the tiers and apps that *do* select the tab.
 A ``config:`` line that says ``web.panels.<id>.enabled`` and contradicts the
 selection is refused at validation, as two spellings of one fact disagreeing.
 
 Excluding a **declared hook** takes one more line: the same delta has to unwire
 it with ``claude_code.hooks.<Event>: null``, or the build refuses the wiring
-that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
+that points at a dropped file. See :ref:`profile-unwire-hook`.
 
 .. admonition:: The mistake worth knowing about
    :class: important
@@ -609,7 +642,7 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
 
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
    want is "may not write," prefer flipping the enforcement switch instead —
-   the bundled ``control-assistant-readonly`` preset differs from its
+   the bundled ``readonly`` tier differs from its
    write-capable sibling only on write posture, leaving the tool surface
    identical (see :doc:`web-terminal/multi-user/tiers`). Write posture is per
    control target, so that tier pins the deployment-wide
@@ -628,22 +661,9 @@ The named plan is then invisible to the agent and non-runnable. The same
 block's ``plan_dir`` key does the opposite — it installs a directory of your
 facility's own plans; see :doc:`bluesky/write-plans`.
 
-``bluesky.devices_file`` names the third piece: the file listing the devices
-those plans may drive or record.
-
-.. code-block:: yaml
-
-   bluesky:
-     devices_file: data/bluesky_devices.yml
-
-That default puts the file inside the project, so it is built and shipped with
-the deployment. An absolute path is yours instead — the build reads it where it
-is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment on a real control system with no file yet at a project path gets one
-written for it, derived from the same description of the facility the channel
-finder reads: its knowledge graph corpus in graph mode, its channel-finder
-database otherwise. The file's format and the three cases are in
-:doc:`bluesky/write-plans`.
+The third piece, the file listing the devices those plans may drive or
+record, is not a profile key: the build writes it from your facility file. Its
+format is in :doc:`bluesky/write-plans`.
 
 
 .. _profile-host-variants:
@@ -682,7 +702,7 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
    echo OSPREY_PROFILE_VARIANT=teststand > .env.variant
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
-anything, and says which variant it used in its output. Personas are rendered
+anything, and says which variant it used in its output. Tiers and apps are rendered
 for the same host, so a stack cannot come up half-configured for another one.
 
 The overlays are committed: which hosts a deployment has is part of what the
@@ -790,9 +810,8 @@ start it yourself:
 Who else writes to ``.env``
 ---------------------------
 
-``osprey up`` and ``osprey build`` both append to the file — minted credentials
-and derived pointers respectively — and both leave a value already on file
-alone; :ref:`deployment-env-chain` has what each writes and why.
+``osprey up`` appends minted credentials to the file and leaves a value
+already on file alone; :ref:`deployment-env-chain` has what it writes and why.
 
 
 Profile YAML reference
@@ -802,24 +821,6 @@ Every key ``profile.yml`` accepts — the field table, ``config:`` overrides, MC
 servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 ``env``, dependencies and the execution environment — is in
 :doc:`/reference/configuration/profile`.
-
-
-Regenerating a channel database
-===============================
-
-``osprey channel-finder build-database`` writes the generated database **into the
-profile**, not into the project — beside the CSV inputs it came from, where it
-survives a rebuild. The sequence is meant to run to completion:
-
-.. code-block:: bash
-
-   osprey channel-finder build-database
-   # the deployment now reports its build as out of date
-   osprey build
-   # the report clears
-
-The drift report in between is the reminder that the new database has not been
-deployed yet — not a problem to fix. Use ``--output`` to write somewhere else.
 
 
 Building
@@ -890,7 +891,7 @@ Checking a profile without building
 .. code-block:: bash
 
    osprey validate
-   osprey validate personas/readonly.yml
+   osprey validate tiers/readonly.yml
 
 Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
@@ -923,8 +924,8 @@ What the build does
 ===================
 
 1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` / ``--tier`` into it.
-2. Resolve and validate the profile, including any persona delta merged over it.
+   you named), writing any ``--set`` into it.
+2. Resolve and validate the profile, including any tier merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
 4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing
    durable lives inside it to step around.
@@ -1012,7 +1013,7 @@ source zone over one that is already there. To re-render the project, run
 ``osprey build`` in the repo: it wipes and re-renders ``build/`` in place and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
-``data/``, ``personas/``, ``triggers.yml``, ``web-terminal-context/`` and
+``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/`` and
 ``.env.example``, losing any edit to them.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a

@@ -69,7 +69,8 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests._renders import tier_render
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -81,7 +82,6 @@ def _config(users: list) -> dict:
     """Minimal-but-complete facility config that exercises render_web_terminals()."""
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},
@@ -91,6 +91,8 @@ def _config(users: list) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": users,
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
             }
         },
     }
@@ -711,6 +713,7 @@ def test_the_open_render_holds_no_login_surface_anywhere() -> None:
         "= /",
         "= /u/alice",
         "= /u/ariel",
+        "@osprey_terminal_starting",
     }
 
 
@@ -757,7 +760,7 @@ def _nginx_t(conf: str, secret_snippets: dict[str, str]) -> subprocess.Completed
         )
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 @pytest.mark.dockerbuild

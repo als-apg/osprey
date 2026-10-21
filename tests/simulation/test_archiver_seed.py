@@ -3,10 +3,11 @@
 Three questions decide whether a deployment's archive is honest, and this file
 answers each against something other than the seeder's own opinion:
 
-* **Does the store hold what a query would compute?** The roundtrip tests seed a
+* **Does the store hold what the simulator serves?** The roundtrip tests seed a
   real MongoDB and read it back through ``MongoDBArchiverConnector`` — the same
-  connector a deployed agent uses — and compare against the generators directly.
-  A seeder that agreed only with itself would pass a mock and fail a deployment.
+  connector a deployed agent uses — and compare against the archive composite
+  directly. A seeder that agreed only with itself would pass a mock and fail a
+  deployment.
 
 * **Does history age like history?** The two tiers carry different lifetimes,
   stamped per document from the sample's own time. The expiry tests check the
@@ -32,13 +33,16 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.simulation import pulse
+from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
     FingerprintComparison,
     SeedKnobs,
     SeedState,
+    build,
     compare_fingerprint,
     oldest_sample,
     prepare_collection,
@@ -46,12 +50,15 @@ from osprey.simulation.archiver_seed import (
     seed_fingerprint,
     seed_grid,
     synthesize_documents,
+    waveform_collection,
+    waveform_document,
     write_manifest,
 )
-from osprey.simulation.procedural import baseline_value, generate_series
-from osprey.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+from tests._simulator_view import write_texture_view
 from tests.simulation.conftest import StubCollection
 
 # A fixed anchor: every expectation below is a function of it, and a failure
@@ -63,13 +70,89 @@ T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 # test, and it does not know how big the numbers are.
 SMALL = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
 
-CHANNELS = [
-    {"address": "SR:VAC:IP07:PRESSURE", "record_type": "ai"},
-    {"address": "SR:RF:CAV01:TEMP:BODY", "record_type": "ai"},
-    {"address": "SR:DIAG:BPM:12:POSITION:X", "record_type": "ai"},
-    {"address": "SR:STATUS:VALID", "record_type": "bi"},
-]
-ADDRESSES = [channel["address"] for channel in CHANNELS]
+PRESSURE = "SR:VAC:IP07:PRESSURE"
+VALID = "SR:STATUS:VALID"
+
+#: The simulator view's channels: three moving floats and a flag.
+CHANNELS = {
+    PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
+    "SR:RF:CAV01:TEMP:BODY": {"nominal": 25.0, "noise": {"absolute": 0.05}},
+    "SR:DIAG:BPM:12:POSITION:X": {"nominal": 0.0, "noise": {"absolute": 0.002}},
+    VALID: {"value_type": "bool", "nominal": "TRUE"},
+}
+ADDRESSES = sorted(CHANNELS)
+
+
+@pytest.fixture(scope="module")
+def archive(tmp_path_factory):
+    """The archive composite of a texture-only view, with nominal active."""
+    view = write_texture_view(tmp_path_factory.mktemp("render"), CHANNELS)
+    return build(view, [], anchor_s=T0.timestamp())
+
+
+# A pulsed supply: its trace, its setpoint (the driver) and its on-state (the enable).
+WAVE = "SR:SEK:WAVEFORM"
+DRIVER = "SR:SEK:CURRENT:SP"
+ENABLE = "SR:SEK:STATUS:ON"
+HELD_DRIVE = 2.0
+
+#: A supply lowered half an hour before the anchor, then switched off ten minutes before it.
+LOWER_AT_S = -1800.0
+OFF_AT_S = -600.0
+PULSE_SCENARIOS = {
+    "lower": {
+        "archiver": [
+            {"channel": DRIVER, "events": [{"shape": "step", "at_offset": LOWER_AT_S, "to": 1.0}]}
+        ]
+    },
+    "off": {
+        "archiver": [
+            {"channel": ENABLE, "events": [{"shape": "step", "at_offset": OFF_AT_S, "to": "FALSE"}]}
+        ]
+    },
+}
+
+
+def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
+    """A texture view holding a pulsed supply's trace beside its driver and enable.
+
+    ``write_texture_view`` writes neither a ``shape`` nor a ``pulse`` seed, so
+    both are patched into the written documents.
+    """
+    view = write_texture_view(
+        render,
+        {
+            PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
+            WAVE: {"value_type": "waveform"},
+            DRIVER: {"role": "setpoint", "nominal": HELD_DRIVE},
+            ENABLE: {"value_type": "bool", "nominal": "TRUE"},
+        },
+        scenarios,
+    )
+    variables = json.loads((view / VARIABLES_FILE).read_text())
+    for record in variables["channels"]:
+        if record["address"] == WAVE:
+            record["shape"] = [pulse.TRACE_POINTS]
+    (view / VARIABLES_FILE).write_text(json.dumps(variables))
+    if pulse_seed:
+        seeds = json.loads((view / SEEDS_FILE).read_text())
+        seeds["seeds"][WAVE] = {"pulse": {"driver": driver, "enable": ENABLE}}
+        (view / SEEDS_FILE).write_text(json.dumps(seeds))
+    return view
+
+
+@pytest.fixture(scope="module")
+def pulse_archive(tmp_path_factory):
+    """The archive composite of a view holding a pulsed supply, nominal active."""
+    view = write_pulse_view(tmp_path_factory.mktemp("pulse"))
+    return build(view, [], anchor_s=T0.timestamp())
+
+
+@pytest.fixture(scope="module")
+def stepped_pulse_archive(tmp_path_factory):
+    """The pulsed supply lowered, then switched off, before the anchor."""
+    view = write_pulse_view(tmp_path_factory.mktemp("stepped"), scenarios=PULSE_SCENARIOS)
+    return build(view, ["lower", "off"], anchor_s=T0.timestamp())
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +216,7 @@ def read_back(mongo_store, monkeypatch):
     monkeypatch.setenv(password_env, mongo_store["password"])
 
     async def query(channels, start, end):
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -297,75 +380,84 @@ class TestSeedKnobs:
 class TestSynthesizeDocuments:
     """What a document holds, and why it is that and not something plausible."""
 
-    def test_a_document_carries_every_channel_at_its_own_timestamp(self):
+    def test_a_document_carries_every_channel_at_its_own_timestamp(self, archive):
         times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(CHANNELS, times[:5])
+        documents = synthesize_documents(archive, times[:5])
 
         assert len(documents) == 5
         for document, epoch in zip(documents, times[:5], strict=True):
             assert document[DATE_FIELD] == datetime.fromtimestamp(float(epoch), UTC)
             assert set(document) == {DATE_FIELD, *ADDRESSES}
 
-    def test_analog_values_equal_the_generator_at_the_same_instant(self):
-        """The point of the whole design: a stored document and a live query
+    def test_values_equal_the_archive_composite_at_the_same_instant(self, archive):
+        """The point of the whole design: a stored document and a served read
         are one computation, not two that usually agree."""
-        pv = "SR:VAC:IP07:PRESSURE"
         times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(CHANNELS, times[:32])
+        documents = synthesize_documents(archive, times[:32])
 
-        expected = generate_series(pv, times[:32], baseline=baseline_value(pv))
-        assert [document[pv] for document in documents] == expected.tolist()
+        for pv in ADDRESSES:
+            assert [document[pv] for document in documents] == archive.series(pv, times[:32])
 
-    def test_values_are_computed_at_the_timestamp_actually_stored(self):
+    def test_values_are_computed_at_the_timestamp_actually_stored(self, archive):
         """A datetime carries microseconds, so a sub-microsecond grid time would
         be stored as one instant and valued at another. Seeding a grid finer
         than a microsecond is the only way to catch that, and a seeder for a
         higher-rate facility would do exactly that."""
-        pv = "SR:VAC:IP07:PRESSURE"
         epoch = np.array([1_800_000_000.0 + 1e-9 * i for i in range(4)])
 
-        documents = synthesize_documents(CHANNELS, epoch)
+        documents = synthesize_documents(archive, epoch)
 
         stored = epoch_seconds_array([document[DATE_FIELD] for document in documents])
-        expected = generate_series(pv, stored, baseline=baseline_value(pv))
-        assert [document[pv] for document in documents] == expected.tolist()
+        assert [document[PRESSURE] for document in documents] == archive.series(PRESSURE, stored)
 
-    def test_a_flag_channel_is_stored_as_a_flag(self):
-        """The VA serves these as booleans. A float on a status channel is a
-        value no client could ever have read back — and once archived, it is
-        indistinguishable from one that was."""
+    def test_a_flag_channel_is_stored_as_its_option_index(self, archive):
+        """The wire carries a flag as the index of its label, and the archive
+        stores what the wire carries."""
         times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(CHANNELS, times[:8])
+        documents = synthesize_documents(archive, times[:8])
 
-        values = {document["SR:STATUS:VALID"] for document in documents}
-        assert values == {True}
-        assert all(isinstance(document["SR:STATUS:VALID"], bool) for document in documents)
+        assert {document[VALID] for document in documents} == {1}
+        assert all(type(document[VALID]) is int for document in documents)
 
-    def test_a_modelless_flag_does_not_move(self):
-        """Nothing drives it — the manifest forbids declaring these noisy, and
-        the VA serves a bare coerced baseline on every tick."""
-        channels = [{"address": "SR:STATUS:READY", "record_type": "bi"}]
+    def test_a_flag_no_event_moves_does_not_move(self, archive):
         times, _ = seed_grid(SMALL, T0)
 
-        documents = synthesize_documents(channels, times)
+        documents = synthesize_documents(archive, times)
 
-        assert len({document["SR:STATUS:READY"] for document in documents}) == 1
+        assert len({document[VALID] for document in documents}) == 1
 
-    def test_boot_values_anchor_the_procedural_baseline(self):
-        """The seeder holds the machine model; without threading it through, a
-        setpoint would be archived at the taxonomy's guess for its name."""
-        pv = "SR:MAG:HCM:01:CURRENT:SP"
-        channels = [{"address": pv, "record_type": "ai"}]
+    def test_an_empty_window_produces_no_documents(self, archive):
+        assert synthesize_documents(archive, np.empty(0)) == []
+
+    def test_a_dotted_channel_is_seeded_under_its_field_name(self, tmp_path):
+        """A field-name address is stored under ``field_name``; every other
+        address is its own field name."""
+        dotted = "SR:MOT:REC.RBV"
+        view = write_texture_view(tmp_path, {**CHANNELS, dotted: {"nominal": 3.0}})
         times, _ = seed_grid(SMALL, T0)
 
-        anchored = synthesize_documents(channels, times[:16], boot_values={pv: 0.25})
-        unanchored = synthesize_documents(channels, times[:16])
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
 
-        assert np.mean([d[pv] for d in anchored]) == pytest.approx(0.25, abs=0.05)
-        assert np.mean([d[pv] for d in unanchored]) == pytest.approx(150.0, rel=0.1)
+        for document in documents:
+            assert set(document) == {DATE_FIELD, *ADDRESSES, field_name(dotted)}
+            assert "SR:MOT:REC" not in document
+        assert all(field_name(address) == address for address in ADDRESSES)
 
-    def test_an_empty_window_produces_no_documents(self):
-        assert synthesize_documents(CHANNELS, np.empty(0)) == []
+    def test_a_channel_named_like_a_document_field_keeps_the_documents_own_fields(self, tmp_path):
+        """A channel named ``date`` or ``expireAt`` is stored escaped beside the
+        document's own instant, never over it."""
+        view = write_texture_view(
+            tmp_path,
+            {**CHANNELS, "date": {"nominal": 3.0}, "expireAt": {"nominal": 4.0}},
+        )
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+
+        for document in documents:
+            assert set(document) == {DATE_FIELD, *ADDRESSES, "%64ate", "%65xpireAt"}
+            assert isinstance(document[DATE_FIELD], datetime)
+            assert document["%64ate"] == pytest.approx(3.0)
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +500,20 @@ class TestFingerprint:
         """It does not change which samples are stored, but it changes the size
         of the store on disk — which is the budget the knob exists to hold."""
         assert self._fingerprint(compression="snappy") != self._fingerprint()
+
+    def test_the_pulse_shape_is_part_of_it(self):
+        """The stored traces are the shape's output, so a store seeded under
+        other shape constants holds a different history."""
+        assert self._fingerprint()["shape_version"] == pulse.SHAPE_VERSION
+
+    def test_a_shape_change_changes_the_fingerprint(self, monkeypatch):
+        before = self._fingerprint()
+        monkeypatch.setattr(pulse, "SHAPE_VERSION", "0" * 16)
+
+        assert self._fingerprint() != before
+
+    def test_an_unchanged_shape_leaves_the_fingerprint_unchanged(self):
+        assert self._fingerprint() == self._fingerprint()
 
 
 class TestFingerprintComparison:
@@ -493,19 +599,19 @@ class TestFingerprintComparison:
 class TestSeedBase:
     """The whole run against MongoDB, read back through the real connector."""
 
-    def test_it_writes_one_document_per_grid_timestamp(self, collection):
+    def test_it_writes_one_document_per_grid_timestamp(self, collection, archive):
         times, _ = seed_grid(SMALL, T0)
 
-        report = seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        report = seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         assert report.documents == len(times)
         assert collection.count_documents({DATE_FIELD: {"$exists": True}}) == len(times)
-        assert report.channels == len(CHANNELS)
+        assert report.channels == len(ADDRESSES)
 
-    def test_the_indexes_the_store_cannot_work_without_exist(self, collection):
+    def test_the_indexes_the_store_cannot_work_without_exist(self, collection, archive):
         """An unindexed sort on ``date`` is capped at 32 MB of documents in
         memory, which a real window crosses long before a test does."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         indexes = collection.index_information()
         keyed = {tuple(spec["key"][0]) for spec in indexes.values()}
@@ -515,11 +621,11 @@ class TestSeedBase:
         assert ttl[0]["expireAfterSeconds"] == 0
         assert tuple(ttl[0]["key"][0]) == (EXPIRE_FIELD, 1)
 
-    def test_documents_carry_their_tier_s_expiry(self, collection):
+    def test_documents_carry_their_tier_s_expiry(self, collection, archive):
         """Checked on the stamps, not by waiting: MongoDB's TTL sweeper runs on
         its own minute-scale schedule, so a test that waited for it would be
         testing the sweeper's timer."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         for document in collection.find({DATE_FIELD: {"$exists": True}}):
             stored = document[DATE_FIELD].replace(tzinfo=UTC)
@@ -527,11 +633,13 @@ class TestSeedBase:
             dense = int(stored.timestamp()) % SMALL.tail_cadence_sec != 0
             assert lifetime == (SMALL.hot_span_s if dense else SMALL.retention_s)
 
-    def test_the_manifest_is_written_and_is_invisible_to_an_archiver_read(self, collection):
+    def test_the_manifest_is_written_and_is_invisible_to_an_archiver_read(
+        self, collection, archive
+    ):
         """It lives in the sample collection, which is only safe because it has
         no ``date``: the connector's window filter requires one, so no query can
         ever return it as a sample."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         manifest = collection.find_one({"_id": MANIFEST_ID})
         assert manifest is not None
@@ -543,13 +651,13 @@ class TestSeedBase:
             is SeedState.MATCH
         )
 
-    def test_a_half_written_store_reads_as_absent(self, collection):
+    def test_a_half_written_store_reads_as_absent(self, collection, archive):
         """The manifest is written last on purpose. A run that dies partway
         leaves no manifest, so the next deploy rebuilds instead of trusting a
         store that is missing most of its history."""
         times, _ = seed_grid(SMALL, T0)
         prepare_collection(collection)
-        collection.insert_many(synthesize_documents(CHANNELS, times[:10]))
+        collection.insert_many(synthesize_documents(archive, times[:10]))
 
         comparison = compare_fingerprint(
             collection, seed_fingerprint(SMALL, ADDRESSES, compression="zstd")
@@ -557,13 +665,13 @@ class TestSeedBase:
 
         assert comparison.state is SeedState.ABSENT
 
-    def test_progress_is_reported_per_chunk(self, collection):
+    def test_progress_is_reported_per_chunk(self, collection, archive):
         """A three-minute step with no output reads as a hang."""
         seen: list[int] = []
 
         report = seed_base(
             collection,
-            CHANNELS,
+            archive,
             SMALL,
             t0=T0,
             chunk_size=64,
@@ -574,11 +682,11 @@ class TestSeedBase:
         assert seen == sorted(seen)
         assert seen[-1] == report.documents
 
-    def test_the_oldest_sample_is_the_start_of_the_window(self, collection):
+    def test_the_oldest_sample_is_the_start_of_the_window(self, collection, archive):
         """What honest metadata reports as the start of coverage — no more
         'archived since the year 2000'."""
         times, _ = seed_grid(SMALL, T0)
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         assert oldest_sample(collection) == datetime.fromtimestamp(float(times[0]), UTC)
 
@@ -588,29 +696,27 @@ class TestSeedBase:
         assert oldest_sample(collection) is None
 
     @pytest.mark.parametrize("workers", [1, 4])
-    def test_the_worker_count_does_not_change_what_is_stored(self, collection, workers):
+    def test_the_worker_count_does_not_change_what_is_stored(self, collection, workers, archive):
         """Inserts are unordered and overlap the synthesis; concurrency is a
         throughput decision and must not be a correctness one."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=32, workers=workers)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=32, workers=workers)
 
         times, _ = seed_grid(SMALL, T0)
         assert collection.count_documents({DATE_FIELD: {"$exists": True}}) == len(times)
-        pv = "SR:VAC:IP07:PRESSURE"
         document = collection.find_one({DATE_FIELD: {"$exists": True}}, sort=[(DATE_FIELD, 1)])
-        assert (
-            document[pv]
-            == generate_series(pv, np.asarray([float(times[0])]), baseline=baseline_value(pv))[0]
-        )
+        assert document[PRESSURE] == archive.series(PRESSURE, [float(times[0])])[0]
 
 
 class TestConnectorRoundtrip:
     """Read the seeded store back the way a deployed agent does."""
 
     @pytest.mark.asyncio
-    async def test_a_query_returns_the_values_the_generator_computes(self, collection, read_back):
-        """The end-to-end claim: history in the store equals history a query
-        would have synthesized, through the real connector and its real schema."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+    async def test_a_query_returns_the_values_the_archive_composite_computes(
+        self, collection, read_back, archive
+    ):
+        """The end-to-end claim: history in the store equals what the simulator
+        serves at each instant, through the real connector and its real schema."""
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
         pv = "SR:VAC:IP07:PRESSURE"
         window_end = T0.replace(second=0, microsecond=0)
         window_start = window_end - timedelta(minutes=5)
@@ -620,14 +726,16 @@ class TestConnectorRoundtrip:
         rows = frame[frame["channel"] == pv]
         assert len(rows) > 0
         stamps = epoch_seconds_array(list(rows["timestamp"]))
-        expected = generate_series(pv, stamps, baseline=baseline_value(pv))
+        expected = archive.series(pv, stamps)
         assert np.allclose(rows["value"].to_numpy(), expected, rtol=0, atol=0)
 
     @pytest.mark.asyncio
-    async def test_a_window_before_the_archive_starts_returns_nothing(self, collection, read_back):
+    async def test_a_window_before_the_archive_starts_returns_nothing(
+        self, collection, read_back, archive
+    ):
         """Honest emptiness. The mock archiver's ten-point floor is exactly the
         fabrication a stored archive exists to replace."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
         ancient = T0 - timedelta(days=400)
 
         frame = await read_back(["SR:VAC:IP07:PRESSURE"], ancient, ancient + timedelta(hours=1))
@@ -635,14 +743,247 @@ class TestConnectorRoundtrip:
         assert len(frame) == 0
 
     @pytest.mark.asyncio
-    async def test_a_channel_outside_the_seeded_set_returns_nothing(self, collection, read_back):
+    async def test_a_channel_outside_the_seeded_set_returns_nothing(
+        self, collection, read_back, archive
+    ):
         """Sparse documents are legal in this schema, so an unseeded channel
         contributes no samples rather than an error or a plausible series."""
-        seed_base(collection, CHANNELS, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         frame = await read_back(["SR:NOT:SEEDED"], T0 - timedelta(minutes=10), T0)
 
         assert len(frame) == 0
+
+
+# ---------------------------------------------------------------------------
+# Waveforms
+# ---------------------------------------------------------------------------
+
+
+def _tail_instants(knobs: SeedKnobs, t0: datetime) -> np.ndarray:
+    """The coarse-cadence timestamps of the whole retention window."""
+    times, _ = seed_grid(knobs, t0)
+    return times[np.mod(times, knobs.tail_cadence_sec) == 0]
+
+
+class _Log:
+    """The order the seed's writes reach the two collections."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+
+class _LoggedCollection(StubCollection):
+    """A stub collection that names itself in a shared write log."""
+
+    def __init__(self, name: str, log: _Log, *, fail_inserts: bool = False) -> None:
+        super().__init__()
+        self.name = name
+        self._log = log
+        self._fail_inserts = fail_inserts
+
+    def insert_many(self, documents, **kwargs):
+        if self._fail_inserts:
+            raise RuntimeError(f"{self.name}: the store went away")
+        self._log.events.append(("insert", self.name))
+        super().insert_many(documents, **kwargs)
+
+    def replace_one(self, filter_, document, upsert=False, **kwargs):
+        self._log.events.append(("replace", self.name))
+        super().replace_one(filter_, document, upsert=upsert, **kwargs)
+
+
+class _Database(dict):
+    """A database handle: collections by name."""
+
+
+class TestWaveformChannels:
+    """A trace is the pulse at its instant, under the stepped drive."""
+
+    def test_the_waveform_channels_are_partitioned_from_the_scalar_ones(self, pulse_archive):
+        assert pulse_archive.waveform_addresses == [WAVE]
+        assert WAVE not in pulse_archive.scalar_addresses
+        assert sorted([*pulse_archive.scalar_addresses, WAVE]) == pulse_archive.addresses
+
+    def test_a_trace_of_an_address_outside_the_facility_is_a_typed_error(self, pulse_archive):
+        from osprey_connectors.errors import ChannelNotFoundError
+
+        with pytest.raises(ChannelNotFoundError) as caught:
+            pulse_archive.traces("NO:SUCH:WAVEFORM", [T0.timestamp()])
+        assert caught.value.channel_address == "NO:SUCH:WAVEFORM"
+
+    def test_a_trace_is_the_pulse_at_its_instant(self, pulse_archive):
+        instants = _tail_instants(SMALL, T0)[:3]
+
+        traces = pulse_archive.traces(WAVE, instants)
+
+        assert len(traces) == 3
+        for trace, instant in zip(traces, instants, strict=True):
+            expected = pulse.trace(WAVE, float(instant), HELD_DRIVE, True)
+            assert np.array_equal(trace, expected)
+
+    def test_the_trace_follows_the_stepped_driver(self, stepped_pulse_archive):
+        anchor = T0.timestamp()
+        before, after = anchor + LOWER_AT_S - 60.0, anchor + LOWER_AT_S + 60.0
+
+        early, late = stepped_pulse_archive.traces(WAVE, [before, after])
+
+        assert np.array_equal(early, pulse.trace(WAVE, before, HELD_DRIVE, True))
+        assert np.array_equal(late, pulse.trace(WAVE, after, 1.0, True))
+
+    def test_a_disabled_supply_archives_a_flat_zero_trace(self, stepped_pulse_archive):
+        after = T0.timestamp() + OFF_AT_S + 60.0
+
+        (trace,) = stepped_pulse_archive.traces(WAVE, [after])
+
+        assert trace.shape == (pulse.TRACE_POINTS,)
+        assert not trace.any()
+
+    def test_a_waveform_series_is_its_traces_as_plain_floats(self, pulse_archive):
+        instants = _tail_instants(SMALL, T0)[:2]
+
+        series = pulse_archive.series(WAVE, instants)
+
+        assert [list(map(float, trace)) for trace in pulse_archive.traces(WAVE, instants)] == series
+        assert all(type(value) is float for value in series[0])
+
+    def test_a_waveform_without_a_pulse_archives_its_held_trace(self, tmp_path):
+        archive = build(write_pulse_view(tmp_path, pulse_seed=False), [], anchor_s=T0.timestamp())
+
+        (trace,) = archive.traces(WAVE, [T0.timestamp()])
+
+        assert trace.tolist() == list(archive.held(WAVE))
+
+    def test_a_pulse_naming_a_channel_outside_the_view_is_refused(self, tmp_path):
+        view = write_pulse_view(tmp_path, driver="SR:SEK:NOT:A:CHANNEL")
+
+        with pytest.raises(ValueError, match="SR:SEK:NOT:A:CHANNEL"):
+            build(view, [], anchor_s=T0.timestamp())
+
+    def test_scalar_documents_hold_no_waveform_values(self, pulse_archive):
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(pulse_archive, times[:8])
+
+        assert documents
+        for document in documents:
+            assert field_name(WAVE) not in document
+            assert {field_name(DRIVER), field_name(ENABLE), field_name(PRESSURE)} <= set(document)
+
+
+class TestSeedBaseWaveforms:
+    """The seed's waveform documents, against stub stores."""
+
+    @staticmethod
+    def _seed(archive, *, fail_waveforms=False):
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        waveforms = _LoggedCollection(
+            waveform_collection("pv_history"), log, fail_inserts=fail_waveforms
+        )
+        report = seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+        return report, scalars, waveforms, log
+
+    def test_one_trace_per_channel_per_coarse_instant_over_the_whole_window(self, pulse_archive):
+        _, _, waveforms, _ = self._seed(pulse_archive)
+
+        instants = _tail_instants(SMALL, T0)
+        # Sorted: the chunks are inserted concurrently, so arrival order is not a contract.
+        stored = sorted(document[DATE_FIELD] for document in waveforms.documents)
+        assert stored == [datetime.fromtimestamp(float(t), UTC) for t in instants]
+        assert all(
+            len(document[field_name(WAVE)]) == pulse.TRACE_POINTS
+            for document in waveforms.documents
+        )
+
+    def test_every_waveform_document_is_the_helper_s(self, pulse_archive):
+        _, _, waveforms, _ = self._seed(pulse_archive)
+
+        for document in waveforms.documents:
+            date = document[DATE_FIELD]
+            (trace,) = pulse_archive.traces(WAVE, [date.timestamp()])
+            expected = waveform_document(
+                WAVE, date, trace, expire_at=date + timedelta(seconds=SMALL.retention_s)
+            )
+            assert document == expected
+
+    def test_the_scalar_store_holds_no_trace(self, pulse_archive):
+        report, scalars, _, _ = self._seed(pulse_archive)
+
+        assert report.documents == len(seed_grid(SMALL, T0)[0])
+        assert all(field_name(WAVE) not in document for document in scalars.documents)
+
+    def test_the_traces_are_written_before_the_manifest(self, pulse_archive):
+        _, scalars, waveforms, log = self._seed(pulse_archive)
+
+        manifest_at = log.events.index(("replace", scalars.name))
+        trace_writes = [
+            index for index, event in enumerate(log.events) if event == ("insert", waveforms.name)
+        ]
+        assert trace_writes
+        assert max(trace_writes) < manifest_at
+        assert manifest_at == len(log.events) - 1
+
+    def test_an_interrupted_trace_write_leaves_no_manifest(self, pulse_archive):
+        """The next deploy must read the half-written store as ABSENT."""
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        waveforms = _LoggedCollection(waveform_collection("pv_history"), log, fail_inserts=True)
+
+        with pytest.raises(RuntimeError, match="went away"):
+            seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+
+        assert scalars.manifest is None
+
+    def test_the_sibling_is_found_beside_the_sample_collection(self, pulse_archive):
+        """The deploy path hands the seed only the sample collection."""
+        log = _Log()
+        scalars = _LoggedCollection("pv_history", log)
+        sibling = _LoggedCollection(waveform_collection("pv_history"), log)
+        scalars.database = _Database({sibling.name: sibling})
+
+        seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        assert len(sibling.documents) == len(_tail_instants(SMALL, T0))
+        assert scalars.manifest is not None
+
+    def test_a_view_without_waveforms_never_touches_a_sibling(self, archive):
+        """A stub with no database stands in for a store that has only samples."""
+        scalars = StubCollection()
+
+        seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64)
+
+        assert scalars.manifest is not None
+
+
+class TestSeedBaseWaveformStore:
+    """The traces in a real store: indexed, typed, and beside the samples."""
+
+    @pytest.fixture
+    def waveforms(self, collection):
+        sibling = collection.database[waveform_collection(collection.name)]
+        sibling.drop()
+        try:
+            yield sibling
+        finally:
+            sibling.drop()
+
+    def test_the_traces_land_indexed_in_the_sibling(self, collection, waveforms, pulse_archive):
+        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        assert waveforms.count_documents({}) == len(_tail_instants(SMALL, T0))
+        assert collection.count_documents({field_name(WAVE): {"$exists": True}}) == 0
+        keyed = {tuple(spec["key"][0]) for spec in waveforms.index_information().values()}
+        assert (DATE_FIELD, 1) in keyed
+        assert (EXPIRE_FIELD, 1) in keyed
+
+    def test_a_stored_trace_reads_back_as_plain_doubles(self, collection, waveforms, pulse_archive):
+        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+
+        document = waveforms.find_one({}, sort=[(DATE_FIELD, 1)])
+        date = document[DATE_FIELD].replace(tzinfo=UTC)
+        (trace,) = pulse_archive.traces(WAVE, [date.timestamp()])
+        assert document[field_name(WAVE)] == trace.tolist()
 
 
 def _epoch(moment: datetime) -> float:
@@ -665,7 +1006,7 @@ def test_the_module_never_imports_pymongo():
         [
             sys.executable,
             "-c",
-            "import sys, osprey.simulation.archiver_seed as m;"
+            "import sys, osprey_connectors.simulation.archive as m;"
             "assert 'pymongo' not in sys.modules, sorted(sys.modules);"
             "print('CLEAN')",
         ],

@@ -58,8 +58,8 @@ def example_queries() -> str:
     into two halves:
 
     * *search by meaning* — match an operator's words against the prose the
-      corpus carries: an address' own description, what its field and subfield
-      mean, what a device family does, which system it belongs to;
+      corpus carries: an address' own description, a quantity and how it is
+      obtained, what a device's group is for, which system it belongs to;
     * *search by structure* — start from something already known: a class and
       everything under it, a whole section in beamline order, one device's
       addresses split into reads and writes, one address back to its device.

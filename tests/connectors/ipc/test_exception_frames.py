@@ -9,7 +9,12 @@ reads — never merely that a round trip "didn't raise".
 
 import pytest
 
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+import osprey_connectors.ipc
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+)
 from osprey_connectors.ipc import exceptions
 
 
@@ -23,18 +28,20 @@ def _round_trip(exc: BaseException) -> BaseException:
 # ---------------------------------------------------------------- protocol pin
 
 
-def test_registry_carries_exactly_the_four_agreed_classes():
+def test_registry_carries_exactly_the_five_agreed_classes():
     assert set(exceptions.EXCEPTION_SPECS) == {
         "ConnectionError",
         "TimeoutError",
         "ChannelWriteBlockedError",
         "ChannelLimitsViolationError",
+        "ChannelNotFoundError",
     }
     registry = exceptions.EXCEPTION_SPECS
     assert registry["ConnectionError"].cls is ConnectionError
     assert registry["TimeoutError"].cls is TimeoutError
     assert registry["ChannelWriteBlockedError"].cls is ChannelWriteBlockedError
     assert registry["ChannelLimitsViolationError"].cls is ChannelLimitsViolationError
+    assert registry["ChannelNotFoundError"].cls is ChannelNotFoundError
 
 
 def test_limits_violation_field_list_is_the_published_spec():
@@ -60,6 +67,14 @@ def test_write_blocked_field_list_is_the_published_spec():
     assert spec.fields == exceptions.CHANNEL_WRITE_BLOCKED_FIELDS
     # Its text is not a field: the frame's own message feeds the ctor keyword.
     assert spec.message_kwarg == "message"
+
+
+def test_channel_not_found_field_list_is_the_published_spec():
+    assert exceptions.CHANNEL_NOT_FOUND_FIELDS == ("channel_address",)
+    spec = exceptions.EXCEPTION_SPECS["ChannelNotFoundError"]
+    assert spec.fields == exceptions.CHANNEL_NOT_FOUND_FIELDS
+    # Its text is derived from the address, so no message keyword is fed.
+    assert spec.message_kwarg is None
 
 
 def test_builtin_specs_carry_no_fields():
@@ -146,6 +161,15 @@ def test_write_blocked_default_message_survives():
     assert isinstance(rebuilt, ChannelWriteBlockedError)
     assert rebuilt.channel_address == "SR:Y"
     assert rebuilt.reason == "LIMITS"
+    assert str(rebuilt) == str(original)
+
+
+def test_an_unknown_channel_round_trips_as_itself():
+    original = ChannelNotFoundError("X")
+    rebuilt = _round_trip(original)
+
+    assert type(rebuilt) is ChannelNotFoundError
+    assert rebuilt.channel_address == "X"
     assert str(rebuilt) == str(original)
 
 
@@ -260,3 +284,7 @@ def test_incomplete_frame_body_still_yields_an_exception(body):
     rebuilt = exceptions.decode_exception(body)
 
     assert isinstance(rebuilt, ConnectionError)
+
+
+def test_the_package_re_exports_every_field_list():
+    assert set(exceptions.__all__) <= set(osprey_connectors.ipc.__all__)

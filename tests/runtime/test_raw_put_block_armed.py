@@ -15,6 +15,7 @@ whatever the block patched, and drops its import-hook finder.
 
 from __future__ import annotations
 
+import _ctypes
 import ast
 import asyncio
 import ctypes
@@ -587,6 +588,10 @@ def _escape_route_identities() -> dict[str, object]:
         "ctypes.PyDLL": ctypes.PyDLL,
         "ctypes.LibraryLoader.LoadLibrary": ctypes.LibraryLoader.LoadLibrary,
         "ctypes.LibraryLoader.__getattr__": ctypes.LibraryLoader.__getattr__,
+        "ctypes.CDLL.__init__": ctypes.CDLL.__init__,
+        "ctypes._dlopen": ctypes._dlopen,
+        "_ctypes.dlopen": _ctypes.dlopen,
+        "ctypes.CDLL.__getitem__": ctypes.CDLL.__getitem__,
     }
 
 
@@ -707,6 +712,32 @@ def test_readonly_rejects_the_armed_keywords():
             marker="x",
             rpc_refusals={},
         )
+
+
+_NO_CLIENT_KEYWORDS = {
+    "denied_packages": (),
+    "library_names": (),
+    "library_symbols": (),
+    "loader_targets": (),
+    "marker": "x",
+}
+
+
+def test_no_client_rejects_the_armed_keywords():
+    with pytest.raises(TypeError):
+        raw_put_block.install(
+            "no_client",
+            blocked_targets=(),
+            rpc_targets=(),
+            refuse_rpc=False,
+            marker="x",
+            rpc_refusals={},
+        )
+
+
+def test_armed_rejects_the_no_client_keywords():
+    with pytest.raises(TypeError):
+        raw_put_block.install("armed", **_NO_CLIENT_KEYWORDS)
 
 
 def test_unknown_mode_is_refused():

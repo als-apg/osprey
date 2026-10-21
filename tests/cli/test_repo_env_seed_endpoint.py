@@ -18,7 +18,7 @@ import pytest
 
 from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 from osprey.cli import deploy_cmd
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 _GATEWAY_PROVIDER = "gateway-without-endpoint"
 _SECRET_VAR = "GATEWAY_WITHOUT_ENDPOINT_API_KEY"

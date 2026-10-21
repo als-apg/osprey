@@ -88,8 +88,8 @@ included — also files one record on the opt-in ``tool_call`` surface
 (:mod:`osprey.audit.tool_call`): the full arguments and result, the control
 target and generation at entry, the approval answer, the facts the tool noted,
 the words the default record got, and the call's duration. It goes to
-``tool_call.jsonl`` and to the telemetry store (:mod:`osprey.audit.otlp`). The
-default record is the same either way.
+``tool_call.jsonl``, which the telemetry gateway reads into the store like every
+other ledger file. The default record is the same either way.
 
 **Nothing here may cost the call it records.** Records go through
 :func:`~osprey.audit.writer.record`, which builds the envelope and appends it
@@ -112,7 +112,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 
-from osprey.audit import otlp, posture, tool_call, writer
+from osprey.audit import posture, tool_call, writer
 from osprey.audit.call import (
     DETAIL_FACTS,
     TOOL_USE_ID_META_KEY,
@@ -125,7 +125,7 @@ from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
 from osprey.mcp_server.errors import make_error
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
@@ -212,13 +212,14 @@ _FALLBACK_WRITE_TOOLS: list[str] = [
     "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
+    "mcp__python__pyaml_measure",
 ]
 
 #: The read/write tools excluded from the floor clamp. Task 1.8's drift guard
 #: asserts this list against ``registry.mcp.framework_mixed_read_write_tools()``,
-#: which derives the same names from the ``_WRITES_CHECK`` matchers of every
-#: ``MIXED_READ_WRITE_TEMPLATES`` server — so the canonical source stays the
-#: registry and this stays the copy that must match it.
+#: which derives the same names from the ``_WRITES_CHECK`` matchers the
+#: registry's ``is_mixed_matcher`` classifies as mixed — so the canonical source
+#: stays the registry and this stays the copy that must match it.
 #:
 #: It is applied to :data:`_FALLBACK_WRITE_TOOLS` and never to a loaded write
 #: list: the two always degrade together. A loaded write list minus this floor
@@ -758,7 +759,6 @@ def _file_tool_call(
             duration_ms=duration_ms,
         )
         writer.append_record(tool_call.SURFACE_TOOL_CALL, full)
-        otlp.emit(full)
     except Exception:
         logger.warning("Could not file the full tool_call record", exc_info=True)
 

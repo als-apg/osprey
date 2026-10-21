@@ -6,7 +6,7 @@ A production-grade template demonstrating control system integration patterns.
 Features:
 - Natural language channel finding (in-context or hierarchical pipelines)
 - Historical data analysis (mock archiver)
-- Live control system reads (mock EPICS)
+- Control system reads (EPICS or the built-in simulator)
 - Complete benchmarking system
 - Optional MCP server deployment
 

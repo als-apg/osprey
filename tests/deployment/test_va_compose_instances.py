@@ -6,8 +6,8 @@ rendered before this feature has exactly one, and the second is opt-in
 ``services.live_standin`` block beside ``services.virtual_accelerator`` and
 append ``live_standin`` to ``deployed_services``. Three things are per
 instance: the compose service key (and so the in-network CA address), the
-published port, and the BPM-offset perturbation that makes the stand-in read
-differently from the machine it stands in for.
+published port, the ``VA_INSTANCE`` the entrypoint serves as, and the directory
+its model logs are appended to.
 
 Two claims are tested here, and the first one is the anchor:
 
@@ -20,12 +20,12 @@ Two claims are tested here, and the first one is the anchor:
 
 2. **A two-instance deployment separates the two machines.** Distinct service
    keys, container names, published ports and CA server ports, one build, and
-   a stand-in whose readout perturbation comes from its own host variable —
-   because an operator, a scenario and the host-port preflight all have to be
-   able to say which of the two machines they mean.
+   environments that differ only in what names the machine — because an
+   operator, a scenario and the host-port preflight all have to be able to say
+   which of the two machines they mean.
 
-The scenario mounts are the deliberate exception: both instances read the same
-model and the same active-scenario state, which is what lets one
+The read-only mounts are the deliberate exception: both instances read the same
+simulator view and the same active-scenario state, which is what lets one
 ``osprey sim apply`` be observed on both machines at once.
 
 The model surface is the opposite exception: it belongs to instance 1 alone.
@@ -36,6 +36,9 @@ it on the host and receives the model write token.
 from __future__ import annotations
 
 import json
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -105,7 +108,6 @@ def _context(
     instances: dict[str, dict[str, Any]],
     deployed_services: list[str],
     dev_mode: bool | None = None,
-    standin_bpm_errors_default: str | None = None,
 ) -> dict[str, Any]:
     """Mirror ``compose_generator.render_template``'s context contract.
 
@@ -114,11 +116,13 @@ def _context(
     production render always carries it, so a context that omits one pins a
     render no deploy can reach.
 
-    ``dev_mode`` is omitted unless asked for, and so is
-    ``standin_bpm_errors_default`` — the template defaults the latter to the
-    empty string precisely so a context assembled before that key existed still
-    renders.
+    ``va_tick_s`` and ``osprey_simulator_log_sources`` are computed the same
+    way, the latter taken from the production helper rather than restated.
+
+    ``dev_mode`` is omitted unless asked for.
     """
+    from osprey.deployment.compose_generator import simulator_log_mount_sources
+
     context: dict[str, Any] = {
         "osprey_labels": {
             "project_name": "proj",
@@ -132,11 +136,11 @@ def _context(
         "deployed_services": deployed_services,
         "services": dict(instances),
         "osprey_state_mount_source": STATE_MOUNT_SOURCE,
+        "osprey_simulator_log_sources": simulator_log_mount_sources(),
+        "va_tick_s": 1.0,
     }
     if dev_mode is not None:
         context["dev_mode"] = dev_mode
-    if standin_bpm_errors_default is not None:
-        context["standin_bpm_errors_default"] = standin_bpm_errors_default
     return context
 
 
@@ -366,14 +370,56 @@ def test_va_compose_serves_channel_access_on_each_instance_port(
     )
 
 
-def test_va_compose_probes_each_instance_on_its_own_port(
+def test_va_compose_healthcheck_reads_the_entrypoints_health_file(
     two_instances: dict[str, Any],
 ) -> None:
-    """A healthcheck aimed at the other machine's port would never go red."""
-    baseline = two_instances["services"]["virtual-accelerator"]["healthcheck"]["test"]
-    standin = two_instances["services"]["live-standin"]["healthcheck"]["test"]
-    assert "'localhost', 5064" in baseline[-1]
-    assert "'localhost', 5074" in standin[-1]
+    """Each instance's probe reads the record its own runner rewrites."""
+    from osprey.services.virtual_accelerator import entrypoint
+
+    for key in ("virtual-accelerator", "live-standin"):
+        healthcheck = two_instances["services"][key]["healthcheck"]
+        assert healthcheck["test"][0] == "CMD-SHELL"
+        assert f"open('{entrypoint.HEALTH_FILE}')" in healthcheck["test"][-1]
+        assert "localhost" not in healthcheck["test"][-1]
+        assert (
+            healthcheck["interval"],
+            healthcheck["timeout"],
+            healthcheck["retries"],
+            healthcheck["start_period"],
+        ) == ("10s", "5s", 5, "20s")
+
+
+@pytest.mark.parametrize(
+    ("state", "healthy"),
+    [("serving", True), ("degraded", True), ("failed", False), (None, False), ("garbled", False)],
+)
+def test_the_rendered_healthcheck_fails_a_failed_record_and_passes_serving_and_degraded(
+    two_instances: dict[str, Any], tmp_path: Path, state: str | None, healthy: bool
+) -> None:
+    """Only a record that is serving or degraded passes; failed, missing or bad JSON fail."""
+    from osprey.services.virtual_accelerator import entrypoint
+
+    record = tmp_path / "health.json"
+    if state == "garbled":
+        record.write_text("{not json", encoding="utf-8")
+    elif state is not None:
+        record.write_text(json.dumps({"state": state}), encoding="utf-8")
+    command = two_instances["services"]["virtual-accelerator"]["healthcheck"]["test"][-1]
+    program, _, rest = command.partition(" ")
+    assert program == "python"
+    rest = rest.replace(str(entrypoint.HEALTH_FILE), str(record))
+    assert str(record) in rest
+
+    # CMD-SHELL runs the string under sh -c; the image's python is this
+    # interpreter here.
+    probe = subprocess.run(
+        ["/bin/sh", "-c", f"{shlex.quote(sys.executable)} {rest}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert (probe.returncode == 0) is healthy, probe.stderr
 
 
 def test_va_compose_builds_the_image_on_the_first_instance_only(
@@ -446,198 +492,23 @@ def test_va_compose_gives_every_instance_an_image(two_instances: dict[str, Any])
         assert service["image"]
 
 
-def test_va_compose_standin_reads_its_own_bpm_perturbation_variable() -> None:
-    """The stand-in's readout offsets are ITS fault axis, not the baseline's.
-
-    Asserted on the raw text because the ``${VAR:-default}`` literal is the
-    contract: compose, not the render, is what resolves it, and a stand-in that
-    silently answered to ``VA_BPM_ERRORS`` would perturb both machines at once.
-    """
-    rendered = _render_text(
-        _context(
-            instances=STANDIN_INSTANCES,
-            deployed_services=["virtual_accelerator", "live_standin"],
-            standin_bpm_errors_default="SR:BPM:1:X=0.0001",
-        )
-    )
-    assert _text_lines(rendered, "VA_BPM_ERRORS:") == [
-        'VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"',
-        'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-SR:BPM:1:X=0.0001}"',
-    ]
-
-
-def test_va_compose_standin_perturbation_default_is_empty_until_supplied() -> None:
-    """A context that never sets the key still renders a valid passthrough."""
-    rendered = _render_text(
-        _context(
-            instances=STANDIN_INSTANCES,
-            deployed_services=["virtual_accelerator", "live_standin"],
-        )
-    )
-    assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-}"' in rendered
-
-
-# --- begin: compose-standin-default-conditional ----------------------------
-# Which default the generator renders, and which interpolation operator carries
-# it. Two claims, and they only make one contract together:
-#
-# * the DEFAULT is lattice-conditional — the shipped offsets displace a served
-#   lattice's model, so a deployment that resolves VA_LATTICE to none gets
-#   the EMPTY set and a stand-in serving its manifest unperturbed;
-# * the OPERATOR is `-`, not `:-` — so a deployment that explicitly asks for an
-#   empty perturbation is not rounded back up to whatever the default is.
-#
-# The generator half is exercised through `_inject_project_metadata`, the one
-# function that puts the key in the render context, so these pin what a real
-# build hands the template rather than what a hand-built context can say.
-# ---------------------------------------------------------------------------
-
-
-def _project_root(tmp_path: Path, *, env: str | None = None, build_env: str | None = None) -> Path:
-    """A deployment repo whose env chain says what these tests need it to.
-
-    Two writable rungs, because the resolver reads both and the render zone wins
-    on a key both name: the repo's own ``.env``, and the published ``build/``
-    tree the containers are actually handed.
-
-    That published tree describes a machine, and the machine states the
-    perturbation its stand-in carries -- the deployment's own answer, which is
-    the only place the render takes one from.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        STANDIN_BPM_ERRORS_DEFAULT,
-    )
-
-    if env is not None:
-        (tmp_path / ".env").write_text(env, encoding="utf-8")
-    simulation = tmp_path / "build" / "data" / "simulation"
-    simulation.mkdir(parents=True, exist_ok=True)
-    (simulation / "machine.json").write_text(
-        json.dumps({"standin_bpm_errors": STANDIN_BPM_ERRORS_DEFAULT, "channels": {}}),
-        encoding="utf-8",
-    )
-    if build_env is not None:
-        (tmp_path / "build" / ".env").write_text(build_env, encoding="utf-8")
-    return tmp_path
-
-
-def _rendered_default(project_root: Path) -> str:
-    """The ``standin_bpm_errors_default`` a build at *project_root* would inject."""
-    from osprey.deployment.compose_generator import _inject_project_metadata
-
-    context = _inject_project_metadata(
-        {"project_root": str(project_root), "project_name": "proj", "build_dir": "./build"}
-    )
-    return str(context["standin_bpm_errors_default"])
-
-
-def test_va_compose_standin_default_is_the_shipped_perturbation_on_a_served_lattice(
-    tmp_path: Path,
-) -> None:
-    """A chain naming a lattice file is a model for the offsets to displace.
-
-    The shipped default is only correct where there is a model to displace, and
-    this is that case: the value reaches the template whole, and the render
-    hands the container the faults that make the stand-in tell apart from the
-    machine beside it.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        STANDIN_BPM_ERRORS_DEFAULT,
-    )
-
-    default = _rendered_default(_project_root(tmp_path, env="VA_LATTICE=lattice.json\n"))
-
-    assert default == STANDIN_BPM_ERRORS_DEFAULT
-    rendered = _render_text(
-        _context(
-            instances=STANDIN_INSTANCES,
-            deployed_services=["virtual_accelerator", "live_standin"],
-            standin_bpm_errors_default=default,
-        )
-    )
-    assert f'VA_BPM_ERRORS: "${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}"' in rendered
-
-
-@pytest.mark.parametrize("env", [None, "VA_LATTICE=none\n"])
-def test_va_compose_standin_default_is_empty_without_a_served_lattice(
-    tmp_path: Path, env: str | None
-) -> None:
-    """No lattice renders the empty set rather than refusing the build.
-
-    A deployment serving no lattice — pinned ``none``, or a chain no build has
-    written the key into — has no model for the shipped offsets to displace. The
-    honest render is the stand-in serving its manifest unperturbed, so the
-    default it carries is empty and the container receives an empty fault set.
-    """
-    default = _rendered_default(_project_root(tmp_path, env=env))
-
-    assert default == ""
-    rendered = _render_text(
-        _context(
-            instances=STANDIN_INSTANCES,
-            deployed_services=["virtual_accelerator", "live_standin"],
-            standin_bpm_errors_default=default,
-        )
-    )
-    assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-}"' in rendered
-
-
-def test_va_compose_standin_default_reads_the_render_zones_pin_too(tmp_path: Path) -> None:
-    """The published ``build/`` chain is read, and wins — as validation reads it.
-
-    The containers are handed the render zone, not the source repo, so a pin
-    there is the one that decides what boots. Resolving from the repo alone
-    would render the shipped faults for a deployment whose delivered chain says
-    there is nothing to apply them to.
-    """
-    project = _project_root(
-        tmp_path, env="VA_LATTICE=lattice.json\n", build_env="VA_LATTICE=none\n"
-    )
-
-    assert _rendered_default(project) == ""
-
-
-def test_va_compose_standin_perturbation_substitutes_only_when_unset() -> None:
-    """``-``, not ``:-``: an explicit empty override is honored, not rounded up.
-
-    ``VA_STANDIN_BPM_ERRORS=`` is the documented way to run a stand-in clean on
-    a lattice that could carry faults, and ``:-`` would substitute the default
-    over it — handing the operator the shipped perturbation they just asked to
-    be rid of, and a seeded past to match it.
-    """
-    rendered = _render_text(
-        _context(
-            instances=STANDIN_INSTANCES,
-            deployed_services=["virtual_accelerator", "live_standin"],
-            standin_bpm_errors_default="BPM03:offset_x=1.5e-4",
-        )
-    )
-    line = next(
-        row for row in _text_lines(rendered, "VA_BPM_ERRORS:") if "VA_STANDIN_BPM_ERRORS" in row
-    )
-    assert line == 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-BPM03:offset_x=1.5e-4}"'
-    assert "${VA_STANDIN_BPM_ERRORS:-" not in rendered
-
-
-# --- end: compose-standin-default-conditional ------------------------------
-
-
-def test_va_compose_instances_share_the_scenario_mounts(
+def test_va_compose_instances_share_the_view_and_split_the_logs(
     two_instances: dict[str, Any],
 ) -> None:
-    """One model, one active-scenario state, deliberately read by both.
+    """One view and one active-scenario state, read by both; a log dir each.
 
     A scenario applied on the host is meant to be observable on both machines
-    at once — that is what makes the stand-in a stand-in — so the mounts are the
-    one thing the instance axis does NOT split.
+    at once, so the read-only mounts are shared. The model logs are the one
+    directory each instance writes, and the stand-in's sits apart so a record's
+    directory names the machine that wrote it.
     """
     baseline = two_instances["services"]["virtual-accelerator"]["volumes"]
     standin = two_instances["services"]["live-standin"]["volumes"]
-    assert baseline == standin
-    assert standin == [
-        "./build/data:/data:ro",
-        f"{STATE_MOUNT_SOURCE}:/state/simulation:ro",
-    ]
+    shared = ["./build/data:/data:ro", f"{STATE_MOUNT_SOURCE}:/state/simulation:ro"]
+    assert baseline[:2] == shared
+    assert standin[:2] == shared
+    assert baseline[2:] == ["./var/simulator:/var/simulator"]
+    assert standin[2:] == ["./var/simulator/standin:/var/simulator"]
 
 
 def test_va_compose_header_announces_the_second_instance() -> None:
@@ -781,6 +652,106 @@ def test_va_compose_pva_publish_follows_the_bind_address() -> None:
     context["deployment"] = {"bind_address": "0.0.0.0"}
     service = _render(context)["services"]["virtual-accelerator"]
     assert service["ports"] == ["0.0.0.0:5064:5064/tcp", "0.0.0.0:5075:5075/tcp"]
+
+
+# ---------------------------------------------------------------------------
+# The environment each instance is handed
+# ---------------------------------------------------------------------------
+
+#: Variables the simulator no longer reads; no VA block may carry one.
+RETIRED_VA_KEYS = (
+    "VA_BPM_ERRORS",
+    "VA_STANDIN_BPM_ERRORS",
+    "VA_CORR_GAIN",
+    "VA_STUCK_SETPOINTS",
+    "VA_CHANNELS_FILE",
+    "VA_LATTICE",
+)
+
+
+def _injected_render(tmp_path: Path, config: dict[str, Any]) -> dict[str, Any]:
+    """Render both instances from the context the generator injects for *config*."""
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    context = _inject_project_metadata(
+        {
+            "project_root": str(tmp_path),
+            "project_name": "proj",
+            "build_dir": "./build",
+            "system": {"timezone": "UTC"},
+            "deployment": {},
+            "deployed_services": ["virtual_accelerator", "live_standin"],
+            "services": dict(STANDIN_INSTANCES),
+            **config,
+        }
+    )
+    return _render(context)
+
+
+@pytest.mark.parametrize(
+    ("config", "rendered"),
+    [({}, "1.0"), ({"simulation": {"tick_s": 0.5}}, "0.5")],
+)
+def test_va_compose_tick_is_the_configured_simulation_tick(
+    tmp_path: Path, config: dict[str, Any], rendered: str
+) -> None:
+    """``VA_POLL_INTERVAL_S`` is ``simulation.tick_s``, or the default without one."""
+    services = _injected_render(tmp_path, config)["services"]
+    for service in services.values():
+        assert service["environment"]["VA_POLL_INTERVAL_S"] == rendered
+
+
+def test_va_compose_tick_ignores_a_host_env_value(tmp_path: Path) -> None:
+    """A project ``.env`` naming the variable changes nothing the render emits."""
+    (tmp_path / ".env").write_text("VA_POLL_INTERVAL_S=5\n", encoding="utf-8")
+    services = _injected_render(tmp_path, {})["services"]
+    for service in services.values():
+        assert service["environment"]["VA_POLL_INTERVAL_S"] == "1.0"
+
+
+def test_va_compose_instances_differ_only_in_what_names_the_machine() -> None:
+    """The two environments differ in ``VA_INSTANCE``, the token and the two ports."""
+    rendered = _render(
+        _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064),
+                "live_standin": _instance_block(5074, pva_port=5076),
+            },
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    baseline = rendered["services"]["virtual-accelerator"]["environment"]
+    standin = rendered["services"]["live-standin"]["environment"]
+    differing = {
+        key for key in baseline.keys() | standin.keys() if baseline.get(key) != standin.get(key)
+    }
+    assert differing == {
+        "VA_INSTANCE",
+        "VA_MODEL_WRITE_TOKEN",
+        "EPICS_CA_SERVER_PORT",
+        "EPICS_PVAS_SERVER_PORT",
+    }
+    assert (baseline["VA_INSTANCE"], standin["VA_INSTANCE"]) == (
+        "virtual_accelerator",
+        "live_standin",
+    )
+
+
+@pytest.mark.parametrize("name", sorted(_single_instance_contexts()))
+def test_va_compose_carries_no_retired_variable(name: str) -> None:
+    """No VA block names a variable the simulator no longer reads."""
+    texts = [
+        _render_text(_single_instance_contexts()[name]),
+        _render_text(
+            _context(
+                instances=STANDIN_INSTANCES,
+                deployed_services=["virtual_accelerator", "live_standin"],
+            )
+        ),
+    ]
+    for text in texts:
+        for key in RETIRED_VA_KEYS:
+            assert key not in text
 
 
 def _regenerate() -> None:

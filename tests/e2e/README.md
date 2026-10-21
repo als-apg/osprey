@@ -96,8 +96,8 @@ are a separate numbering.
 Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
 measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB
 archiver and ARIEL with `osprey up --dev`, plants a recent beam-current dip in the archive and
-a year-old partial loss as a plot on one logbook entry (the bundles under
-`fixtures/chart_value_reading/`), and asks the agent to compare the two. The older loss is
+a year-old partial loss as a plot on one logbook entry (the facility scenario files under
+`fixtures/chart_value_reading/scenarios/`), and asks the agent to compare the two. The older loss is
 beyond the archive's retention, so its size can only be read off the picture. It runs on the
 benchmark board (the model matrix) and in no CI lane: the `tier2-model-benchmark` job ignores
 it. Parallel board cells take turns on a host-wide lock, and the images are rebuilt once per
@@ -164,23 +164,18 @@ relevant service via the OSPREY ``docker-compose`` services tree
 The control_assistant scenario tests (``test_vacuum_burst_scenario.py`` and
 ``test_rf_cavity_correlation_scenario.py``) get
 their archiver ground truth from the **data-driven simulation engine**, not from
-hard-coded connector code. Scenarios are **self-contained bundles** under
-``data/simulation/scenarios/<name>/`` — each owns its telemetry overlay
-(``scenario.json``) and, optionally, its logbook narrative (``logbook.json``).
+hard-coded connector code. Scenarios are the facility's scenario files under
+``data/facility/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
+optionally, its logbook narrative (its ``logbook`` block).
 Each test builds a project from the ``control_assistant`` preset and calls
 ``activate_scenarios(project, "<name>"...)`` to compose and apply one or more
 fault bundles (``vacuum-burst`` / ``rf-thermal``) before running the operator
 prompt. They build at **tier 3** so every simulated channel is discoverable
 through the channel finder — the vacuum gauges live only in tier 2+.
 
-The scenarios' statistical signatures (SR07/DCCT anti-correlation, the C1
-excursion positions, derived-channel consistency) are pinned deterministically
-and cheaply — no LLM — by ``tests/simulation/test_control_assistant_scenarios.py``
-and ``test_scenario_composition.py``. Run those first when a scenario e2e
-regresses: if the contract tests pass, the data substrate is sound and the miss
-is the agent's (the scenario tests are ``flaky(reruns=2)`` to absorb the rare
-stochastic bail-out); if they fail, fix the scenario bundle — never the e2e
-prompts.
+The scenario tests are ``flaky(reruns=2)`` to absorb the rare stochastic
+bail-out. When one regresses on the data rather than the agent, fix the
+scenario file — never the e2e prompts.
 
 **Logbook seeding (automatic).** ``activate_scenarios`` calls
 ``apply_scenarios(seed_logbook=True)``: it composes the active scenarios, writes
@@ -259,7 +254,7 @@ use, so you can iterate without Docker or a live run:
 ## Per-PR LLM cost expectation
 
 The ``e2e-tests`` job is a hard-fail gate — as is every e2e lane: the
-``all-checks-passed`` gate has no advisory tier. Per PR, expect ~14
+``all-checks-passed`` gate has no advisory tier. Per PR, expect ~10
 SDK-driven safety scenario runs plus the SDK workflow/delegation
 pipelines (cheap at als-apg/haiku rates). The channel-finder MCP
 benchmarks (~90 queries from ``test_channel_finder_mcp_benchmarks.py``,
@@ -337,6 +332,27 @@ The marked set equals the selection of the `e2e-no-model` CI lane, and a wiring
 test in `tests/deployment/test_ci_workflow_wiring.py` holds the two equal.
 Adding a model-free module therefore means marking it and naming it in that
 lane in one change.
+
+### Scripted gate tests
+
+A test whose subject is a safety gate needs one forbidden tool call to be made,
+and a well-behaved model will not make it. Those tests replace the model with a
+script: the `scripted_model` fixture starts a local endpoint
+(`tests/e2e/scripted_model.py`) that makes exactly the tool calls the test
+lists, and the real Claude Code delivers them through the rendered
+`settings.json`, the hook chain and the MCP servers.
+
+    model = scripted_model([[ScriptedCall("mcp__controls__channel_write", {...})]])
+    result = await run_sdk_query_with_hooks(repo, "Carry out the scripted steps.")
+
+Such a test asserts that the call was delivered, that the refusal carries the
+gate's own reason, and that no approval prompt appeared. It never skips: the
+modules are `model_free` and run in the `e2e-no-model` lane.
+`test_scripted_round_trip_reaches_the_cli` is the canary for the Claude Code
+wire format; when it fails after a version bump, fix `scripted_model.py` first.
+
+Use a live model when the question is what the agent chooses to do. Use a
+script when the question is what happens to a call once it is made.
 
 ### Which model the lanes run
 

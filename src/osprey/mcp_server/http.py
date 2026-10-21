@@ -1,5 +1,6 @@
 """HTTP/IPC utilities for MCP tool code."""
 
+import contextlib
 import logging
 
 logger = logging.getLogger("osprey.mcp_server.http")
@@ -61,7 +62,7 @@ def web_terminal_url() -> str:
     import os
 
     from osprey.port_layout import default_port, resolve_port_base
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     wt = config.get("web_terminal", {})
@@ -104,7 +105,7 @@ def phoebus_bridge_url() -> str:
     """
     import os
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     full = os.environ.get("PHOEBUS_BRIDGE_URL")
     if full:
@@ -139,7 +140,7 @@ def _panel_auth_headers() -> dict[str, str]:
     The last non-blank value seen is also latched, because this process can
     lose the carrier from under itself: saving an artifact auto-launches the
     artifact companion app (``osprey.stores.artifact_store`` ->
-    ``ensure_artifact_server``), and when that happens in-process the app's
+    ``ensure_web_server("artifact")``), and when that happens in-process the app's
     construction closes both credential carriers in ``os.environ`` — the
     same scrub every interface app performs so a child it spawns cannot
     inherit them.  Without the latch every panel call after that point would
@@ -259,10 +260,8 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
             return resp.status, _json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         body: dict = {}
-        try:
+        with contextlib.suppress(Exception):
             body = _json.loads(exc.read())
-        except Exception:
-            pass
         return exc.code, body
 
 
@@ -496,10 +495,10 @@ def resolve_activity_target() -> str | None:
     for ``execute``), and every one of them reads the same file.
 
     Returns ``None``, and never the deployment baseline, when nothing is
-    published. The baseline of a ``mock`` deployment resolves to ``live``;
-    stamping that on an activity event would tell an operator a simulated write
-    touched the real machine. An unpublished target is an absent claim, not a
-    ``live`` one.
+    published. The baseline is what the config selects, not where a session
+    stands: stamping it on an activity event could tell an operator a simulated
+    write touched the real machine, or the reverse. An unpublished target is an
+    absent claim, not a baseline one.
 
     Never raises: a failure to answer degrades to an unstamped event, the same
     fail-closed direction every other reader of that record takes.

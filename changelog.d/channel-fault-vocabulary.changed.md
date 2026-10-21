@@ -1,0 +1,1 @@
+**Breaking change:** `stuck` under a scenario's `faults` stops the build; write `channel_faults: {<address>: stuck}`. Channel faults `frozen` and `disconnected` are new, and any simulated channel, wired or not, can carry one.

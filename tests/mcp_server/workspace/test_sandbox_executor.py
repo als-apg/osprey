@@ -251,7 +251,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -276,7 +276,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -301,7 +301,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -323,7 +323,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -339,7 +339,7 @@ class TestExecuteSandboxCode:
         code = "import subprocess\nsubprocess.run(['ls'])"
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -375,7 +375,7 @@ class TestExecuteSandboxCode:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -394,7 +394,7 @@ class TestExecuteSandboxCode:
         code = "x = 1 / 0"
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -407,7 +407,7 @@ class TestExecuteSandboxCode:
     ):
         """The child stamps offset-aware times, so its metadata is orderable."""
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code="x = 1", execution_folder=execution_folder)
@@ -421,7 +421,7 @@ class TestExecuteSandboxCode:
         code = "print('hello from sandbox')"
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -471,7 +471,7 @@ print(content)
 """
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -490,7 +490,7 @@ except PermissionError:
 """
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
@@ -520,11 +520,11 @@ for label, read in (
 
         with (
             patch(
-                "osprey.utils.workspace.resolve_workspace_root",
+                "osprey_connectors.workspace.resolve_agent_data_root",
                 return_value=workspace_root,
             ),
             patch(
-                "osprey.utils.workspace.resolve_project_root",
+                "osprey_connectors.workspace.resolve_project_root",
                 return_value=project,
             ),
         ):
@@ -593,7 +593,7 @@ class TestCreateExecutionFolder:
         ws.mkdir()
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=ws,
         ):
             folder = create_sandbox_execution_folder()
@@ -608,10 +608,10 @@ class TestCreateExecutionFolder:
         ws = tmp_path / "_agent_data"
         ws.mkdir()
         zone = _zone_away_from_host()
-        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+        monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=ws,
         ):
             folder = create_sandbox_execution_folder()
@@ -674,7 +674,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -696,7 +696,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -717,7 +717,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -737,7 +737,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -759,7 +759,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(
@@ -779,7 +779,7 @@ class TestSaveArtifactBokehSupport:
         """)
 
         with patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ):
             result = await execute_sandbox_code(

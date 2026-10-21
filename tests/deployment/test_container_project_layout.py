@@ -46,18 +46,19 @@ from osprey.cli.build_cmd import (
 )
 from osprey.cli.build_cmd import build as build_command
 from osprey.cli.profile_conventions import REPO_CLAUDE_CODE_ENTRIES
-from osprey.cli.profile_root import PERSONA_DIRNAME
 from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_repo_root
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
-from osprey.utils.workspace import (
+from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.workspace import (
+    APPS_DIRNAME,
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     STATE_DIR_NAME,
+    TIERS_DIRNAME,
 )
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 
 PROJECT_NAME = "layout-fixture"
 
@@ -252,7 +253,7 @@ def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) 
     sources = {
         Path("data") / "channels.yml": "channels: []\n",
         Path("rules") / "safety.md": "# safety\n",
-        Path(PERSONA_DIRNAME) / "readonly.yml": "name: readonly\n",
+        Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
         Path("project") / "notes" / "CLAUDE.md": "# mirrored notes\n",
         Path("project") / ".claude" / "commands" / "ops.md": "# ops command\n",
     }
@@ -381,17 +382,19 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 # Every test below renders the exemplar for real (seconds, not milliseconds), so
 # each one carries `@pytest.mark.slow`.
 
-#: The exemplar's personas and the write posture each delta pins for the
-#: simulator, the one target any shipped tier arms. Every persona pins the flat
+#: The exemplar's renders and the write posture each delta pins for the
+#: simulator, the one target any shipped tier arms. Every tier pins the flat
 #: ``control_system.writes_enabled`` off while the deployment's own render
 #: arms it, and the simulator's posture differs between tiers, so together they
 #: prove an image context carries ITS OWN merged config rather than the
-#: deployment's — the defect that made persona deltas invisible to their own
+#: deployment's — the defect that made layers invisible to their own
 #: MCP servers. ``admin`` carries readwrite's posture exactly: what makes it the
-#: admin tier is deployment editing, not a wider write surface. ``knowledge``
-#: and ``logbook`` are the standalone terminals, with no control surface at all.
-PERSONA_WRITES = {
+#: admin tier is deployment editing, not a wider write surface. The apps
+#: (``channel-finder``, ``knowledge``, ``logbook``) are separate agents with no
+#: control surface at all.
+RENDER_WRITES = {
     "admin": True,
+    "channel-finder": False,
     "knowledge": False,
     "logbook": False,
     "readonly": False,
@@ -470,20 +473,20 @@ def _staleness_reasons_as_the_container_sees_them(context: Path, scratch: Path) 
 def test_a_real_build_produces_one_context_per_image(built_repo: Path) -> None:
     """One rule, applied once per image this repo has to build.
 
-    The deployment gets a context and so does every persona, because a persona
-    is deployed as its own image. A persona image built from the deployment's
+    The deployment gets a context and so does every render, because a render
+    is deployed as its own image. A render image built from the deployment's
     context would come up with the deployment's config and none of that
-    persona's — the difference between a read-only terminal and one that writes.
+    render's — the difference between a read-only terminal and one that writes.
     """
     contexts = _contexts(built_repo)
     assert set(contexts) == {built_repo.name} | {
-        f"{built_repo.name}-{persona}" for persona in PERSONA_WRITES
+        f"{built_repo.name}-{tier}" for tier in RENDER_WRITES
     }
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
-def test_every_produced_context_is_a_container_repo(built_repo: Path, persona: str | None) -> None:
+@pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
+def test_every_produced_context_is_a_container_repo(built_repo: Path, tier: str | None) -> None:
     """The contract, read off the tree the build actually wrote.
 
     ``profile.yml`` at the root is what lets the image's own ``CMD``
@@ -494,7 +497,7 @@ def test_every_produced_context_is_a_container_repo(built_repo: Path, persona: s
     machine's — otherwise the agent's data root resolves beside the mounted
     volume rather than into it.
     """
-    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    name = built_repo.name if tier is None else f"{built_repo.name}-{tier}"
     context = _contexts(built_repo)[name]
     project_root = f"/app/{name}"
 
@@ -517,19 +520,19 @@ def test_every_produced_context_is_a_container_repo(built_repo: Path, persona: s
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona,writes", sorted(PERSONA_WRITES.items()))
-def test_a_persona_context_carries_its_own_merged_config(
-    built_repo: Path, persona: str, writes: bool
+@pytest.mark.parametrize("tier,writes", sorted(RENDER_WRITES.items()))
+def test_a_render_context_carries_its_own_merged_config(
+    built_repo: Path, tier: str, writes: bool
 ) -> None:
-    """A persona image's config is the delta merged over the root, not the deployment's.
+    """A render image's config is the delta merged over the root, not the deployment's.
 
-    Its ``.mcp.json`` names ``/app/<repo>-<persona>/build/config.yml``, and only
-    this context holds that file — so this is where the persona's own write
+    Its ``.mcp.json`` names ``/app/<repo>-<render>/build/config.yml``, and only
+    this context holds that file — so this is where the render's own write
     posture has to be, or the servers in its container read a config that never
     heard of the delta. Read per target, the way every write surface reads it:
     ``logbook`` writes no per-type block, and its simulator inherits the flat key.
     """
-    context = _contexts(built_repo)[f"{built_repo.name}-{persona}"]
+    context = _contexts(built_repo)[f"{built_repo.name}-{tier}"]
     config = yaml.safe_load((context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8"))
     section = config["control_system"]
     assert section["writes_enabled"] is False
@@ -564,9 +567,9 @@ def test_no_produced_context_carries_a_secret_or_a_host_path(built_repo: Path) -
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
+@pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
 def test_no_produced_context_carries_the_repos_own_claude_code_files(
-    built_repo: Path, persona: str | None
+    built_repo: Path, tier: str | None
 ) -> None:
     """The agent's ancestors hold no developer ``CLAUDE.md``; its own render is intact.
 
@@ -575,7 +578,7 @@ def test_no_produced_context_carries_the_repos_own_claude_code_files(
     own instructions, hook settings and server list stay where the agent reads
     them.
     """
-    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    name = built_repo.name if tier is None else f"{built_repo.name}-{tier}"
     context = _contexts(built_repo)[name]
 
     carried = sorted(entry for entry in REPO_CLAUDE_CODE_ENTRIES if (context / entry).exists())
@@ -587,9 +590,9 @@ def test_no_produced_context_carries_the_repos_own_claude_code_files(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
+@pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
 def test_every_launched_process_in_a_context_names_the_image_interpreter(
-    built_repo: Path, persona: str | None
+    built_repo: Path, tier: str | None
 ) -> None:
     """Config paths that resolve are worth nothing if nothing can start.
 
@@ -601,7 +604,7 @@ def test_every_launched_process_in_a_context_names_the_image_interpreter(
     the paths resolve, and then no server and no hook can launch, including the
     write-safety hooks.
     """
-    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    name = built_repo.name if tier is None else f"{built_repo.name}-{tier}"
     render = _contexts(built_repo)[name] / BUILD_DIR_NAME
 
     servers = json.loads((render / ".mcp.json").read_text())["mcpServers"]
@@ -620,9 +623,9 @@ def test_every_launched_process_in_a_context_names_the_image_interpreter(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
+@pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
 def test_a_produced_context_reports_neither_drift_nor_staleness(
-    built_repo: Path, persona: str | None, tmp_path: Path
+    built_repo: Path, tier: str | None, tmp_path: Path
 ) -> None:
     """An untouched image reports itself untouched — by BOTH readers, not just the gate.
 
@@ -634,16 +637,16 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
 
     They agree only if they hash the SAME file. The gate reads ``profile.yml``
     off the repo root; the advisory reads whatever ``build_args.profile_path_abs``
-    names — so for a persona image, pointing that at the persona DELTA (the file
+    names — so for a render image, pointing that at the render DELTA (the file
     the render came from) hashes the delta against a stamp taken from the root
-    profile, and every persona container prints "profile has changed" on a build
+    profile, and every render container prints "profile has changed" on a build
     nobody touched, forever. A false drift report is the one thing the whole
     relocation exists to prevent, and an advisory that cries wolf on every
     container is how operators learn to ignore the real one.
     """
     from osprey.deployment.staleness import DriftState, check_drift
 
-    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    name = built_repo.name if tier is None else f"{built_repo.name}-{tier}"
     context = _contexts(built_repo)[name]
 
     report = check_drift(context)
@@ -654,14 +657,14 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
+@pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
 def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_source(
-    built_repo: Path, persona: str | None
+    built_repo: Path, tier: str | None
 ) -> None:
     """The two profile records in a container manifest, and why they differ.
 
     ``profile_path`` is provenance: the file this render came from, which for a
-    persona image is its delta. ``profile_path_abs`` is not provenance — it is
+    render image is its delta. ``profile_path_abs`` is not provenance — it is
     the advisory's INPUT, the file it hashes against ``creation.preset_hash`` —
     so it has to name the profile that stamp was computed from, which is the
     repo's own ``profile.yml``. Stated here as an equality rather than left to
@@ -671,7 +674,7 @@ def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_
     """
     from osprey.deployment.staleness import build_manifest_path
 
-    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    name = built_repo.name if tier is None else f"{built_repo.name}-{tier}"
     context = _contexts(built_repo)[name]
     manifest = json.loads(build_manifest_path(context).read_text(encoding="utf-8"))
     build_args = manifest["build_args"]
@@ -679,7 +682,10 @@ def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_
     assert build_args["profile_path_abs"] == f"/app/{name}/{PROFILE_FILENAME}"
     assert (context / PROFILE_FILENAME).is_file(), "the file the advisory hashes must ship"
 
-    expected_source = PROFILE_FILENAME if persona is None else f"{PERSONA_DIRNAME}/{persona}.yml"
+    from tests.fixtures.lifecycle_repo import APP_PRESETS
+
+    layer_dir = APPS_DIRNAME if tier in APP_PRESETS else TIERS_DIRNAME
+    expected_source = PROFILE_FILENAME if tier is None else f"{layer_dir}/{tier}.yml"
     assert build_args["profile_path"] == f"/app/{name}/{expected_source}"
 
 

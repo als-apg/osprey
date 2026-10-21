@@ -35,18 +35,7 @@ import yaml
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.templates import manifest
 from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -67,7 +56,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -187,6 +176,17 @@ class TestOperatingBlueskyPlansSkillStructure:
     def test_documents_watch_tools(self, skill_text):
         for tool in ("get_run", "get_run_data", "get_run_figure", "list_runs", "list_plans"):
             assert tool in skill_text, f"Missing run tool: {tool}"
+
+    def test_reading_a_launched_run_back_is_get_run_data(self, skill_text):
+        """get_run is status only; analysing a run starts from its rows."""
+        prose = _prose(skill_text)
+        assert "reading a run back means get_run_data" in prose
+        assert "before you analyse or report anything about it" in prose
+        assert "holds no measured value" in prose
+        assert (
+            "never analyse or report on a run you launched without first reading its rows "
+            "with get_run_data" in prose
+        )
 
     # --- the choreography ---
 

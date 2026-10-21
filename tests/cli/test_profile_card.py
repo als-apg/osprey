@@ -1,7 +1,7 @@
 """The composition card ``osprey init`` prints under its report.
 
 What is pinned here, and kept apart on purpose: what the card SAYS for the
-exemplar preset (derived from the resolved profile and its persona deltas,
+exemplar preset (derived from the resolved profile and its layers,
 through the plain-text renderer), that the printed card and the plain-text
 twin cannot disagree (the parity :mod:`osprey.cli.summary_card`'s tests pin
 for the closing card), that a profile with none of a group's facts prints no
@@ -39,9 +39,9 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_card import card_rows, format_profile_card, print_profile_card
 from osprey.cli.profile_cmd import (
-    _parsed_persona_deltas,
-    _persona_profile_texts,
-    read_persona_deltas,
+    _layer_profile_texts,
+    _parsed_layer_deltas,
+    read_layer_deltas,
 )
 from osprey.cli.styles import osprey_theme
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
@@ -54,7 +54,7 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
 # The exemplar: the control-assistant preset, resolved the way `init` resolves
-# it, with the persona deltas the materializer parses. Session-scoped: the
+# it, with the layers the materializer parses. Session-scoped: the
 # preset is packaged data, identical for every test here.
 # ---------------------------------------------------------------------------
 
@@ -62,8 +62,8 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 @pytest.fixture(scope="session")
 def exemplar() -> tuple[BuildProfile, dict]:
     resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
-    texts = _persona_profile_texts(resolved, "Exemplar", "", "control-assistant")
-    return resolved, _parsed_persona_deltas(texts)
+    texts = _layer_profile_texts(resolved, "Exemplar", "")
+    return resolved, _parsed_layer_deltas(texts)
 
 
 @pytest.fixture(scope="session")
@@ -142,9 +142,18 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
     from osprey.cli.profile_card import _write_rights
 
     armed = SimpleNamespace(
-        config={"control_system.type": "mock", "control_system.writes_enabled": True}
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+            "control_system.writes_enabled": True,
+        }
     )
-    cold = SimpleNamespace(config={"control_system.type": "mock"})
+    cold = SimpleNamespace(
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+        }
+    )
     assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
     assert _write_rights(cold, {}, "readonly") == []
 
@@ -157,9 +166,9 @@ def test_a_switch_capable_render_answers_per_target(exemplar_lines: list[str]) -
     assert "readonly · live read-only · va read-only" in bob
 
 
-def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
+def test_a_mixed_render_arms_only_the_target_its_own_block_names() -> None:
     # Write posture is per connector type: `control_system.writes_enabled`
-    # answers only for a type whose own block says nothing. A persona that
+    # answers only for a type whose own block says nothing. A render that
     # says `false` deployment-wide and `true` under the simulator's block is
     # armed on the simulator and read-only on the live machine — and the card
     # has to show both halves, because which one carries the write path is
@@ -168,7 +177,7 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
         name="mixed",
         config={
             "modules.web_terminals.enabled": True,
-            "modules.web_terminals.users": [{"name": "dana", "index": 0, "persona": "va-write"}],
+            "modules.web_terminals.users": [{"name": "dana", "index": 0, "tier": "va-write"}],
             "control_system.type": "virtual_accelerator",
             "control_system.connector.epics.gateways": ["gw.example:5064"],
             "control_system.connector.virtual_accelerator.port": 5064,
@@ -188,12 +197,13 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
     assert "va-write · live read-only · va rights approval-gated" in dana
 
 
-def test_a_shared_card_says_so(exemplar_lines: list[str]) -> None:
-    """The standalone card is opened with any roster login's password, so the
-    card says both: the method, and that the entry is shared."""
-    logbook = line_with(exemplar_lines, "logbook", f":{_PORTS['web'] + 2}")
-    assert "password · shared" in logbook
-    assert "no login" not in logbook
+def test_a_shared_app_is_not_a_roster_row(exemplar_lines: list[str]) -> None:
+    """The flagship's apps are `shared:` cards, not logins: the roster rows are
+    its people, none of them shared, and no app takes a user's row or port."""
+    for app in ("logbook", "knowledge", "channel-finder"):
+        assert not [line for line in exemplar_lines if line.strip().startswith(f"{app} ")]
+    for person in ("alice", "bob", "carol"):
+        assert "shared" not in line_with(exemplar_lines, person, "password")
 
 
 def _roster_card(access: object) -> list[str]:
@@ -210,6 +220,27 @@ def _roster_card(access: object) -> list[str]:
         },
     )
     return format_profile_card(profile, {})
+
+
+def _default_tier_card(tiers: dict[str, str]) -> list[str]:
+    """The card for a one-user deployment whose entry pins no render."""
+    config: dict[str, object] = {
+        "modules.web_terminals.enabled": True,
+        "modules.web_terminals.users": [{"name": "ops", "index": 0}],
+    }
+    config.update({f"modules.web_terminals.{key}": value for key, value in tiers.items()})
+    return format_profile_card(BuildProfile(name="roster", config=config), {})
+
+
+def test_an_unpinned_user_row_shows_default_tier() -> None:
+    """`default_tier` names the render an unpinned entry lands on, and it is the
+    only key the card reads for it: a retired spelling is rewritten at the parse
+    point, before any card exists, so no other key names a default here."""
+    row = line_with(_default_tier_card({"default_tier": "readonly"}), "ops")
+    assert "readonly" in row
+
+    other_key_only = _default_tier_card({"default_render": "readwrite"})
+    assert "readwrite" not in line_with(other_key_only, "ops")
 
 
 def test_a_card_admitting_a_domain_says_shared() -> None:
@@ -263,15 +294,15 @@ def test_an_unreadable_access_never_fails_the_card() -> None:
     assert "access invalid" not in line_with(lines, "alice")
 
 
-def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) -> None:
-    # EVENTS and BLUESKY are declared by the readwrite persona, not the host
+def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -> None:
+    # EVENTS and BLUESKY are declared by the readwrite render, not the host
     # profile; a card that read only the host would miss them. Their labels
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
-    # the order it lists them, then whatever the persona deltas add. JUPYTER
+    # the order it lists them, then whatever the layers add. JUPYTER
     # follows SYSTEM because the profile lists `jupyter` after `system-health`.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -284,6 +315,97 @@ def test_the_agent_group_names_servers_and_counts_its_toolkit(
     toolkit = line_with(exemplar_lines, "toolkit")
     assert re.search(r"\d+ hooks", toolkit)
     assert re.search(r"\d+ agents", toolkit)
+
+
+def mcp_servers_on(lines: list[str]) -> list[str]:
+    """The server names on the agent group's ``mcp`` row, in card order."""
+    return line_with(lines, "mcp ").split("mcp", 1)[1].strip().split(" · ")
+
+
+def test_the_mcp_row_lists_the_graph_and_dispatcher_servers_the_renders_ship(
+    exemplar_lines: list[str],
+) -> None:
+    """The host declares a graph store; the write-armed tiers add the EVENTS
+    panel. The render gates `graph` and `event_dispatcher` on exactly those, so
+    the card lists both (P1.3)."""
+    servers = mcp_servers_on(exemplar_lines)
+    assert "graph" in servers
+    assert "event_dispatcher" in servers
+    assert len(servers) == len(set(servers))
+
+
+def test_the_dispatcher_rides_on_the_tier_that_adds_the_events_panel(
+    exemplar: tuple[BuildProfile, dict],
+) -> None:
+    """The host alone ships the graph server but no dispatcher entry; the
+    readonly tier adds no panel, so it adds nothing; the admin tier's EVENTS
+    panel is the entitlement that wires the dispatcher."""
+    profile, deltas = exemplar
+    host = mcp_servers_on(format_profile_card(profile, {}))
+    assert "graph" in host
+    assert "event_dispatcher" not in host
+
+    readonly = mcp_servers_on(format_profile_card(profile, {"readonly": deltas["readonly"]}))
+    assert readonly == host
+
+    admin = mcp_servers_on(format_profile_card(profile, {"admin": deltas["admin"]}))
+    assert admin == [*host, "event_dispatcher"]
+
+
+def _gated_card(config: dict, deltas: dict | None = None) -> list[str]:
+    """The servers a bare profile's card lists, for a ``config:`` bag."""
+    profile = BuildProfile(name="gates", config=config)
+    return mcp_servers_on(format_profile_card(profile, deltas or {}))
+
+
+def test_a_declared_graph_store_is_what_ships_the_graph_server() -> None:
+    assert "graph" not in _gated_card({})
+    # The fully-defaulted block counts, dotted or nested, as the render reads it.
+    assert "graph" in _gated_card({"services.graphdb": {}})
+    assert "graph" in _gated_card({"services": {"graphdb": {"image": "neo4j:5"}}})
+    # The bare `graphdb:` YAML reads as None: no store.
+    assert "graph" not in _gated_card({"services.graphdb": None})
+
+
+def test_a_tier_can_declare_the_graph_store_its_host_does_not() -> None:
+    servers = _gated_card({}, {"curious": {"config": {"services.graphdb.image": "neo4j:5"}}})
+    assert "graph" in servers
+
+
+def test_a_malformed_graph_store_drops_the_server_but_not_the_card() -> None:
+    """The render warns and leaves the graph server out; the card agrees."""
+    servers = _gated_card({"services.graphdb.port_host": "not-a-port"})
+    assert "graph" not in servers
+    assert "controls" in servers
+
+
+def test_an_events_block_no_layer_selects_wires_no_dispatcher() -> None:
+    """The build switches off every block for a tab its profile does not
+    select, so a spelled `web.panels.events` block alone grants nothing."""
+    assert "event_dispatcher" not in _gated_card({"web.panels.events": {"label": "Events"}})
+    assert "event_dispatcher" in _gated_card({}, {"ops": {"web_panels": ["events"]}})
+    # Selected, the block's own facts stay and the panel reads as on.
+    selected = _gated_card(
+        {"web.panels.events": {"label": "Events"}}, {"ops": {"web_panels": ["events"]}}
+    )
+    assert "event_dispatcher" in selected
+
+
+def test_the_card_reads_the_renders_own_gate_predicates(
+    exemplar: tuple[BuildProfile, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two gates are the render's functions, not a restatement of them:
+    change what the render's predicate answers and the card follows."""
+    import osprey.cli.templates.claude_code as claude_code
+    import osprey.deployment.web_terminals.roster as renders
+
+    profile, deltas = exemplar
+    monkeypatch.setattr(claude_code, "_graphdb_configured", lambda config: False)
+    monkeypatch.setattr(renders, "config_needs_dispatcher_token", lambda config: False)
+
+    servers = mcp_servers_on(format_profile_card(profile, deltas))
+    assert "graph" not in servers
+    assert "event_dispatcher" not in servers
 
 
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
@@ -318,14 +440,16 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     archiver = line_with(exemplar_lines, "archiver")
     assert "mongodb · 30 d retention" in archiver
     channels = line_with(exemplar_lines, "channels")
-    assert "graph finder · tier 3" in channels
+    assert "graph finder" in channels
+    assert "tier" not in channels
 
 
 def test_the_services_group_names_the_injected_stack(exemplar_lines: list[str]) -> None:
     bluesky = line_with(exemplar_lines, "bluesky ", f":{_PORTS['bluesky']}")
     assert f"tiled :{_PORTS['tiled']}" in bluesky
     assert f"web :{_PORTS['bluesky_web']}" in bluesky
-    dispatch = line_with(exemplar_lines, "dispatch")
+    # The trailing space keeps the needle off the agent row's `event_dispatcher`.
+    dispatch = line_with(exemplar_lines, "dispatch ")
     assert "1 worker · triggers " in dispatch
 
 
@@ -472,7 +596,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# read_persona_deltas: the persona facts the card derives from, read off disk
+# read_layer_deltas: the render facts the card derives from, read off disk
 # ---------------------------------------------------------------------------
 
 
@@ -483,93 +607,89 @@ def exemplar_config(lifecycle_repo: Path) -> dict:
     return document["config"]
 
 
-def test_read_persona_deltas_reads_one_delta_per_catalog_entry(
-    lifecycle_repo: Path, exemplar_config: dict
-) -> None:
-    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+#: The layers the exemplar repo carries: its three tiers, then its three apps.
+_EXEMPLAR_LAYERS = ["admin", "readonly", "readwrite", "channel-finder", "knowledge", "logbook"]
 
-    assert set(deltas) == {"readonly", "readwrite", "admin", "logbook", "knowledge"}
-    # Every one was really read: a delta the reader could not open is empty.
+
+def test_read_layer_deltas_reads_one_delta_per_layer_file(lifecycle_repo: Path) -> None:
+    deltas = read_layer_deltas(lifecycle_repo)
+
+    # Keyed by file stem, tiers before apps, sorted within each.
+    assert list(deltas) == _EXEMPLAR_LAYERS
+    # Every one was really read, and it is the file's own content.
     assert all(delta for delta in deltas.values())
-    # And it is the file's own content, not the host profile's.
     assert deltas["logbook"] == yaml.safe_load(
-        (lifecycle_repo / "personas" / "logbook.yml").read_text(encoding="utf-8")
+        (lifecycle_repo / "apps" / "logbook.yml").read_text(encoding="utf-8")
+    )
+    assert deltas["admin"] == yaml.safe_load(
+        (lifecycle_repo / "tiers" / "admin.yml").read_text(encoding="utf-8")
     )
 
 
-def test_read_persona_deltas_ignores_a_file_the_catalog_does_not_name(
-    lifecycle_repo: Path, exemplar_config: dict
+def test_read_layer_deltas_never_consults_the_profile(lifecycle_repo: Path) -> None:
+    # The layer set is the files on disk: a profile whose roster names no tier
+    # and no app changes nothing.
+    before = read_layer_deltas(lifecycle_repo)
+    profile_path = lifecycle_repo / "profile.yml"
+    document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    document["config"] = {}
+    profile_path.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    assert read_layer_deltas(lifecycle_repo) == before
+    assert list(before) == _EXEMPLAR_LAYERS
+
+
+def test_read_layer_deltas_reads_a_layer_file_added_to_the_directory(
+    lifecycle_repo: Path,
 ) -> None:
-    # A persona the profile dropped leaves its file behind. The catalog is the
-    # list, never the directory, so the stale file is invisible.
-    (lifecycle_repo / "personas" / "old-admin.yml").write_text("provider: gone\n", encoding="utf-8")
+    # A file in a layer directory IS a layer the build renders, so the reader
+    # reports it as well; a dot-file or a nested tree is not a layer.
+    (lifecycle_repo / "tiers" / "operator.yml").write_text("provider: cborg\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / ".draft.yml").write_text("provider: x\n", encoding="utf-8")
+    (lifecycle_repo / "apps" / "nested").mkdir()
+    (lifecycle_repo / "apps" / "nested" / "deep.yml").write_text("provider: x\n", encoding="utf-8")
 
-    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+    deltas = read_layer_deltas(lifecycle_repo)
 
-    assert "old-admin" not in deltas
-    assert len(deltas) == 5
-
-
-def test_read_persona_deltas_warns_when_a_persona_file_is_missing(
-    lifecycle_repo: Path, exemplar_config: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
-    (lifecycle_repo / "personas" / "logbook.yml").unlink()
-
-    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
-
-    assert deltas["logbook"] == {}
-    # The persona is still deployed, so it keeps its place in the result.
-    assert len(deltas) == 5
-    assert all(delta for name, delta in deltas.items() if name != "logbook")
-    err = capsys.readouterr().err
-    assert "no persona file at personas/logbook.yml" in err
-    assert "'logbook'" in err
-    assert err.count("no persona file") == 1
+    assert deltas["operator"] == {"provider": "cborg"}
+    assert set(deltas) == {*_EXEMPLAR_LAYERS, "operator"}
 
 
-def test_read_persona_deltas_warns_for_a_preset_reference(
-    lifecycle_repo: Path, exemplar_config: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # A catalog entry may name a bundled preset instead of a file in this repo.
-    # There is nothing under the repo root to read, and that is not an error.
-    catalog = exemplar_config["modules.web_terminals"]["personas"]
-    catalog["readonly"]["build_profile"] = "control-assistant-readonly"
+def test_read_layer_deltas_drops_a_removed_layer(lifecycle_repo: Path) -> None:
+    (lifecycle_repo / "apps" / "logbook.yml").unlink()
 
-    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+    deltas = read_layer_deltas(lifecycle_repo)
 
-    assert deltas["readonly"] == {}
-    assert len(deltas) == 5
-    err = capsys.readouterr().err
-    assert "'readonly'" in err
-    assert "'control-assistant-readonly' is not a file in this repo" in err
+    assert "logbook" not in deltas
+    assert len(deltas) == len(_EXEMPLAR_LAYERS) - 1
 
 
-def test_read_persona_deltas_refuses_an_unparsable_file(
-    lifecycle_repo: Path, exemplar_config: dict
-) -> None:
-    (lifecycle_repo / "personas" / "admin.yml").write_text("config:\n  - [\n", encoding="utf-8")
+def test_read_layer_deltas_is_empty_for_a_repo_without_layers(tmp_path: Path) -> None:
+    assert read_layer_deltas(tmp_path) == {}
+
+
+def test_read_layer_deltas_refuses_an_unparsable_file(lifecycle_repo: Path) -> None:
+    (lifecycle_repo / "tiers" / "admin.yml").write_text("config:\n  - [\n", encoding="utf-8")
 
     with pytest.raises(click.ClickException) as excinfo:
-        read_persona_deltas(lifecycle_repo, exemplar_config)
+        read_layer_deltas(lifecycle_repo)
 
     message = str(excinfo.value)
     # The path named is the one the operator opens, and the parser's own
     # complaint rides along with it.
-    assert "personas/admin.yml" in message
+    assert "tiers/admin.yml" in message
     assert "not valid YAML" in message
 
 
-def test_read_persona_deltas_refuses_a_file_that_is_not_a_mapping(
-    lifecycle_repo: Path, exemplar_config: dict
-) -> None:
+def test_read_layer_deltas_refuses_a_file_that_is_not_a_mapping(lifecycle_repo: Path) -> None:
     # Valid YAML, but nothing a delta can be merged from. Carried as an empty
-    # delta it would read as a persona that overrides nothing.
-    (lifecycle_repo / "personas" / "admin.yml").write_text("- readonly\n", encoding="utf-8")
+    # delta it would read as a layer that overrides nothing.
+    (lifecycle_repo / "apps" / "knowledge.yml").write_text("- readonly\n", encoding="utf-8")
 
     with pytest.raises(click.ClickException) as excinfo:
-        read_persona_deltas(lifecycle_repo, exemplar_config)
+        read_layer_deltas(lifecycle_repo)
 
-    assert "personas/admin.yml is not a YAML mapping" in str(excinfo.value)
+    assert "apps/knowledge.yml is not a YAML mapping" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -655,17 +775,17 @@ def test_card_rows_are_empty_when_the_card_is() -> None:
     assert card_rows(profile, {}) == []
 
 
-def test_card_rows_carry_the_persona_deltas_read_off_disk(
+def test_card_rows_carry_the_layer_deltas_read_off_disk(
     lifecycle_repo: Path, exemplar_config: dict
 ) -> None:
-    """A deployed repo end to end: its own profile, its own persona files.
+    """A deployed repo end to end: its own profile, its own tier files.
 
-    The rights on a roster row come from the persona's own file, not from the
+    The rights on a roster row come from the render's own file, not from the
     host profile — so the same profile read with no deltas says something
     different about the same login.
     """
     profile = BuildProfile(name="als-exemplar", config=exemplar_config)
-    deltas = read_persona_deltas(lifecycle_repo, exemplar_config)
+    deltas = read_layer_deltas(lifecycle_repo)
 
     rows = card_rows(profile, deltas)
 
@@ -673,7 +793,7 @@ def test_card_rows_carry_the_persona_deltas_read_off_disk(
     assert {"alice", "bob"} <= set(roster)
     assert roster["alice"].startswith("readwrite")
     assert roster["bob"].startswith("readonly")
-    # The readonly persona pins both connectors read-only in its own file.
+    # The readonly tier pins both connectors read-only in its own file.
     assert "read-only" in roster["bob"]
     bare = {row["label"]: row["value"] for row in card_rows(profile, {})}
     assert bare["bob"] != roster["bob"]
@@ -686,13 +806,13 @@ def test_card_rows_carry_the_persona_deltas_read_off_disk(
 
 @pytest.fixture
 def deployed(lifecycle_repo: Path) -> tuple[BuildProfile, dict]:
-    """The exemplar repo's own profile, and the deltas its persona files hold.
+    """The exemplar repo's own profile, and the deltas its tier files hold.
 
     Resolved the way the command resolves them, so a test asserting on what the
     command printed is comparing against the same two inputs it printed from.
     """
     profile, _profile_dir = resolve_build_profile(lifecycle_repo / "profile.yml", None)
-    return profile, read_persona_deltas(lifecycle_repo, profile.config)
+    return profile, read_layer_deltas(lifecycle_repo)
 
 
 def break_the_card(repo: Path) -> None:
@@ -723,9 +843,9 @@ def test_the_card_command_prints_the_plain_renderer_line_for_line(
     line for line, with no report above it and no summary below.
     """
     profile, deltas = deployed
-    # One delta per persona the exemplar deploys — the facts the roster rows
+    # One delta per layer the exemplar deploys — the facts the roster rows
     # are made of, so an empty read would print a card that says less.
-    assert len(deltas) == 5
+    assert list(deltas) == _EXEMPLAR_LAYERS
     monkeypatch.chdir(lifecycle_repo)
 
     result = CliRunner().invoke(cli, ["profile", "card"], catch_exceptions=False)
@@ -771,20 +891,36 @@ def test_the_json_card_is_one_document_of_group_label_value_rows(
     assert result.stdout.strip() == json.dumps(rows)
 
 
-def test_a_persona_warning_never_reaches_the_json_document(
+def test_the_json_card_lists_graph_and_the_dispatcher_on_the_agent_row(
     lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A missing persona file warns, and the warning lands on stderr alone."""
-    (lifecycle_repo / "personas" / "logbook.yml").unlink()
+    """The init repo's card, through the command: the host's graph store and the
+    write-armed tiers' EVENTS panel both reach the agent row (P1.3)."""
     monkeypatch.chdir(lifecycle_repo)
 
     result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
 
     assert result.exit_code == 0, result.stderr
-    rows = json.loads(result.stdout)
-    assert rows
-    assert result.stdout.strip() == json.dumps(rows)
-    assert "no persona file at personas/logbook.yml" in result.stderr
+    agent = {
+        row["label"]: row["value"] for row in json.loads(result.stdout) if row["group"] == "agent"
+    }
+    servers = agent["mcp"].split(" · ")
+    assert "graph" in servers
+    assert "event_dispatcher" in servers
+
+
+def test_a_broken_layer_file_never_reaches_the_json_document(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unparsable layer refuses, and the refusal lands on stderr alone."""
+    (lifecycle_repo / "apps" / "logbook.yml").write_text("- not a mapping\n", encoding="utf-8")
+    monkeypatch.chdir(lifecycle_repo)
+
+    result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "apps/logbook.yml is not a YAML mapping" in result.stderr
 
 
 @pytest.mark.parametrize("mode", [[], ["--json"]], ids=["plain", "json"])

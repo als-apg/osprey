@@ -37,7 +37,7 @@ from osprey.cli.build_profile_resolve import (
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _flat(text: str) -> str:
@@ -268,25 +268,31 @@ def test_a_top_level_dotted_key_edits_one_leaf() -> None:
     assert raw["bluesky"] == {"port": 2, "host": "h"}
 
 
-def test_a_literal_key_inherited_from_a_parent_is_shadowed_too() -> None:
+def test_a_literal_key_inherited_from_a_parent_is_shadowed_too(tmp_path: Path) -> None:
     """The prune runs post-``extends``: a parent's key is inherited content."""
+    (tmp_path / "data").mkdir()
+    child = tmp_path / "profile.yml"
+    child.write_text("name: Child\nextends: control-assistant\ndata: data\n", encoding="utf-8")
+    inherited, _dir = resolve_build_profile(child, None)
+    assert CONNECTOR_CONFIG_KEY in inherited.config
+
     profile, _dir = resolve_build_profile(
+        child,
         None,
-        "control-assistant-readonly",
-        set_pairs=("config.control_system={type: mock}",),
+        set_pairs=("config.control_system={type: live_standin}",),
     )
 
-    assert profile.config["control_system"] == {"type": "mock"}
+    assert profile.config["control_system"] == {"type": "live_standin"}
     assert CONNECTOR_CONFIG_KEY not in profile.config
 
 
 def test_an_unrelated_set_pair_leaves_the_preset_alone() -> None:
     """Pruning is scoped to what the command line named."""
     profile, _dir = resolve_build_profile(
-        None, "hello-world", set_pairs=("config.facility.name=Ring",)
+        None, "hello-world", set_pairs=("config.system.timezone=UTC",)
     )
 
-    assert profile.config["facility.name"] == "Ring"
+    assert profile.config["system.timezone"] == "UTC"
     assert profile.config["approval.tools.channel_read"] == "skip"
 
 
@@ -330,18 +336,20 @@ def test_the_conflict_is_caught_when_the_edit_is_parsed() -> None:
 
 def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
     """The preset's own literal key is what the shorthand exists to override."""
-    profile, _dir = resolve_build_profile(None, "control-assistant", set_pairs=("connector=mock",))
+    profile, _dir = resolve_build_profile(
+        None, "control-assistant", set_pairs=("connector=live_standin",)
+    )
 
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "mock"
+    assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
 
 
 def test_a_literal_type_set_now_reaches_the_render() -> None:
     """No shorthand needed: the dotted key replaces the preset's own entry."""
     profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("config.control_system.type=mock",)
+        None, "control-assistant", set_pairs=("config.control_system.type=live_standin",)
     )
 
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "mock"
+    assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
 
 
 # ── the CLI surface: init, set, and the render they feed ─────────────────────

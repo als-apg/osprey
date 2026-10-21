@@ -48,11 +48,11 @@ predicate answers, and its three conjuncts must all hold:
    interface; anything routed off the host is a different machine.
 
 Deliberately **no** ``deployed_services`` conjunct. Attached projects and
-persona renders carry ``services: {}`` except for the keys their reach contract
+tier renders carry ``services: {}`` except for the keys their reach contract
 projects, so a conjunct on the deployed-services list would resolve to "not the
 stand-in" on exactly the renders a multi-user deployment hands its operators —
 the target offered to a single-user session and withheld from the same machine
-seen through a persona. The projected port is the whole evidence, and it is
+seen through a tier render. The projected port is the whole evidence, and it is
 enough.
 
 An SSH tunnel is the case this predicate must *not* claim. Forwarding a real
@@ -85,12 +85,12 @@ endpoint anywhere in them:
 
 Two spellings for one fact, because a render has two ways of stating it. A
 deploying render lists the service and the build's injector writes the block
-beside the listing; an attached render — a web-terminal persona — lists
+beside the listing; an attached render — a web-terminal tier render — lists
 nothing at all, and is instead TOLD the block by the build, projected from its
 host's render the way today's stand-in port is (the ``archiver_recorder`` Reach
-Contract in :mod:`osprey.deployment.reach`). The persona reads the host's
+Contract in :mod:`osprey.deployment.reach`). The tier render reads the host's
 store, so it must read the host's answer: the archive a multi-user session
-queries is the same archive, and a gate that vanished behind a persona would
+queries is the same archive, and a gate that vanished behind a tier render would
 describe one machine two ways.
 
 The second conjunct is the one ``live_standin_active`` must not have, and the
@@ -155,6 +155,7 @@ __all__ = [
     "LIVE_STANDIN_PORT_KEY",
     "LOOPBACK_HOSTNAME",
     "archive_belongs_to_standin",
+    "archive_recorder_configured",
     "live_standin_active",
     "live_standin_port",
 ]
@@ -219,11 +220,11 @@ def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
     Either spelling, because a render states the fact one of two ways and both
     are the host's. A deploying render lists the service, and the build's
     injector writes the block beside the listing. An attached render — every
-    web-terminal persona — lists nothing, and is told the block by the build,
+    web-terminal tier render — lists nothing, and is told the block by the build,
     projected from its host's render like the stand-in's port (the
     ``archiver_recorder`` Reach Contract in :mod:`osprey.deployment.reach`).
     Reading only ``deployed_services`` would drop this gate in exactly the
-    renders a multi-user deployment hands its operators, while the persona
+    renders a multi-user deployment hands its operators, while the tier render
     queries the very store the fact is about.
 
     Unlike :func:`live_standin_active` this asks nothing about an endpoint —
@@ -240,16 +241,23 @@ def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
     """
     if live_standin_port(config) is None:
         return False
-    return _records_its_own_store(config)
+    return archive_recorder_configured(config)
 
 
-def _records_its_own_store(config: Mapping[str, Any]) -> bool:
+def archive_recorder_configured(config: Mapping[str, Any]) -> bool:
     """Whether *config* says the deployment runs the archive recorder.
 
     The listing on a deploying render, the projected block on an attached one.
     A block that is not a non-empty mapping says nothing: an empty or null
     stanza declares no service, and a non-mapping value is not the block the
     injector writes.
+
+    Args:
+        config: The full config mapping, as loaded from ``config.yml``.
+
+    Returns:
+        ``True`` when the render lists ``archiver_recorder`` in
+        ``deployed_services`` or carries a non-empty recorder block.
     """
     if ARCHIVER_RECORDER_SERVICE in _deployed_services(config):
         return True

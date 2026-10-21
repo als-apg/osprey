@@ -31,6 +31,12 @@
 #                       real anchored evidence. See the note below.
 #   data-map: true      The key's leaves are user-extensible data, not a fixed
 #                       schema — the guard checks shape, not membership.
+#   deployment-data: true
+#                       This deployment's own selection; a preset's value is an
+#                       example, never a default, so no filler writes it.
+#                       `data-map: true` implies it. The filler reads `config:`
+#                       only, so top-level profile blocks such as `dispatch:`
+#                       are never filled.
 #   forward-declared    Written by the templates, read by nothing today, and
 #                       deliberately so (documented hidden-key stanzas).
 #
@@ -40,7 +46,7 @@
 # (840 files), `path` (519), `type` (475) or `enabled` (169). Those match
 # whether or not the key is still read, so they prove nothing — a passing guard
 # built on them is theatre. Nested leaves genuinely have no per-leaf reader to
-# cite: code does `services.get("openobserve")` and then `.get("port")`, so the
+# cite: code does `services.get("postgresql")` and then `.get("port_host")`, so the
 # only honest citation is at the parent. `covered-by` records that structural
 # fact instead of manufacturing evidence. Do NOT "improve" a `covered-by` entry
 # into a bare-word `evidence` regex; if you add one, it must be an anchored
@@ -55,8 +61,8 @@
 # the manifest otherwise). The bare entries are domain identifiers, not English
 # words, so deleting the reader really would drop the count toward zero. Where
 # an obvious anchored form existed it was preferred instead — e.g.
-# claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
-# "openobserve"` rather than the bare word, and services.postgresql.path cites
+# claude_code.telemetry.backend cites `telemetry_cfg.get("backend")` rather
+# than the bare word, and services.postgresql.path cites
 # the compose generator's `service_config["path"]` read after the bare word
 # crossed the ceiling. The rest have no clean single reader to anchor on (the
 # value is unpacked from a block, or read in several places with different
@@ -91,9 +97,9 @@
 #                  key yet (the forward-declared ones), or the value is
 #                  deliberately three-state and "unstated" is not "false".
 #                  The nine limits_checking keys are the last kind, and the
-#                  distinction is load-bearing: an unstated leaf makes every
-#                  write path refuse unlisted channels, so recording `false`
-#                  there would misdescribe a safety gate.
+#                  distinction is load-bearing: an unstated leaf is not a
+#                  stated one, so recording `false` there would misdescribe a
+#                  safety gate.
 #
 # `derived` and `no-fallback` say nothing on their own, so each carries a
 # `default_note:` naming the derivation or the consequence. That is what stops
@@ -131,40 +137,6 @@ keys:
     default_note: >-
       unset names no application registry, and the framework-only registry is
       used
-  facility:
-    evidence: 'config\.get\("facility"\)'
-    note: >-
-      Live in ariel_standalone and channel_finder_standalone (name), in
-      channel_finder_standalone and control_assistant (ontology); commented
-      in hello_world. Canonical spelling.
-    default: {}
-  facility.name:
-    evidence: 'facility\.get\("name"\)'
-    default: derived
-    default_note: the project name
-  facility.ontology:
-    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
-    note: >-
-      Live in control_assistant and channel_finder_standalone, which ship the
-      compiled demo table at data/facility_ontology.json; a commented example
-      in ariel_standalone (its agents read the vocabulary out of the seeded
-      store, not the file); absent from hello_world. The sole reader is
-      cli/templates/claude_code.py `_facility_vocabulary`, and it is the sole
-      source of the device rows in the channel-finder terminology tables. A
-      declared path that will not load is a hard build error — never a silent
-      skip and never a fallback to the packaged demo ontology.
-    default: null
-  facility.prefix:
-    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
-    note: >-
-      Only the multi-user web-terminal stack reads it. `control-assistant`
-      ships it live (`facility.prefix: ca`) because that preset is the one that
-      deploys the web-terminal stack; `ariel-standalone` and
-      `channel-finder-standalone` carry it commented, and `hello-world` omits
-      it. The ONLY enforcement anywhere is a non-emptiness lint
-      (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
-      charset or length rule exists in code. See notes.prefix_rule_drift.
-    default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
   container_runtime:
@@ -180,9 +152,17 @@ keys:
     evidence: 'config\.get\("deployed_services", \[\]\)'
     note: >-
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
-      [openobserve] / [postgresql, openobserve, qmd, graphdb]). The guard must
+      [telemetry_store, telemetry_gateway] / [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]). The guard must
       not assert value equality here.
     default: []
+  deployment.host_identity:
+    rendered: false
+    evidence: 'get\("host_identity"\)'
+    note: >-
+      The identity host launches send telemetry and file their records under.
+      Unset in the presets: the build records the account that ran it.
+    default: derived
+    default_note: the account that ran `osprey build`
   deployment.port_base:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'
@@ -203,7 +183,7 @@ keys:
     note: >-
       Hidden key, commented in the framework template and unset in the four
       presets. Both halves of air-gapped operation, deliberately under one
-      key: `osprey up` passes it to the project, persona and sidecar image
+      key: `osprey up` passes it to the project, render and sidecar image
       builds as `OSPREY_OFFLINE=1`, which makes each image run `osprey vendor
       fetch`, and the running interfaces read it again through
       `vendor.is_offline` to decide whether to serve those bundles instead of
@@ -240,7 +220,7 @@ keys:
       Hidden key, commented in the framework template and unset in the four
       presets. Path on the DEPLOY HOST to the PEM bundle of a proxy that
       re-signs TLS. `osprey up` stages a copy into the build context of each
-      image it builds from a shipped recipe — the project image, each persona
+      image it builds from a shipped recipe — the project image, each render
       image and the login sidecar (`container_lifecycle.site_image_build_args`)
       — and passes its staged name as the `OSPREY_SITE_CA` build arg, because a
       Dockerfile COPY cannot reach outside its context. Same two layers as the
@@ -254,7 +234,7 @@ keys:
     note: >-
       Hidden key, commented in the framework template and unset in the four
       presets. The hosts pip reaches without going through the proxy, passed
-      to the project, persona and sidecar image builds as the `PIP_NO_PROXY`
+      to the project, render and sidecar image builds as the `PIP_NO_PROXY`
       build arg those recipes declare. PIP_NO_PROXY overrides it in the
       environment.
     default: ''
@@ -279,40 +259,77 @@ keys:
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
-  # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
-  # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
-  # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
-  # project config, so no shipped preset carries them and they
-  # are outside the rendered union this manifest is otherwise derived from.
-  # Only `devices_file` is recorded, because only it is written UNCONDITIONALLY
-  # on every lane of every bluesky deploy — its disappearance is therefore a
-  # real signal, where the omit-when-unset neighbours (`plan_dir`,
-  # `excluded_plans`) would go silent for a configuration reason.
-  services.bluesky.devices_file:
+  # The telemetry store and the gateway that feeds it. Every key below is read
+  # in one place, deployment/telemetry_config.py, so each regex anchors there:
+  # the module spells a key's dotted name in the refusal it raises for an
+  # unusable value, which is the one string that leaves with the reader.
+  services.telemetry_store: {evidence: 'STORE_SERVICE = "telemetry_store"', default: {}}
+  services.telemetry_store.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_store"}
+  services.telemetry_store.port: {evidence: '"services\.telemetry_store\.port"', default: derived, default_note: the layout's telemetry_store slot at this deployment's port base}
+  services.telemetry_store.retention_days: {same-value: true, evidence: '"services\.telemetry_store\.retention_days"', default: 14}
+  services.telemetry_store.image:
     rendered: false
-    evidence: '\{"devices_file": bluesky\.devices_file\}'
+    evidence: 'DEFAULT_STORE_IMAGE = "clickhouse/clickhouse-server'
+    note: Upstream pin (ClickHouse). Point it at an internal mirror or a digest on a host that cannot pull from Docker Hub.
+    default: clickhouse/clickhouse-server:26.8.18.2
+  services.telemetry_store.memory:
+    rendered: false
+    evidence: '"services\.telemetry_store\.memory"'
     note: >-
-      Names where the Bluesky plan device file is AUTHORED, replacing the
-      per-deployment env-var channel. Written by `_inject_bluesky` via
-      `_facility_plan_keys` in cli/build_injectors.py, from `bluesky.devices_file`
-      in the build profile; defaults to `data/bluesky_devices.yml`. A relative
-      path resolves against the rendered config's own directory (so it travels
-      with the built project); an absolute path is operator-owned and read
-      as-is. `rendered: false` because no shipped config.yml.j2 renders it —
-      the injector does — which is what would otherwise trip the phantom-key
-      check.
-    default: data/bluesky_devices.yml
-  services.openobserve: {evidence: 'get\("openobserve", \{\}\)', default: {}}
-  services.openobserve.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/openobserve"}
-  services.openobserve.port: {evidence: 'services\.openobserve\.port', default: derived, default_note: the layout's openobserve slot at this deployment's port base}
-  services.openobserve.retention_days: {evidence: 'retention_days', default: 14}
+      The store container's memory limit, as compose takes it. The store memory
+      lint holds limits.reader_slots and limits.query_memory to 0.9 of it.
+    default: 2g
+  services.telemetry_store.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.telemetry_store', default: []}
+  services.telemetry_store.readers:
+    evidence: 'get\("readers"\)'
+    note: >-
+      The named readers, as a LIST: one entry per reader (`name`, `tables`,
+      `days_back`, `oidc_subject`). A list has no dotted paths below it, so the
+      per-entry keys never enter the union. Every preset that deploys the store
+      ships one default reader: the admin roster user, or `operator` where the
+      preset has no roster.
+    default: []
+  services.telemetry_store.limits:
+    rendered: false
+    evidence: 'services\.telemetry_store\.limits must be a mapping'
+    note: >-
+      Per-reader query limits, plus `reader_slots`, the pool all readers share.
+      Read whole by telemetry_config.store_limits, which refuses an unknown
+      leaf and fills each absent one from DEFAULT_LIMITS.
+    default: {}
+  services.telemetry_store.limits.result_rows: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000}
+  services.telemetry_store.limits.result_bytes: {rendered: false, covered-by: services.telemetry_store.limits, default: 10000000}
+  services.telemetry_store.limits.seconds: {rendered: false, covered-by: services.telemetry_store.limits, default: 30}
+  services.telemetry_store.limits.concurrent: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
+  services.telemetry_store.limits.reader_slots: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
+  services.telemetry_store.limits.per_minute: {rendered: false, covered-by: services.telemetry_store.limits, default: 60}
+  services.telemetry_store.limits.rows_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000000}
+  services.telemetry_store.limits.bytes_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 500000000}
+  services.telemetry_store.limits.query_memory: {rendered: false, covered-by: services.telemetry_store.limits, default: 200000000}
+  services.telemetry_gateway: {evidence: 'GATEWAY_SERVICE = "telemetry_gateway"', default: {}}
+  services.telemetry_gateway.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_gateway"}
+  services.telemetry_gateway.port: {evidence: '"services\.telemetry_gateway\.port"', default: derived, default_note: the layout's telemetry_gateway slot at this deployment's port base}
+  services.telemetry_gateway.image:
+    rendered: false
+    evidence: 'DEFAULT_GATEWAY_IMAGE = \('
+    note: Upstream pin (OpenTelemetry Collector contrib). Same mirror rule as the store's.
+    default: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.162.0
+  services.telemetry_gateway.memory:
+    rendered: false
+    evidence: '"services\.telemetry_gateway\.memory"'
+    note: >-
+      The gateway container's memory limit. Unset, it is the floor the gateway
+      memory lint computes from the number of audit directories it reads; a
+      stated value below that floor is refused.
+    default: derived
+    default_note: telemetry_config.gateway_memory_floor for the rendered receiver count
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
   services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
   services.postgresql.username: {covered-by: services.postgresql, default: ariel}
   services.postgresql.port_host: {evidence: 'port_host', default: derived, default_note: the layout's postgres slot at this deployment's port base}
-  # The qmd semantic-search sidecar, shipped LIVE in the ariel-standalone and
-  # control-assistant templates (it backs the default-on `hybrid` search mode
+  # The qmd semantic-search sidecar, shipped LIVE in the control-assistant
+  # template (it backs the default-on `hybrid` search mode
   # and ranked OKF search). Every regex below anchors on qmd_service.py and
   # matches exactly one file, so deleting the resolver fails the guard rather
   # than rotting quietly.
@@ -329,7 +346,7 @@ keys:
   services.qmd.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the openobserve/postgresql `path`
+      Same generic compose-generator read as the telemetry_store/postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
     default: no-fallback
     default_note: >-
@@ -394,8 +411,8 @@ keys:
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
 
-  # The graph store, shipped LIVE in the ariel-standalone and control-assistant
-  # templates (block and `deployed_services` entry always emitted together — a
+  # The graph store, shipped LIVE in the control-assistant
+  # template (block and `deployed_services` entry always emitted together — a
   # deployed graphdb without a block is refused pre-compose). Every regex below
   # — except `path`, which cites the generic compose-generator read shared with
   # its three neighbours, and the two query bounds at the end of the block —
@@ -411,7 +428,7 @@ keys:
   services.graphdb.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the openobserve/postgresql/qmd
+      Same generic compose-generator read as the telemetry_store/postgresql/qmd
       `path` keys — it resolves any service's fragment directory, graphdb
       included.
     default: no-fallback
@@ -447,27 +464,20 @@ keys:
     default: derived
     default_note: the layout's graphdb_http slot at this deployment's port base
   services.graphdb.ttl_path:
+    rendered: false
     evidence: '_optional_text\(block\.get\("ttl_path"\)'
     note: >-
-      Optional RDF/Turtle corpus the store is seeded from; unset brings the
-      store up bootstrapped but empty. Kept verbatim by
-      GraphdbServiceConfig.ttl_path and resolved against the config file's
-      directory by its consumers, per the `facility_knowledge.bundle_path` rule
-      — resolving it against the process cwd would give a deploy and a CLI verb
-      two different files from one config value.
-    default: null
-  services.graphdb.index_path:
-    rendered: false
-    evidence: 'block\.get\("index_path"\)'
-    note: >-
-      DuckDB search index derived from `ttl_path` at build time, read by the
-      channel explorer's search, the channel roster and the agent's keyword
-      tool instead of querying the store. Resolved against the config file's
-      directory like `ttl_path`, and for the same reason: the build writes it
-      into the `data/` tree it assembled there. Left unset it resolves to the
-      default below, so a deployment moves the index by naming this key once
-      and every consumer follows.
-    default: ./data/channel_databases/graph.duckdb
+      RDF/Turtle corpus the store is seeded from and the search index is
+      derived from. Kept verbatim by GraphdbServiceConfig.ttl_path and resolved
+      against the config file's directory by its consumers, per the
+      `facility_knowledge.bundle_path` rule — resolving it against the process
+      cwd would give a deploy and a CLI verb two different files from one
+      config value. A rendered block without it is a render defect the deploy
+      refuses.
+    default: derived
+    default_note: >-
+      ./data/graph/facility.ttl, the graph view the build writes; rendered into
+      every services.graphdb block that names no corpus
   services.graphdb.heap_initial_size:
     evidence: 'block\.get\("heap_initial_size"\)'
     note: >-
@@ -554,11 +564,6 @@ keys:
       Upstream pin (pgvector). Point it at an internal mirror or a digest on a
       host that cannot pull from public registries.
     default: pgvector/pgvector:pg16
-  services.openobserve.image:
-    rendered: false
-    evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
-    note: Upstream pin (openobserve). Same three-layer chain as the rest.
-    default: public.ecr.aws/zinclabs/openobserve:v0.92.2
   services.mongodb.image:
     rendered: false
     evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'
@@ -576,12 +581,11 @@ keys:
     default: derived
     default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
   services.dispatch_worker.worker_port_stride:
-    rendered: false
     evidence: 'worker\.get\("worker_port_stride"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets,
-      written by the dispatch
-      injector rather than rendered — and only in host-network mode, where the
+      Unset in the framework template and the four presets' `config:` blocks,
+      written by the dispatch injector — and only in host-network mode, which
+      is how control-assistant's deploying render carries it, where the
       workers share the host's namespace and so need their host ports to fan
       out. Worker `i` publishes `worker_port_base + (i - 1) * stride`; the
       value comes from the profile's `dispatch.worker_port_stride`, and it is
@@ -662,6 +666,15 @@ keys:
       with it. The evidence anchors on the template's own alias line.
     default: derived
     default_note: osprey_images.worker — the archive runs the worker image
+  services.history.image:
+    rendered: false
+    evidence: 'set svc = services\.history \| default'
+    note: >-
+      OSPREY-built image, same layering as `services.archive.image`: the
+      history page runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the template's own alias line.
+    default: derived
+    default_note: osprey_images.worker — the history page runs the worker image
   services.archive.interval_seconds:
     rendered: false
     evidence: '_resolve_archive_render_context'
@@ -735,10 +748,11 @@ keys:
   # image, its own Channel Access port — whenever a build profile sets
   # `virtual_accelerator.live_standin`, and appends the key to
   # `deployed_services` so the VA compose fragment renders a second container
-  # off it. Both blocks are INJECTOR-written, so neither reaches the rendered
-  # union and every entry below carries `rendered: false` — the same standing
-  # as the `services.bluesky_va` / `services.bluesky_live` lane blocks noted at
-  # the head of this section.
+  # off it. Both blocks are INJECTOR-written: they reach the rendered union
+  # through control-assistant's deploying render (the guard runs the
+  # injectors), whose `virtual_accelerator.live_standin` writes the block,
+  # path and port; the per-instance image pin is written by nothing shipped
+  # and keeps `rendered: false`.
   #
   # The stand-in is recorded where its baseline twin is not, because
   # `services.live_standin.port` is not a deployment detail: it is the whole
@@ -749,7 +763,6 @@ keys:
   # VA's port — read only by the generic compose machinery, and recorded here
   # no more than `services.virtual_accelerator.port` is — would not be.
   services.live_standin:
-    rendered: false
     evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
     note: >-
       Evidence anchors on the injector deriving the block's name FROM the
@@ -760,7 +773,6 @@ keys:
       `services[instance_key]`, which names no service and would prove nothing.
     default: null
   services.live_standin.path:
-    rendered: false
     covered-by: services.live_standin
     note: >-
       Always `./services/virtual_accelerator`, the same fragment directory the
@@ -772,7 +784,6 @@ keys:
     default_note: >-
       the compose generator indexes service_config['path'] and raises when absent
   services.live_standin.port:
-    rendered: false
     evidence: 'LIVE_STANDIN_PORT_KEY = "services\.live_standin\.port"'
     note: >-
       The stand-in's Channel Access port, and the one fact four independent
@@ -807,6 +818,141 @@ keys:
     default: derived
     default_note: osprey_images.qmd
 
+  # ── Bundled service blocks: injector-written and template-read keys ──
+  # Every bundled service's `services.<name>` block is CLOSED: the profile
+  # parser refuses a key under it that has no row here and is not one of the
+  # generic service axes (build_profile_model.SERVICE_AXES). The keys below are
+  # the ones a bundled service's compose template or a Python reader takes but
+  # no preset's `config:` block spells — most are written by the service
+  # injectors (build_injectors.py) from the profile's own `bluesky:` /
+  # `dispatch:` / `va_archiver:` / bridge blocks, and the guard renders each
+  # preset through those injectors, so an injected key with no row here is
+  # `unmapped-key`. A second plan lane (`bluesky_va`, `bluesky_live`,
+  # `bluesky_standin`) is described by the `services.bluesky.*` rows — see
+  # notes.service_instance_families. Rows the control-assistant preset's
+  # deploying render carries are live; the rest are `rendered: false`.
+  services.bluesky: {evidence: 'LANE_ONE = "bluesky"', default: null}
+  services.bluesky.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky injector writes ./services/bluesky"}
+  services.bluesky.port: {evidence: 'PortSlot\("bluesky", 80, "services", "services\.bluesky\.port"\)', default: derived, default_note: the layout's bluesky slot at this deployment's port base; a second lane takes the bluesky_second_lane slot}
+  services.bluesky.tiled_enabled: {evidence: 'svc\.tiled_enabled \| default\(false\)', default: false}
+  services.bluesky.tiled_port: {evidence: '"tiled": "services\.bluesky\.tiled_port"', default: derived, default_note: the layout's tiled slot at this deployment's port base}
+  services.bluesky.target:
+    rendered: false
+    evidence: 'ProjectedKey\("services\.bluesky\.target"'
+    note: >-
+      The control target a lane queues plans against. Written by the bluesky
+      injector on every lane of a two-lane deploy, and on the single lane of a
+      live-stand-in baseline; absent, the compose template addresses the
+      co-deployed virtual accelerator.
+    default: derived
+    default_note: the co-deployed virtual accelerator, the compose template's fallback
+  services.bluesky.ca_name_servers:
+    rendered: false
+    evidence: 'EPICS_CA_NAME_SERVERS: "\{\{ svc\.ca_name_servers \}\}"'
+    note: Written beside `target` for a lane serving the live machine or the stand-in.
+    default: derived
+    default_note: the virtual-accelerator container, which the template addresses without being told
+  services.bluesky.plan_dir: {rendered: false, evidence: 'service\.get\("plan_dir"\)', default: null}
+  services.bluesky.excluded_plans: {rendered: false, evidence: '_as_str_list\(source\.get\("excluded_plans"\)\)', default: null}
+  services.bluesky.device_page_size: {rendered: false, evidence: 'BLUESKY_DEVICE_PAGE_SIZE: "\{\{ svc\.device_page_size', default: 500}
+  services.bluesky.settle_timeout_s: {rendered: false, evidence: 'BLUESKY_SETTLE_TIMEOUT_S: "\{\{ svc\.settle_timeout_s', default: 5.0}
+  services.bluesky.settle_tolerance: {rendered: false, evidence: 'svc\.settle_tolerance is defined', default: 1.0e-09}
+  services.bluesky.live_max_runs: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_RUNS: "\{\{ svc\.live_max_runs', default: 50}
+  services.bluesky.live_max_rows_per_run: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_ROWS_PER_RUN: "\{\{ svc\.live_max_rows_per_run', default: 10000}
+  services.bluesky.external:
+    rendered: false
+    evidence: 'set external = svc\.external \| default\(false\)'
+    note: >-
+      External-worker mode, written by the bluesky injector from the profile's
+      `bluesky.external` block: the bridge renders as a client of a
+      facility-run RE Manager. Its leaves are the injector's, listed below.
+    default: null
+  services.bluesky.external.zmq_control_addr: {rendered: false, evidence: 'QSERVER_ZMQ_CONTROL_ADDRESS: "\{\{ external\.zmq_control_addr', default: no-fallback, default_note: required whenever the external block is written}
+  services.bluesky.external.zmq_public_key_env: {rendered: false, evidence: 'external\.zmq_public_key_env ~', default: null}
+  services.bluesky.external.insecure_plaintext: {rendered: false, evidence: 'external_block\["insecure_plaintext"\]', default: false}
+  services.bluesky.external.tiled_uri: {rendered: false, evidence: 'BLUESKY_TILED_URI: "\{\{ external\.tiled_uri', default: null}
+  services.bluesky.external.tiled_api_key_env: {rendered: false, evidence: 'external\.tiled_api_key_env \}\}', default: null}
+  services.bluesky.external.parameter_schema_mounts: {rendered: false, evidence: 'for m in external\.parameter_schema_mounts', default: []}
+  services.bluesky.external.parameter_schemas_env: {rendered: false, evidence: 'external\.parameter_schemas_env \}\}', default: null}
+  services.bluesky.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.bluesky\)', default: []}
+  services.bluesky_web: {evidence: 'hostenv\.passthrough\(services\.bluesky_web\)', default: null}
+  services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web"}
+  services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
+  services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
+  services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
+  services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
+  services.event_dispatcher: {evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: null}
+  services.event_dispatcher.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/event_dispatcher"}
+  services.event_dispatcher.port: {evidence: 'PortSlot\("dispatcher", 10, "dispatch", "services\.event_dispatcher\.port"\)', default: derived, default_note: the layout's dispatcher slot at this deployment's port base}
+  services.event_dispatcher.facility_name: {evidence: 'OSPREY_FACILITY_NAME: "\{\{ services\.event_dispatcher\.facility_name', default: ""}
+  services.event_dispatcher.channel_strip_prefix: {evidence: 'CHANNEL_STRIP_PREFIX: "\{\{ services\.event_dispatcher\.channel_strip_prefix', default: ""}
+  services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: []}
+  services.event_dispatcher.network: {evidence: 'services\.event_dispatcher\.network \| default\(.bridge., true\)', default: bridge}
+  services.event_dispatcher.bind_env: {covered-by: services.event_dispatcher, default: n/a}
+  services.event_dispatcher.bind:
+    rendered: false
+    evidence: 'FASTMCP_HOST: \{\{ services\.event_dispatcher\.bind'
+    note: The interface the dispatcher listens on inside its network namespace.
+    default: derived
+    default_note: 127.0.0.1 on the host network, 0.0.0.0 on the bridge network
+  services.event_dispatcher.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: []}
+  services.dispatch_worker: {evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: null}
+  services.dispatch_worker.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/dispatch_worker"}
+  services.dispatch_worker.worker_count: {evidence: 'services\.dispatch_worker\.worker_count \| default\(1\)', default: 1}
+  services.dispatch_worker.worker_port_base: {evidence: 'PortSlot\("worker", 10, "dispatch", "services\.dispatch_worker\.worker_port_base"\)', default: derived, default_note: the layout's worker slot at this deployment's port base}
+  services.dispatch_worker.workspace_mode: {evidence: 'services\.dispatch_worker\.workspace_mode \| default\(.isolated.\)', default: isolated}
+  services.dispatch_worker.timeout_sec: {evidence: 'DISPATCH_TIMEOUT_SEC: "\{\{ services\.dispatch_worker\.timeout_sec', default: 300}
+  services.dispatch_worker.inactivity_sec: {evidence: 'DISPATCH_INACTIVITY_SEC: "\{\{ services\.dispatch_worker\.inactivity_sec', default: 120}
+  services.dispatch_worker.max_turns: {evidence: 'DISPATCH_MAX_TURNS: "\{\{ services\.dispatch_worker\.max_turns', default: 25}
+  services.dispatch_worker.network: {evidence: '\bdw\.network\b', default: bridge}
+  services.dispatch_worker.bind_env: {covered-by: services.dispatch_worker, default: n/a}
+  services.dispatch_worker.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: []}
+  services.dispatch_worker.tier:
+    evidence: 'worker_config\["tier"\] = dispatch\.tier'
+    note: >-
+      The tier the dispatch workers run, by name — a file in `tiers/`. Written
+      by the dispatch injector from the profile's `dispatch.tier`, and only
+      when that is set; never an image string. control-assistant sets
+      `dispatch.tier`, so its deploying render carries the key. A tier that lifts a base deny
+      or enables `web.config_panel.enabled` /
+      `web.scaffold_gallery.write_enabled` is refused at build, because a
+      headless run has no approver. Unset means the workers run the
+      deployment's own render.
+    default: null
+  services.mongodb: {evidence: 'hostenv\.passthrough\(services\.mongodb\)', default: null}
+  services.mongodb.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/mongodb"}
+  services.mongodb.port_host: {evidence: 'PortSlot\("mongo", 801, "stores", "services\.mongodb\.port_host"\)', default: derived, default_note: the layout's mongo slot at this deployment's port base}
+  services.mongodb.username: {covered-by: services.mongodb, default: n/a}
+  services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
+  services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
+  services.archiver_recorder.path: {evidence: 'ProjectedKey\("services\.archiver_recorder\.path"', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
+  services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
+  services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}
+  services.ariel_sync.network: {rendered: false, evidence: 'set svc = services\.ariel_sync \| default', default: bridge}
+  services.graphdb.network: {rendered: false, covered-by: services.graphdb, default: bridge}
+  services.graphdb.username:
+    rendered: false
+    evidence: '_text\(section\.get\("username"\), DEFAULT_USERNAME, "services\.graphdb\.username"\)'
+    note: The graph store's login, read beside `uri`.
+    default: neo4j
+  services.gchat_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Google Chat injector writes ./services/gchat_bridge"}
+  services.gchat_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.gchat_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's gchat_bridge.trigger (gchat-question)}
+  services.gchat_bridge.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.gchat_bridge\)', default: []}
+  services.nextcloud_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Nextcloud Talk injector writes ./services/nextcloud_bridge"}
+  services.nextcloud_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.nextcloud_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's nextcloud_bridge.trigger (nextcloud-question)}
+  services.teams_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Teams injector writes ./services/teams_bridge"}
+  services.teams_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.teams_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's teams_bridge.trigger (teams-question)}
+  web.panels.events: {covered-by: web.panels, default: n/a}
+  web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
+  web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}
+  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: EVENTS}
+  web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health}
+  web.panels.bluesky: {covered-by: web.panels, default: n/a}
+  web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
+  web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
+  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
+
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
@@ -833,10 +979,8 @@ keys:
   approval.tools:
     covered-by: approval
     note: >-
-      Absent from channel-finder-standalone by design — that deployment runs
-      no control system, and each of the four tools its servers do govern
-      (setup_patch and the three panel-rail verbs) is covered by
-      default_policy. See governed_sets.
+      A deployment may ship no approval.tools block at all; every tool its
+      servers govern then falls to default_policy. See governed_sets.
     default: {}
   # A tool's policy follows what the tool does, not which deployment serves it, so every
   # preset that lists a tool lists it at one policy; an unlisted tool falls to default_policy.
@@ -864,9 +1008,11 @@ keys:
   approval.tools.archiver_read: {same-value: true, evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.execute: {same-value: true, covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
   approval.tools.setup_patch: {same-value: true, evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create: {same-value: true, evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
+  # The logbook write pair is stated by control-assistant and by the `logbook`
+  # app, and parity compares root presets only, so neither carries a same-value
+  # mark: with one root stating it, the mark would compare nothing.
+  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
-    same-value: true
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
@@ -874,7 +1020,7 @@ keys:
       approval hook, so both belong here.
     default: derived
     default_note: falls through to approval.default_policy
-  # The panel-rail verbs. Spelled in exactly the three presets that ship an
+  # The panel-rail verbs. Spelled in both root presets, each of which ships an
   # approval table for a workspace tool; `covered-by` rather than `evidence`
   # because the reader is the same approval table `execute` is read from, and a
   # bare literal would pin the tool name instead of the policy key.
@@ -895,9 +1041,8 @@ keys:
     all-templates: true
     evidence: 'cfg\.get\("hooks", \{\}\)\.get\("debug"\)'
     note: >-
-      Present in all four presets, with deliberately different values: live
-      true in control-assistant / ariel-standalone / channel-finder-standalone,
-      live false in hello-world. It is a posture-floor key, so every preset has
+      Present in both presets, with deliberately different values: live
+      true in control-assistant, live false in hello-world. It is a posture-floor key, so every preset has
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
     default: required
@@ -906,16 +1051,38 @@ keys:
       .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
       panel hook feed reads; false writes neither.
 
+  # ── Simulation ──────────────────────────────────────────────────────
+  simulation: {evidence: 'rendered_config\.get\("simulation"\)', default: {}}
+  simulation.models:
+    all-templates: true
+    evidence: 'requested = simulation\.get\("models"\)'
+    note: null or absent = every model in the facility file; [texture] and [] = no physics
+    default: null
+  simulation.tick_s:
+    all-templates: true
+    evidence: 'resolve_tick_s\('
+    note: seconds between the simulator's ticks; a value at or below 0 stops the build
+    default: 1.0
+  simulation.default_scenarios:
+    evidence: '\.get\("default_scenarios"\)'
+    note: >-
+      Per-preset: control-assistant alone states it ([rf-thermal]), the one
+      preset whose facility tree ships scenarios. Read at deploy time by
+      `simulation.apply.activate_default_scenarios`, only while the deployment
+      has no scenario state.
+    default: []
+
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
-    evidence: 'get_config_value\("control_system\.type", "mock"\)'
+    evidence: 'get_config_value\("control_system\.type", None\)'
     default: required
     default_note: >-
-      The types a project can be built on are `mock`, `epics`,
-      `virtual_accelerator`, `doocs` and `tango`. `live_standin` is settable
-      on a deployment that has a stand-in, and `osprey init` never offers it,
-      so a fresh project cannot start there.
+      The types a project can be built on are `epics`, `virtual_accelerator`,
+      `doocs` and `tango`. `live_standin` is settable on a deployment that has
+      a stand-in, and `osprey init` never offers it, so a fresh project cannot
+      start there. A section that states no type is the simulator served in
+      process, which dials nothing.
   control_system.writes_enabled:
     evidence: '"control_system\.writes_enabled"'
     note: >-
@@ -928,7 +1095,7 @@ keys:
       `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
       Escaped, so the vacuity cap does not apply.
     default: false
-  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and every write path then refuses unlisted channels"}
+  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
@@ -948,6 +1115,7 @@ keys:
     default_note: >-
       an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
   control_system.limits_checking.database_path:
+    rendered: false
     evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
       Deliberately NOT per connector type: a deployment mounts one limits
@@ -957,21 +1125,27 @@ keys:
       other consumer (the compose mount, the build's parse, the bridge's
       startup gate, the roster, the knowledge graph) resolves through; the key
       is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
-      `limits_validator.py`, and that call is the anchor.
-    default: null
-  control_system.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
-    note: >-
-      Anchored on the leaf read in `_block_limits_posture` rather than on the
-      bare word: `allow_unlisted_channels` now travels as a policy field and as
-      an answering key through the validator, the tool layer and the roster, so
-      a bare match no longer proves a config reader exists. That one reader
-      serves the per-type entries below too. Same absent/unreadable reading as
-      `enabled` above, and only literal `true` lets a write reach a channel the
-      limits database does not list.
-    default: no-fallback
+      `limits_validator.py`, and that call is the anchor. A profile that
+      states the key, at either scope, is refused by
+      `_check_limits_database_path` in `build_profile_load.py`.
+    default: derived
     default_note: >-
-      an unstated leaf is not False — the write paths fail closed and refuse unlisted channels
+      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
+  control_system.limits_checking.mode:
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    note: >-
+      The limits mode, one of `exclusive` or `optional`. `exclusive`: only
+      channels in the limits database can be written. `optional`: a channel in
+      the database is held to its limits and every other channel is written
+      with no limits. Anchored on the leaf read in `_block_limits_posture`
+      rather than on the bare word: `mode` travels as a policy field and as an
+      answering key through the validator, the tool layer and the roster, so a
+      bare match would not prove a config reader exists. That one reader
+      serves the per-type entries below too. A leaf absent here is unset; one
+      PRESENT but not one of the two values makes the block incomplete, the
+      same reading `enabled` above gets.
+    default: no-fallback
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.write_tools:
     rendered: false
     evidence: 'control_system\.get\("write_tools", \[\]\)'
@@ -1000,7 +1174,7 @@ keys:
       display-metadata mint point; state-file and roster readers render the
       name they are handed and never read this key again.
     default: {}
-  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine', or 'Demo' when the resolved connector type is simulated"}
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine'"}
   control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Rehearsal' when a stand-in is deployed, else the machine name"}
   control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Simulator'"}
   control_system.read_inline_max_elements:
@@ -1010,30 +1184,6 @@ keys:
     evidence: '"control_system\.channel_read_artifact_retention"'
     default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
-  control_system.connector.mock: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.mock.simulation_file: {evidence: 'simulation_file', default: null}
-  # The mock connector's two tuning knobs. `rendered: false` since the app
-  # templates went: the presets ship the mock connector at the connector's own
-  # defaults and state neither knob, so a deployment that wants a slower or
-  # noisier machine authors them itself.
-  control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
-  control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
-  control_system.connector.virtual_accelerator.noise_level:
-    rendered: false
-    evidence: 'va_block\.get\("noise_level", mock_block\.get\("noise_level"\)\)'
-    note: >-
-      Fractional noise on the readings the simulator synthesises — the one knob
-      deciding whether a reading looks alive or flat, so it is a config key and
-      not only a container variable. The build renders it as the default of the
-      compose file's `VA_NOISE_LEVEL` interpolation, which is why the evidence
-      anchors on the resolver in `deployment/compose_generator.py` rather than
-      on the entrypoint that consumes the variable: an exported VA_NOISE_LEVEL
-      still outranks it, so the variable is the carrier and this key is the
-      surface. Commented in `control-assistant`, so nothing renders it.
-    default: derived
-    default_note: >-
-      falls through to control_system.connector.mock.noise_level, and then to the
-      entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
@@ -1104,12 +1254,22 @@ keys:
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
   control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.virtual_accelerator.serving:
+    evidence: 'SERVING_LEAF = "serving"'
+    default: served
+    note: >-
+      `served` is the simulator's container over Channel Access; `in_process`
+      runs it inside the process that asks, with no network. A section that
+      states no type is the simulator in process, and the leaf is not read.
+  # The in-process simulator's one tuning knob. `rendered: false`: the presets
+  # serve the simulator in process at the connector's own delay and do not
+  # state it, so a deployment that wants a slower machine authors it itself.
+  control_system.connector.virtual_accelerator.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
   control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
-  control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
   control_system.connector.virtual_accelerator.gateways:
     evidence: 'gateways = config\.get\("gateways"\)'
     note: >-
@@ -1199,17 +1359,14 @@ keys:
       reason: which attribute answers is a facility fact.
     default: ''
   control_system.connector.virtual_accelerator.writes_enabled:
-    rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
     note: >-
-      Per-connector-type override of `control_system.writes_enabled`. The
-      presets that carry a virtual_accelerator block write it commented, so no
-      preset's resolved config carries it and `rendered` stays false;
-      the shipped presets `control-assistant-readwrite` and
-      `control-assistant-admin` (true) and `control-assistant-readonly`,
-      `control-assistant-knowledge` and `control-assistant-logbook` (false) DO
-      write it into a project's real
-      config.yml when applied, so an audit of a built deployment will find it.
+      Per-connector-type override of `control_system.writes_enabled`. The root
+      presets that carry a virtual_accelerator block write it commented; every
+      bundled app pins it false, and the app composer pins it false on every
+      app render whatever the app file says, which is what renders it. The
+      bundled tiers write it too — true in `readwrite` and `admin`, false in
+      `readonly` — so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
       inheriting. The reader is `type_writes_enabled` in
@@ -1221,15 +1378,14 @@ keys:
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.epics.writes_enabled:
-    rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
     note: >-
       Same key, same tri-state semantics and the same single reader for the
-      epics block, likewise written commented in `control-assistant` so no
-      preset's resolved config carries it. Arming writes against a live machine is a facility
-      decision that cannot ship pre-made, so no shipped preset ever sets this
-      one true; the control-assistant tiers that pin it write it false into an
-      applied project's config.yml, which is the one way a build produces it.
+      epics block, likewise written commented in `control-assistant`; every
+      bundled app pins it false, and the app composer pins it on every app
+      render, which is what renders it. Arming writes against a live machine is
+      a facility decision that cannot ship pre-made, so no shipped preset, tier
+      or app ever sets this one true; the bundled tiers write it false.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.doocs.writes_enabled:
@@ -1252,6 +1408,7 @@ keys:
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.virtual_accelerator.limits_checking:
+    rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Per-connector-type override of the deployment-wide
@@ -1259,25 +1416,23 @@ keys:
       grew a per-type shape at all: a deployment running a live machine beside
       a virtual accelerator holds one limits posture per machine, not one per
       deployment. It overrides WHOLE -- a block that is present states both
-      leaves below and then answers alone, inheriting nothing -- so a global
-      relaxation meant for a simulator can never complete a half-written block
-      into permission on hardware. Only the two leaves below: `database_path`
+      leaves below and then answers alone, inheriting nothing -- so a
+      deployment-wide `optional` meant for a simulator can never complete a
+      half-written block into permission on hardware. Only the two leaves below: `database_path`
       stays deployment-wide because a deployment mounts one limits database.
-      `control-assistant` is the one shipped preset that writes this block, and
-      it writes both leaves LIVE, so the path is in the rendered union and an
-      audit of a built deployment finds them. The permissive pair it ships is
-      about the simulator only, which is why the per-type shape exists.
+      No shipped preset writes this block.
       The reader is `type_limits_posture` in `osprey_connectors.types`, and the
       evidence is the line in it that takes this block out of the resolved
       connector block -- disjoint from the deployment-wide read in
       `_global_limits_posture` (`section[...]`), so each entry dies with exactly
       its own reader. The epics and live_standin entries below cite the same
       site on purpose: one type-keyed resolver serves every connector type, a
-      custom connector's dotted module path included. No `mock` or `doocs`
-      entry, because no shipped preset writes either block.
+      custom connector's dotted module path included. No `doocs` entry,
+      because no shipped preset writes that block.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
+    rendered: false
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
       Whether limits checking runs for this connector type. Literal `true` or
@@ -1291,34 +1446,25 @@ keys:
       configured" and wave every write through. The evidence is the shared leaf
       read in `_block_limits_posture`, which answers for the deployment-wide
       entry above too; the per-type branch is pinned by the parent entry's
-      block lookup. `control-assistant` ships this leaf live as `true`, so it
-      is in the rendered union; the epics and live_standin siblings below stay
-      commented and keep `rendered: false`.
+      block lookup.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+  control_system.connector.virtual_accelerator.limits_checking.mode:
+    rendered: false
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Whether channels the limits database does not list may be written for
-      this connector type. Same reading and the same shared reader as
-      `enabled` above, and write paths allow only on literal `true`.
-      This is the leaf the per-type block was added for: a facility running a
-      live machine beside a simulator could not hold `false` for the machine
-      and `true` for the simulator, and carried the relaxation deployment-wide
-      as a marked deviation instead. `control-assistant` ships it live as
-      `true` — the simulator-only relaxation the block exists for — so it is in
-      the rendered union.
+      The limits mode for this connector type alone, with the same two values
+      and the same shared reader as the deployment-wide leaf above. A per-type
+      block states both leaves and then answers alone.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.epics.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Same block, same whole-block override semantics and the same single
-      type-keyed reader for the epics block, written commented in
-      `control-assistant` so no preset's resolved config carries it.
-      Relaxing limits against a live machine is a facility decision that cannot
-      ship pre-made, so no shipped preset writes this one.
+      type-keyed reader for the epics block. No shipped preset writes it: a
+      live machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.epics.limits_checking.enabled:
@@ -1329,22 +1475,20 @@ keys:
       for the epics block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.epics.limits_checking.allow_unlisted_channels:
+  control_system.connector.epics.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Same leaf, same absent/unreadable reading and the same shared reader
-      for the epics block. Setting it `true` is what makes a live target stop
-      counting
-      as strict, which the target-switch gate refuses by naming this key.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the epics block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.doocs.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the doocs block, overriding whole the way
-      every per-type block does. Commented in `control-assistant`: a DOOCS
+      every per-type block does. No shipped preset writes it: a DOOCS
       machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1356,21 +1500,21 @@ keys:
       for the doocs block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.doocs.limits_checking.allow_unlisted_channels:
+  control_system.connector.doocs.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the doocs block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the doocs block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.tango.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the tango block, with the same
-      whole-block override semantics. Commented in `control-assistant` for the
-      same reason the doocs one is.
+      whole-block override semantics. No shipped preset writes it, for the
+      same reason as the doocs one.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.tango.limits_checking.enabled:
@@ -1381,14 +1525,14 @@ keys:
       for the tango block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.tango.limits_checking.allow_unlisted_channels:
+  control_system.connector.tango.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the tango block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the tango block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.live_standin.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
@@ -1400,7 +1544,7 @@ keys:
       one inside any other `control_system.connector.<type>` block. The
       stand-in is a connector type of its own, so it does NOT inherit the
       virtual_accelerator block a deployment wrote -- a rehearsal target that
-      silently took the simulator's relaxation would be the one deployment
+      silently took the simulator's mode would be the one deployment
       where the posture an operator reads is not the posture that runs.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1413,16 +1557,15 @@ keys:
       types.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.live_standin.limits_checking.allow_unlisted_channels:
+  control_system.connector.live_standin.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
       The other leaf of the derived block. Same absent/unreadable reading and
-      the same shared reader; the shipped `control-assistant` preset writes no
-      live_standin block, so a stand-in target there answers the
-      deployment-wide posture and stays strict where the deployment is.
+      the same shared reader; a deployment that writes no live_standin block
+      has its stand-in target answer the deployment-wide posture.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
 
   # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:
@@ -1665,7 +1808,8 @@ keys:
       sandbox's MCP server process loaded at start-up and held for that
       process's lifetime, so a change needs a restart; a run that reaches it
       is killed and reported as a timeout rather than as the script's own
-      failure.
+      failure. A null, non-numeric, non-finite or non-positive value refuses
+      every run, since the kill is the run's one time bound.
     default: 600
   python_executor.child_env_passthrough:
     rendered: false
@@ -1751,7 +1895,7 @@ keys:
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
       deliberately differs (10 providers in project/control_assistant/
-      hello_world, a 6-provider subset in the two standalone bundles). The
+      hello_world; a deployment may list a subset). The
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
       membership. A provider that names no default_model and lists no models
@@ -1820,6 +1964,8 @@ keys:
   claude_code.servers.bluesky.enabled: {covered-by: claude_code.servers.bluesky, default: derived, default_note: the bluesky server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.health: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.health.enabled: {covered-by: claude_code.servers.health, default: derived, default_note: the health server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.graph: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.graph.enabled: {covered-by: claude_code.servers.graph, default: derived, default_note: the graph server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.phoebus: {covered-by: claude_code.servers, rendered: false, default: n/a}
   claude_code.servers.phoebus.enabled: {covered-by: claude_code.servers.phoebus, rendered: false, default: derived, default_note: the phoebus server's FRAMEWORK_SERVERS default_enabled}
   claude_code.permissions:
@@ -1827,7 +1973,7 @@ keys:
     note: >-
       The facility's own additions to the settings.json permissions layer,
       merged with the framework's DENY_DEFAULTS by settings.json.j2. Only
-      control-assistant ships one; it is the tier floor every persona inherits.
+      control-assistant ships one; it is the floor every tier inherits.
     default: {}
   claude_code.permissions.deny: {covered-by: claude_code.permissions, default: []}
   claude_code.agents: {evidence: 'resolve_agents', default: {}}
@@ -1848,13 +1994,26 @@ keys:
       (the ones claude_code.telemetry.signals names) to the backend named
       below; false exports none and the rest of the block is inert.
   claude_code.telemetry.backend:
-    evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
+    evidence: 'telemetry_cfg\.get\("backend"\)'
     default: null
   claude_code.telemetry.protocol: {evidence: 'http/protobuf', default: http/protobuf}
-  claude_code.telemetry.openobserve: {evidence: 'telemetry_cfg\.get\("openobserve"\)', default: {}}
-  claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
-  claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
-  claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
+  claude_code.telemetry.endpoint:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("endpoint"\)'
+    note: >-
+      The collector's OTLP/HTTP base URL on the generic backend. The gateway
+      backend derives its own address per network context, and a stated
+      endpoint there is refused. Documented as a commented example in the
+      control-assistant preset.
+    default: null
+  claude_code.telemetry.resource_attributes:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("resource_attributes"\)'
+    note: >-
+      Extra OTLP resource attributes every record carries, as a mapping (or a
+      `k=v,k=v` string). Under the gateway the terminal session is OSPREY's
+      own attribute and may not be named here.
+    default: {}
   claude_code.telemetry.auth:
     rendered: false
     evidence: 'telemetry_cfg\.get\("auth"\)'
@@ -1908,46 +2067,20 @@ keys:
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
-  channel_finder.channel_name_generation.llm_model.provider:
-    rendered: false
-    evidence: 'llm_config\.get\("provider"\)'
-    note: Documented as a commented override in the presets.
-    default: no-fallback
-    default_note: the channel namer refuses to run without a provider
-  channel_finder.channel_name_generation.llm_model.model_id:
-    rendered: false
-    evidence: 'llm_config\.get\("model_id"\)'
-    note: Documented as a commented override in the presets.
-    default: derived
-    default_note: the deployment's main model
-  channel_finder.channel_name_generation.llm_model.max_tokens:
-    rendered: false
-    evidence: 'llm_config\.get\("max_tokens", 1000\)'
-    note: Documented as a commented override in the presets.
-    default: 1000
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
-  channel_finder.pipelines.in_context.database.type: {covered-by: channel_finder.pipelines.in_context.database, default: template}
   channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
-  channel_finder.pipelines.in_context.database.presentation_mode:
-    evidence: 'presentation_mode'
-    note: >-
-      Preview rendering only — honoured by the preview/validate paths; the MCP
-      server and web UI build their own prompt text and never consult it.
-    default: template
   channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
   channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
-  channel_finder.pipelines.hierarchical.database.type: {covered-by: channel_finder.pipelines.hierarchical.database, default: template}
   channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: ''}
   channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
   channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback, default: false}
   channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json}
   channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
-  channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
   channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null}
   channel_finder.query_max_rows:
@@ -1965,9 +2098,10 @@ keys:
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
       control_assistant ONLY, deliberately. It is the only bundle shipping the
-      query corpus; materialize_tier_artifacts no-ops for bundles with no
-      data/channel_databases/tiers/ subtree, so a dataset_path in the other
-      templates would name a phantom. The channel-finder app runs the command
+      query corpus; the build copies the mode's benchmark query file to
+      data/benchmarks/queries.json, and a bundle that ships none has no
+      queries.json, so a dataset_path in the other templates would name a
+      phantom. The channel-finder app runs the command
       via --queries-path instead.
     default: {}
   channel_finder.benchmark.dataset_path:
@@ -1978,15 +2112,6 @@ keys:
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
-  ariel.demo_narrative:
-    evidence: 'DEMO_NARRATIVE_KEY = "demo_narrative"'
-    note: >-
-      A directory of scenario narratives (one subdirectory per scenario, each a
-      logbook.json and the pictures it attaches) that `osprey up` seeds into an
-      empty logbook of a deployment with no simulation, and `osprey ariel
-      quickstart` seeds and enhances. Live in ariel-standalone, whose init
-      materializes it from the control-assistant scenario bundles.
-    default: null
   ariel.ingestion:
     rendered: false
     covered-by: ariel
@@ -2031,6 +2156,18 @@ keys:
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
     default: null
+  ariel.embedded_search:
+    rendered: false
+    evidence: 'config_dict\.get\("embedded_search"\)'
+    note: >-
+      Whether the ARIEL panel embedded in the web terminal offers its Search
+      view and opens on it. Off by default: embedded, the agent searches the
+      logbook, so the panel opens on Browse and redirects a `#search` hash
+      there. The standalone page always offers Search. Commented in the
+      preset that ships an `ariel:` block; parsed by ARIELConfig.from_dict and
+      reported to the page as `embedded_search` in GET /api/capabilities. A
+      value that is not a boolean is refused at config parse.
+    default: false
   ariel.entry_text:
     rendered: false
     evidence: 'config_dict\.get\("entry_text"\)'
@@ -2680,6 +2817,15 @@ keys:
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
+  web.ui_mode:
+    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("ui_mode", DEFAULT_UI_MODE\)'
+    note: >-
+      The web terminal's layout: `expert`, the full split-pane workspace, or
+      `simple`, the pared-down operator layout. Display only. Every bundled app
+      states `expert`, because each opens on a panel; the bundled tiers state it
+      per access level. A value that is not one of the two warns and falls back
+      to the default.
+    default: expert
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
@@ -2707,11 +2853,9 @@ keys:
     note: >-
       Whether the title bar offers the control-target picker (the chip and its
       switching popover). Display only: it grants and removes no access. Set
-      false by every shipped preset that reaches no machine (no control-system
-      tool server and no JUPYTER panel): ariel-standalone and
-      channel-finder-standalone, which render it, and the
-      control-assistant-logbook and control-assistant-knowledge personas.
-      Commented in control-assistant and hello-world. A value that is not a
+      false by every bundled app — none reaches the machine (no control-system
+      tool server and no JUPYTER panel). Commented in control-assistant and
+      hello-world. A value that is not a
       boolean, or a file that cannot be read, keeps the default.
     default: true
   web.file_watch_reconcile_interval_s:
@@ -2745,6 +2889,15 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  web.panels.system-health.hidden:
+    evidence: 'spec\.get\("hidden", False\)'
+    note: >-
+      Serves the panel without a rail entry: it stays enabled (the status bar's
+      health item, the "+" menu, the command palette and the rail's More menu
+      all open it) but is not a rail member until someone adds it. The
+      control-assistant preset ships it true. The same per-panel key works for
+      every panel; this is the one shipped configuration that writes it.
+    default: false
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
     evidence: 'spec\.get\("rewrite_prefixes"\)'
@@ -2791,9 +2944,8 @@ keys:
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
       entry dies with that reader rather than outliving it. Rendered from the
-      root presets that carry a `web:` block — control-assistant,
-      ariel-standalone and channel-finder-standalone; hello-world has none, so
-      this is deliberately not all-templates.
+      root presets that carry a `web:` block — control-assistant; hello-world
+      has none, so this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
     evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
@@ -2804,8 +2956,8 @@ keys:
       are what the agent's permission surface is rendered from, so a
       client-only gate would be undone by typing the route's URL. Shipped
       true — the panel every single-user deployment has always had — and
-      pinned false by the multi-user persona presets that are not the admin
-      tier. The default is spelled in the evidence because it is the posture
+      pinned false by control-assistant, so every tier but `admin`, which
+      lifts it, inherits false. The default is spelled in the evidence because it is the posture
       for a key the file does not mention; a config file that exists but
       cannot be read closes the gate instead.
     default: true
@@ -2815,9 +2967,9 @@ keys:
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
       entry dies with that reader rather than outliving it. Rendered from the
-      root presets that carry a `web:` block — control-assistant,
-      ariel-standalone and channel-finder-standalone; hello-world has none, so
-      this is deliberately not all-templates, same as `web.config_panel`.
+      root presets that carry a `web:` block — control-assistant; hello-world
+      has none, so this is deliberately not all-templates, same as
+      `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
     evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
@@ -2829,8 +2981,8 @@ keys:
       content, which the agent loads at PROJECT scope, so a client-only gate
       would be undone by curl — the same cosmetic-gate failure `ui_mode:
       simple` was. Shipped true — the gallery every single-user deployment has
-      always had — and pinned false by the multi-user persona presets that are
-      not the admin tier. The default is spelled in the evidence because it is
+      always had — and pinned false by control-assistant, so every tier but `admin`, which
+      lifts it, inherits false. The default is spelled in the evidence because it is
       the posture for a key the file does not mention; a config file that
       exists but cannot be read closes the gate instead. The `\s*` between the
       call's parts is load-bearing for the same reason `web.docs_url` carries
@@ -2880,7 +3032,7 @@ keys:
     # Documented in every template that carries a `web:` block as a commented
     # example, never rendered as a live key: the shipped destination is the
     # OSPREY project, and a facility that redirects feedback writes the block
-    # by hand. Rendering it live would force `osprey profile expand` on every
+    # by hand. Rendering it live would force `osprey init --revalidate` on every
     # already-deployed profile to clear a drift report.
     rendered: false
     evidence: 'get_config_value\("web\.feedback\.owner", None\)'
@@ -3037,7 +3189,7 @@ keys:
     default: false
 
   # ── Multi-user web terminals ────────────────────────────────────────
-  # The roster, its personas and the landing page. Preset-side throughout
+  # The roster, its tiers and apps, and the landing page. Preset-side throughout
   # (only control-assistant ships a block), and read by
   # deployment/web_terminals/ rather than by anything in a container.
   deploy: {evidence: 'as_dict\(root\.get\("deploy"\)\)', default: {}}
@@ -3056,13 +3208,29 @@ keys:
     evidence: 'as_dict\(as_dict\(config\.get\("modules"\)\)\.get\("web_terminals"\)\)'
     note: >-
       Anchored because every leaf below terminates here: the whole block is
-      unpacked by one read in each consumer (render, lint, lifecycle, personas).
+      unpacked by one read in each consumer (render, lint, lifecycle, roster).
     default: {}
   modules.web_terminals.enabled: {covered-by: modules.web_terminals, default: false}
   modules.web_terminals.image_source:
     evidence: 'web_terminals\.get\("image_source"\) == "local"'
     default: registry
-  modules.web_terminals.default_persona: {covered-by: modules.web_terminals, default: null}
+  modules.web_terminals.default_tier:
+    deployment-data: true
+    evidence: 'default_tier = web_terminals\.get\("default_tier"\)'
+    note: >-
+      The tier of every person on the roster who names none — a file in
+      `tiers/`, by name.
+    default: no-fallback
+    default_note: >-
+      resolve_cards refuses an enabled web_terminals block whose renders
+      catalog has no default_tier naming one of its tiers
+  modules.web_terminals.shared:
+    deployment-data: true
+    evidence: 'shared = subtree\.get\("shared"\)'
+    note: >-
+      The apps every person on the roster opens from a shared landing card, by
+      name — each a file in `apps/`. Absent, the landing page shows people only.
+    default: []
   modules.web_terminals.auth: {evidence: 'as_dict\(web_terminals\.get\("auth"\)\)', default: {}}
   modules.web_terminals.auth.method:
     evidence: 'method if isinstance\(method, str\) and method else "token"'
@@ -3140,8 +3308,9 @@ keys:
     evidence: 'footer = landing_cfg\.get\("footer"\)'
     default: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
   modules.web_terminals.landing.groups:
-    evidence: 'groups_raw = \[\{"type": "users"\}\]'
-    default: [{type: users}]
+    deployment-data: true
+    evidence: 'groups_raw = list\(_DEFAULT_LANDING_GROUPS\)'
+    default: [{type: users}, {type: apps}]
   modules.web_terminals.landing.groups.names:
     rendered: false
     evidence: 'entry\.get\("names"\) == "hidden"'
@@ -3151,21 +3320,47 @@ keys:
       it unless auth.method is password or oidc. The dotted path elides the
       list index, which no rendered config carries, so no source renders it.
     default: shown
-  modules.web_terminals.personas:
+  modules.web_terminals.renders:
+    rendered: false
     data-map: true
-    evidence: 'web_terminals\.get\("personas"\)'
+    evidence: 'renders_raw = web_terminals\.get\("renders"\)'
     note: >-
-      The persona catalog. Persona NAMES are the deployment's own, so this is a
-      data map exactly as api.providers is: the guard checks that the catalog is
-      read, never which tiers a facility declares. Each entry's leaves
-      (`project`, `project_path`, `build_profile`, `landing_group`) are read by
-      personas.resolve_personas from the entry it was handed.
+      The render catalog, written by the build into the root render: one entry
+      per file in `tiers/` and `apps/`, keyed by that file's name, each with its
+      `kind`, `project` and `project_path`. Render NAMES are the deployment's
+      own, so this is a data map exactly as api.providers is. No preset spells
+      it, so no union source carries it.
+    default: derived
+    default_note: >-
+      written by the build from tiers/ and apps/; a local-mode start with no
+      renders catalog is refused
+  modules.web_terminals.reader_port:
+    rendered: false
+    evidence: '"modules\.web_terminals\.reader_port"'
+    note: >-
+      The port of the readers' origin, a second nginx server beside the
+      terminals'. Unset in the presets: it sits on the layout's `reader` slot.
+    default: derived
+    default_note: the layout's reader slot at this deployment's port base
+  modules.web_terminals.reader_origin:
+    rendered: false
+    evidence: 'web_terminals\.get\("reader_origin"\)'
+    note: >-
+      Verbatim override of the readers' origin, the mirror of
+      `external_origin`. Required beside it, on the same host.
+    default: null
+  modules.web_terminals.authorization.roles:
+    rendered: false
+    deployment-data: true
+    evidence: 'as_dict\(as_dict\(web_terminals\.get\("authorization"\)\)\.get\("roles"\)\)'
+    note: Role name → the tier that role gets; the facility's own.
     default: {}
   modules.web_terminals.users:
+    deployment-data: true
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
     note: >-
       The roster, as a LIST — one entry per terminal. A list has no dotted paths
-      below it, so the per-entry keys (`name`, `index`, `persona`,
+      below it, so the per-entry keys (`name`, `index`, `tier`,
       `display_name`, `control_identity`) never enter the union and carry no
       entries here; they are normalized by one function, which is what the
       evidence anchors on.
@@ -3176,6 +3371,19 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
+  # The OpenObserve store and its ingest account. The store is
+  # `services.telemetry_store`, fed by `services.telemetry_gateway`; a sender
+  # logs in with a credential the build mints, so no key names one. A profile
+  # that still states one is rejected like any other unknown key.
+- services.openobserve
+- services.openobserve.image
+- services.openobserve.path
+- services.openobserve.port
+- services.openobserve.retention_days
+- claude_code.telemetry.openobserve
+- claude_code.telemetry.openobserve.user
+- claude_code.telemetry.openobserve.password
+- claude_code.telemetry.openobserve.org
   # A collector's token is named by claude_code.telemetry.auth.token_env; there
   # is no free-form header map.
 - claude_code.telemetry.headers
@@ -3193,6 +3401,14 @@ deleted:
 - approval.tools.channel_limits
   # Ledger 7 / 9 / 10 / 11 / 15
 - channel_finder.pipelines.in_context.processing
+  # The in_context index is the build's flat file; there is no loader choice.
+- channel_finder.pipelines.in_context.database.type
+  # The in_context index has one rendering; there is no preview mode to pick.
+- channel_finder.pipelines.in_context.database.presentation_mode
+  # The hierarchical index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.hierarchical.database.type
+  # The middle-layer index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.middle_layer.database.type
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3225,17 +3441,29 @@ deleted:
 - applications
 - current_application
 - configurable
-  # Task 6.3 — retired facility spelling. The READER fallback in
-  # utils/facility.resolve_facility_name stays deliberately; no TEMPLATE may
-  # ship this key again.
+  # The top-level spelling of the facility's display name; no TEMPLATE may ship it.
 - facility_name
+  # The facility's display name is the build's facility identity, its device
+  # vocabulary is the build's facts, and the clock is system.timezone: none is
+  # a facility config key.
+- facility.name
+  # No orphan site: the key and its reader both postdate the back-test
+  # baseline, so no regex for them can match there.
+- facility.ontology
+- facility.timezone
+  # The worker's device file is the build's Bluesky view; the lane key and its
+  # reader both postdate the baseline, so there is no orphan site.
+- services.bluesky.devices_file
+  # The graph search index sits at data/channel_databases/graph.duckdb under the
+  # render, a fixed path every reader resolves; nothing moves it.
+- services.graphdb.index_path
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
   # was verified present at merge-base ccf324d7 and absent on the branch.
-  # Ledger 39 — the mock_archiver simulation_file is now DERIVED from
-  # control_system.connector.<type>.simulation_file. The `mock_archiver:` block
-  # itself stays as a commented override example, so only the leaf is listed.
+  # The mock archiver replays history from the build's simulator view and takes
+  # no file setting. The commented `archiver.type: mock_archiver` example stays,
+  # so only the leaf is listed.
 - archiver.mock_archiver.simulation_file
   # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
   # explicit `uri` still WINS when set, and the commented external-DB override
@@ -3246,6 +3474,12 @@ deleted:
 - ariel.enhancement_modules.semantic_processor.model.provider
   # Ledger 26 — mock connector knob nothing read (project template only).
 - control_system.connector.mock.simulate_delays
+  # The simulator in process is `control_system.type: virtual_accelerator` with
+  # `control_system.connector.virtual_accelerator.serving: in_process`; its delay
+  # is that block's `response_delay_ms`. The build refuses the retired type name
+  # and any block under it, naming the new spelling.
+- control_system.connector.mock
+- control_system.connector.mock.response_delay_ms
   # Ledger 56 — VA gateway ports are default-filled from
   # services.virtual_accelerator.port. The commented override example stays; the
   # EPICS gateway ports are untouched and remain live.
@@ -3262,8 +3496,7 @@ deleted:
 - logbook.composition.default_tier
   # Preset-config surface: a commented `# system.facility_name: My Facility`
   # dotted override in profiles/presets/control-assistant.yml at merge-base,
-  # removed by this branch. Distinct from the dispatch-profile `facility_name`
-  # field (build_profile_schema.py:166), which is a different surface and stays.
+  # removed by this branch.
 - system.facility_name
   # The embedding index is HNSW, which takes no list count, so there is no
   # number left for a deployment to author.
@@ -3272,6 +3505,39 @@ deleted:
 - archiver.mongodb_archiver.username
 - archiver.mongodb_archiver.password_env
 - archiver.mongodb_archiver.timeout
+  # The boolean became `limits_checking.mode: exclusive | optional`, at both scopes.
+- control_system.limits_checking.allow_unlisted_channels
+- control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels
+- control_system.connector.epics.limits_checking.allow_unlisted_channels
+- control_system.connector.doocs.limits_checking.allow_unlisted_channels
+- control_system.connector.tango.limits_checking.allow_unlisted_channels
+- control_system.connector.live_standin.limits_checking.allow_unlisted_channels
+  # The CSV database builder and its LLM channel namer are gone; nothing names a
+  # model for channel names.
+- channel_finder.channel_name_generation.llm_model.provider
+- channel_finder.channel_name_generation.llm_model.model_id
+- channel_finder.channel_name_generation.llm_model.max_tokens
+  # Container names and render projects come from the project name; the
+  # knowledge graph's identifiers come from the facility file's identity code.
+- facility.prefix
+  # The noise a simulated reading carries belongs to the simulator view the
+  # build writes; neither connector nor the simulator's container takes a level.
+- control_system.connector.mock.noise_level
+- control_system.connector.virtual_accelerator.noise_level
+  # Every connector serves the simulator view the build writes from the
+  # facility file; no connector block names a model file to load.
+- control_system.connector.mock.simulation_file
+- control_system.connector.virtual_accelerator.simulation_file
+  # A derived key born and retired on one unreleased branch; no orphan_sites
+  # row, because the back-test baseline never held a site of it.
+- approval.hook_wired
+  # The roster's retired spellings. A person's access level is a tier and a
+  # shared card is an app: `default_tier` and `shared` are authored, and the
+  # render catalog is the build's `renders`. A profile that still spells either
+  # key is rewritten to the new spelling before validation, so no render
+  # carries one.
+- modules.web_terminals.personas  # retired-spelling
+- modules.web_terminals.default_persona  # retired-spelling
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3292,8 +3558,8 @@ deleted:
 deleted_commented_examples:
   ariel.database.uri: >-
     The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
-    WINS, which is exactly what the commented line in ariel-standalone and
-    control-assistant shows: how to point ARIEL at a Postgres the deployment
+    WINS, which is exactly what the commented line in control-assistant
+    shows: how to point ARIEL at a Postgres the deployment
     does not run.
 
 # ---------------------------------------------------------------------------
@@ -3301,6 +3567,47 @@ deleted_commented_examples:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
+  services.openobserve.path:
+  - root: src/osprey/templates
+    regex: 'path: \./services/openobserve'
+    back_test: {base_matches: 4, branch_matches: 0}
+    why: >-
+      a template stating the retired store's compose directory.
+  services.openobserve.port:
+  - root: src/osprey/deployment/host_ports.py
+    regex: '"services\.openobserve\.port"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the port preflight's remedy table naming the retired store's port key.
+  control_system.connector.mock:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: '^\s+mock:\s*$|connector\.mock\b'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: >-
+      a template or preset block keyed `mock:` under the connector table, or a
+      line naming `control_system.connector.mock`.
+  control_system.connector.mock.response_delay_ms:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'connector\.mock\.response_delay_ms|configure: response_delay_ms'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the mock block's delay.
+  facility.prefix:
+  - root: src/osprey/profiles/presets
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the live `facility.prefix: ca` override in control-assistant and the
+      commented examples in the standalone presets. Rooted at the presets so
+      this manifest's own `deleted:` entry is out of scope.
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: the web-terminal lint and roster readers of the key, and their docstrings.
   approval.tools.channel_limits:
   - root: src/osprey/templates
     regex: '^\s+channel_limits:\s'
@@ -3362,6 +3669,55 @@ orphan_sites:
     why: >-
       the deleted processing block's own leaf names — `processing` alone is
       far too common to anchor on.
+  channel_finder.pipelines.in_context.database.type:
+  - root: src/osprey/mcp_server/channel_finder_in_context
+    regex: 'db_config\.get\("type"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the in_context server's loader choice. Rooted at the in_context server so
+      middle_layer's rendered `type:` line stays out of scope.
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: '"template" \(device-family expansion\) or "flat"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the rendered in_context `type:` line and its comment, absent from the
+      project template and the app templates alike.
+  channel_finder.pipelines.in_context.database.presentation_mode:
+  - root: src/osprey/services/channel_finder/tools
+    regex: 'presentation_mode'
+    back_test: {base_matches: 9, branch_matches: 0}
+    why: >-
+      the preview and validate tools' reads of the key and of a database
+      file's own `presentation_mode` field, the key's last readers; rooted at
+      the tools, where every read lived.
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'presentation_mode: template'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered in_context `presentation_mode:` line, absent from the
+      project template and the app templates alike.
+  channel_finder.pipelines.hierarchical.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: hierarchical\s+# Always "hierarchical"'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered hierarchical `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
+  channel_finder.pipelines.middle_layer.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: middle_layer\s+# Always "middle_layer"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the rendered middle_layer `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3398,8 +3754,7 @@ orphan_sites:
     why: the deleted ollama port line
   applications:
     # `root` may be a LIST: the config loader moved to the osprey-connectors
-    # workspace member, so src/osprey/utils/config.py is a shim this regex can
-    # never match. Both trees are scanned; the back-test sums hits across the
+    # workspace member, out of src/osprey/utils. Both trees are scanned; the back-test sums hits across the
     # roots, because the connectors tree postdates the baseline commit.
   - root:
     - src/osprey/utils
@@ -3422,9 +3777,113 @@ orphan_sites:
     regex: '^facility_name:'
     why: >-
       the retired top-level spelling, now migrated to the canonical
-      `facility:` block in every template. The READER fallback in
-      utils/facility.py is deliberate and must NOT be removed — this regex is
-      scoped to templates only for exactly that reason.
+      `facility:` block in every template.
+  facility.name:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'facility\.name\b'
+    why: >-
+      the retired display-name key: a preset line, a reader, a help example or
+      a reference row still spelling it. The facility identity's `name` is the
+      one display name.
+  facility.timezone:
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.get\("timezone"\)'
+    why: >-
+      the web-terminal readers that took the clock from the facility block;
+      system.timezone is the one clock key.
+  control_system.limits_checking.allow_unlisted_channels:
+  - root: src/osprey
+    regex: 'allow_unlisted_channels'
+    why: >-
+      the retired boolean leaf, at either scope: a reader, a preset line, a
+      template comment or a tool reply still spelling it. The bare token,
+      because `limits_checking.mode` replaced it on every surface and nothing
+      under src/osprey has a reason to name it.
+  channel_finder.channel_name_generation.llm_model.provider:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.provider\b|llm_config\.get\("provider"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.model_id:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.model_id\b|llm_config\.get\("model_id"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.max_tokens:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.max_tokens\b|llm_config\.get\("max_tokens"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+
+  control_system.connector.mock.noise_level:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'noise_level'
+    back_test: {base_matches: 5, branch_matches: 0}
+    why: >-
+      the mock connector's read of the knob, its docstring and its example.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'noise_level'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the knob.
+  control_system.connector.virtual_accelerator.noise_level:
+  - root:
+    - src/osprey/templates
+    - src/osprey/deployment
+    regex: 'noise_level|VA_NOISE_LEVEL'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the generator's resolver of the key, the context key it filled and the VA
+      compose variable it rendered. The key postdates the back-test baseline,
+      so the baseline matches are the templates' noise_level mentions, which
+      the same regex keeps out of every template.
+  control_system.connector.mock.simulation_file:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'simulation_file'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: the mock connector's read of the model file.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template, preset or bundled skill line stating or advertising a model
+      file for any connector.
+  control_system.connector.virtual_accelerator.simulation_file:
+  - root:
+    - src/osprey/simulation
+    - packages/osprey-connectors/src/osprey_connectors/simulation
+    regex: 'simulation_file'
+    back_test: {base_matches: 18, branch_matches: 0}
+    why: >-
+      the type-aware lookup that read the model file from the active
+      connector's block, falling through to the mock one.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template or preset line stating the Virtual Accelerator connector's
+      model file.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
@@ -3437,17 +3896,21 @@ render_contexts:
     StrictUndefined fails on project_root and the panel machinery, so
     ChainableUndefined is required for one context to serve every matrix cell.
   what_the_union_is: >-
-    Two sources, because a rendered config now has two authors. The FRAMEWORK
-    TEMPLATE writes what the build derives — the project layout, the port
-    layout, api.providers from providers.yml, and the keys a profile FIELD
-    decides — and is rendered once per matrix cell below. Each PRESET's
-    resolved `config:` block is the other half, and it is read through the real
-    resolver (resolve_build_profile + _expand_dotted) rather than parsed out of
-    the file, so personas, `extends:` and every legal dotted/nested spelling are
-    resolved the way a build resolves them. layout_port_fill is applied to each
-    preset for the same reason the build applies it: a preset deliberately
-    spells no host port, and without the fill every `services.*` port key would
-    read as manifest rot.
+    Three sources, because a rendered config has two authors and an app render
+    is composed from both. The FRAMEWORK TEMPLATE writes what the build derives
+    — the project layout, the port layout, api.providers from providers.yml,
+    and the keys a profile FIELD decides — and is rendered once per matrix cell
+    below. Each ROOT PRESET's resolved `config:` block is the operator's half,
+    and it is read through the real resolver (resolve_build_profile +
+    _expand_dotted) rather than parsed out of the file, so `extends:` and every
+    legal dotted/nested spelling are resolved the way a build resolves them.
+    Each APP is composed over `host` through the resolver's app branch — the
+    host's facts with the app's `config:` over them and every write switch
+    pinned off — and enters the union under its own name. layout_port_fill is
+    applied to each preset and app for the same reason the build applies it: a
+    preset deliberately spells no host port, and without the fill every
+    `services.*` port key would read as manifest rot. The deploying render's
+    service injectors are a fourth, narrower source, taken per root preset.
   base:
     project_name: demo
     project_root: /tmp/demo
@@ -3466,7 +3929,6 @@ render_contexts:
     # no services, no deployed_services and no per-app blocks any more.
     channel_finder_mode: [in_context, hierarchical, middle_layer]
     ariel_server_on: [true, false]
-    middle_layer_duckdb: [true, false]
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
@@ -3477,16 +3939,24 @@ render_contexts:
   framework_template: src/osprey/templates/project/config.yml.j2
   presets:
   - src/osprey/profiles/presets/hello-world.yml
-  - src/osprey/profiles/presets/ariel-standalone.yml
-  - src/osprey/profiles/presets/channel-finder-standalone.yml
   - src/osprey/profiles/presets/control-assistant.yml
+  apps:
+  - src/osprey/profiles/presets/apps/*.yml
+  host: src/osprey/profiles/presets/control-assistant.yml
   note_presets: >-
-    The four ROOT presets. The persona presets (control-assistant-*.yml) extend
-    control-assistant and are deliberately absent: they are deltas, so every key
-    they carry is either inherited from the root — already in the union — or a
-    persona-scoped override of one, and listing them would make `all-templates`
-    parity a claim about deltas instead of about the four documents an operator
-    starts from.
+    The two ROOT presets, the documents an operator starts from. Parity
+    (`all-templates`, `same-value`) is a claim about these alone. The bundled
+    tiers (`tiers/*.yml`) are deliberately absent: a tier is a delta over its
+    root, so every key it carries is either inherited from the root — already
+    in the union — or a tier-scoped override of one.
+  note_apps: >-
+    Every bundled app, composed over `host` (which must be one of `presets`)
+    exactly as `osprey build` composes `apps/<name>.yml` beside a profile that
+    extends the host. An app is a complete agent definition, not a delta, so a
+    key only an app states — a server switch the host leaves at its default,
+    the title-bar picker, the per-type write pins — has its writer here. The
+    apps are union sources and governed-set subjects; they are never parity
+    subjects.
   # Guard self-test: one key from inside each conditional branch must appear in
   # the union, otherwise the matrix has silently stopped covering that branch.
   # Re-mapped when the app templates were deleted — the branches these name are
@@ -3502,13 +3972,12 @@ render_contexts:
   self_test_keys:
     enable_in_context: channel_finder.pipelines.in_context.subagent_model
     enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
-    enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
-    middle_layer_duckdb: channel_finder.pipelines.middle_layer.database.duckdb_path
+    enable_middle_layer: channel_finder.pipelines.middle_layer.database.duckdb_path
     ariel_server_on: ariel.enhancement_modules.semantic_processor.model.model_id
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 358
+  expected_union_size: 392
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3521,8 +3990,8 @@ render_contexts:
     amount arithmetic on the previous figure cannot predict.
 
 # ---------------------------------------------------------------------------
-# governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
-# test protects. The guard must build each preset's config, run
+# governed_sets — ADDENDUM 2. Shipped comments make EXHAUSTIVE claims about what
+# an app may do that no test protects. The guard must build each app's config, run
 # osprey.registry.mcp.resolve_servers, collect every tool whose PreToolUse
 # matcher runs osprey_approval.py, and assert set equality with the enumeration
 # below. A future default-enabled server carrying an approval hook then turns
@@ -3531,9 +4000,10 @@ render_contexts:
 governed_sets:
   method:
     description: >-
-      Build the preset's config the way `osprey build` does — the framework
-      template rendered from the preset's own FIELDS, with its resolved
-      `config:` block merged over the top — then pass the `claude_code` section
+      Build the preset's or app's config the way `osprey build` does — the
+      framework template rendered from its own FIELDS (for an app, the composed
+      profile: the host's fields except the ones the app file owns), with its
+      resolved `config:` block merged over the top — then pass the `claude_code` section
       to resolve_servers with a ctx carrying channel_finder_pipeline when the
       config has a channel_finder section. For every ENABLED server, walk
       hooks_pre; a rule counts when any of its hooks' `command` contains
@@ -3550,15 +4020,19 @@ governed_sets:
       finding.
     approval_hook_marker: osprey_approval.py
   claims:
-    ariel-standalone:
-      preset: src/osprey/profiles/presets/ariel-standalone.yml
-      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch`, `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`, and facility-knowledge `draft_concept`'
+    # Each claim is an app composed over render_contexts.host, measured from the
+    # render a build of `apps/<name>.yml` writes. The workspace server runs in
+    # every app, so setup_patch and the three panel-rail verbs are governed in
+    # each; setup_patch is also on every app render's deny list.
+    logbook:
+      preset: src/osprey/profiles/presets/apps/logbook.yml
+      comment_claim: "Creating a logbook entry is this agent's only write of any kind, and it is approval-gated like every other write. Publishing is the half that reaches the facility's logbook, so it is gated too."
       exhaustive: true
       tools: [entry_create, entry_publish, setup_patch, add_panel_to_rail,
-              remove_panel_from_rail, register_panel, draft_concept]
-    channel-finder-standalone:
-      preset: src/osprey/profiles/presets/channel-finder-standalone.yml
-      comment_claim: 'in this deployment that is the workspace `setup_patch` tool plus the three panel-rail verbs `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`'
+              remove_panel_from_rail, register_panel]
+    channel-finder:
+      preset: src/osprey/profiles/presets/apps/channel-finder.yml
+      comment_claim: "It cannot read a channel's value, move hardware, run Python, or search the logbook."
       exhaustive: true
       tools: [setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel]
   reference_counts:
@@ -3578,8 +4052,8 @@ governed_sets:
       add_panel_to_rail, remove_panel_from_rail and register_panel joined every
       set when the workspace server gave the panel-rail verbs the same approval
       hook: the rail is what the next operator sees, so changing it asks first.
-    control-assistant: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, register_panel, remove_panel_from_rail, setup_patch, stop_run, validate_plan, write_plan]
-    hello-world: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, register_panel, remove_panel_from_rail, setup_patch]
+    control-assistant: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, pyaml_measure, queue_add, queue_remove, queue_start, queue_stop, register_panel, remove_panel_from_rail, setup_patch, stop_run, validate_plan, write_plan]
+    hello-world: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, pyaml_measure, register_panel, remove_panel_from_rail, setup_patch]
   draft_concept_note: >-
     draft_concept is approval-governed in control-assistant and hello-world
     (osprey_facility_knowledge is enabled by default and carries the hook) but
@@ -3589,20 +4063,18 @@ governed_sets:
     approval.tools LIST in every preset — do not "fix" one to match the other.
     control_target_set is governed the same way and for the same reason: the
     controls server carries the approval hook on it, and it appears in no
-    approval.tools block, so it too falls to default_policy. execute_file is
-    the third of this kind: it shares execute's policy unit (same server, same
-    hooks) but no approval.tools block names it.
+    approval.tools block, so it too falls to default_policy. execute_file and
+    pyaml_measure are the third of this kind: each shares execute's policy unit
+    (same server, same hooks) but no approval.tools block names it, so each
+    falls to default_policy: always.
   rail_tools_note: >-
     add_panel_to_rail, remove_panel_from_rail and register_panel are governed
-    wherever the workspace server runs, which is every preset. Three presets —
-    ariel-standalone, hello-world and control-assistant, whose six `extends`
-    children inherit the lines — spell `always` for each of them, so the
-    shipped policy is explicit there. channel-finder-standalone deliberately
-    ships no approval.tools block at all, so its rail verbs fall to
-    default_policy: always, the same fail-closed route draft_concept and
-    control_target_set take. Same outcome, stated in a different place: do not
-    "fix" the missing keys, and do not read their absence as the rail being
-    ungated.
+    wherever the workspace server runs, which is every preset. Both presets —
+    hello-world and control-assistant, whose six `extends` children inherit
+    the lines — spell `always` for each of them, so the shipped policy is
+    explicit there. A deployment that ships no approval.tools block at all
+    still gates its rail verbs: they fall to default_policy: always, the same
+    fail-closed route draft_concept and control_target_set take.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are
@@ -3610,14 +4082,6 @@ governed_sets:
 # names across src/ without this exclusion list goes red against intended code.
 # ---------------------------------------------------------------------------
 kept_readers:
-  facility_name_reader:
-    site: src/osprey/utils/facility.py
-    covers: [facility_name]
-    detail: >-
-      resolve_facility_name still honours the retired top-level `facility_name`
-      as a fallback so pre-consolidation configs keep working. The key is banned
-      from TEMPLATES, not from readers — which is why that orphan regex is
-      scoped to src/osprey/templates.
   tree_preview_util:
     site: src/osprey/services/channel_finder
     covers: [channel_finder.pipelines.hierarchical.tree_preview]
@@ -3689,6 +4153,15 @@ scan_rules:
 # that a PATH no longer exists, because no content grep can ever fire for them.
 # ---------------------------------------------------------------------------
 absent_paths:
+- path: src/osprey/connectors
+  assert: absent
+  back_test:
+    base_tracked_files: 17    # the connectors before they moved to osprey_connectors
+    branch_tracked_files: 0
+  why: >-
+    The connectors live in osprey_connectors; the old package is gone. Orphan
+    sites still name it as a root so their regex stays falsifiable against the
+    baseline, and this absence is what keeps that root empty on the branch.
 - path: src/osprey/services/machine_state
   assert: absent
   back_test:
@@ -3699,29 +4172,14 @@ absent_paths:
     `from osprey.services.machine_state` or the module path. A content regex
     for it therefore matches 0 both before and after the deletion — it cannot
     distinguish success from failure. Path absence is the only assertion that
-    actually tests this deletion. Note the deliberate asymmetry with
-    `keeps`: the same ledger item both DELETES this module and KEEPS the
-    control_assistant machine_state_channels.json asset, so the two
-    sections guard opposite halves of one change.
+    actually tests this deletion.
 
 # ---------------------------------------------------------------------------
 # keeps — ADDENDUM 3. Assets whose CONTINUED EXISTENCE is load-bearing but
 # which no grep gate protects, because the asset does not contain the string
 # that would be searched for.
 # ---------------------------------------------------------------------------
-keeps:
-- path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
-  assert: exists
-  why: >-
-    Feeds VA manifest reconciliation via
-    services/virtual_accelerator/manifest/loaders.load_machine_state_candidate_addresses,
-    surfacing as _metadata.machine_state_reconciliation. The machine_state
-    DELETION's grep gate passes partly for the wrong reason: this file never
-    contains the string `machine_state` in its CONTENT, only in its filename,
-    so a content grep can never protect it. Today only
-    tests/templates/test_machine_state_channels.py and tests/va/test_manifest.py
-    fail on its deletion. An explicit existence assertion makes the dependency
-    visible in the manifest rather than implicit in two test files.
+keeps: []
 
 # ---------------------------------------------------------------------------
 # notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.
@@ -3735,30 +4193,20 @@ notes:
       takes a model id the provider serves, spelled as the gateway spells it;
       a vendor-routed id with a '/' is a legitimate value for a gateway that
       serves one.
-  prefix_rule_drift:
-    detail: >-
-      RESOLVED. The only place stating facility.prefix must be lowercase alnum
-      plus hyphens, 2-6 chars, as a hard requirement was the facility-config
-      schema reference, which has been removed along with the rest of the
-      facility-config surface. Nothing enforces that rule and nothing claims it
-      any more: the only validation in the tree is a non-emptiness lint at
-      deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
-    inert: >-
-      Stronger than unenforced. facility.prefix reaches only the facility-graph
-      token and the legacy ``/app/<prefix>-assistant`` persona directory — never
-      a container name, an nginx location key or a URL segment, which is the
-      specific reason usernames and persona names do get the charset regex.
-      There is NO sink at which violating the
-      2-6/lowercase rule breaks anything.
-    remedy_direction: >-
-      None. Do NOT add a validator, and do NOT let this manifest grow a charset
-      rule for facility.prefix: a new check would reject configurations that
-      work correctly today, converting a cosmetic doc inconsistency into a
-      breaking change. The three presets that carry the key already describe it
-      in prose, and none of them claims a charset or length rule.
   legacy_fixture_out_of_scope:
     path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
     detail: >-
       Deliberately holds every retired key so the loader's tolerance stays
       tested. If the guard is ever pointed at tests/, this file MUST be
       allowlisted or every `deleted` entry will fire on it.
+  service_instance_families:
+    rule: >-
+      A service key rendered off another bundled service's template is
+      described by that service's rows: a second plan lane — `bluesky_va`,
+      `bluesky_live`, `bluesky_standin` (bluesky_bridge_connection.SECOND_LANE_KEYS)
+      — by `services.bluesky.*`. The live stand-in, the virtual accelerator's
+      second instance, is the one exception: it keeps rows of its own,
+      `services.live_standin.*`, because its port is what tells the instance
+      apart. build_profile_load.service_family is the rule in code; the profile
+      parser closes an instance's block with it and the guard maps a rendered
+      instance key with it before looking for a row.

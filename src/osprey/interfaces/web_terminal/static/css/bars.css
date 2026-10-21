@@ -307,7 +307,7 @@ html[data-status-bar="hidden"][data-bar-editing] .status-bar {
 /* ---- Edit mode ----
 
    `body.bar-editing` is stamped by bar-customize.js while the operator is
-   rearranging. Two things change: each bar takes a ring so it reads as the
+   rearranging. Two things change: each bar takes a border so it reads as the
    thing being edited, and every item becomes an OUTLINE of itself rather than
    a live control — a clock that opens its popover under a drag is a clock
    fighting the gesture. The items stay visible and in place; only their

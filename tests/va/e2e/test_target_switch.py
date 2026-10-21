@@ -26,27 +26,29 @@ endpoint under the harness's control*, which is the property every scenario here
 actually rests on. Nothing in this file claims to have touched hardware, and
 nothing here is a statement about a real facility's gateways.
 
-The two are told apart on the wire rather than by configuration. Container L is
-booted with one BPM's readout error seeded (``VA_BPM_ERRORS``) and container V is
-not, so :data:`SEEDED_BPM` reads a different number on each — with no client
-write anywhere, from a machine at rest, and reproducibly. A round trip that
-reported the same value at both ends would be a switch that moved nothing.
+The two are told apart on the wire rather than by configuration. Container L
+boots with a scenario readout fault active -- an offset and a gain on one BPM --
+and container V boots with none, so :data:`SEEDED_BPM` reads a different number
+on each, by an exactly predicted amount -- with no client write anywhere, from
+a machine at rest, and reproducibly. A round trip that reported the same value
+at both ends would be a switch that moved nothing.
 
 Ports, names and 5064
 ---------------------
 Each container binds an ephemeral port and publishes it unchanged: a Channel
 Access search reply carries the server's own port, so a remap would hand every
-client an address nothing answers on. That port also *names* the container, for
-the reason ``test_serving_parity.py`` states at length — a fixed name is
-mutually destructive between concurrent runs. Nothing here goes near 5064, which
-belongs to whatever the operator is running.
+client an address nothing answers on. That port also *names* the container: a
+fixed name is mutually destructive between concurrent runs, since each boot
+force-removes its name first as stale-cleanup, and against a live peer that
+kills it mid-test. Nothing here goes near 5064, which belongs to whatever the
+operator is running.
 
 Every Channel Access operation in this file happens in **another process**: in a
 connector-host child, in the readiness probe, or in the sandbox-side subprocess
 of the executor test. This process never becomes a CA client, which is the same
-rule ``conftest.py`` states — libca latches ``EPICS_CA_*`` on initialisation and
-its contexts are per-thread, so a main-thread pyepics call here would deadlock
-the very children under test.
+rule ``conftest.py`` states — libca latches ``EPICS_CA_*`` when a process's
+context is created, and the children under test each point theirs at a target
+of its own, which one process could not do.
 """
 
 from __future__ import annotations
@@ -111,7 +113,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
 #: The image under test, and the simulation data both containers serve.
-IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
+IMAGE = e2e_conftest.IMAGE
 
 #: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
@@ -132,14 +134,17 @@ MIN_COLLECTED_TESTS = 18
 VA_PROBE = "SR:MAG:HCM:01:CURRENT:RB"
 LIVE_PROBE = VA_PROBE
 
-#: The channel that tells the two containers apart. Container L is booted with
-#: this BPM's readout error seeded and container V is not, so the two serve
-#: different numbers for a machine in the same (quiescent) state.
-SEEDED_BPM = "SR:DIAG:BPM:11:POSITION:X"
-SEEDED_DEVICE = "BPM11"
-SEEDED_OFFSET_X = 50e-6
-SEEDED_GAIN_X = 1.05
-VA_BPM_ERRORS = f"{SEEDED_DEVICE}:offset_x={SEEDED_OFFSET_X},gain_x={SEEDED_GAIN_X}"
+#: The channel that tells the two containers apart. Container L boots with the
+#: scenario readout fault on this BPM active and container V boots with none,
+#: so the two serve different numbers for a machine in the same (quiescent)
+#: state.
+SEEDED_BPM = e2e_conftest.SEEDED_READOUT_BPM
+
+#: The ``active_scenarios`` file container L boots with: the suite set, which
+#: serves the monitors still, and the readout fault.
+SEEDED_ACTIVE_SCENARIOS = "\n".join(
+    ("nominal", *e2e_conftest.SUITE_SCENARIOS, e2e_conftest.SEEDED_READOUT_SCENARIO_NAME, "")
+)
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
@@ -160,8 +165,8 @@ UNSERVED_CHANNEL = "VA:E2E:SWITCH:NO:SUCH:CHANNEL"
 CONNECTOR_TIMEOUT_S = 120.0
 #: Bound on a read this module expects to answer.
 READ_TIMEOUT_S = 20.0
-#: Bound on "spawned and answered its init frame" -- a cold pyepics import in an
-#: emulated container host is not fast.
+#: Bound on "spawned and answered its init frame" -- a cold import of the
+#: connector stack in an emulated container host is not fast.
 SPAWN_TIMEOUT_S = 60.0
 #: Bound on the readiness probe a switch runs against a fresh child.
 PROBE_TIMEOUT_S = 10.0
@@ -194,56 +199,47 @@ def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
 def _require_image() -> None:
     """Fail loudly unless the image can serve on a port other than 5064.
 
-    A precondition, not a nicety, and the same one ``test_serving_parity.py``
-    states: the Channel Access *server* library reads ``EPICS_CAS_SERVER_PORT``
-    and does not fall back to the client-side variable, so an image whose entry
-    point does not derive one from the other keeps binding its build-time
-    default while telling this suite's clients some other port. The symptom
-    would be an unexplained boot timeout; this turns it into a sentence naming
-    the fix.
+    A precondition, not a nicety: the Channel Access *server* library reads
+    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
+    variable, so an image whose entry point does not derive one from the other
+    keeps binding its build-time default while telling this suite's clients
+    some other port. The symptom would be an unexplained boot timeout; this
+    turns it into a sentence naming the fix.
     """
     inspected = _docker(
         "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
     )
     if inspected.returncode != 0:
-        pytest.fail(
-            f"image {IMAGE!r} is not present. Build it with "
-            f"scripts/va/build_and_boot_check.sh, or name another with "
-            f"OSPREY_VA_E2E_IMAGE."
-        )
+        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
     architecture, _, command = inspected.stdout.strip().partition("|")
     if "EPICS_CAS_SERVER_PORT" not in command:
         pytest.fail(
             f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
             f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"Rebuild it (scripts/va/build_and_boot_check.sh) or point "
-            f"OSPREY_VA_E2E_IMAGE at a current build. Its entry point is: {command}"
+            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
         )
 
 
 def _served(port: int) -> bool:
     """Whether a virtual accelerator is answering on *port*, asked out of process.
 
-    In a subprocess for the reason ``conftest.py`` gives: the connector wraps
-    synchronous pyepics in a thread-pool executor whose CA context is
-    per-thread, so a main-thread pyepics call in *this* process would deadlock
-    the children these tests spend their time talking to.
+    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
+    ``EPICS_CA_*`` once, when a process's context is created, and this probe
+    points it at *port*, so it cannot share a process with a client pointed
+    anywhere else.
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
-    nothing: a probe that will not die is read here as a container that is
-    not serving, and the word is written and flushed before the exit.
+    It leaves through ``os._exit`` for that file's other reason: aioca's exit
+    hook destroys the CA context, and that blocks for as long as a name-server
+    circuit is still retrying a port nothing serves yet -- the very case a
+    readiness probe polls through. The word is written and flushed before the
+    exit.
     """
     code = (
-        "import sys, epics\n"
-        f"v = epics.caget({VA_PROBE!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
+        "import asyncio, os, sys, aioca\n"
+        f"v = asyncio.run(aioca.caget({VA_PROBE!r}, timeout=2.0, throw=False))\n"
+        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
         "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
+        "os._exit(0)\n"
     )
     environment = {
         **os.environ,
@@ -266,11 +262,14 @@ def _served(port: int) -> bool:
 
 
 @contextlib.contextmanager
-def _serving(prefix: str, *, seeded: bool):
+def _serving(prefix: str, *, state_dir: Path | None):
     """Boot one virtual accelerator container and wait until it serves.
 
     The published port and the server's own port are the same number by
-    construction, and that number also names the container.
+    construction, and that number also names the container. ``state_dir``,
+    when given, is the directory holding the ``active_scenarios`` file the
+    container boots with; ``None`` serves the suite set
+    (``e2e_conftest.SUITE_SCENARIOS``).
     """
     port = _free_port()
     name = f"{prefix}-{port}"
@@ -278,6 +277,17 @@ def _serving(prefix: str, *, seeded: bool):
     # a concurrent run is using -- which is the point of the suffix.
     _docker("rm", "-f", name, timeout=60)
 
+    data = (
+        e2e_conftest.demo_data_run_args()
+        if state_dir is None
+        else (
+            *e2e_conftest.data_root_run_args(e2e_conftest.demo_data_dir()),
+            "-v",
+            f"{state_dir}:/state/simulation:ro",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+        )
+    )
     arguments = [
         "run",
         "-d",
@@ -287,13 +297,11 @@ def _serving(prefix: str, *, seeded: bool):
         f"EPICS_CA_SERVER_PORT={port}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
+        *data,
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
     ]
-    if seeded:
-        arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]
     started = _docker(*arguments, IMAGE)
     if started.returncode != 0:
         raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
@@ -324,15 +332,22 @@ class Endpoints:
 
 
 @pytest.fixture(scope="module")
-def endpoints():
+def endpoints(tmp_path_factory: pytest.TempPathFactory):
     """Both machines, up and serving, for the life of this module.
 
-    Container L carries the seeded BPM readout error and container V does not,
-    which is what makes ``SEEDED_BPM`` distinguish them on the wire.
+    Container L boots with the scenario readout fault on ``SEEDED_BPM`` active
+    and container V boots with none, which is what makes ``SEEDED_BPM``
+    distinguish them on the wire.
     """
     _require_image()
-    with _serving(CONTAINER_VA, seeded=False) as va_port:
-        with _serving(CONTAINER_LIVE, seeded=True) as live_port:
+    state_dir = tmp_path_factory.mktemp("live-state")
+    active = state_dir / "active_scenarios"
+    active.write_text(SEEDED_ACTIVE_SCENARIOS, encoding="utf-8")
+    # The container's user is not this process's.
+    state_dir.chmod(0o755)
+    active.chmod(0o644)
+    with _serving(CONTAINER_VA, state_dir=None) as va_port:
+        with _serving(CONTAINER_LIVE, state_dir=state_dir) as live_port:
             yield Endpoints(va=va_port, live=live_port)
 
 
@@ -358,9 +373,8 @@ def raw_config(
     which wins over ``services.virtual_accelerator.port`` — the containers bind
     ephemeral ports and nothing may guess them.
 
-    The FR-8 posture is set (strict limits against the *shipped* limits
-    database, plus the operator acknowledgment naming this harness's own live
-    endpoint) so that a switch toward ``live`` is judged on the same terms a
+    The FR-8 posture is set (the operator acknowledgment naming this harness's
+    own live endpoint) so that a switch toward ``live`` is judged on the same terms a
     real deployment would be judged on, rather than on a gate this file quietly
     left open.
     """
@@ -387,7 +401,7 @@ def raw_config(
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": str(e2e_conftest.LIMITS_DB_PATH),
             },
             "target_switch": target_switch,
@@ -576,9 +590,9 @@ class TestALiveVaRoundTrip:
 
     The values compared are read with no client write anywhere in the module up
     to this point: both containers serve the same lattice at rest, and the only
-    thing that separates their readings is the readout error seeded into one of
-    them at boot. That is what makes "the wire moved" an observation rather than
-    an inference from the switch's own report.
+    thing that separates their readings is the scenario readout fault one of
+    them boots with. That is what makes "the wire moved" an observation rather
+    than an inference from the switch's own report.
     """
 
     async def test_a_round_trip_serves_a_different_machine_at_each_end(self, make_manager):
@@ -594,11 +608,16 @@ class TestALiveVaRoundTrip:
             "both ends served the same value for the seeded BPM, so the switch "
             "moved the session between two indistinguishable machines"
         )
-        # The unseeded machine at rest has an identically zero closed orbit, and
-        # the seeded one puts a fixed offset on that zero. Neither is asserted
-        # to a literal here -- what is asserted is that the difference is the
-        # seeded offset's order and not float noise.
-        assert abs(live_reading - va_reading) > SEEDED_OFFSET_X / 2
+        # Both containers serve the same view at the same operating point in
+        # the suite scenario, which serves every monitor still, with no write
+        # before this test, so they solve the same orbit
+        # x at the BPM. V reads x through the identity readout; L reads it
+        # through the fault's offset and gain with roll, calibration and noise
+        # at identity, which is (x - offset) * gain.
+        assert live_reading == pytest.approx(
+            (va_reading - e2e_conftest.SEEDED_READOUT_OFFSET) * e2e_conftest.SEEDED_READOUT_GAIN,
+            rel=1e-9,
+        ), "the live end does not read the seeded readout fault of the va end's orbit"
         assert live_again == live_reading, (
             "coming home read a different value than leaving did, so something "
             "other than the switch moved the machine"
@@ -1275,7 +1294,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         config = raw_config(va_port=endpoints.va, live_port=endpoints.live)
         monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda key, default=None, config_path=None: (
                 True if key == "control_system.writes_enabled" else default
             ),

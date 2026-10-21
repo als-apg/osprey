@@ -27,11 +27,14 @@ import tempfile
 from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 
 from .models import PlotConfig
 
 logger = logging.getLogger(__name__)
+
+#: Data Browser's element for the live sample buffer of one trace, in its own spelling.
+_SAMPLE_BUFFER = "<ring_size>5000</ring_size>"  # outside-format-quote
 
 
 def sanitize_xml_text(text: str) -> str:
@@ -215,7 +218,7 @@ def create_plt_from_config(
       <point_size>{pv.point_size}</point_size>
       <waveform_index>0</waveform_index>
       <period>0.0</period>
-      <ring_size>5000</ring_size>
+      {_SAMPLE_BUFFER}
       <request>OPTIMIZED</request>{archive_block}
     </pv>"""
 

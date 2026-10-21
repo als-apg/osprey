@@ -1,7 +1,10 @@
-"""Refuse raw control-system writes inside a Python process.
+"""Refuse raw control-system access inside a Python process.
 
-The block has two modes, sharing one patching engine that takes a replacement
-per mode.
+The block has three modes. ``readonly`` refuses every write and closes the
+routes out of Python a write could take; ``armed`` refuses a raw client put
+the connector's write door did not open; ``no_client`` refuses the client
+itself. The first two share one patching engine that takes a replacement per
+mode, and ``no_client`` uses the same engine for its deferred loader rows.
 
 ``install("armed", ...)`` is the block of a run with writes on. A write reaches
 the machine through a connector, which checks and records it, so every raw
@@ -26,6 +29,23 @@ one. It is the runtime half of a readonly run: the pre-execution regex sees only
 the standard spellings of a write, and ``from epics import caput as _w`` evades
 it, so the refusal has to be in place before the user code runs.
 
+``install("no_client", ...)`` is the block of a process that may hold no
+control-system client at all, for reads and writes alike: its one route to the
+machine is ``osprey.runtime``, which reaches a connector in another process.
+Importing a client package raises ``ClientLibraryRefusedError`` with reason
+``RAW_CLIENT_IMPORT`` from a ``sys.meta_path`` finder placed first, so a
+framework that brings a client with it is refused at its own import while one
+that does not imports normally. Loading a client shared library raises the
+same error from the loaders every ``ctypes`` spelling funnels into
+(``ctypes._dlopen`` and ``_ctypes.dlopen``) and from the deferred loader rows it
+is passed (``cffi``'s ``FFI.dlopen``): a library is refused by its basename
+before it loads, and after it loads when it exports a Channel Access symbol, so
+a renamed copy of ``libca`` is refused too. On Windows the loader has no symbol
+lookup, and a library is refused by name only. A client imported before the
+install cannot be unloaded honestly, so the install itself raises. There are
+no escape-route rows: the process keeps ``subprocess`` for package installs,
+git and plotting, and a fresh interpreter it starts carries no block.
+
 This module is stdlib-only at module scope and importing it has no side effects.
 Both properties are load-bearing: the executor embeds this file's *source* into
 the script it runs and executes it in a private namespace, so the guard holds in
@@ -39,14 +59,33 @@ already refused; an armed replacement is recognised and never wrapped again.
 
 The table covers three kinds of route: the control-system client libraries
 themselves, the process-spawning surface that could shell out to ``caput``, and
-``ctypes``, which reaches Channel Access without importing any client package
-at all. The ``ctypes`` rows are gated rather than refused outright, because a
-readonly run reads through ``osprey.runtime`` and its EPICS connector is
-pyepics, which reaches Channel Access by loading ``libca`` through ``ctypes``: a
-load is let through only while pyepics' own ``initialize_libca`` is on the
-stack, and the handle it gets back has its put entry points refused, so the raw
-route through the library is closed like every other spelling. Every other load
-refuses, pyepics present or not.
+loading a shared library, which reaches Channel Access without importing any
+client package at all. A readonly run still reads through ``osprey.runtime``,
+whose EPICS connector is aioca, and aioca reaches Channel Access through the
+``libca`` handle ``epicscorelibs.ca.cadef`` loads with ``ctypes`` in its module
+body. That row precedes the loader rows, so the handle is loaded at install,
+before the loader is gated, and no library load is needed after it. Every later
+load refuses, including the one a user-installed pyepics would make.
+
+The gate is the loader every ``ctypes`` spelling funnels into
+(``ctypes._dlopen``, which is ``_ctypes.dlopen``) and cffi's ``FFI.dlopen``
+beside it. A readonly run replaces each with a refusal that holds no loader,
+because it lets no load through; the ``no_client`` mode wraps the loader
+instead, because it lets every non-client library load. No spelling of the
+loader class (``cdll._dlltype``, ``type(handle)``, a subclass, a reference
+bound before the install) loads around it. Symbol
+lookup is gated at the class: ``CDLL.__getitem__``, which attribute access
+resolves through, refuses the put symbols on every handle. That reaches the
+handles loaded before the gate — ``epicscorelibs.ca.cadef.libca``, which aioca
+reads through, and ``ctypes.pythonapi``, which resolves libca's symbols once it
+is loaded ``RTLD_GLOBAL``. A put symbol a handle already resolved is cached on
+the instance, so the table closes those on ``cadef.libca`` by name. What stays
+open is building a function pointer by hand — from ``ctypes._CFuncPtr``, a
+``CFUNCTYPE`` prototype or a handle's ``_FuncPtr``, given a symbol name or a
+``_ctypes.dlsym`` address — because the type every one of those constructs is
+an immutable C type the guard cannot
+patch. That is the same floor as any other immutable C type, below which
+``ctypes`` is arbitrary memory access.
 
 Each patched attribute is also followed back to the module that defined it, so
 a write a package merely re-exports refuses under both of its spellings. That
@@ -65,19 +104,30 @@ should not pay for them. A framework already imported at install is patched on
 the spot.
 """
 
+import contextlib
 import importlib
 import inspect
 import logging
+import os
 import platform
 import sys
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-#: Rows whose attributes are shared-library loaders. They are gated, not refused.
-_GATED_LOADER_ROWS = ("ctypes", "ctypes.LibraryLoader")
+#: The shared-library loader rows, by ``(dotted, attr)``, each shaped like
+#: ``_ctypes.dlopen`` or like cffi's ``FFI.dlopen``, and the symbol lookup on
+#: every ``ctypes`` handle. A readonly run refuses every load through a callable
+#: that holds no loader; the ``no_client`` mode wraps the loader, because it
+#: lets non-client libraries through.
+_CTYPES_LOADER_ROWS = frozenset(
+    {("ctypes", "_dlopen"), ("_ctypes", "dlopen"), ("_ctypes", "LoadLibrary")}
+)
+_FFI_LOADER_ROWS = frozenset({("cffi.api.FFI", "dlopen")})
+_SYMBOL_LOOKUP_ROW = ("ctypes.CDLL", "__getitem__")
 
-#: Put entry points closed on the handle a permitted ``libca`` load returns.
+#: Put entry points no library handle resolves in a readonly run, and which are
+#: closed on the instance of a handle that already resolved them.
 _HANDLE_PUT_SYMBOLS = ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put")
 
 #: Attribute every finder and loader this module installs carries, so a second
@@ -88,6 +138,10 @@ _GUARD_ATTR = "_osprey_readonly_guard"
 #: a re-export or the pvaPy sweep finds it already in place and leaves it.
 _ARMED_ATTR = "_osprey_armed_block"
 
+#: Attribute every gated shared-library loader carries, whichever mode
+#: installed it, so a second install finds it in place and never wraps it again.
+_LOADER_GATE_ATTR = "_osprey_loader_gate"
+
 #: Logger armed refusals are reported under. Spelled out, not ``__name__``: the
 #: executor runs this source in a namespace that has no module name.
 _LOGGER_NAME = "osprey.runtime.raw_put_block"
@@ -96,29 +150,6 @@ Rows = Iterable[tuple[str, Iterable[str]]]
 
 #: ``replacement(dotted, attr, original, owner)`` -> what replaces *original*.
 Replacement = Callable[[str, str, Any, Any], Any]
-
-
-def _pyepics_is_loading(_sys: Any = sys, _max_depth: int = 8) -> bool:
-    """True while ``epics.ca.initialize_libca`` is a near caller.
-
-    Matched by code object, not by name, so a same-named function opens nothing.
-    """
-    _code = getattr(
-        getattr(_sys.modules.get("epics.ca"), "initialize_libca", None),
-        "__code__",
-        None,
-    )
-    if _code is None:
-        return False
-    # Frame 0 is this function, frame 1 the gated loader.
-    _frame = _sys._getframe(2)
-    for _ in range(_max_depth):
-        if _frame is None:
-            return False
-        if _frame.f_code is _code:
-            return True
-        _frame = _frame.f_back
-    return False
 
 
 def _resolve(dotted: str) -> Any:
@@ -279,6 +310,133 @@ def _raw_write_refusal(marker: str, address: str) -> Exception:
             "approval apply."
         )
     return ChannelWriteBlockedError(address, "RAW_CLIENT_WRITE", raw_client_write_message(address))
+
+
+def _client_refusal(*, package: str | None = None, library: str | None = None) -> Exception:
+    """The error a refused client import or library load raises.
+
+    Imported on each refusal: this module is stdlib-only at module scope.
+    """
+    from osprey_connectors.errors import ClientLibraryRefusedError
+
+    return ClientLibraryRefusedError(package=package, library=library)
+
+
+def _matches_stem(basename: str, stem: str) -> bool:
+    """Whether *basename* is a build of the library *stem* names.
+
+    Case folded: the basename equals the stem, or continues it with ``.`` or
+    ``-``. ``libca.so.3.15`` and ``libca.3.15.dylib`` are ``libca``;
+    ``libcairo.so`` is not.
+    """
+    basename = basename.casefold()
+    stem = stem.casefold()
+    return basename == stem or basename.startswith((f"{stem}.", f"{stem}-"))
+
+
+def _client_library(name: Any, stems: Iterable[str]) -> str | None:
+    """The basename under which *name* is a client library, or None.
+
+    Both the name as given and, where it is a path that exists, the file it
+    resolves to are checked, so neither a symlink to ``libca`` nor a link named
+    after it gets through.
+    """
+    if name is None:
+        return None
+    try:
+        path: str = os.fsdecode(name)
+    except TypeError:
+        return None
+    candidates = [os.path.basename(path)]
+    if os.path.exists(path):
+        candidates.append(os.path.basename(os.path.realpath(path)))
+    for basename in candidates:
+        if any(_matches_stem(basename, stem) for stem in stems):
+            return basename
+    return None
+
+
+def _library_label(name: Any) -> str:
+    """How a refusal names a library that loaded under *name*."""
+    if name is None:
+        return "<process>"
+    try:
+        return os.path.basename(os.fsdecode(name)) or str(name)
+    except TypeError:
+        return repr(name)
+
+
+class _LoaderPolicy:
+    """What a gated shared-library loader checks around the original load.
+
+    ``before(name)`` runs first and raises to refuse the load. ``after(name,
+    handle, close)``, where set, inspects what loaded and raises to refuse it,
+    calling ``close()`` first so a refused library is not left open.
+    """
+
+    __slots__ = ("after", "before")
+
+    def __init__(
+        self,
+        before: Callable[[Any], None],
+        after: Callable[[Any, Any, Callable[[], None]], None] | None = None,
+    ) -> None:
+        self.before = before
+        self.after = after
+
+
+def _gated_load(original: Callable[..., Any], *, policy: _LoaderPolicy) -> Callable[..., Any]:
+    """Gate a ``ctypes`` loader shaped like ``_ctypes.dlopen(name, mode)``.
+
+    The original returns the library as an integer handle. A loader that is
+    already a gate is returned as it is, whichever mode installed it.
+    """
+    if getattr(original, _LOADER_GATE_ATTR, False):
+        return original
+
+    def _osprey_gated_load(name: Any, *args: Any, **kwargs: Any) -> Any:
+        policy.before(name)
+        handle = original(name, *args, **kwargs)
+        if policy.after is not None:
+
+            def _close() -> None:
+                try:
+                    import _ctypes
+
+                    _ctypes.dlclose(handle)
+                except Exception:
+                    pass
+
+            policy.after(name, handle, _close)
+        return handle
+
+    setattr(_osprey_gated_load, _LOADER_GATE_ATTR, True)
+    return _osprey_gated_load
+
+
+def _gated_ffi_load(original: Callable[..., Any], *, policy: _LoaderPolicy) -> Callable[..., Any]:
+    """Gate a loader shaped like cffi's ``FFI.dlopen(self, name, flags=0)``.
+
+    The original returns the library as an object whose attributes are its
+    declared symbols. A loader that is already a gate is returned as it is.
+    """
+    if getattr(original, _LOADER_GATE_ATTR, False):
+        return original
+
+    def _osprey_gated_ffi_load(self: Any, name: Any, *args: Any, **kwargs: Any) -> Any:
+        policy.before(name)
+        lib = original(self, name, *args, **kwargs)
+        if policy.after is not None:
+
+            def _close() -> None:
+                with contextlib.suppress(Exception):
+                    self.dlclose(lib)
+
+            policy.after(name, lib, _close)
+        return lib
+
+    setattr(_osprey_gated_ffi_load, _LOADER_GATE_ATTR, True)
+    return _osprey_gated_ffi_load
 
 
 def _refusal_text(texts: Mapping[str, str], dotted: str, attr: str) -> str | None:
@@ -487,25 +645,35 @@ def _install_readonly(
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
 
-    def _gate_loader(_original: Callable[..., Any]) -> Callable[..., Any]:
-        def _osprey_gated_load(*_args: Any, **_kwargs: Any) -> Any:
-            if not _pyepics_is_loading():
-                _osprey_readonly_refuse()
-            _handle = _original(*_args, **_kwargs)
-            try:
-                for _symbol in _HANDLE_PUT_SYMBOLS:
-                    setattr(_handle, _symbol, _osprey_readonly_refuse)
-            except Exception:
-                # A handle whose put symbols cannot be closed is not handed out
-                # at all.
-                _osprey_readonly_refuse()
-            return _handle
+    def _osprey_refused_load(*_args: Any, **_kwargs: Any) -> Any:
+        # Every load after install refuses, through ``ctypes`` and cffi alike,
+        # so the refusal holds no loader it could hand back.
+        raise RuntimeError(refusal)
 
-        return _osprey_gated_load
+    setattr(_osprey_refused_load, _LOADER_GATE_ATTR, True)
 
-    def _readonly_replacement(dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
-        if dotted in _GATED_LOADER_ROWS:
-            return _gate_loader(original)
+    def _osprey_gated_symbol(self: Any, name_or_ordinal: Any) -> Any:
+        # ``CDLL.__getitem__``, restated rather than wrapped so the original is
+        # not left in a closure. ``__getattr__`` resolves through it, so both
+        # ``handle.ca_array_put`` and ``handle["ca_array_put"]`` refuse, on
+        # every handle — ``ctypes.pythonapi`` included, which resolves libca's
+        # symbols once libca is loaded ``RTLD_GLOBAL``.
+        _name = name_or_ordinal
+        if isinstance(_name, bytes):
+            _name = _name.decode("utf-8", errors="replace")
+        if _name in _HANDLE_PUT_SYMBOLS:
+            _osprey_readonly_refuse()
+        _func = self._FuncPtr((name_or_ordinal, self))
+        if not isinstance(name_or_ordinal, int):
+            _func.__name__ = name_or_ordinal
+        return _func
+
+    def _readonly_replacement(dotted: str, attr: str, _original: Any, _owner: Any) -> Any:
+        row = (dotted, attr)
+        if row in _CTYPES_LOADER_ROWS or row in _FFI_LOADER_ROWS:
+            return _osprey_refused_load
+        if row == _SYMBOL_LOOKUP_ROW:
+            return _osprey_gated_symbol
         return _osprey_readonly_refuse
 
     _patch_rows("readonly guard", eager_targets, deferred_targets, _readonly_replacement)
@@ -648,10 +816,8 @@ def _install_armed(
                 new = _blocked(dotted, attr, function)
             setattr(new, _ARMED_ATTR, True)
             for meta in ("__name__", "__qualname__", "__doc__"):
-                try:
+                with contextlib.suppress(Exception):
                     setattr(new, meta, getattr(function, meta))
-                except Exception:
-                    pass
             return new
 
         return _preserving_descriptor(owner, attr, original, marked)
@@ -660,6 +826,96 @@ def _install_armed(
     # rows are replaced as their module finishes importing (or now, when it
     # already has), and a client the script never imports is never loaded.
     _patch_rows("armed raw-put block", (), blocked + rpc + provider, _armed_replacement)
+
+
+def _install_no_client(
+    *,
+    denied_packages: Iterable[str],
+    library_names: Iterable[str],
+    library_symbols: Iterable[str],
+    loader_targets: Rows,
+) -> None:
+    """Refuse every client package at import and every client library at load."""
+    import _ctypes
+    import ctypes
+
+    denied = frozenset(denied_packages)
+    stems = tuple(library_names)
+    symbols = tuple(library_symbols)
+
+    # A client already loaded cannot be unloaded, so a process holding one
+    # cannot be made to hold none.
+    loaded = sorted(
+        {
+            name.split(".")[0]
+            for name, module in list(sys.modules.items())
+            if module is not None and name.split(".")[0] in denied
+        }
+    )
+    if loaded:
+        raise _client_refusal(package=loaded[0])
+
+    def _exports_a_client_symbol(handle: Any) -> bool:
+        dlsym = getattr(_ctypes, "dlsym", None)
+        if dlsym is None:
+            return False
+        for symbol in symbols:
+            try:
+                dlsym(handle, symbol)
+            except Exception:
+                continue
+            return True
+        return False
+
+    def _refuse_by_name(name: Any) -> None:
+        library = _client_library(name, stems)
+        if library is not None:
+            raise _client_refusal(library=library)
+
+    def _refuse_by_dlsym(name: Any, handle: Any, close: Callable[[], None]) -> None:
+        if _exports_a_client_symbol(handle):
+            close()
+            raise _client_refusal(library=_library_label(name))
+
+    def _refuse_by_declared_symbol(name: Any, lib: Any, close: Callable[[], None]) -> None:
+        for symbol in symbols:
+            try:
+                getattr(lib, symbol)
+            except Exception:
+                continue
+            close()
+            raise _client_refusal(library=_library_label(name))
+
+    ctypes_policy = _LoaderPolicy(_refuse_by_name, _refuse_by_dlsym)
+    ffi_policy = _LoaderPolicy(_refuse_by_name, _refuse_by_declared_symbol)
+
+    def _ffi_replacement(_dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
+        # A deferred loader row is shaped like cffi's ``FFI.dlopen``.
+        return _gated_ffi_load(original, policy=ffi_policy)
+
+    # Every ``ctypes`` spelling — ``CDLL``, ``PyDLL``, ``cdll.LoadLibrary``,
+    # ``cdll.<name>`` — loads through the module-global ``ctypes._dlopen``;
+    # ``_ctypes`` is the binding a script can reach without ``ctypes``.
+    ctypes._dlopen = _gated_load(ctypes._dlopen, policy=ctypes_policy)  # type: ignore[attr-defined]
+    for attr in ("dlopen", "LoadLibrary"):
+        if hasattr(_ctypes, attr):
+            setattr(_ctypes, attr, _gated_load(getattr(_ctypes, attr), policy=ctypes_policy))
+    _patch_rows("no-client block", (), loader_targets, _ffi_replacement)
+
+    class _OspreyNoClientFinder:
+        """Refuse the import of every denied package and its submodules."""
+
+        # The other guards' finders skip this one rather than delegate to it.
+        _osprey_readonly_guard = True
+
+        def find_spec(self, fullname: str, _path: Any, _target: Any = None) -> Any:
+            package = fullname.split(".")[0]
+            if package in denied:
+                raise _client_refusal(package=package)
+            return None
+
+    # Placed after the loader rows' finder, so this one is consulted first.
+    sys.meta_path.insert(0, _OspreyNoClientFinder())  # type: ignore[arg-type]
 
 
 def install(mode: str, **contract: Any) -> None:
@@ -685,10 +941,24 @@ def install(mode: str, **contract: Any) -> None:
     names pvaPy-shaped classes whose puts are refused like a blocked row unless
     the channel was constructed on PVAccess, which calls through. Nothing else
     is touched.
+
+    ``"no_client"`` takes ``denied_packages``, ``library_names``,
+    ``library_symbols`` and ``loader_targets``. Importing a
+    module whose top-level package is in *denied_packages* raises
+    ``ClientLibraryRefusedError`` with reason ``RAW_CLIENT_IMPORT``, and so
+    does the install when one is already imported. Loading a shared library
+    raises the same error when its basename matches a stem in
+    *library_names*, before it loads, or when it exports a symbol in
+    *library_symbols*, after it loads and is closed again. The ``ctypes``
+    loaders are gated, and so is every ``(dotted, attrs)`` row in
+    *loader_targets*, when its module is imported (or now, when it already
+    is).
     """
     if mode == "readonly":
         _install_readonly(**contract)
     elif mode == "armed":
         _install_armed(**contract)
+    elif mode == "no_client":
+        _install_no_client(**contract)
     else:
         raise ValueError(f"unknown raw-put block mode: {mode!r}")

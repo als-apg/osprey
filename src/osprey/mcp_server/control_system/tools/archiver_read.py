@@ -7,14 +7,15 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 
+import numpy as np
 import pandas as pd
 
-from osprey.connectors.archiver import PROCESSING_MODES
 from osprey.mcp_server.control_system import target_banner
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.archiver import PROCESSING_MODES
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.types import resolve_archiver_type
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
@@ -22,6 +23,20 @@ logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 #: Points per channel the default bin aims for when the caller names no
 #: ``bin_size``; ``archiver.auto_bin_points`` in config.yml overrides it.
 DEFAULT_AUTO_BIN_POINTS = 10_000
+
+#: Waveform points one read may return, summed over every trace of every
+#: waveform channel in the request: 64 traces of 500 points. An inclusive
+#: one-hour window of a trace stored once a minute (61 traces, 30 500 points)
+#: fits. Scalar samples do not count against it — their volume is governed by
+#: the bin.
+WAVEFORM_ELEMENT_BUDGET = 32_000
+
+#: The summary note a read carries whenever a waveform channel answered.
+WAVEFORM_NOTE = (
+    "Waveform channels are never binned: every stored trace in range is returned "
+    "raw, whole, at the channel's stored cadence (per_channel.<channel>.cadence_s). "
+    "summary.bin_size applies to scalar channels only."
+)
 
 #: ``target_source`` when the session has selected a target of its own — the
 #: state file named it, and it differs from the deployment baseline.
@@ -277,6 +292,39 @@ def _provenance(archiver_section: Any, connector: Any) -> dict[str, str]:
     }
 
 
+def _is_trace(value: Any) -> bool:
+    """Whether one archived sample is a waveform trace (a sequence of points)."""
+    return isinstance(value, (list, tuple, np.ndarray))
+
+
+def _json_trace(trace: Any) -> list[float | None]:
+    """A trace as a JSON-safe list: floats, with JSON null for a NaN point."""
+    return [
+        None if (p is None or (isinstance(p, float) and math.isnan(p))) else p
+        for p in (trace.tolist() if isinstance(trace, np.ndarray) else list(trace))
+    ]
+
+
+def _trace_stats(trace: Any) -> dict[str, Any]:
+    """``points`` of one trace, and min/max/mean over its finite points."""
+    arr = np.asarray(trace, dtype=float) if trace is not None else np.empty(0)
+    stats: dict[str, Any] = {"points": int(arr.size)}
+    finite = arr[np.isfinite(arr)]
+    if finite.size:
+        stats["min"] = float(finite.min())
+        stats["max"] = float(finite.max())
+        stats["mean"] = round(float(finite.mean()), 6)
+    return stats
+
+
+def _cadence_seconds(timestamps: pd.Series) -> int | float | None:
+    """The median spacing of a channel's traces, in seconds; None below two traces."""
+    if len(timestamps) < 2:
+        return None
+    seconds = float(pd.Series(timestamps).diff().dropna().median().total_seconds())
+    return int(seconds) if seconds.is_integer() else seconds
+
+
 @mcp.tool()
 async def archiver_read(
     channels: list[str],
@@ -307,6 +355,9 @@ async def archiver_read(
             resolution — every real archived sample in range, with no per-bin
             decimation — and is only valid with processing="raw" (an aggregate
             has no bin to aggregate over). Negative values are rejected.
+            A waveform channel is never binned, whatever ``bin_size`` says:
+            every stored trace in range comes back whole and raw at the
+            channel's stored cadence, and ``summary.waveforms`` says so.
 
     Returns:
         JSON summary with per-channel point counts and stats, the bin that was
@@ -318,6 +369,13 @@ async def archiver_read(
         The saved query block and the artifact's metadata additionally carry a
         provenance stamp naming the session's control-system target and the
         archiver that served the data.
+
+        A waveform channel's entry in ``summary.per_channel`` counts its traces
+        as ``points`` and their summed length as ``elements``, and lists every
+        trace's own stats (timestamp, points, min, max, mean) under
+        ``traces``. One read may return at most ``WAVEFORM_ELEMENT_BUDGET``
+        (32 000) waveform points over all its waveform channels; a larger
+        read is refused, naming the budget, and a shorter time range fits.
     """
     if not channels:
         return make_error(
@@ -435,11 +493,61 @@ async def archiver_read(
         by_channel = dict(tuple(df.groupby("channel", sort=False)))
         no_samples = df.iloc[:0]
 
+        # A channel whose samples are sequences is a waveform. The budget is
+        # checked before anything is built or saved, so an over-budget read
+        # leaves no artifact behind.
+        waveform_channels = [
+            ch
+            for ch in unique_channels
+            if any(_is_trace(v) for v in by_channel.get(ch, no_samples)["value"])
+        ]
+        trace_lengths = [
+            len(v) for ch in waveform_channels for v in by_channel[ch]["value"] if _is_trace(v)
+        ]
+        elements = sum(trace_lengths)
+        if elements > WAVEFORM_ELEMENT_BUDGET:
+            trace_len = max(trace_lengths)
+            fits = WAVEFORM_ELEMENT_BUDGET // max(1, trace_len * len(waveform_channels))
+            return make_error(
+                "validation_error",
+                f"Read refused: {elements:,} waveform elements in range exceed the "
+                f"{WAVEFORM_ELEMENT_BUDGET:,}-element budget of one archiver_read "
+                f"({len(trace_lengths)} traces over {len(waveform_channels)} waveform "
+                "channel(s)).",
+                [
+                    f"Request a shorter time range: about {fits} trace(s) of {trace_len} "
+                    "points per waveform channel fit the budget.",
+                    "Or read fewer waveform channels at once.",
+                ],
+            )
+
         # Iterate requested channels so key order matches the request and a
         # channel with no data still gets an empty entry.
         for ch in unique_channels:
             sub = by_channel.get(ch, no_samples)
             timestamps = [ts.isoformat() for ts in sub["timestamp"]]
+            if ch in waveform_channels:
+                traces = [_json_trace(v) if _is_trace(v) else None for v in sub["value"]]
+                trace_stats = [
+                    _trace_stats(v) if _is_trace(v) else {"points": 0} for v in sub["value"]
+                ]
+                series[ch] = {"timestamps": timestamps, "values": traces, "stats": trace_stats}
+                points = len(sub)
+                total_points += points
+                waveform_entry: dict[str, Any] = {
+                    "points": points,
+                    "elements": sum(st["points"] for st in trace_stats),
+                    "bin_size": 0,
+                }
+                cadence = _cadence_seconds(sub["timestamp"])
+                if cadence is not None:
+                    waveform_entry["cadence_s"] = cadence
+                waveform_entry["traces"] = [
+                    {"timestamp": ts, **st} for ts, st in zip(timestamps, trace_stats, strict=True)
+                ]
+                per_channel[ch] = waveform_entry
+                continue
+
             # NaN is not valid JSON; ``.astype(object)`` first is required or
             # ``where`` puts NaN back in place of None on float columns.
             values = sub["value"].astype(object).where(sub["value"].notna(), None).tolist()
@@ -465,7 +573,7 @@ async def archiver_read(
             coverage = _compose_coverage(start_dt.astimezone(UTC), end_dt.astimezone(UTC), probes)
 
         # Full data payload goes to file; compact summary returned inline
-        data_payload = {
+        data_payload: dict[str, Any] = {
             "query": {
                 "channels": unique_channels,
                 "start_time": str(start_dt),
@@ -477,6 +585,15 @@ async def archiver_read(
             },
             "series": series,
         }
+        waveforms = None
+        if waveform_channels:
+            waveforms = {
+                "channels": waveform_channels,
+                "elements": elements,
+                "element_budget": WAVEFORM_ELEMENT_BUDGET,
+                "note": WAVEFORM_NOTE,
+            }
+            data_payload["query"]["waveforms"] = waveforms
 
         summary = {
             "channels_queried": len(unique_channels),
@@ -486,6 +603,8 @@ async def archiver_read(
             "bin_size_source": bin_source,
             "per_channel": per_channel,
         }
+        if waveforms is not None:
+            summary["waveforms"] = waveforms
         if coverage is not None:
             summary["coverage"] = coverage
         access_details = {
@@ -520,7 +639,10 @@ async def archiver_read(
                     "one real sample per timestamp: numeric, the channel's own string "
                     "for an enum/status channel, or JSON null where the archived "
                     "sample itself was null. 'points' counts all of them; min/max/mean "
-                    "are computed over the numeric ones only."
+                    "are computed over the numeric ones only. A waveform channel's value "
+                    "is one whole trace per timestamp — a list of floats, JSON null for a "
+                    "missing point — and its series also carries 'stats', one "
+                    "{points, min, max, mean} per trace, parallel to 'values'."
                 ),
             },
         }

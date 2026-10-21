@@ -39,7 +39,7 @@ from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS
 # helpers
 # ---------------------------------------------------------------------------
 
-CONFIG_TARGET = "osprey.utils.config.get_config_value"
+CONFIG_TARGET = "osprey_connectors.config.get_config_value"
 
 INLINE_KEY = "control_system.read_inline_max_elements"
 RETENTION_KEY = "control_system.channel_read_artifact_retention"
@@ -60,8 +60,6 @@ def _boom(_path, _default=None, _config_path=None):
 
 
 #: The bundled presets that ship a control system, and so size channel_read.
-#: `ariel-standalone` and `channel-finder-standalone` carry no control_system
-#: block at all, so there is nothing for these knobs to size.
 _PRESETS = ["hello-world", "control-assistant"]
 
 #: The preset that ships the EPICS connector block, and so documents PVA routing.

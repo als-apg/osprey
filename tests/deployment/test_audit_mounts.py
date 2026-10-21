@@ -59,12 +59,12 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     render_web_terminals,
 )
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 #: The bundle the reference config mounts when a test needs the bundle half.
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 
 #: The ARIEL qmd mirror the reference config mounts when a test needs that half.
 MIRROR_PATH = "var/ariel_mirror"
@@ -76,7 +76,7 @@ MIRROR_PATH = "var/ariel_mirror"
 
 
 def _web_config(
-    *, auth: bool = False, bundle: bool = False, mirror: bool = False, personas: bool = False
+    *, auth: bool = False, bundle: bool = False, mirror: bool = False, tiers: bool = False
 ) -> dict:
     """The reference roster, with the optional halves this file exercises."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
@@ -94,21 +94,40 @@ def _web_config(
                 "qmd_export": {"enabled": True, "settings": {"mirror_path": MIRROR_PATH}}
             }
         }
-    if personas:
-        web_terminals["personas"] = {
-            "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
-            "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+    if tiers:
+        web_terminals["default_tier"] = "operator"
+        # The two-tier catalog replaces the reference one.
+        web_terminals["renders"] = {
+            "operator": {
+                "kind": "tier",
+                "project": "dls-operator",
+                "project_path": "../dls-operator",
+            },
+            "physicist": {
+                "kind": "tier",
+                "project": "dls-physicist",
+                "project_path": "../dls-physicist",
+            },
         }
         web_terminals["users"] = [
-            {"name": "alice", "index": 0, "persona": "operator"},
-            {"name": "bob", "index": 1, "persona": "physicist"},
+            {"name": "alice", "index": 0, "tier": "operator"},
+            {"name": "bob", "index": 1, "tier": "physicist"},
         ]
     return config
 
 
 def _web_services(**kwargs) -> dict:
-    """The parsed ``services:`` mapping of a rendered web overlay."""
-    rendered = render_web_terminals(_web_config(**kwargs))["docker-compose.web.yml"]
+    """The parsed ``services:`` mapping of a rendered web overlay.
+
+    The reference roster's default tier is entitled to the bundle and the
+    mirror whenever the config carries them.
+    """
+    entitled = {"assistant"}
+    rendered = render_web_terminals(
+        _web_config(**kwargs),
+        facility_bundle_renders=entitled if kwargs.get("bundle") else None,
+        ariel_mirror_renders=entitled if kwargs.get("mirror") else None,
+    )["docker-compose.web.yml"]
     return yaml.safe_load(rendered)["services"]
 
 
@@ -231,14 +250,14 @@ def test_the_audit_path_is_routed_through_the_shared_constant():
 
     source, target = _audit_mounts(services["web-alice"])[0].split(":")
     assert source == f"./{AUDIT_DIR_RELPATH}/alice"
-    assert target == f"/app/dls-assistant/{AUDIT_DIR_RELPATH}/alice"
+    assert target == f"/app/dls_controls-assistant/{AUDIT_DIR_RELPATH}/alice"
 
 
-def test_the_target_is_computed_per_persona_from_its_own_project_dir():
-    """Two personas built from different projects read their audit root at two
+def test_the_target_is_computed_per_render_from_its_own_project_dir():
+    """Two renders built from different projects read their audit root at two
     different in-container paths, so one hardcoded target would mount the
     directory where only one of them writes."""
-    services = _web_services(personas=True)
+    services = _web_services(tiers=True)
 
     assert _env(services["web-alice"])["OSPREY_AUDIT_DIR"] == (
         f"/app/dls-operator/{AUDIT_DIR_RELPATH}/alice"
@@ -825,11 +844,11 @@ def test_web_deploy_provisions_every_subdir_before_any_compose_invocation(monkey
     from .web_terminals.test_provision import _sidecar_config, _stub_web_stack
 
     _stub_web_stack(monkeypatch, tmp_path)
-    # _stub_web_stack neuters resolve_personas to an empty roster; this deploy
+    # _stub_web_stack neuters resolve_cards to an empty roster; this deploy
     # has to have one, since the roster IS the identity list.
     monkeypatch.setattr(
         provision,
-        "resolve_personas",
+        "resolve_cards",
         lambda *a, **kw: [{"name": "alice"}, {"name": "bob"}],
     )
     expected = ["alice", "bob", AUTH_SIDECAR_AUDIT_IDENTITY]
@@ -867,7 +886,7 @@ def test_web_deploy_provisions_no_sidecar_subdir_with_auth_off(monkeypatch, tmp_
     from .web_terminals.test_provision import _sidecar_config, _stub_web_stack
 
     _stub_web_stack(monkeypatch, tmp_path)
-    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [{"name": "alice"}])
+    monkeypatch.setattr(provision, "resolve_cards", lambda *a, **kw: [{"name": "alice"}])
 
     provision.deploy_up_web_terminals(_sidecar_config("local", method="none"), [], False, {}, [])
 
@@ -959,7 +978,7 @@ def test_a_name_that_is_not_one_path_segment_is_refused_with_auth_off(name):
 def test_no_render_emits_an_audit_bind_that_leaves_the_audit_zone():
     """The property the gate exists for, asserted on the artifact itself: every
     audit bind source a render emits stays inside ``var/audit/``."""
-    for kwargs in ({}, {"auth": True}, {"personas": True}):
+    for kwargs in ({}, {"auth": True}, {"tiers": True}):
         for service in _web_services(**kwargs).values():
             for mount in _audit_mounts(service):
                 source = mount.split(":", 1)[0]
@@ -1020,3 +1039,25 @@ def test_a_refused_identity_creates_nothing_and_is_not_fatal(tmp_path, caplog):
     assert "Skipping audit directory provisioning" in caplog.text
     assert not (tmp_path / "escaped").exists()
     assert not (tmp_path / "repo").exists()
+
+
+# ---------------------------------------------------------------------------
+# The telemetry gateway: the one reader of the whole zone, read-only
+# ---------------------------------------------------------------------------
+
+
+def test_the_gateway_mounts_the_audit_root_read_only():
+    """The gateway feeds every identity's ledger to the store, so it is the one
+    service holding the audit root itself — and it never writes a record. The
+    bind is the whole zone, so ``_audit_mounts`` (which matches subdirectories)
+    does not see it; the volume list is parsed directly."""
+    service = _service_fragment("telemetry_gateway")["telemetry_gateway"]
+    audit = [
+        mount
+        for mount in service["volumes"]
+        if mount.split(":", 1)[0].removeprefix("./").rstrip("/") == AUDIT_DIR_RELPATH
+    ]
+    assert len(audit) == 1, service["volumes"]
+    source, target, mode = audit[0].split(":")
+    assert (source, target, mode) == (f"./{AUDIT_DIR_RELPATH}", "/audit", "ro")
+    assert _audit_mounts(service) == []

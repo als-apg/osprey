@@ -45,8 +45,31 @@ from ruamel.yaml.tokens import CommentToken
 
 logger = logging.getLogger(__name__)
 
+
+class _RoundTripYAML(YAML):
+    """A round-trip ``YAML`` that starts each dump fresh after one that failed.
+
+    ``YAML.dump_all`` holds its output stream, context manager, serializer,
+    emitter and representer on the instance for the length of a dump and lets
+    go of them only when the dump completes. One instance serves every write in
+    this module, so a dump that raises part-way would hand that state to the
+    next write: it would emit into the failed dump's (closed) stream, or carry
+    its anchors. A failed dump drops the state before the error propagates.
+    """
+
+    def dump_all(self, documents: Any, stream: Any, *, transform: Any = None) -> Any:
+        try:
+            return super().dump_all(documents, stream, transform=transform)
+        except BaseException:
+            self._output = None
+            self._context_manager = None
+            for name in ("_serializer", "_emitter", "_representer"):
+                self.__dict__.pop(name, None)
+            raise
+
+
 # Round-trip mode ("rt") preserves comments, key order, and quoting style.
-_yaml = YAML(typ="rt")
+_yaml = _RoundTripYAML(typ="rt")
 _yaml.preserve_quotes = True
 _yaml.width = 4096  # prevent aggressive line-wrapping
 # Emit block sequences indented under their key, which is how every YAML this
@@ -391,7 +414,7 @@ def config_backup_path(config_path: Path) -> Path:
     repo ROOT — the directory holding ``profile.yml`` and ``var/`` — never
     relative to the render that ``config.yml`` sits in. So the anchor is derived
     from the config itself, applying the same precedence
-    :func:`~osprey.utils.workspace.resolve_project_root` applies at runtime: the
+    :func:`~osprey_connectors.workspace.resolve_project_root` applies at runtime: the
     config's own ``project_root`` key when it names a directory that exists
     here, and :func:`repo_root_for_config` otherwise. That is the helper every
     other state-zone consumer resolves the root with:
@@ -422,7 +445,7 @@ def config_backup_path(config_path: Path) -> Path:
     Returns:
         The path the backup should be written to. Nothing is created.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
 
     try:
         config = load_config_document(config_path)

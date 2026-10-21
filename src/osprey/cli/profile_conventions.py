@@ -14,12 +14,15 @@ module is that channel table, plus the validation that keeps it honest:
   mirror may not write, each naming the channel that *does* own them. These
   enforce pipeline coherence (exactly one writer per artifact), not sandboxing:
   the profile is operator-trusted.
+* :func:`facility_mirror_violation` — the ``profile-invalid`` stop for a
+  ``project/`` mirror file at a path the facility build writes
+  (:data:`RESERVED_MIRROR_PATTERNS`).
 * :func:`is_reserved_write` and :func:`is_protected_key` — the *protected set*:
   the paths and config keys a running agent may not rewrite, consulted by every
   framework writer. A separate question from the reservations above, which ask
   which build channel owns a path (see :func:`is_reserved_write`).
 * :func:`is_setup_patch_capable` — the posture read shared by every gate that
-  has to know whether a rendered persona can still reach the setup tool.
+  has to know whether a rendered render can still reach the setup tool.
 * :func:`plan_convention_copies` — the pure source → destination plan a build
   carries out.
 * :func:`ownership_name` — the destination → ``scaffold.user_owned`` name rule,
@@ -38,18 +41,21 @@ from enum import Enum
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
-# Free at module level: ``osprey.utils.logger`` above already pulls
+# Free at module level: ``osprey_connectors.logger`` above already pulls
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME, LAYER_DIRNAMES, STATE_DIR_NAME
+
+if TYPE_CHECKING:
+    from osprey.facility.errors import FacilityBuildError
 
 logger = get_logger("build")
 
@@ -224,7 +230,7 @@ PROJECT_MIRROR_DIR = "project"
 #: The disposable output zone. Every ``osprey build`` wipes and re-renders it,
 #: so nothing durable may live there. Spelled here under this module's own name
 #: — the repo root it judges is the directory the zone sits in — but ALIASED to
-#: :data:`osprey.utils.workspace.BUILD_DIR_NAME` rather than restated. Three
+#: :data:`osprey_connectors.workspace.BUILD_DIR_NAME` rather than restated. Three
 #: modules named this directory with three independent string literals, which
 #: is three chances for the zone layout to disagree with itself; there is now
 #: one literal and two names for it.
@@ -266,7 +272,8 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         PROVIDERS_FILENAME,
         PROFILE_TRIGGERS_FILENAME,
         "data",
-        "personas",
+        # The tier and app files laid over the profile, by location.
+        *LAYER_DIRNAMES,
         "profiles",
         "scripts",
         "ci-extra.yml",
@@ -348,8 +355,6 @@ RESERVED_PROJECT_PATHS: tuple[ReservedPath, ...] = (
     ReservedPath(".env", "the profile's `.env` file and `env:` keys"),
     ReservedPath(".env.example", "the profile's `.env.example` file and `env:` keys"),
     ReservedPath("CLAUDE.md", "the profile's `claude_md_template:` key"),
-    ReservedPath("data/simulation/channel_manifest.json", "the profile's `data/` directory"),
-    ReservedPath("data/simulation/channel_limits.json", "the profile's `data/` directory"),
     ReservedPath(
         "docker/web-terminal-context/base.md",
         "the profile's `web-terminal-context/base.md` slot — the shared baseline "
@@ -402,10 +407,32 @@ class ReservedPattern:
             case-insensitive filesystem ``.CLAUDE/Skills/x`` opens the very
             file ``.claude/skills/x`` names.
         channel: The channel that *does* write it, phrased for a refusal.
+        mirror: Whether the facility build writes the path, which also puts it
+            in :data:`RESERVED_MIRROR_PATTERNS`.
+        agent_writable: Directories under the pattern, project-relative and in
+            lower case, that an agent-side writer may still write. They open
+            the agent-side answer only: the pattern, and with it
+            :data:`RESERVED_MIRROR_PATTERNS`, is unchanged.
     """
 
     pattern: str
     channel: str
+    mirror: bool = False
+    agent_writable: tuple[str, ...] = ()
+
+    def leaves_open(self, folded: str) -> bool:
+        """Whether a casefolded, normalized path is in an agent-writable directory.
+
+        Args:
+            folded: The project-relative posix path, normalized and casefolded.
+
+        Returns:
+            ``True`` for one of :attr:`agent_writable` or anything below it.
+        """
+        return any(
+            folded == directory or folded.startswith(directory + "/")
+            for directory in self.agent_writable
+        )
 
 
 #: Project paths no agent-side writer may touch, matched by shape. These are
@@ -417,8 +444,8 @@ class ReservedPattern:
 #: Each entry answers the question "may a running agent rewrite this?", not
 #: "which build channel owns it?". The two differ in both directions: an agent
 #: may still author ``.claude/agents/`` and ``.claude/commands/`` material even
-#: though the mirror may not, and it may not touch a settings overlay or a
-#: limits table that the mirror is free to ship.
+#: though the mirror may not, and it may not touch a settings overlay the mirror
+#: is free to ship.
 #:
 #: Pinned by test_pattern_reserved_write_names_its_channel and
 #: test_unreserved_writes_stay_writable.
@@ -446,15 +473,93 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
     ),
     ReservedPattern(
         "data/channel_limits.json",
-        "the profile's `data/` directory — this is the limits table every setpoint "
-        "is checked against before it reaches the control system",
+        "the profile's `data/facility/limits.yaml`, which the build renders into it — "
+        "this is the limits table every setpoint is checked against before it reaches "
+        "the control system",
     ),
     ReservedPattern(
         "data/bluesky_devices.yml",
         "the profile's `data/` directory — this is the device table that decides "
         "which channels a Bluesky plan may drive",
     ),
+    ReservedPattern(
+        "facility.json",
+        "the build, from the profile's `data/facility/` tree — this is the facility "
+        "file every view and served channel is derived from",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/facility/**",
+        "the profile's `data/facility/` tree — the facility is authored there and the "
+        "build derives the facility file from it",
+        mirror=True,
+        # The knowledge bundle is prose the agent drafts; no view is derived
+        # from it.
+        agent_writable=("data/facility/knowledge",),
+    ),
+    ReservedPattern(
+        "data/simulator/**",
+        "the build, from the profile's `data/facility/` tree — the simulator view is "
+        "derived from the facility file, and a hand copy would be served in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/pyaml/**",
+        "the build, from the profile's `data/facility/` tree — the pyAML view is derived "
+        "from the facility file, and a hand copy would be measured with in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/facility_facts.json",
+        "the build, from the profile's `data/facility/` tree — the facts view is derived "
+        "from the facility file, and a hand copy would be read in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/facility_facts.md",
+        "the build, from the profile's `data/facility/` tree — the facts page is derived "
+        "from the facility file, and a hand copy would be read in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/channel_finder/**",
+        "the build, from the profile's `data/facility/` tree — the channel-finder indexes "
+        "are derived from the facility file, and a hand copy would be searched in their place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/graph/**",
+        "the build, from the profile's `data/facility/` tree — the graph view is derived "
+        "from the facility file, and a hand copy would be seeded in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/channel_databases/graph.duckdb",
+        "the build, from the profile's `data/facility/` tree — the graph index is derived "
+        "from the facility file, and a hand copy would be searched in its place",
+        mirror=True,
+    ),
 )
+
+
+#: Project paths the facility build writes from the profile's ``data/facility/``
+#: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
+#: separators, both sides casefolded). A ``project/`` mirror file at one of them
+#: stops the build with a ``profile-invalid`` line
+#: (:func:`facility_mirror_violation`) ahead of profile validation, so
+#: :func:`_mirror_violations` leaves them out and the gathered profile errors
+#: never repeat that stop. The simulator view under ``data/simulator/``, the
+#: pyAML view under ``data/pyaml/``, the facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, the
+#: channel-finder index views under ``data/channel_finder/``, the graph view
+#: under ``data/graph/`` and the graph index at
+#: ``data/channel_databases/graph.duckdb`` are written by the build from the
+#: same tree.
+RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
+    reserved.pattern for reserved in RESERVED_PATH_PATTERNS if reserved.mirror
+)
+
+#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
+FACILITY_AUTHORING_ROUTE = "data/facility/"
 
 
 #: Config keys no agent-side writer may set, keyed by the file that carries
@@ -489,7 +594,6 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "agent_data.*",
         "file_paths.*",
         "artifacts.*",
-        "services.*.devices_file",
         # The roster a plan may drive is enumerated from these two: the
         # knowledge graph a deployment builds against, or the channel-finder
         # pipeline database that stands in for it. Repointing either swaps
@@ -720,7 +824,7 @@ def is_reserved_write(project_rel: str) -> str | None:
         return exact
 
     for reserved in RESERVED_PATH_PATTERNS:
-        if fnmatchcase(folded, reserved.pattern.casefold()):
+        if fnmatchcase(folded, reserved.pattern.casefold()) and not reserved.leaves_open(folded):
             return reserved.channel
 
     return None
@@ -913,7 +1017,7 @@ def protected_view(target_file: str, doc: Mapping[str, Any]) -> dict[tuple[str, 
 
 #: The workspace MCP tool that patches a built project's ``config.yml`` and
 #: ``.mcp.json`` — the one write surface that can change what the agent itself
-#: is allowed to do. A persona keeps or loses the setup capability by whether
+#: is allowed to do. A render keeps or loses the setup capability by whether
 #: the render leaves this name outside ``permissions.deny``; see
 #: :func:`is_setup_patch_capable`.
 SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
@@ -950,9 +1054,9 @@ def _deny_entries(config: Any) -> list[str]:
 
     Two shapes reach this, and they are told apart by which block is present:
 
-    * a **persona config** (``config.yml``-shaped), whose deny lives under
+    * a **render config** (``config.yml``-shaped), whose deny lives under
       ``claude_code.permissions.deny`` — the shape the render context and the
-      persona-roster guard hold, and the primary input. This shape is NOT yet
+      render-roster guard hold, and the primary input. This shape is NOT yet
       composed: a profile delta cannot subtract from an inherited list, so a
       tier that lifts a base deny carries the inherited ``deny`` and its own
       ``claude_code.permissions.remove_deny`` side by side, and the
@@ -965,7 +1069,7 @@ def _deny_entries(config: Any) -> list[str]:
       :func:`is_setup_patch_capable`); that it is wrong does not;
     * a rendered ``.claude/settings.json``, which has no ``claude_code:``
       wrapper and carries ``permissions.deny`` at the top level. Read only when
-      no ``claude_code`` block is present, which a persona config always has
+      no ``claude_code`` block is present, which a render config always has
       when it says anything about permissions at all. Without this branch a
       settings document handed here would find nothing and read as *capable*
       while the tool is in fact denied — a mis-call must not fail open. This
@@ -995,7 +1099,7 @@ def _deny_entries(config: Any) -> list[str]:
     """
     root = config if isinstance(config, Mapping) else {}
     claude_code = root.get("claude_code")
-    persona_shaped = isinstance(claude_code, Mapping)
+    render_shaped = isinstance(claude_code, Mapping)
     if isinstance(claude_code, Mapping):
         permissions = claude_code.get("permissions")
     elif claude_code is None:
@@ -1005,7 +1109,7 @@ def _deny_entries(config: Any) -> list[str]:
     if not isinstance(permissions, Mapping):
         return []
     deny = permission_entries(permissions.get("deny"))
-    if not persona_shaped:
+    if not render_shaped:
         return deny
     lifted = set(permission_entries(permissions.get("remove_deny")))
     return [entry for entry in deny if entry not in lifted]
@@ -1014,12 +1118,12 @@ def _deny_entries(config: Any) -> list[str]:
 def is_setup_patch_capable(config: Any) -> bool:
     """Whether ``config``'s render leaves the setup capability in the agent's hands.
 
-    The posture question every later gate asks about a persona: can this render
+    The posture question every later gate asks about a tier: can this render
     still reach :data:`SETUP_PATCH_TOOL`? Consumed by the container's render
-    context, by the persona-roster guard, and by the lint belt, so that all
+    context, by the render-roster guard, and by the lint belt, so that all
     three answer it the same way instead of each re-reading the deny list.
 
-    ``config`` is a **rendered persona config** — the ``config.yml``-shaped
+    ``config`` is a **rendered render config** — the ``config.yml``-shaped
     document whose deny list lives at ``claude_code.permissions.deny``, read
     together with the ``remove_deny`` beside it so that a tier which lifts an
     inherited deny reports as capable. A rendered ``.claude/settings.json``
@@ -1029,7 +1133,7 @@ def is_setup_patch_capable(config: Any) -> bool:
 
     The deny is what *removes* the capability, so every way of not having one —
     no ``claude_code`` block, no ``permissions``, no ``deny`` key, an empty or
-    null deny — leaves the persona capable. This is not a permissive default
+    null deny — leaves the render capable. This is not a permissive default
     dressed up as a rule: an unwritten deny is exactly the state of a project
     that never gated the tool, and the readonly tier expresses itself by
     *adding* the entry.
@@ -1046,10 +1150,10 @@ def is_setup_patch_capable(config: Any) -> bool:
 
     **Parity is the criterion, not conservatism**, because the two consumers
     pull in opposite directions. The container's Dockerfile *grants* the
-    ``build/config.yml`` chown on ``True``; the persona-roster guard *refuses*
-    a ``default_persona`` or a shared card on ``True``. So there is no safe
+    ``build/config.yml`` chown on ``True``; the render-roster guard *refuses*
+    a ``default_tier`` or a shared card on ``True``. So there is no safe
     direction to lean: an answer biased toward ``False`` waves a capable
-    persona past the roster guard, and one biased toward ``True`` hands an
+    render past the roster guard, and one biased toward ``True`` hands an
     image's ``config.yml`` to an agent that cannot in fact patch it. The only
     answer that serves both consumers is the render's own, which is why every
     reading rule here is stated as a mirror of the render rather than as a
@@ -1057,7 +1161,7 @@ def is_setup_patch_capable(config: Any) -> bool:
     ``test_the_predicate_matches_the_rendered_deny_list``.
 
     Args:
-        config: The rendered persona config (see above). Tolerant of a missing
+        config: The rendered render config (see above). Tolerant of a missing
             or misshapen block — an unreadable document reports no deny, and an
             unreadable ``remove_deny`` lifts nothing.
 
@@ -1162,11 +1266,24 @@ def _iter_files(root: Path, *, include_hidden: bool = False) -> Iterator[Path]:
             yield path
 
 
+def _is_facility_mirror_path(rel: str) -> bool:
+    """Whether ``rel`` matches one of :data:`RESERVED_MIRROR_PATTERNS`."""
+    folded = rel.casefold()
+    return any(fnmatchcase(folded, pattern.casefold()) for pattern in RESERVED_MIRROR_PATTERNS)
+
+
 def _mirror_violations(mirror_dir: Path) -> list[tuple[str, str]]:
-    """Return ``(project-relative path, owning channel)`` for reserved writes."""
+    """Return ``(project-relative path, owning channel)`` for reserved writes.
+
+    Pure: it reports and never raises. A path matching
+    :data:`RESERVED_MIRROR_PATTERNS` is left out; :func:`facility_mirror_violation`
+    owns that stop.
+    """
     violations: list[tuple[str, str]] = []
     for path in _iter_files(mirror_dir, include_hidden=True):
         rel = path.relative_to(mirror_dir).as_posix()
+        if _is_facility_mirror_path(rel):
+            continue
         channel = reserved_path_channel(rel)
         if channel is not None:
             violations.append((rel, channel))
@@ -1217,6 +1334,88 @@ def validate_project_mirror(mirror_dir: Path) -> None:
     violations = _mirror_violations(mirror_dir)
     if violations:
         raise BuildProfileError(_format_mirror_violations(violations))
+
+
+def facility_mirror_violation(mirror_dir: Path) -> FacilityBuildError | None:
+    """The stop for the first ``project/`` mirror file the facility build writes.
+
+    Files are visited in sorted order, so the answer is the same on every run.
+
+    Args:
+        mirror_dir: The profile's ``project/`` directory (missing is fine).
+
+    Returns:
+        A ``profile-invalid`` error naming the first mirror file matching
+        :data:`RESERVED_MIRROR_PATTERNS` and ``data/facility/`` as the tree it
+        is authored in, or ``None`` when the mirror writes none of them.
+    """
+    if not mirror_dir.is_dir():
+        return None
+    for path in _iter_files(mirror_dir, include_hidden=True):
+        rel = path.relative_to(mirror_dir).as_posix()
+        if not _is_facility_mirror_path(rel):
+            continue
+        from osprey.facility.errors import FacilityBuildError
+
+        mirrored = f"{PROJECT_MIRROR_DIR}/{rel}"
+        return FacilityBuildError(
+            "profile-invalid",
+            mirrored,
+            [mirrored],
+            f"remove {mirrored} and author the facility in {FACILITY_AUTHORING_ROUTE}",
+            record_kind="path",
+            detail=(
+                f"the {PROJECT_MIRROR_DIR}/ mirror writes {rel}, which the build writes "
+                f"from {FACILITY_AUTHORING_ROUTE}"
+            ),
+        )
+    return None
+
+
+def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBuildError | None:
+    """The stop for a limits file the profile ships itself.
+
+    The build writes the limits database from ``<data>/facility/limits.yaml``,
+    so a profile's own copy at a path the build writes is refused rather than
+    overwritten. The paths are checked in a fixed order and the first match is
+    returned; a render under ``build/`` is never consulted.
+
+    Args:
+        data_root: The profile's resolved ``data:`` tree.
+        repo_root: The repo the profile lives in.
+
+    Returns:
+        A ``profile-invalid`` error naming the file found, the file the build
+        writes in its place and ``<data>/facility/limits.yaml`` as where its
+        limits go, or ``None`` when the profile ships none.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.limits import LIMITS_FILE
+
+    def shown(path: Path) -> str:
+        return (
+            path.relative_to(repo_root).as_posix() if path.is_relative_to(repo_root) else str(path)
+        )
+
+    candidates = (
+        (data_root / LIMITS_FILE, f"data/{LIMITS_FILE}"),
+        (data_root / "simulation" / LIMITS_FILE, f"data/simulation/{LIMITS_FILE}"),
+        (repo_root / PROJECT_MIRROR_DIR / "data" / LIMITS_FILE, f"data/{LIMITS_FILE}"),
+    )
+    data = shown(data_root)
+    for path, written in candidates:
+        if not path.is_file():
+            continue
+        found = shown(path)
+        return FacilityBuildError(
+            "profile-invalid",
+            found,
+            [found],
+            f"move its limits into {data}/facility/limits.yaml and remove {found}",
+            record_kind="path",
+            detail=f"the build writes {written} from {data}/facility/limits.yaml",
+        )
+    return None
 
 
 def _symlink_escapes(path: Path, profile_dir: Path) -> bool:
@@ -1423,7 +1622,7 @@ def plan_convention_copies(
     Args:
         profile_dir: The profile root directory.
         context_users: Resolved web-terminal roster. ``None`` or empty skips
-            the per-user context category entirely — a persona build disables
+            the per-user context category entirely — a render build disables
             ``modules.web_terminals``, so it has no roster to derive from.
 
     Returns:
@@ -1449,7 +1648,7 @@ def plan_convention_copies(
                 if baseline.is_file():
                     # Roster-independent by design: the baseline overrides the
                     # framework's fallback for every seeded user at once, so it
-                    # copies even on a build with no roster (a persona render),
+                    # copies even on a build with no roster (a render),
                     # like every other convention artifact.
                     copies.append(
                         ConventionCopy(

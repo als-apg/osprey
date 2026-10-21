@@ -1027,10 +1027,11 @@ export function describeProgress(progress) {
  *
  * `detail.code` is the discriminator and `detail.detail` is the sentence to
  * show the operator VERBATIM — it is the bridge's own wording, and it carries
- * the remedy (the `osprey set connector=…` flip command on a
- * browse-only refusal, which arming header is missing on
- * `launch_token_required`). Rewording it here would put a second, drifting
- * copy of the bridge's policy in the panel.
+ * the remedy (the
+ * `osprey set config.control_system.connector.virtual_accelerator.serving=served`
+ * flip command for a deployment serving the simulator in process, which
+ * arming header is missing on `launch_token_required`). Rewording it here
+ * would put a second, drifting copy of the bridge's policy in the panel.
  *
  * Nothing reads a top-level `code`: the queue relay hands the bridge's
  * envelope through untouched, so `code` only ever exists one level down. The

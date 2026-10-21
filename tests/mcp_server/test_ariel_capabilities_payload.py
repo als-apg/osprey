@@ -11,7 +11,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
 from osprey.registry import get_registry
-from osprey.utils.workspace import reset_config_cache
+from osprey_connectors.workspace import reset_config_cache
 from tests.mcp_server.conftest import get_tool_fn
 
 

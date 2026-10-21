@@ -15,21 +15,20 @@ logger = logging.getLogger(__name__)
 
 
 class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
-    """Loading, schema validation, and serialization for the hierarchical database."""
+    """Loading and schema validation for the hierarchical database."""
 
     def load_database(self):
         """Load and parse the hierarchical database JSON."""
         with open(self.db_path) as f:
             data = json.load(f)
 
-        self._raw_data = data
         self.tree = data["tree"]
 
         if "hierarchy" not in data:
             raise ValueError(
                 f"Invalid database format: {self.db_path} must contain a 'hierarchy' "
-                "section with a 'levels' list and 'naming_pattern'. See the worked "
-                "examples under data/channel_databases/examples/ for the expected format."
+                "section with a 'levels' list and 'naming_pattern'. See the channel-finder "
+                "contract page (reference/contracts/channel-finder) for the expected format."
             )
 
         # Unified schema: single "hierarchy" section
@@ -43,7 +42,7 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
             raise ValueError(
                 "Invalid database format: the 'hierarchy' section must contain "
                 f"'levels' and 'naming_pattern'; this one has no {' or '.join(repr(k) for k in missing)}. "
-                "See the worked examples under data/channel_databases/examples/ "
+                "See the channel-finder contract page (reference/contracts/channel-finder) "
                 "for the expected format."
             )
 
@@ -449,7 +448,3 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
             separators[(current_level, next_level)] = separator
 
         return separators
-
-    def _serialize(self) -> dict:
-        """Serialize in-memory state back to JSON-compatible structure."""
-        return self._raw_data

@@ -11,7 +11,7 @@ keys some other layer spells beneath it, instead of losing to them by key order.
 
 Two things reach a profile, and they mean different things:
 
-* **Inheritance** — ``extends:``, a persona delta over the profile beside it, a
+* **Inheritance** — ``extends:``, a layer over the profile beside it, a
   host-variant overlay over ``profile.yml``. A layer is a *difference*: it adds
   to what it inherits, string lists union, and taking something away is an
   explicit verb (``exclude:``, ``remove_deny``). That merge lives in
@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import copy
 import io
-import os
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -38,9 +36,10 @@ from typing import Any
 import click
 import yaml
 
-from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 from .build_profile_document import _read_profile_document
 from .build_profile_load import (
@@ -138,17 +137,17 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
 
 # The model-selection shorthand keys a user can override via `--set`, whose
 # explicit use is recorded in the project manifest (extract_build_args). A
-# persona inherits them the same way it inherits everything else — `osprey set`
-# writes the override INTO profile.yml, and every delta in `personas/` merges
-# over that profile — so one repo-level override retints every persona the next
+# render inherits them the same way it inherits everything else — `osprey set`
+# writes the override INTO profile.yml, and every delta in `tiers/` merges
+# over that profile — so one repo-level override retints every render the next
 # build renders, with nothing replayed from a build invocation.
 MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
 
 # Every top-level shorthand whose explicit ``--set`` use is forwarded that way.
 # `connector` joins the model-selection keys because it shapes the whole stack
 # in the same sense: which control system a project talks to is a property of
-# the deployment, not of one persona, so it belongs in profile.yml where every
-# persona delta inherits it rather than in any one persona's own file.
+# the deployment, not of one render, so it belongs in profile.yml where every
+# layer inherits it rather than in any one render's own file.
 SHORTHAND_OVERRIDE_KEYS = (
     *MODEL_SELECTION_OVERRIDE_KEYS,
     CONNECTOR_PROFILE_KEY,
@@ -162,7 +161,7 @@ def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
     Only top-level shorthand keys count (``--set provider=x``,
     ``--set connector=epics``); a dotted path into ``config:`` addresses the
     rendered config directly and carries no whole-stack intent, so it is never
-    forwarded to persona renders.
+    forwarded to renders.
 
     Returns the matching keys in :data:`SHORTHAND_OVERRIDE_KEYS` order.
     """
@@ -431,7 +430,7 @@ def resolve_build_profile(
         ``(profile, profile_dir)``. ``profile_dir`` is the profile ROOT — where
         every profile-relative path anchors, and what
         :meth:`BuildProfile.validate` resolves overlay/services lookups
-        against. For a persona delta that is the directory above ``personas/``,
+        against. For a layer that is the directory above ``tiers/``,
         never the delta's own parent; for preset mode it is the bundled
         ``profiles/presets/`` package directory.
 
@@ -480,10 +479,10 @@ def resolve_build_document(
     if profile_path is None and preset is None:
         raise BuildProfileError("Either a profile path or --preset is required.")
 
-    # A preset is one file in a shared package directory: it is never a persona
+    # A preset is one file in a shared package directory: it is never a render
     # delta and carries no convention material to exclude (compute_preset_hash
     # folds none either, for the same reason).
-    is_persona_delta = False
+    is_layer = False
     excluded_artifacts: frozenset[str] = frozenset()
     # Which bundled preset the resolved document came through — the one thing
     # that still says which packaged data bundle its tree is from, now that the
@@ -527,17 +526,17 @@ def resolve_build_document(
                 raw = _deep_merge(raw, overlay)
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
-        # under `personas/` is a delta merged over the `profile.yml` beside it
+        # under `tiers/` is a delta merged over the `profile.yml` beside it
         # and anchors at that root; resolving `extends` here instead, against
         # the file's own parent, would build a hollow project from the delta
-        # alone and read its data tree from `personas/`.
+        # alone and read its data tree from `tiers/`.
         document = resolve_profile_document(raw, profile_path.resolve())
         raw, profile_dir = document.raw, document.root_dir
-        is_persona_delta = document.is_persona_delta
+        is_layer = document.is_layer
         excluded_artifacts = document.excluded_artifacts
         inherited_preset = document.inherited_preset
         # The command line's edits go onto the fully resolved document — the
-        # file, its variant overlay, an extends parent, a persona base, all
+        # file, its variant overlay, an extends parent, a render base, all
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
@@ -548,7 +547,7 @@ def resolve_build_document(
     return LoadedProfile(
         profile=profile,
         profile_dir=profile_dir,
-        is_persona_delta=is_persona_delta,
+        is_layer=is_layer,
         excluded_artifacts=excluded_artifacts,
     )
 
@@ -597,7 +596,6 @@ PROFILE_FILENAME = "profile.yml"
 def write_back_cli_overrides(
     profile_path: Path,
     set_pairs: tuple[str, ...] = (),
-    tier: int | None = None,
 ) -> list[str]:
     """Write ``osprey set``'s pairs into the profile, before it is read back.
 
@@ -622,9 +620,8 @@ def write_back_cli_overrides(
     are removed first.
 
     Args:
-        profile_path: The ``profile.yml`` (or persona delta) being edited.
+        profile_path: The ``profile.yml`` (or layer) being edited.
         set_pairs: The ``osprey set`` pairs.
-        tier: Written as the profile's ``tier:`` key.
 
     Returns:
         The dotted key paths written, in write order; empty when there was
@@ -639,8 +636,6 @@ def write_back_cli_overrides(
     # Only what the CLI supplied is written — the profile's own content is
     # never rewritten as a side effect.
     layer = cli_edit_layer(set_pairs)
-    if tier is not None:
-        layer["tier"] = tier
     if "extends" in layer:
         raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
     if not layer:
@@ -772,21 +767,11 @@ def _write_profile_values(
 
 
 def _atomic_write_bytes(path: Path, payload: bytes) -> None:
-    """Replace ``path`` with ``payload`` via a same-directory temp file.
+    """Replace ``path`` with ``payload``, whole, through ``atomic_replace``.
 
-    The same shape as the manifest and ``.env`` writers this feature added, for
-    the same reason: a reader (or a crash) never sees a half-written file, and
-    the previous contents survive any failure before the ``os.replace``. The
-    existing file's mode is carried over so an atomic rewrite does not quietly
-    re-permission the profile.
+    A reader (or a crash) never sees a half-written file, and the previous
+    contents survive any failure. The existing file's mode is carried over so a
+    rewrite does not quietly re-permission the profile; a new file is 0600.
     """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-        if path.exists():
-            os.chmod(tmp_name, path.stat().st_mode & 0o7777)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    mode = path.stat().st_mode & 0o7777 if path.exists() else 0o600
+    atomic_replace(path, payload, mode=mode, sync="best_effort")

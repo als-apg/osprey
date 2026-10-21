@@ -70,8 +70,11 @@ from the limits database. Supports both single-write and batch-write forms.
 The posture that database is applied under is a property of the machine a write
 would reach, not of the deployment as a whole:
 `control_system.connector.<type>.limits_checking` overrides the deployment-wide
-`control_system.limits_checking` block whole, so a facility can refuse unlisted
-channels on its ring and allow them on its virtual accelerator. Three branches
+`control_system.limits_checking` block whole, so a facility can run its machine
+`exclusive` and its virtual accelerator `optional`. Under `exclusive` only
+channels in the limits database can be written; under `optional` a channel in
+the database is held to its limits and every other channel is written with no
+limits. Three branches
 decide which posture this hook validates under, and a fourth case leaves it with
 no posture to apply:
 
@@ -85,9 +88,9 @@ no posture to apply:
 2. **It names none** — no control-context record yet, an unreadable one, or a
    render without the sibling reader —
    `from_config_most_restrictive()`: limits checking on where any reachable
-   target has it on, unlisted channels allowed only where every reachable
-   target allows them. Naming a target here would be a guess, and a guess
-   between a simulator and a ring is a guess in favour of hardware.
+   target has it on, `optional` only where every reachable target is
+   `optional`. Naming a target here would be a guess, and a guess between a
+   simulator and the machine is a guess in favour of hardware.
 3. **The framework is older than this render** — hooks are rendered by
    `osprey build` on the host, while a service keeps the `osprey` its image was
    built with until the next `osprey up --build`, so a validator with no
@@ -114,6 +117,7 @@ approval prompt use, so one deployment cannot be described as pointing at two
 machines.
 """
 
+import contextlib
 import inspect
 import json
 import os
@@ -232,7 +236,7 @@ def main():
 
     # Try to import LimitsValidator; if unavailable, allow
     try:
-        from osprey.connectors.control_system.limits_validator import (
+        from osprey_connectors.control_system.limits_validator import (
             LimitsValidator,
         )
     except ImportError:
@@ -296,7 +300,8 @@ def main():
 
     # Deny — limits violated
     log_hook("limits", hook_input, status="deny", detail=f"violations={len(violations)}")
-    try:
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
         # Count only. The violation lines carry the offending channel VALUES,
         # and a value is exactly what an audit record never holds.
         emit_audit(
@@ -307,8 +312,6 @@ def main():
             reason="limits_violation",
             detail=f"violations={len(violations)}",
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
     violation_text = "\n".join(violations)
     output = {
         "hookSpecificOutput": {

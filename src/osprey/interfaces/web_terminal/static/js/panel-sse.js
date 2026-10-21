@@ -29,8 +29,9 @@ import {
   flashAgentGlow, flashAgentTile, badgePanelActivity, restoreAgentBadges,
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
-import { PANELS } from './panel-catalog.js';
-import { ensureRailMembership, addPanel } from './panel-lifecycle.js';
+import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
+import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
@@ -45,6 +46,7 @@ import { applyAgentSwitch, applyArrange } from './panel-placement.js';
  * @typedef {object} SseDeps
  * @property {(id: string) => boolean} isKnown - does this page know the panel at all
  * @property {(id: string) => boolean} isHealthy - may the panel fill a tile
+ * @property {() => HTMLElement} getRailEl - the rail nav the entries live in
  * @property {Set<string>} memberSet - the server-owned rail membership set
  * @property {(id: string) => void} dropMember - drop membership AND the rail entry
  * @property {(id: string, options?: {userInitiated?: boolean, auto?: boolean}) => void} activate
@@ -98,12 +100,17 @@ export function subscribePanelEvents(sseDeps) {
   //                                               membership alone, so the panel
   //                                               stays one click away. The
   //                                               on-screen half of panel_visibility.
-  //   panel_visibility {type, panel, visible}   — add/remove a rail entry; removing
+  //   panel_visibility {type, panel, visible, index?}
+  //                                             — add/remove a rail entry (an
+  //                                               addition with an index goes
+  //                                               to that position); removing
   //                                               also closes the tile (an
   //                                               unlaunchable panel must not be
   //                                               stranded on screen), then switches
   //                                               to the next member+healthy panel
   //                                               or the empty state.
+  //   rail_order       {type, order}            — an operator reordered the rail:
+  //                                               every member, top to bottom.
   //   panel_arrange    {type, tiles, focus?, prune_rail?}
   //                                             — a whole-workspace layout
   //                                               request: exactly these
@@ -127,7 +134,7 @@ export function subscribePanelEvents(sseDeps) {
     // without a resync a client that missed one frame never converges again.
     // The hook fires on every open, including the first; the extra boot-time
     // fetch is a no-op delta.
-    // Badges are restored from the history ring after the membership delta, so
+    // Badges are restored from the history buffer after the membership delta, so
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => { void resyncPanelState().then(restoreAgentBadges); },
     onMessage: (raw) => {
@@ -161,7 +168,10 @@ export function subscribePanelEvents(sseDeps) {
           applyPanelClose(data.panel, data.source);
 
         } else if (data.type === 'panel_visibility' && data.panel) {
-          applyPanelVisibility(data.panel, data.visible, data.source);
+          applyPanelVisibility(data.panel, data.visible, data.source, data.index);
+
+        } else if (data.type === 'rail_order' && Array.isArray(data.order)) {
+          applyRailOrder(data.order);
 
         } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
           // A whole-workspace arrangement (agent arrange_workspace, or a human
@@ -216,14 +226,27 @@ export function subscribePanelEvents(sseDeps) {
  * (dockview auto-activating a neighbor on removal is a server-applied echo
  * and must not POST focus back), and finally the active-panel fallback so a
  * hidden active panel never strands a blank pane.
+ *
+ * An addition with an `index` lands at that position among the rail's panel
+ * entries, counted without SESSION — the same count the operator's Undo took
+ * at removal — so every client puts a restored entry back where it was, not
+ * only the one that clicked. A panel that was already a member keeps its
+ * place.
  * @param {string} panel
  * @param {boolean} visible
  * @param {'agent'} [source]
+ * @param {number} [index]
  */
-function applyPanelVisibility(panel, visible, source) {
+function applyPanelVisibility(panel, visible, source, index) {
   const c = ctx();
+  const wasMember = c.memberSet.has(panel);
   if (visible) {
     ensureRailMembership(panel);
+    if (!wasMember && index !== undefined) {
+      const railEl = c.getRailEl();
+      const others = entryIds(railEl).filter((id) => id !== TERMINAL_RAIL_ID && id !== panel);
+      placeEntry(railEl, panel, others[index] ?? null);
+    }
   } else {
     c.dropMember(panel);
   }
@@ -243,7 +266,9 @@ function applyPanelVisibility(panel, visible, source) {
   }
 
   // A panel the operator can no longer launch must not be stranded on screen.
-  if (!visible) closeTile(panel);
+  // A hide of a panel that was never on the rail changed nothing, so a tile it
+  // holds is one opened off the rail on purpose and stays.
+  if (!visible && wasMember) closeTile(panel);
 }
 
 /**
@@ -316,4 +341,6 @@ async function resyncPanelState() {
   for (const id of [...c.memberSet]) {
     if (!serverVisible.has(id)) applyPanelVisibility(id, false);
   }
+  // A missed rail_order frame is converged from the same read.
+  applyRailOrder(config.visible);
 }

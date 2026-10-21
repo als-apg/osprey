@@ -30,6 +30,7 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ScaffoldGalleryService,
     restore_scaffold_bodies,
 )
+from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 
 from .conftest import bare_route_app
 
@@ -161,7 +162,7 @@ def _unreachable_profile(project_dir: Path) -> Path:
         "this helper assumes the render sits inside the repo whose profile it names"
     )
     Path(profile_path).unlink()
-    for source in ("data", "personas", "triggers.yml"):
+    for source in ("data", TIERS_DIRNAME, APPS_DIRNAME, "triggers.yml"):
         entry = repo_root / source
         if entry.is_dir():
             shutil.rmtree(entry)
@@ -293,7 +294,7 @@ def _protected_records(audit_zone: Path) -> list[dict]:
     about which file they happened to land in.
     """
     from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     records: list[dict] = []
     for surface in (SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE):
@@ -3486,8 +3487,8 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         """The escape again, with the symlink removed.
 
         Inside the store, a regular file, and still not one the store wrote:
-        bodies are always created fresh through ``NamedTemporaryFile`` +
-        ``os.replace``, so a legitimate body has exactly one link. A second link
+        bodies are always replaced whole through ``atomic_replace``, a fresh
+        file each time, so a legitimate body has exactly one link. A second link
         means the same inode is reachable under a name the store does not
         control — and on a shared volume that is the agent's name for it. The
         containment check cannot see this one, because the path really is
@@ -3578,15 +3579,15 @@ class TestNoDurableStoreIsSaidOutLoud:
 
 
 # ===========================================================================
-# CLAUDE.md persona
+# CLAUDE.md render
 # ===========================================================================
 
 
-def _record_persona(project_dir: Path, template: str) -> None:
+def _record_render(project_dir: Path, template: str) -> None:
     """Stamp ``creation.claude_md_template`` into the render's manifest.
 
-    The key is the one ``generate_manifest`` writes for a non-default persona,
-    and the only thing the gallery reads to choose which persona ``CLAUDE.md``
+    The key is the one ``generate_manifest`` writes for a non-default tier,
+    and the only thing the gallery reads to choose which render ``CLAUDE.md``
     is.
     """
     manifest_path = project_dir / ".osprey-manifest.json"
@@ -3595,29 +3596,29 @@ def _record_persona(project_dir: Path, template: str) -> None:
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
-class TestInstructionsPersona:
-    """The gallery names and renders the persona the deployment records."""
+class TestInstructionsRender:
+    """The gallery names and renders the render the deployment records."""
 
     @pytest.fixture()
-    def persona_service(self, project_dir):
-        _record_persona(project_dir, "CLAUDE.ariel.md.j2")
+    def render_service(self, project_dir):
+        _record_render(project_dir, "CLAUDE.logbook.md.j2")
         return ScaffoldGalleryService(project_dir)
 
-    def test_list_names_the_recorded_persona(self, persona_service):
-        by_name = {a["name"]: a for a in persona_service.list_artifacts()}
-        art = by_name["claude-md-ariel"]
-        catalog_art = BuildArtifactCatalog.default().get("claude-md-ariel")
+    def test_list_names_the_recorded_render(self, render_service):
+        by_name = {a["name"]: a for a in render_service.list_artifacts()}
+        art = by_name["claude-md-logbook"]
+        catalog_art = BuildArtifactCatalog.default().get("claude-md-logbook")
         assert catalog_art is not None
         assert art["output_path"] == "CLAUDE.md"
         assert art["category"] == "config"
         assert art["description"] == catalog_art.description
         assert "claude-md" not in by_name
 
-    def test_framework_content_renders_the_recorded_persona(self, persona_service):
-        content = persona_service.get_framework_content("claude-md-ariel")
+    def test_framework_content_renders_the_recorded_render(self, render_service):
+        content = render_service.get_framework_content("claude-md-logbook")
         assert "Logbook Research Assistant" in content
 
-    def test_an_unstamped_render_lists_the_default_persona(self, service):
+    def test_an_unstamped_render_lists_the_default_tier(self, service):
         names = {a["name"] for a in service.list_artifacts()}
         assert "claude-md" in names
-        assert "claude-md-ariel" not in names
+        assert "claude-md-logbook" not in names

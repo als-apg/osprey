@@ -21,7 +21,7 @@ import pytest
 
 from osprey.cli import build_environment
 from osprey.cli.build_environment import freeze_base_environment
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 # --------------------------------------------------------------------------
 # Helpers

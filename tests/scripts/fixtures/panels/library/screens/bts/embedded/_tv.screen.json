@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "bts/embedded/_tv",
+  "metadata": {
+    "title": "_tv",
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "macros": [
+    {
+      "name": "TV",
+      "default": ""
+    },
+    {
+      "name": "light",
+      "default": ""
+    },
+    {
+      "name": "loctv",
+      "default": ""
+    },
+    {
+      "name": "paddle",
+      "default": ""
+    }
+  ],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 100,
+      "height": 100
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 100
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "group",
+        "props": {
+          "layoutMode": "absolute"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        },
+        "children": [
+          {
+            "id": "w-003",
+            "type": "text-label",
+            "props": {
+              "text": "${TV}"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-004",
+            "type": "pv-button",
+            "props": {
+              "pv": "${loctv}",
+              "readbackPV": "${loctv}",
+              "buttonType": "toggle"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            },
+            "meta": {
+              "comment": "Phoebus script pvs=[$(loctv), $(paddle_in), $(light_on)]"
+            }
+          },
+          {
+            "id": "w-005",
+            "type": "pv-button",
+            "props": {
+              "pv": "${paddle}",
+              "readbackPV": "${paddle}",
+              "buttonType": "toggle",
+              "onImage": "../images/Paddle in.jpg",
+              "offImage": "../images/Paddle out.jpg"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          },
+          {
+            "id": "w-006",
+            "type": "pv-button",
+            "props": {
+              "pv": "${light}",
+              "readbackPV": "${light}",
+              "buttonType": "toggle",
+              "onImage": "../images/Light on.jpg",
+              "offImage": "../images/Light off.jpg"
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 10,
+              "height": 10
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

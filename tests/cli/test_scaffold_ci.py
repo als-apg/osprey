@@ -45,7 +45,7 @@ from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
-from osprey.errors import ConfigurationError
+from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
     build_exemplar_repo,
@@ -182,7 +182,7 @@ def test_the_verb_needs_no_arguments_inside_the_repo(
     Position-independence is the resolver's contract, and it is what lets the
     emitted pipeline run the same commands a laptop does.
     """
-    monkeypatch.chdir(repo / "data" / "facility_knowledge")
+    monkeypatch.chdir(repo / "data" / "facility" / "knowledge")
 
     result = runner.invoke(scaffold, ["ci"])
 
@@ -718,7 +718,7 @@ def test_list_reads_the_build_zone_of_the_repo_it_is_standing_in(
     runner: CliRunner, built_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No ``--project``: the repo is found, and its build zone is where to look."""
-    monkeypatch.chdir(built_repo / "personas")
+    monkeypatch.chdir(built_repo / "tiers")
 
     result = runner.invoke(scaffold, ["list"])
 

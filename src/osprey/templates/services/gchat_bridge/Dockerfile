@@ -185,17 +185,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The framework wheel's first install carries the [gchat] extra so a dev
 # wheel that adds or bumps a dependency INSIDE the extra picks it up (`pip
-# check` cannot detect a missing extra), with the staged osprey-connectors wheel
-# in the same call so the framework's requirement on it resolves locally rather
-# than from PyPI; the wheels are then force-reinstalled --no-deps to guarantee
-# their own modules win, and `pip check` guards against residual mismatches. No
-# wheel staged → no-op, image already complete after the deps layer.
+# check` cannot detect a missing extra), with every other staged wheel -- one
+# per workspace member -- in the same call so the framework's requirement on
+# each resolves locally rather than from PyPI; the wheels are then
+# force-reinstalled --no-deps to guarantee their own modules win, and `pip
+# check` guards against residual mismatches. No wheel staged → no-op, image
+# already complete after the deps layer.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
-        && pip install "${whl}[gchat]" /tmp/ctx/osprey_connectors-*.whl \
+        && pip install "${whl}[gchat]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \
     fi \

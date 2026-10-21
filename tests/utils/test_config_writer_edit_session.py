@@ -64,14 +64,14 @@ web:
 services:
   postgresql:
     path: ./services/postgresql
-  openobserve:
-    path: ./services/openobserve
-    port: 5080          # Host port
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
-  - openobserve
+  - telemetry_store
 
 scaffold:
   user_owned:
@@ -111,7 +111,8 @@ def _recorded_edits(path: Path) -> list[Any]:
                 "web.panels.ariel.enabled": False,
                 "web.panels.events.url": "http://localhost:9091",
                 "web.panels.events.enabled": True,
-                "control_system.type": "mock",
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
                 "control_system.writes_enabled": False,
                 "approval.tools.channel_write": "never",
             },
@@ -120,7 +121,7 @@ def _recorded_edits(path: Path) -> list[Any]:
     for name in ("rules/facility", "rules/facility-ops", "skills/orbit-check", "services/foo"):
         results.append(config_add_to_list(path, ["scaffold", "user_owned"], name))
     results.append(config_add_to_list(path, ["deployed_services"], "event_dispatcher"))
-    results.append(config_remove_from_list(path, ["deployed_services"], "openobserve"))
+    results.append(config_remove_from_list(path, ["deployed_services"], "telemetry_store"))
     results.append(
         config_replace_list(
             path,
@@ -128,7 +129,7 @@ def _recorded_edits(path: Path) -> list[Any]:
             [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}],
         )
     )
-    results.append(config_delete_field(path, "services.openobserve.port"))
+    results.append(config_delete_field(path, "services.telemetry_store.port"))
     results.append(
         update_yaml_file(
             path,

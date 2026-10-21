@@ -8,7 +8,7 @@
  * shell. applyTourConfig() records the invite policy from GET /api/panels and
  * arms the automatic invite; startTour() is the on-demand entry (rail control,
  * palette) that ignores the policy. Steps whose anchor is absent drop out. The
- * dismissal flag is storage-scoped (per-persona scoping is covered in
+ * dismissal flag is storage-scoped (per-user scoping is covered in
  * js/storage-scope-keys.test.js).
  *
  * What the first card SAYS about this deployment, and what the "Try it" chips
@@ -283,6 +283,55 @@ describe('steps', () => {
     expect(bodies[7]).toContain('ARIEL');
   });
 
+  /** Walk the whole tour, collecting each card's title and foot line. */
+  function walk() {
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+    const cards = [];
+    for (let i = 0; i < 20 && document.querySelector('.tour-card'); i++) {
+      cards.push({
+        title: cardTitle(),
+        foot: document.querySelector('.tour-foot')?.textContent ?? '',
+      });
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    return cards;
+  }
+
+  describe('when the operator hid the rail Feedback control', () => {
+    afterEach(() => {
+      delete document.documentElement.dataset.railFeedback;
+    });
+
+    // The hidden button stays in the DOM (the bar item clicks it by id), so
+    // presence alone would spotlight a box that is not on screen.
+    test('the feedback step drops out with nothing else to point at', () => {
+      mountFullShell();
+      document.documentElement.dataset.railFeedback = 'hidden';
+
+      expect(walk().map((c) => c.title)).not.toContain('Something wrong? Tell us');
+    });
+
+    test('the feedback step stays when the status bar carries Feedback', () => {
+      mountFullShell();
+      const item = document.createElement('button');
+      item.className = 'bar-feedback';
+      document.body.appendChild(item);
+      document.documentElement.dataset.railFeedback = 'hidden';
+
+      expect(walk().map((c) => c.title)).toContain('Something wrong? Tell us');
+    });
+  });
+
+  test('the last card says where the tour is retaken from', () => {
+    mountFullShell();
+
+    const cards = walk();
+
+    expect(cards[cards.length - 1].foot).toBe('Retake this tour any time from ⋯ More in the rail.');
+  });
+
   test('steps with absent anchors drop out and the count adjusts', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();
@@ -292,22 +341,21 @@ describe('steps', () => {
 
   test('the first card says exactly what first contact derives', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'simulated', capabilities: ['make plots'] });
+    serve({ kind: 'va', capabilities: ['make plots'] });
     startTour();
 
     // Not a substring of the tour's own composing: the whole sentence, so the
     // card and the two views cannot drift apart a word at a time.
     expect(cardBody()).toContain(capabilitySentence());
-    expect(cardBody()).toContain('read demo data and make plots');
+    expect(cardBody()).toContain('read values from the simulator and make plots');
   });
 
-  test('a demo deployment is never described as reading the live machine', () => {
+  test('a simulator deployment is never described as reading the live machine', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'simulated', capabilities: ['make plots'] });
+    serve({ kind: 'va', capabilities: ['make plots'] });
     startTour();
 
-    // The one claim the derivation exists to prevent. The server used to emit
-    // this phrase for the mock connector too, and the card repeated it.
+    // The one claim the derivation exists to prevent.
     expect(cardBody()).not.toContain('live machine');
   });
 
@@ -385,7 +433,7 @@ describe('prompt chips', () => {
   }
 
   test('the chips are first contact\'s starter prompts, in its order', () => {
-    serve({ kind: 'simulated', logbook: true });
+    serve({ kind: 'va', logbook: true });
     reachTryIt();
 
     expect(chipTexts()).toEqual(starterPrompts());

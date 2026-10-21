@@ -20,7 +20,7 @@ to exist without remote configuration.
 
 The same inventory checks the lists that gate or name tools without denying
 them: the build's write-capable list, every standalone hook matcher, and the
-tools a persona may name.
+tools a render may name.
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ def agent_tools(version: str) -> frozenset[str]:
 
 
 def tools_every_build_has() -> frozenset[str]:
-    """The tools a persona may name: those the pinned build offers an agent."""
+    """The tools a render may name: those the pinned build offers an agent."""
     return agent_tools(PINNED_BUILD)
 
 

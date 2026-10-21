@@ -288,7 +288,6 @@ export const TOOL_PHRASES = Object.freeze({
   draft_concept: 'drafting a facility note',
 
   // Lattice model. The mutators are phrased; the getters fall back.
-  lattice_init: 'loading the lattice',
   lattice_state: 'reading the lattice',
   lattice_set_param: 'changing a lattice parameter',
   lattice_set_baseline: 'setting the lattice baseline',

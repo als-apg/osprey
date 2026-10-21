@@ -39,7 +39,9 @@ from osprey.audit.envelope import (
     POSTURE_SOURCE_SPAWN,
     POSTURE_SOURCES,
     SURFACE_EXECUTOR,
+    TERMINAL_SESSION_ENV,
     AuditEnvelope,
+    terminal_session,
     utc_timestamp,
 )
 
@@ -104,8 +106,9 @@ class TestRequiredFields:
         with pytest.raises(ValueError, match=name):
             make_envelope(**{name: ""})
 
-    def test_session_may_be_none(self) -> None:
+    def test_session_may_be_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Null only where no audit session id exists; posture_source says why."""
+        monkeypatch.delenv(TERMINAL_SESSION_ENV, raising=False)
         envelope = make_envelope(session=None, posture_source=POSTURE_SOURCE_PROCESS)
         assert envelope.session is None
         assert envelope.to_dict()["session"] is None
@@ -271,6 +274,85 @@ class TestToolUseId:
     def test_bounded_like_session(self) -> None:
         envelope = make_envelope(tool_use_id="t" * (MAX_FIELD_CHARS + 10))
         assert envelope.tool_use_id == "t" * MAX_FIELD_CHARS
+
+
+class TestOnBehalfOf:
+    """Optional, and found by position: directly after ``session`` or not at all."""
+
+    def test_absent_is_omitted(self) -> None:
+        assert "on_behalf_of" not in make_envelope().to_dict()
+
+    @pytest.mark.parametrize("session", ["chat-7", None])
+    def test_present_follows_session(self, session: str | None) -> None:
+        record = make_envelope(
+            session=session, on_behalf_of="alice", detail="x", role="operator", tool_use_id="t"
+        ).to_dict()
+        assert list(record) == [
+            "ts",
+            "surface",
+            "actor",
+            "posture",
+            "posture_source",
+            "session",
+            "on_behalf_of",
+            "subject",
+            "decision",
+            "reason",
+            "detail",
+            "role",
+            "tool_use_id",
+        ]
+        assert record["on_behalf_of"] == "alice"
+
+    def test_empty_is_the_same_as_unset(self) -> None:
+        envelope = make_envelope(on_behalf_of="")
+        assert envelope.on_behalf_of is None
+        assert "on_behalf_of" not in envelope.to_dict()
+
+    def test_bounded_like_session(self) -> None:
+        envelope = make_envelope(on_behalf_of="u" * (MAX_FIELD_CHARS + 10))
+        assert envelope.on_behalf_of == "u" * MAX_FIELD_CHARS
+
+
+class TestTerminalSessionFallback:
+    """An envelope built without a session names the terminal session instead."""
+
+    def test_the_documented_spelling(self) -> None:
+        assert TERMINAL_SESSION_ENV == "OSPREY_TERMINAL_SESSION"
+
+    def test_an_unset_session_takes_the_terminal_session(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(TERMINAL_SESSION_ENV, "dispatch-42")
+        envelope = make_envelope(session=None, posture_source=POSTURE_SOURCE_PROCESS)
+        assert envelope.session == "dispatch-42"
+        assert envelope.to_dict()["session"] == "dispatch-42"
+
+    def test_a_given_session_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(TERMINAL_SESSION_ENV, "dispatch-42")
+        assert make_envelope(session="pty-3").session == "pty-3"
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_a_blank_variable_is_no_session(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv(TERMINAL_SESSION_ENV, value)
+        assert terminal_session() is None
+        assert make_envelope(session=None).session is None
+
+    def test_the_name_is_read_exactly_never_by_prefix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lifetime and store-directory variables begin with the same words."""
+        monkeypatch.delenv(TERMINAL_SESSION_ENV, raising=False)
+        monkeypatch.setenv(TERMINAL_SESSION_ENV + "_LIFETIME", "43200")
+        monkeypatch.setenv(TERMINAL_SESSION_ENV + "_STORE_DIR", "/tmp/sessions")
+        assert terminal_session() is None
+        assert make_envelope(session=None).session is None
+
+    def test_the_value_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(TERMINAL_SESSION_ENV, "s" * (MAX_FIELD_CHARS + 10))
+        assert terminal_session() == "s" * MAX_FIELD_CHARS
 
 
 class TestLeafModule:

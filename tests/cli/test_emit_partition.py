@@ -21,7 +21,7 @@ import re
 import pytest
 import yaml
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, BuildProfile, list_presets
 from osprey.cli.build_profile_emit import (
     _BUILD_MECHANICS_KEYS,
@@ -271,7 +271,6 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     assert templated == {
         "model",
         "channel_finder_mode",
-        "tier",
         "default_panel",
         "deploy",
         "artifact_server",
@@ -317,14 +316,6 @@ def test_absent_build_mechanics_get_no_commented_template(preset: str) -> None:
     for field in _BUILD_MECHANICS_KEYS - carried:
         assert field not in active, f"{preset}: {field} was synthesized"
         assert field not in commented, f"{preset}: {field} got a commented template"
-
-
-def test_build_mechanics_carried_by_a_preset_survive_emission() -> None:
-    """`claude_md_template` is a real preset choice on three bundled presets —
-    dropping it would silently swap the deployment's CLAUDE.md persona."""
-    parsed = yaml.safe_load(_emit("ariel-standalone"))
-
-    assert parsed["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +536,7 @@ def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))
-@pytest.mark.parametrize("preset", ("control-assistant", "channel-finder-standalone"))
+@pytest.mark.parametrize("preset", ("control-assistant",))
 def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> None:
     """Prose about the channel finder must hold whatever paradigm is selected.
 

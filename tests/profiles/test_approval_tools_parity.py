@@ -30,9 +30,9 @@ PRESET_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
 MANIFEST_PATH = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 GUARD_PATH = REPO_ROOT / "scripts" / "check_config_keys.py"
 
-#: The four documents an operator starts from. Persona presets extend
+#: The four documents an operator starts from. Tier presets extend
 #: control-assistant and carry deltas, not blocks of their own.
-ROOT_PRESETS = ("control-assistant", "hello-world", "ariel-standalone", "channel-finder-standalone")
+ROOT_PRESETS = ("control-assistant", "hello-world")
 
 _ROW_RE = re.compile(r"^\s*approval\.tools\.([a-z_]+):", re.MULTILINE)
 

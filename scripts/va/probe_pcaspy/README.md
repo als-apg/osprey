@@ -29,8 +29,10 @@ prints a `PASS`/`FAIL` line per behaviour so a partial result stays legible.
 ## Results
 
 Host: Apple Silicon (arm64), macOS 24.6.0, podman. Client: `pyepics` 3.5.9 from
-the worktree venv. Container publishes **TCP only** on `127.0.0.1:5164`, no UDP.
-Client environment for every positive run:
+the worktree venv -- the client these runs were measured with. `probe_client.py`
+has since moved to `aioca`, the repo's only Channel Access client; the server
+behaviours it scores are the same. Container publishes **TCP only** on
+`127.0.0.1:5164`, no UDP. Client environment for every positive run:
 
 ```
 EPICS_CA_NAME_SERVERS=localhost:5164

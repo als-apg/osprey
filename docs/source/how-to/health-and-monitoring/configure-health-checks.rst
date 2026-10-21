@@ -166,7 +166,7 @@ time, because the two would be one fact in two homes.
 
 .. note::
 
-   On a ``mock`` control system the recorder idles by design, so the check
+   With the simulator served in process the recorder idles by design, so the check
    reports the archive as **stale** — a ``warning``, never an ``error``, and
    an honest answer: the store is reachable, it is simply not being written.
 

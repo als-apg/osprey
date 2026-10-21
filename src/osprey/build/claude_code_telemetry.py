@@ -5,7 +5,7 @@ Builds the ``OTEL_*`` / ``CLAUDE_CODE_ENABLE_TELEMETRY`` environment block that
 launch when ``claude_code.telemetry`` is enabled. Kept separate from the
 resolver's provider/model logic because telemetry is a distinct observability
 concern: :func:`_build_telemetry_env` does no I/O and reads no env (all
-``${VAR}``-expansion and container detection happen upstream), which makes it
+``${VAR}``-expansion and gateway addressing happen upstream), which makes it
 directly unit-testable — see ``tests/cli/test_telemetry_env.py``.
 """
 
@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import base64
 import os
-import re
+import uuid
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from typing import Any
 
-from osprey.port_layout import default_port, resolve_port_base
 from osprey_connectors.connection import ENV_NAME_RE
 
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
@@ -183,15 +182,11 @@ class ObservabilityCredentialError(TelemetryConfigError):
     so every existing handler keeps catching it exactly as before.
 
     Attributes:
-        unresolved_vars: The environment variables the refused credentials
-            still name as literal ``${VAR}`` placeholders — empty when the
-            credentials were simply missing or blank, which no environment can
-            fill in. Carried on the exception rather than left to be recovered
-            from the message text: a caller that has to decide whether the
-            missing value is one its own deploy issues later (see
-            ``container_lifecycle._STORE_ISSUED_VARS``) is deciding on a
-            variable name, and re-extracting names from prose makes that
-            decision hostage to the wording of a sentence written for a human.
+        unresolved_vars: The environment variables that must be set for the
+            launch to authenticate — empty when a credential is set but
+            malformed. Carried on the exception rather
+            than left to be recovered from the message text, so a caller that
+            names the variable to set never re-extracts it from prose.
     """
 
     def __init__(self, message: str, unresolved_vars: tuple[str, ...] = ()) -> None:
@@ -199,243 +194,144 @@ class ObservabilityCredentialError(TelemetryConfigError):
         self.unresolved_vars = unresolved_vars
 
 
-def telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
-    """Whether every credential the telemetry check refused is one a deploy issues.
-
-    A store-issued credential (``container_lifecycle._STORE_ISSUED_VARS``) is
-    minted by the service it authenticates against and written to the
-    deployment's ``.env`` by ``osprey up``. Before the first start it is
-    genuinely absent, and no operator can supply it — so on a freshly
-    scaffolded deployment the rendered telemetry block names a variable that
-    cannot exist yet. Every launch path that resolves a provider spec resolves
-    telemetry with it, so refusing over that would make the deployment
-    unreachable until an unrelated verb has run.
-
-    Read off the registry rather than restated as a name list, so a credential
-    added there is covered here on the same commit. All-or-nothing on purpose:
-    one refused name an operator does have to set — an ordinary missing secret
-    — and the refusal stands for the whole set, because a launch told "nothing
-    to do here" about half the story is worse than the error. The missing/blank
-    case names no variable at all and is likewise a refusal.
-
-    Lives beside the exception it inspects rather than in any one caller: the
-    launch paths that have to make this decision (``osprey chat``, the headless
-    agent-run primitives, the Web Terminal lifespan) share no other module, and
-    a second copy of the rule is a second thing to keep in step with the
-    registry.
-
-    Imported inside the function: ``container_lifecycle`` pulls in a large
-    deployment surface that a launch has no other reason to load.
-
-    Args:
-        exc: The caught :class:`ObservabilityCredentialError`.
-
-    Returns:
-        True when the refusal is only about credentials this deployment issues.
-    """
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    return bool(exc.unresolved_vars) and all(
-        name in _STORE_ISSUED_VARS for name in exc.unresolved_vars
-    )
-
-
-#: Env-var names inside a ``${VAR}`` / ``${VAR:-default}`` reference. Applied to
-#: the credential *value* the check refused, never to a rendered message, so the
-#: names it yields are exactly the ones the config asked for.
-_CREDENTIAL_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
-
 #: Characters a bearer token may not carry: each would split or corrupt the
-#: comma-joined ``OTEL_EXPORTER_OTLP_HEADERS`` list the exporter and the
-#: tool-call record poster both parse.
+#: comma-joined ``OTEL_EXPORTER_OTLP_HEADERS`` list the exporter parses.
 _HEADER_LIST_BREAKERS = frozenset(",\r\n")
 
 
-def _running_in_container() -> bool:
-    """Best-effort detection of whether this process runs inside a container.
+#: The ``claude_code.telemetry.backend`` value for the deployment's own
+#: telemetry gateway.
+GATEWAY_BACKEND = "gateway"
 
-    Consulted once per :meth:`ClaudeCodeModelResolver.resolve` call to pick the
-    OpenObserve default host (``openobserve`` service name vs ``localhost``),
-    and only when :func:`_openobserve_host_override` named none. This is the
-    single place container/filesystem/env state is read; the pure
-    :func:`_build_telemetry_env` helper never touches ``os``.
+#: The ``claude_code.telemetry.backend`` value for a collector the deployment
+#: does not run, named by ``claude_code.telemetry.endpoint``. An unset backend
+#: means the same.
+GENERIC_BACKEND = "generic"
 
-    The signal is the runtime's own marker file — ``/.dockerenv`` under
-    Docker, ``/run/.containerenv`` under Podman; probing only the Docker one
-    answered ``False`` inside every Podman container. ``OSPREY_IN_CONTAINER``
-    is an operator override on top of that, which the shipped compose
-    deliberately does not set.
+_BACKENDS: tuple[str, ...] = (GATEWAY_BACKEND, GENERIC_BACKEND)
 
-    None of it decides network topology, which is why
-    :func:`_openobserve_host_override` is consulted first and wins: whether the
-    ``openobserve`` service name resolves depends on the network mode, and only
-    the compose author knows it. Kept identical to
-    :func:`osprey.health.derive._in_container`, which is the same question asked
-    by a package that must not import this one.
-    """
-    return (
-        os.path.exists("/.dockerenv")
-        or os.path.exists("/run/.containerenv")
-        or bool(os.environ.get("OSPREY_IN_CONTAINER"))
-    )
+#: The OTLP protocols the gateway's receiver answers. It listens for OTLP over
+#: HTTP only, so a gRPC exporter aimed there would drop everything silently.
+GATEWAY_PROTOCOLS: tuple[str, ...] = ("http/protobuf", "http/json")
 
+#: The variable carrying a sender's ``<identity>:<password>`` login to the
+#: gateway (``osprey.deployment.telemetry_credentials.LOGIN_ENV``). A literal
+#: so this module stays importable without the deployment package; a test pins
+#: the two together.
+TELEMETRY_LOGIN_ENV = "OSPREY_TELEMETRY_LOGIN"
 
-def _openobserve_host_override() -> str | None:
-    """Explicit OpenObserve host from the deploy environment, or ``None``.
+#: The launch-scoped terminal session (``osprey.audit.envelope.TERMINAL_SESSION_ENV``).
+#: Read by exact name, never by prefix. A literal for the same reason as
+#: :data:`TELEMETRY_LOGIN_ENV`.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
-    ``_running_in_container`` cannot know the network topology: whether the
-    ``openobserve`` compose service is reachable by DNS name depends on the
-    network mode, which only the compose author knows. A bridge-networked
-    service sets ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` so the emitter
-    targets the service DNS name regardless of runtime (docker *or* podman); a
-    host-networked deployment leaves it unset so the derived ``localhost`` wins.
-    Kept deliberately docker-agnostic — this env var, not filesystem sniffing,
-    is the reliable in-container signal.
-    """
-    return os.environ.get("OSPREY_OTEL_OPENOBSERVE_HOST") or None
+#: The OTLP resource attribute that carries :data:`TERMINAL_SESSION_ENV`, so a
+#: record in the store joins the ledger line its launch wrote.
+TERMINAL_SESSION_ATTRIBUTE = "terminal.session"
 
+_RESOURCE_ATTRIBUTES_ENV = "OTEL_RESOURCE_ATTRIBUTES"
 
-#: The port the OpenObserve container LISTENS on. Fixed by the image, and the
-#: container half of the publish line in
-#: ``templates/services/openobserve/docker-compose.yml.j2``
-#: (``<bind>:<published>:5080/tcp``) — which is why this literal survives the
-#: port layout: it is a property of the image, not a host port ``port_base``
-#: can move. It is the right port only from inside the store's own compose
-#: network, where the store is reached by DNS name; from anywhere else — the
-#: host, a host-networked container — the store is reached at the port it
-#: PUBLISHES, which the layout places and a project moves freely.
-OPENOBSERVE_LISTEN_PORT = 5080
+#: Every key the ``claude_code.telemetry`` block may carry: exactly the keys the
+#: readers in this module and :mod:`osprey.deployment.telemetry_config` take
+#: from it. The profile parser closes the block against this set, so a key no
+#: reader takes is refused at build instead of being carried silently.
+#: ``resource_attributes`` is an open mapping below it; ``auth`` is closed to
+#: :data:`TELEMETRY_AUTH_KEYS`.
+TELEMETRY_KEYS: frozenset[str] = frozenset(
+    {
+        "enabled",
+        "backend",
+        "protocol",
+        "endpoint",
+        "auth",
+        "signals",
+        "resource_attributes",
+        *_TELEMETRY_CONTENT_GATES.values(),
+        "content_max_length",
+    }
+)
 
-#: The variable a compose author sets beside ``OSPREY_OTEL_OPENOBSERVE_HOST``
-#: when the host it names is reached on a port the config cannot know — the
-#: bridge case, where the compose DNS name answers on the listen port. Same
-#: convention as the host variable: topology is declared, never sniffed.
-OPENOBSERVE_PORT_ENV_VAR = "OSPREY_OTEL_OPENOBSERVE_PORT"
-
-#: The remedy every reader of the store's address gives when
-#: :func:`openobserve_published_port` cannot read the configured port.
-OPENOBSERVE_PORT_REMEDY = "Set services.openobserve.port to an integer port and run `osprey build`."
+#: Every key ``claude_code.telemetry.auth`` may carry.
+TELEMETRY_AUTH_KEYS: frozenset[str] = frozenset({"token_env"})
 
 
-def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
-    """The port this deployment publishes the telemetry store on.
+def telemetry_backend(telemetry_cfg: Mapping[str, Any]) -> str:
+    """The block's backend: :data:`GATEWAY_BACKEND` or :data:`GENERIC_BACKEND`.
 
-    Read from ``services.openobserve.port`` — the one key that moves it, the
-    same key the service template renders into the published port, and the one
-    every reader of the store's address calls: the agent's exporter,
-    ``osprey health``, and the ingest-account provisioner. A start refuses a
-    compose file that publishes the store anywhere else
-    (:func:`osprey.deployment.container_lifecycle._preflight_store_address`).
-    With no such key the port is the layout's ``openobserve`` slot at the
-    base *this config* resolved, which is the number the service template
-    publishes when nothing overrides it. A persona render carries both: profile
-    inheritance copies the hosting profile's ``config:`` overlay into every
-    attached render, so a moved store — or a moved base — moves every client.
-
-    The base is always the one the config in hand names, never
-    :data:`~osprey.port_layout.DEFAULT_PORT_BASE`. Two deployments coexist on a
-    host by taking different bases, and a client that fell back to the default
-    base would dial its neighbour's store rather than its own.
-
-    Args:
-        config: Loaded ``config.yml`` mapping, or ``None``.
-
-    Returns:
-        The published port, as an ``int``.
+    An unset backend is :data:`GENERIC_BACKEND`: the block names a collector
+    of its own through ``claude_code.telemetry.endpoint``.
 
     Raises:
-        TelemetryConfigError: The key is present but not an integer port.
-        ValueError: ``deployment.port_base`` is set to a base no block can
-            start at (:func:`~osprey.port_layout.resolve_port_base`).
+        TelemetryConfigError: When ``backend`` names anything else.
     """
-    services = (config or {}).get("services") or {}
-    block = services.get("openobserve") if isinstance(services, Mapping) else None
-    raw = block.get("port") if isinstance(block, Mapping) else None
-    if raw is None:
-        return default_port("openobserve", base=resolve_port_base(config))
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
+    backend = telemetry_cfg.get("backend")
+    if backend is None or backend == "":
+        return GENERIC_BACKEND
+    if not isinstance(backend, str) or backend not in _BACKENDS:
         raise TelemetryConfigError(
-            f"services.openobserve.port must be an integer port, got {raw!r}"
-        ) from None
+            f"claude_code.telemetry.backend is {backend!r}; it is '{GATEWAY_BACKEND}' "
+            f"(the deployment's telemetry gateway) or '{GENERIC_BACKEND}' (a collector "
+            "named by claude_code.telemetry.endpoint)."
+        )
+    return backend
 
 
-def _openobserve_port_override() -> int | None:
-    """Explicit OpenObserve port from the deploy environment, or ``None``.
-
-    The port half of :func:`_openobserve_host_override`, read the same way and
-    for the same reason. An unset or empty variable is no override; a set one
-    that is not an integer is a compose-authoring error and is refused rather
-    than silently ignored, because the value was written deliberately.
-
-    Raises:
-        TelemetryConfigError: The variable is set but not an integer port.
-    """
-    raw = os.environ.get(OPENOBSERVE_PORT_ENV_VAR)
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        raise TelemetryConfigError(
-            f"{OPENOBSERVE_PORT_ENV_VAR} must be an integer port, got {raw!r}"
-        ) from None
-
-
-def resolve_openobserve_port(config: Mapping[str, Any] | None) -> int:
-    """The port a runtime launch reaches the telemetry store on.
-
-    The deploy environment's declaration wins (:func:`_openobserve_port_override`);
-    otherwise the port this deployment publishes
-    (:func:`openobserve_published_port`), which with no
-    ``services.openobserve.port`` key is the layout's ``openobserve`` slot at
-    the base this config resolved. Runtime launch paths call this; build-time
-    renders, which must not read the builder's environment, call
-    :func:`openobserve_published_port` directly.
-
-    Args:
-        config: Loaded ``config.yml`` mapping, or ``None``.
-
-    Returns:
-        The port to dial the store on, as an ``int``.
-
-    Raises:
-        TelemetryConfigError: The environment variable or the config key is set
-            but is not an integer port.
-        ValueError: ``deployment.port_base`` is set to a base no block can
-            start at.
-    """
-    return _openobserve_port_override() or openobserve_published_port(config)
-
-
-def resolve_runtime_telemetry_endpoint(config: Mapping[str, Any] | None) -> str | None:
-    """The OTLP endpoint an agent launched from this process would post to.
-
-    The same inputs the launch path hands :func:`_build_telemetry_env` —
-    container context, the deploy environment's host and port overrides, the
-    port the deployment publishes — so what the ``reach`` health category
-    knocks on is what the exporter dials from here, not a re-derivation.
-
-    Args:
-        config: Loaded ``config.yml`` mapping, or ``None``.
-
-    Returns:
-        The endpoint URL, or ``None`` when telemetry is off, not the
-        OpenObserve backend, or misconfigured (the launch path refuses that
-        loudly; the probe has nothing to knock on).
-    """
+def _enabled_block(config: Mapping[str, Any] | None) -> dict | None:
+    """``claude_code.telemetry`` when it is a mapping with ``enabled`` set, else ``None``."""
     telemetry_cfg = ((config or {}).get("claude_code") or {}).get("telemetry")
     if not isinstance(telemetry_cfg, dict) or not telemetry_cfg.get("enabled"):
         return None
+    return telemetry_cfg
+
+
+def build_gateway_url(config: Mapping[str, Any] | None) -> str | None:
+    """The gateway address a build-time render bakes in, or ``None`` for no gateway.
+
+    The host-side address this config publishes (``telemetry_config.gateway_url``
+    with ``bridge=False``) — never the builder's environment, which a rendered
+    artifact must not carry. ``None`` when telemetry is off or the block names
+    no gateway backend.
+
+    Raises:
+        TelemetryConfigError: When the backend is unknown.
+    """
+    telemetry_cfg = _enabled_block(config)
+    if telemetry_cfg is None:
+        return None
+    if telemetry_backend(telemetry_cfg) != GATEWAY_BACKEND:
+        return None
+    from osprey.deployment.telemetry_config import gateway_url
+
+    return gateway_url(config, bridge=False)
+
+
+def resolve_runtime_telemetry_endpoint(
+    config: Mapping[str, Any] | None, environ: Mapping[str, str] | None = None
+) -> str | None:
+    """The OTLP endpoint an agent launched with *environ* would post to.
+
+    The same inputs the launch path hands :func:`_build_telemetry_env`, so
+    what the ``reach`` health category knocks on is what the exporter dials.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+        environ: The launch environment; ``os.environ`` when omitted.
+
+    Returns:
+        The endpoint URL, or ``None`` when telemetry is off or misconfigured
+        (the launch path refuses that loudly; the probe has nothing to knock on).
+    """
+    telemetry_cfg = _enabled_block(config)
+    if telemetry_cfg is None:
+        return None
     try:
-        return _resolve_telemetry_endpoint(
-            telemetry_cfg,
-            in_container=_running_in_container(),
-            openobserve_host=_openobserve_host_override(),
-            openobserve_port=resolve_openobserve_port(config),
-        )
-    except (TelemetryConfigError, ValueError):
+        gateway_url = None
+        if telemetry_backend(telemetry_cfg) == GATEWAY_BACKEND:
+            from osprey.deployment.telemetry_config import runtime_gateway_url
+
+            gateway_url = runtime_gateway_url(config, os.environ if environ is None else environ)
+        return _resolve_telemetry_endpoint(telemetry_cfg, gateway_url=gateway_url)
+    except ValueError:
         return None
 
 
@@ -456,22 +352,21 @@ def telemetry_auth_token_env(telemetry_cfg: Mapping[str, Any]) -> str | None:
         The variable name, or ``None`` when the block has no ``auth``.
 
     Raises:
-        TelemetryConfigError: When ``auth`` is set on the ``openobserve``
-            backend (the bundled store authenticates with
-            ``openobserve.user`` / ``openobserve.password``), is not a mapping
+        TelemetryConfigError: When ``auth`` is set on the ``gateway``
+            backend (each sender authenticates with its own login), is not a mapping
             whose only member is ``token_env``, or ``token_env`` is not a
             variable name.
     """
     auth = telemetry_cfg.get("auth")
     if auth is None:
         return None
-    if telemetry_cfg.get("backend") == "openobserve":
+    if telemetry_backend(telemetry_cfg) == GATEWAY_BACKEND:
         raise TelemetryConfigError(
-            "claude_code.telemetry.auth is set on the openobserve backend, which "
-            "authenticates with claude_code.telemetry.openobserve.user and "
-            "openobserve.password. Remove claude_code.telemetry.auth."
+            "claude_code.telemetry.auth is set on the gateway backend, where each "
+            f"sender authenticates with its own login ({TELEMETRY_LOGIN_ENV}). "
+            "Remove claude_code.telemetry.auth."
         )
-    if not isinstance(auth, Mapping) or set(auth) != {"token_env"}:
+    if not isinstance(auth, Mapping) or set(auth) != TELEMETRY_AUTH_KEYS:
         raise TelemetryConfigError(
             "claude_code.telemetry.auth takes one member: the collector takes a "
             "bearer token named by claude_code.telemetry.auth.token_env."
@@ -522,25 +417,6 @@ def _bearer_header(
     return "Authorization", f"Bearer {auth_token}"
 
 
-def _parse_header_map(value: dict | str) -> dict[str, str]:
-    """Parse an ``OTEL_EXPORTER_OTLP_HEADERS`` wire string into a ``{key: value}`` dict.
-
-    The wire string is comma-separated ``k=v`` pairs; a mapping is returned as
-    strings unchanged. Only the first ``=`` in each pair is the separator, so a
-    header value may itself contain ``=``.
-    """
-    if isinstance(value, dict):
-        return {str(k): str(v) for k, v in value.items()}
-    parsed: dict[str, str] = {}
-    for pair in str(value).split(","):
-        pair = pair.strip()
-        if not pair:
-            continue
-        key, _sep, val = pair.partition("=")
-        parsed[key.strip()] = val.strip()
-    return parsed
-
-
 def _render_kv_map(value: dict | str) -> str:
     """Render a mapping as a comma-joined ``k=v`` string (OTLP wire format).
 
@@ -553,78 +429,56 @@ def _render_kv_map(value: dict | str) -> str:
     return str(value)
 
 
-def _resolve_telemetry_endpoint(
-    telemetry_cfg: dict,
-    *,
-    in_container: bool,
-    openobserve_host: str | None = None,
-    openobserve_port: int | None = None,
-) -> str:
+def _resolve_telemetry_endpoint(telemetry_cfg: dict, *, gateway_url: str | None = None) -> str:
     """Resolve the OTLP exporter endpoint, failing loud on misconfiguration.
 
-    Priority: an explicit ``endpoint`` wins verbatim; otherwise an
-    ``openobserve`` backend derives the org endpoint from the container context.
-    Any other enabled-but-unaddressed config is a misconfiguration and raises.
+    Under ``backend: gateway`` the endpoint is the gateway address the caller
+    resolved for where the launch runs (``telemetry_config.runtime_gateway_url``
+    at runtime, ``gateway_url`` at build time); the block names no endpoint of
+    its own and speaks one of :data:`GATEWAY_PROTOCOLS`. Without a backend the
+    block's ``endpoint`` is used verbatim.
 
     Args:
         telemetry_cfg: The ``claude_code.telemetry`` section.
-        in_container: Whether the agent runs in a container — selects the
-            OpenObserve default host (``openobserve`` vs ``localhost``).
-        openobserve_host: Explicit store host from the deploy env; wins over
-            the ``in_container`` derivation.
-        openobserve_port: The port the store is reached on from where this
-            launch runs — the deploy env's declaration or the port the
-            deployment publishes (:func:`resolve_openobserve_port`), which the
-            layout places at ``port_base + 50``. ``None`` falls back to
-            :data:`OPENOBSERVE_LISTEN_PORT`, the port the image listens on
-            inside the store's own compose network, and the only caller that
-            may take it is one on that network; every launch path passes the
-            resolved port.
+        gateway_url: The gateway's OTLP/HTTP base URL from where this launch
+            runs. Required under ``backend: gateway``.
 
     Raises:
-        ValueError: If no endpoint can be resolved; if ``protocol`` is ``grpc``
-            while the endpoint would be derived from the OpenObserve backend
-            (which serves HTTP only); or if the resolved endpoint still carries a
-            literal ``${VAR}`` — an unresolved placeholder whose referenced env
-            var was unset. An unresolved var keeps the literal ``${VAR}`` (it does
-            not become empty), so shipping it would point the exporter at a
-            nonsense URL; refuse instead.
+        TelemetryConfigError: On an unknown backend; under ``backend: gateway``
+            on an ``endpoint`` key, a protocol the gateway does not answer
+            (``grpc`` among them) or no gateway address; without a backend on
+            a missing endpoint; and on an endpoint that still carries a literal
+            ``${VAR}`` (an unresolved placeholder whose variable is unset).
     """
-    endpoint = telemetry_cfg.get("endpoint")
-    if not endpoint:
-        if telemetry_cfg.get("backend") == "openobserve":
-            # The derived URL below is the OpenObserve HTTP ingest API — the only
-            # port that service publishes. A gRPC exporter aimed there connects to
-            # nothing and drops every metric and log without an error, so refuse
-            # the combination rather than emit a silently-dead exporter.
-            if str(telemetry_cfg.get("protocol", "http/protobuf")).strip().lower() == "grpc":
-                raise TelemetryConfigError(
-                    "claude_code.telemetry.protocol is 'grpc' but the OTLP endpoint "
-                    "is auto-derived from backend: openobserve, which serves HTTP "
-                    "only — a gRPC exporter aimed there would drop every "
-                    "metric, log and span silently. Use protocol: http/protobuf, or set an "
-                    "explicit claude_code.telemetry.endpoint pointing at a collector "
-                    "that speaks gRPC."
-                )
-            # An explicit host from the deploy env wins (the compose author knows
-            # the network topology); otherwise derive from container context.
-            host = openobserve_host or ("openobserve" if in_container else "localhost")
-            # No resolved port means the caller is on the store's own compose
-            # network, where the container answers on the port the image
-            # listens on — the `:5080/tcp` container half of the publish line
-            # in `templates/services/openobserve/docker-compose.yml.j2`. That
-            # half is not a host port, so the layout does not move it; only the
-            # published half in front of it moves with `port_base`.
-            port = openobserve_port or OPENOBSERVE_LISTEN_PORT
-            org = telemetry_cfg.get("openobserve", {}).get("org", "default")
-            endpoint = f"http://{host}:{port}/api/{org}"
-        else:
+    if telemetry_backend(telemetry_cfg) == GATEWAY_BACKEND:
+        if telemetry_cfg.get("endpoint"):
             raise TelemetryConfigError(
-                "claude_code.telemetry is enabled but no 'endpoint' is set and "
-                "'backend' is not 'openobserve'; cannot resolve an OTLP endpoint. "
-                "Set claude_code.telemetry.endpoint or backend: openobserve."
+                "claude_code.telemetry.endpoint is set with backend: gateway, which "
+                "sends to the deployment's own gateway. Remove the endpoint, or remove "
+                "the backend to export to that collector instead."
             )
-    endpoint = str(endpoint)
+        protocol = str(telemetry_cfg.get("protocol", GATEWAY_PROTOCOLS[0])).strip().lower()
+        if protocol not in GATEWAY_PROTOCOLS:
+            raise TelemetryConfigError(
+                f"claude_code.telemetry.protocol is {protocol!r}, but the telemetry gateway "
+                f"receives OTLP over HTTP only ({', '.join(GATEWAY_PROTOCOLS)}); an exporter "
+                "speaking anything else would drop every metric, log and span silently. "
+                f"Use {GATEWAY_PROTOCOLS[0]}, or set backend: {GENERIC_BACKEND} and name a "
+                "gRPC collector in claude_code.telemetry.endpoint."
+            )
+        if not gateway_url:
+            raise TelemetryConfigError(
+                "claude_code.telemetry.backend is 'gateway' but no gateway address was "
+                "resolved for this launch."
+            )
+        endpoint = str(gateway_url)
+    else:
+        endpoint = str(telemetry_cfg.get("endpoint") or "")
+        if not endpoint:
+            raise TelemetryConfigError(
+                "claude_code.telemetry is enabled but names neither backend: gateway nor "
+                "an 'endpoint'; cannot resolve an OTLP endpoint."
+            )
     if "${" in endpoint:
         raise TelemetryConfigError(
             f"OTLP endpoint still contains an unresolved '${{VAR}}': {endpoint!r}. "
@@ -634,102 +488,171 @@ def _resolve_telemetry_endpoint(
     return endpoint
 
 
-def _openobserve_auth_header(
-    telemetry_cfg: dict, *, defer_unresolved: bool = False
+def _gateway_auth_header(
+    telemetry_login: str | None, *, defer_unresolved: bool
 ) -> tuple[str, str] | None:
-    """Compute the HTTP Basic auth header for an OpenObserve backend.
-
-    Both credentials arrive already ``${VAR}``-expanded in the config (the
-    config loader expands ``claude_code.telemetry`` before the resolver runs),
-    so this reads them straight from the config — never ``os.environ``. The
-    base64 header value cannot be expressed as ``${VAR}``; it is computed here.
+    """``("Authorization", "Basic <base64 login>")`` for a sender's gateway login.
 
     Args:
-        telemetry_cfg: The ``claude_code.telemetry`` config section.
-        defer_unresolved: When True, an unresolved ``${VAR}`` credential returns
-            ``None`` (with a warning) instead of raising. Build-time callers set
-            this: they render a scaffold whose credentials belong to the
-            *deployment*, and the runtime re-resolves them at agent-spawn. A
-            missing or blank credential still raises — no later step can fill
-            that in.
-
-    Returns:
-        ``("Authorization", "Basic <base64(user:password)>")``, or ``None`` when
-        a credential is deferred.
+        telemetry_login: The launch's :data:`TELEMETRY_LOGIN_ENV` value,
+            ``<identity>:<password>``, handed in by the caller.
+        defer_unresolved: When True, an absent login returns ``None``: a build
+            never carries the login, so its absence there is the correct state.
 
     Raises:
-        ObservabilityCredentialError: If either credential is missing or blank
-            — an unauthenticated exporter to an auth-gated store would silently
-            drop every span, so refuse to emit one — or if either credential
-            still carries a literal ``${VAR}`` (an unresolved placeholder whose
-            env var is unset) and ``defer_unresolved`` is False. Both cases are
-            fixed in the deployment's secret store, which is why they carry
-            their own type rather than the general telemetry one. The
-            unresolved case also carries the placeholder's variable names on
-            ``unresolved_vars``; the missing/blank case carries none, since
-            there is no variable to name.
+        ObservabilityCredentialError: When the login is unset or blank and
+            ``defer_unresolved`` is False — the gateway refuses an
+            unauthenticated sender, so every record would be dropped — or when
+            it is not ``<identity>:<password>`` or carries a comma or a line
+            break.
     """
-    oo = telemetry_cfg.get("openobserve") or {}
-    user = oo.get("user")
-    password = oo.get("password")
-    if not user or not password:
+    login = (telemetry_login or "").strip()
+    if not login:
+        if defer_unresolved:
+            return None
         raise ObservabilityCredentialError(
-            "claude_code.telemetry.backend is 'openobserve' but "
-            "openobserve.user / openobserve.password are missing or blank; "
-            "refusing to emit an unauthenticated OTLP exporter to an "
-            "auth-gated store."
+            f"{TELEMETRY_LOGIN_ENV} is unset or blank, so this launch has no login for "
+            "the telemetry gateway and every record it sent would be refused. "
+            "`osprey build` writes each sender's login to .env.telemetry-sender.<identity>; "
+            "on the host, run it and check that this launch's identity is a configured "
+            "sender. A container is handed its sender's .env.telemetry-sender.<identity> "
+            "as an env file: compose does this, and `docker run` takes it with --env-file.",
+            (TELEMETRY_LOGIN_ENV,),
         )
-    # Fail loud on an unresolved ${VAR} — same contract as the endpoint check.
-    # The config loader leaves the literal ``${VAR}`` when the referenced env
-    # var is unset; base64-encoding that literal would silently 401 at runtime
-    # instead of failing clearly here at resolve() time.
-    for field_name, cred in (("openobserve.user", user), ("openobserve.password", password)):
-        if "${" in str(cred):
-            if defer_unresolved:
-                warnings.warn(
-                    f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
-                    "Omitting the OpenObserve auth header from the rendered "
-                    "scaffold; the runtime must resolve it at agent-spawn.",
-                    stacklevel=2,
-                )
-                return None
-            raise ObservabilityCredentialError(
-                f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
-                "The referenced environment variable is unset — refusing to "
-                "encode a literal placeholder into the OpenObserve auth header.",
-                tuple(sorted(set(_CREDENTIAL_PLACEHOLDER_RE.findall(str(cred))))),
-            )
-    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    identity, sep, password = login.partition(":")
+    if not sep or not identity or not password or _HEADER_LIST_BREAKERS & set(login):
+        raise ObservabilityCredentialError(
+            f"{TELEMETRY_LOGIN_ENV} is not an <identity>:<password> login the OTLP header "
+            "list can carry; delete the sender's .env.telemetry-sender.<identity> file and "
+            "run `osprey build` to mint a new one."
+        )
+    token = base64.b64encode(login.encode()).decode()
     return "Authorization", f"Basic {token}"
+
+
+def _attribute_pairs(value: dict | str) -> list[tuple[str, str]]:
+    """``OTEL_RESOURCE_ATTRIBUTES`` as ordered ``(key, value)`` pairs."""
+    if isinstance(value, dict):
+        return [(str(k), str(v)) for k, v in value.items()]
+    pairs: list[tuple[str, str]] = []
+    for pair in str(value).split(","):
+        if not pair.strip():
+            continue
+        key, _sep, val = pair.partition("=")
+        pairs.append((key.strip(), val.strip()))
+    return pairs
+
+
+def _gateway_resource_attributes(telemetry_cfg: dict, terminal_session: str | None) -> str:
+    """The resource attributes a gateway sender carries: the block's own plus the session.
+
+    :data:`TERMINAL_SESSION_ATTRIBUTE` is always present, empty when the
+    session is not known yet: a launch site that spawns a session later fills
+    it (:func:`terminal_session_env`), and the gateway drops an empty one.
+
+    Raises:
+        TelemetryConfigError: When ``resource_attributes`` sets the session
+            attribute itself; it is the launch's, never the config's.
+    """
+    pairs = _attribute_pairs(telemetry_cfg.get("resource_attributes") or {})
+    if any(key == TERMINAL_SESSION_ATTRIBUTE for key, _ in pairs):
+        raise TelemetryConfigError(
+            f"claude_code.telemetry.resource_attributes sets {TERMINAL_SESSION_ATTRIBUTE}, "
+            "which each launch sets to its own terminal session. Remove it."
+        )
+    pairs.append((TERMINAL_SESSION_ATTRIBUTE, terminal_session or ""))
+    return ",".join(f"{key}={value}" for key, value in pairs)
+
+
+def terminal_session_env(session: str, inherited: Mapping[str, str]) -> dict[str, str]:
+    """What a launch site adds to a child's environment to give it terminal session *session*.
+
+    :data:`TERMINAL_SESSION_ENV` always — the ledger writers fall back to it
+    when the child has no posture session. When the child inherits a gateway
+    sender's resource attributes (they name :data:`TERMINAL_SESSION_ATTRIBUTE`),
+    those attributes too, with the session filled in, so the child's OTLP
+    resource and its ledger lines carry the same value. Any other backend's
+    attributes are left as they are.
+
+    Args:
+        session: The launch-scoped id.
+        inherited: The environment the child is otherwise spawned with.
+
+    Returns:
+        The variables to set on the child.
+    """
+    env = {TERMINAL_SESSION_ENV: session}
+    attributes = inherited.get(_RESOURCE_ATTRIBUTES_ENV)
+    if attributes is None:
+        return env
+    pairs = _attribute_pairs(attributes)
+    if not any(key == TERMINAL_SESSION_ATTRIBUTE for key, _ in pairs):
+        return env
+    env[_RESOURCE_ATTRIBUTES_ENV] = ",".join(
+        f"{key}={session if key == TERMINAL_SESSION_ATTRIBUTE else value}" for key, value in pairs
+    )
+    return env
+
+
+#: The posture session a terminal's child carries (``osprey.audit.posture``).
+#: Read only, never set here: it is a write-safety input.
+_POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+
+#: The prefix of the terminal session minted for a launch on the host.
+HOST_SESSION_PREFIX = "chat-"
+
+#: The prefix of a dispatched job's terminal session, ``dispatch-<run id>``.
+DISPATCH_SESSION_PREFIX = "dispatch-"
+
+
+def export_host_terminal_session(environ: MutableMapping[str, str]) -> str:
+    """Give a session launched on the host (``osprey chat``/``query``) its terminal session.
+
+    A launch already inside a terminal session keeps it — the one it was
+    handed (:data:`TERMINAL_SESSION_ENV`), else the posture session its
+    ledger lines are filed under — so the two never part. Otherwise a fresh
+    ``chat-<uuid4>``. Only :data:`TERMINAL_SESSION_ENV` is set: the posture
+    session decides approval stamps and write blocking, and a host launch has
+    none.
+
+    Returns:
+        The session the launch carries.
+    """
+    for name in (TERMINAL_SESSION_ENV, _POSTURE_SESSION_ENV):
+        existing = (environ.get(name) or "").strip()
+        if existing:
+            environ[TERMINAL_SESSION_ENV] = existing
+            return existing
+    session = f"{HOST_SESSION_PREFIX}{uuid.uuid4()}"
+    environ[TERMINAL_SESSION_ENV] = session
+    return session
 
 
 def _build_telemetry_env(
     telemetry_cfg: dict | None,
     *,
-    in_container: bool = False,
-    openobserve_host: str | None = None,
-    openobserve_port: int | None = None,
+    gateway_url: str | None = None,
+    telemetry_login: str | None = None,
+    terminal_session: str | None = None,
     defer_unresolved_creds: bool = False,
     auth_token: str | None = None,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
     Reads no environment and does no filesystem/network I/O — the
-    ``${VAR}``-expansion, container detection, and host/port resolution happen
+    ``${VAR}``-expansion, the gateway address and the login are resolved
     upstream. Its only side effect is a single advisory ``warnings.warn`` when
-    full content capture is active on a non-openobserve backend. Returns an
-    empty dict when telemetry is absent or disabled.
+    full content capture ships to a collector outside the deployment. Returns
+    an empty dict when telemetry is absent or disabled.
 
     Args:
         telemetry_cfg: The ``claude_code.telemetry`` config section (already
             ``${VAR}``-expanded), or ``None``.
-        in_container: Whether the agent runs in a container — selects the
-            OpenObserve default host (``openobserve`` vs ``localhost``).
-        openobserve_host: Explicit OpenObserve host from the deploy env; when
-            set it wins over the ``in_container`` derivation (the compose author
-            knows the network topology).
-        openobserve_port: The port the store is reached on from where this
-            launch runs (see :func:`_resolve_telemetry_endpoint`).
+        gateway_url: The gateway's OTLP/HTTP base URL from where this launch
+            runs (see :func:`_resolve_telemetry_endpoint`).
+        telemetry_login: The launch's :data:`TELEMETRY_LOGIN_ENV` value.
+        terminal_session: The launch's :data:`TERMINAL_SESSION_ENV` value,
+            carried as :data:`TERMINAL_SESSION_ATTRIBUTE` under the gateway.
         defer_unresolved_creds: When True, a credential that is not resolvable
             yet is omitted instead of refused (build-time renders).
         auth_token: The value of the variable
@@ -741,22 +664,22 @@ def _build_telemetry_env(
         are a subset of :data:`TELEMETRY_ENV_VARS`.
 
     Raises:
-        TelemetryConfigError: On an unresolvable endpoint, ``protocol: grpc``
-            against an auto-derived (HTTP-only) OpenObserve endpoint, or a
-            leaked ``${VAR}`` in the endpoint, or a ``content_max_length``
-            that is not a positive integer, or a ``signals`` value that is
-            empty, not a list, or names anything but ``metrics``, ``logs`` and
-            ``traces``.
-            Also on an ``auth`` block the collector cannot use (see
-            :func:`telemetry_auth_token_env`), and on a ``headers`` key.
-        ObservabilityCredentialError: On an ``openobserve`` backend whose
-            credentials are missing, blank, or an unresolved ``${VAR}``, or on
-            a collector token that is unset, blank, or carries a comma or a
-            line break.
+        TelemetryConfigError: On an unknown backend, an unresolvable endpoint, a
+            protocol the gateway does not answer, a leaked ``${VAR}`` in the
+            endpoint, a ``content_max_length`` that is not a positive integer,
+            a ``signals`` value that is empty, not a list, or names anything
+            but ``metrics``, ``logs`` and ``traces``, an ``auth`` block the
+            collector cannot use (see :func:`telemetry_auth_token_env`), a
+            ``headers`` key, or ``resource_attributes`` naming the terminal
+            session under the gateway.
+        ObservabilityCredentialError: On a gateway login that is unset, blank
+            or malformed, or on a collector token that is unset, blank, or
+            carries a comma or a line break.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}
 
+    gateway = telemetry_backend(telemetry_cfg) == GATEWAY_BACKEND
     # The exporter appends ``/v1/<signal>`` to the base endpoint, so one
     # endpoint serves logs, metrics and traces.
     signals = _exported_signals(telemetry_cfg)
@@ -773,16 +696,13 @@ def _build_telemetry_env(
         },
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
-            telemetry_cfg,
-            in_container=in_container,
-            openobserve_host=openobserve_host,
-            openobserve_port=openobserve_port,
+            telemetry_cfg, gateway_url=gateway_url
         ),
     }
 
-    # The header map holds the one Authorization value: the collector's bearer
-    # token or the computed OpenObserve Basic auth, never both. OTLP wire
-    # format is comma-separated k=v.
+    # The header map holds the one Authorization value: the sender's gateway
+    # login or the collector's bearer token, never both. OTLP wire format is
+    # comma-separated k=v.
     if "headers" in telemetry_cfg:
         raise TelemetryConfigError(
             "claude_code.telemetry.headers is not a setting; name the variable that "
@@ -794,16 +714,21 @@ def _build_telemetry_env(
         bearer = _bearer_header(token_env, auth_token, defer_unresolved=defer_unresolved_creds)
         if bearer is not None:
             headers[bearer[0]] = bearer[1]
-    if telemetry_cfg.get("backend") == "openobserve":
-        auth = _openobserve_auth_header(telemetry_cfg, defer_unresolved=defer_unresolved_creds)
-        if auth is not None:
-            headers[auth[0]] = auth[1]
+    if gateway:
+        basic = _gateway_auth_header(telemetry_login, defer_unresolved=defer_unresolved_creds)
+        if basic is not None:
+            headers[basic[0]] = basic[1]
     if headers:
         env["OTEL_EXPORTER_OTLP_HEADERS"] = _render_kv_map(headers)
 
-    resource_attrs = telemetry_cfg.get("resource_attributes")
-    if resource_attrs:
-        env["OTEL_RESOURCE_ATTRIBUTES"] = _render_kv_map(resource_attrs)
+    if gateway:
+        env[_RESOURCE_ATTRIBUTES_ENV] = _gateway_resource_attributes(
+            telemetry_cfg, terminal_session
+        )
+    else:
+        resource_attrs = telemetry_cfg.get("resource_attributes")
+        if resource_attrs:
+            env[_RESOURCE_ATTRIBUTES_ENV] = _render_kv_map(resource_attrs)
 
     # Content-capture gates default ON; each turns off only on an explicit
     # false-y value (bool False, or a false-y string from ${VAR:-false}).
@@ -824,14 +749,13 @@ def _build_telemetry_env(
         env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] = limit
 
     # Safe-state advisory: full-fidelity content capture is the default only
-    # because the openobserve backend is local and air-gapped. On any other
-    # backend the captured transcripts leave the host, so warn once (the
-    # warnings registry deduplicates identical messages) when content still
-    # ships off-host.
-    if on_gates and telemetry_cfg.get("backend") != "openobserve":
+    # because the gateway feeds the deployment's own store. A collector named
+    # by ``endpoint`` sits outside it, so the captured transcripts leave the
+    # host; warn once (the warnings registry deduplicates identical messages).
+    if on_gates and not gateway:
         warnings.warn(
             "claude_code.telemetry ships full content capture "
-            f"({', '.join(sorted(on_gates))}) to a non-openobserve backend; "
+            f"({', '.join(sorted(on_gates))}) to a collector outside this deployment; "
             "these transcripts leave the host. Set log_user_prompts / "
             "log_assistant_responses / log_tool_details / log_tool_content / "
             "log_raw_api_bodies "

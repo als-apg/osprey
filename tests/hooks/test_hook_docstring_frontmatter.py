@@ -36,6 +36,7 @@ HOOK_FILES = [
 # invoked as scripts, so the front-matter rules below do not apply to them.
 HELPER_MODULES = {
     "osprey_hook_log.py",
+    "osprey_safety_file.py",
     "osprey_target_state.py",
 }
 

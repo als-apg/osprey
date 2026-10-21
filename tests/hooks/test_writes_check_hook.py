@@ -203,7 +203,14 @@ def test_missing_writes_enabled_key_denies(tmp_path, hook_runner, make_config):
     the shape ``test_no_posture_stated_denies`` below pins on a session whose
     target actually resolves.
     """
-    config = make_config({"control_system": {"type": "mock"}})
+    config = make_config(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
 
     result = hook_runner(
         "osprey_writes_check.py",
@@ -582,8 +589,22 @@ DISARMED_LIVE = {
 #: ``None`` as the target means no state file is written at all, so the session
 #: target is unidentifiable and the posture both targets agree on is the answer.
 POSTURE_SHAPES = [
-    ({"type": "mock", "writes_enabled": True}, "live"),
-    ({"type": "mock", "writes_enabled": False}, "live"),
+    (
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": True,
+        },
+        "live",
+    ),
+    (
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        },
+        "live",
+    ),
     ({"type": "epics", "writes_enabled": True}, "live"),
     (
         {
@@ -625,9 +646,12 @@ POSTURE_SHAPES = [
     ),
     (
         {
-            "type": "mock",
+            "type": "virtual_accelerator",
             "writes_enabled": True,
-            "connector": {"epics": {"writes_enabled": False}},
+            "connector": {
+                "virtual_accelerator": {"serving": "in_process"},
+                "epics": {"writes_enabled": False},
+            },
         },
         None,
     ),

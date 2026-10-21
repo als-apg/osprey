@@ -146,7 +146,7 @@ in a step of its own even under ``-d``, and starts everything with
 ``up --no-build``, so an image that is neither on the host nor pullable fails
 with compose's own error naming it.
 
-The project image (dispatch worker, ARIEL sync, record archive) has no
+The project image (dispatch worker, ARIEL sync, record archive, history page) has no
 ``build:`` block. The deploy builds it itself on every start unless the host
 is prebuilt or every one of those services it deploys names another image
 (``OSPREY_WORKER_IMAGE`` or ``services.<name>.image``).
@@ -184,7 +184,7 @@ not write ``registry.url`` itself, because the build fills it from
 Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: ``modules.web_terminals.image_source``
 (``registry``, the default, or ``local``). It is unrelated to the axes, and it
-is also the setting that governs the persona and auth-sidecar builds — see
+is also the setting that governs the web-terminal and auth-sidecar builds — see
 below.
 
 .. _deployment-mirror-channel:
@@ -208,13 +208,15 @@ fails at ``up`` on the image it forgot:
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
    * - The upstream pins
      - One row at a time: ``services.<name>.image`` (or the row's
-       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy.
-   * - The web tier's images
+       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy. The
+       telemetry store and gateway have no variable; keep the store's tag
+       when you mirror it, since its query page is served only for a tag
+       OSPREY knows.
+   * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
-   * - nginx and the auth sidecar
-     - ``modules.web_terminals.nginx_image`` and
-       ``modules.web_terminals.auth.image``. **These two carry no environment
-       variable**, so a mirror reaches them through ``config.yml`` only —
+   * - nginx
+     - ``modules.web_terminals.nginx_image``. **It carries no environment
+       variable**, so a mirror reaches it through ``config.yml`` only —
        there is no one-shell equivalent.
 
 .. code-block:: yaml
@@ -232,8 +234,10 @@ fails at ``up`` on the image it forgot:
        image: registry.example.org/mirror/pgvector/pgvector:pg16
      mongodb:
        image: registry.example.org/mirror/mongo:7
-     openobserve:
-       image: registry.example.org/mirror/openobserve:v0.92.2
+     telemetry_store:
+       image: registry.example.org/mirror/clickhouse/clickhouse-server:26.8.18.2
+     telemetry_gateway:
+       image: registry.example.org/mirror/opentelemetry-collector-contrib:0.162.0
      graphdb:
        image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
@@ -244,8 +248,6 @@ fails at ``up`` on the image it forgot:
      web_terminals:
        image_tag: "2026.08.1"
        nginx_image: registry.example.org/mirror/nginx:1.31-alpine
-       auth:
-         image: registry.example.org/accelerator/demo-auth:2026.08.1
 
 Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.
@@ -297,7 +299,7 @@ The switch covers both ways a build can start
   there instead.
 
 **What the switch does not reach.** It governs compose's implicit builds only.
-The persona images and the auth sidecar are built explicitly, by a different
+The web-terminal images and the auth sidecar are built explicitly, by a different
 mechanism, and stay governed by ``modules.web_terminals.image_source``: a host
 that cannot build at all needs ``image_source: registry`` *as well as*
 ``prebuilt_images``. Setting only one of the two is the usual way a genuinely

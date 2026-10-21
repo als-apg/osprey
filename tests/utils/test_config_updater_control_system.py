@@ -17,7 +17,10 @@ def sample_config_content():
     return dedent(
         """
         control_system:
-          type: mock
+          type: virtual_accelerator
+          connector:
+            virtual_accelerator:
+              serving: in_process
           writes_enabled: false
 
         archiver:
@@ -32,7 +35,7 @@ def test_get_control_system_type(tmp_path, sample_config_content):
     config_path.write_text(sample_config_content)
 
     control_type = get_control_system_type(config_path)
-    assert control_type == "mock"
+    assert control_type == "virtual_accelerator"
 
     archiver_type = get_control_system_type(config_path, key="archiver.type")
     assert archiver_type == "mock_archiver"
@@ -67,8 +70,8 @@ def test_set_control_system_type_to_epics(tmp_path, sample_config_content):
     assert get_control_system_type(config_path, key="archiver.type") == "epics_archiver"
 
 
-def test_set_control_system_type_to_mock(tmp_path):
-    """Test switching from EPICS back to mock."""
+def test_set_control_system_type_to_the_simulator(tmp_path):
+    """Test switching from EPICS back to the simulator."""
     content = dedent(
         """
         control_system:
@@ -83,15 +86,17 @@ def test_set_control_system_type_to_mock(tmp_path):
     config_path = tmp_path / "config.yml"
     config_path.write_text(content)
 
-    new_content, preview = set_control_system_type(config_path, "mock", "mock_archiver")
+    new_content, preview = set_control_system_type(
+        config_path, "virtual_accelerator", "mock_archiver"
+    )
 
     # Verify content was updated
-    assert "type: mock" in new_content
+    assert "type: virtual_accelerator" in new_content
     assert "type: mock_archiver" in new_content
 
     # Verify by re-reading
     config_path.write_text(new_content)
-    assert get_control_system_type(config_path) == "mock"
+    assert get_control_system_type(config_path) == "virtual_accelerator"
     assert get_control_system_type(config_path, key="archiver.type") == "mock_archiver"
 
 

@@ -3,14 +3,11 @@
 The preset's ``config:`` block is where a deployment's ``control_system`` comes
 from — the framework template renders no connector at all — so the shape is
 pinned on the preset's resolved config. Asserts the connector blocks the preset
-carries (mock | virtual_accelerator | epics) all co-exist beside the
-`live_standin` type it selects, the virtual_accelerator block uses
-the probe-proven CA name-server gateway shape (mirrored in the "simulation"
-facility-gateway preset — see tests/templates/test_gateway_presets.py) plus a
-`simulation_file` key at the exact path
-(`connector.virtual_accelerator.simulation_file`) that the type-aware simulation
-lookup resolves, and the `epics` block ships no gateway values — authoring them
-is the go-live edit.
+carries (virtual_accelerator | epics) co-exist beside the `live_standin` type it
+selects, the virtual_accelerator block uses the probe-proven CA name-server
+gateway shape (mirrored in the "simulation" facility-gateway preset — see
+tests/templates/test_gateway_presets.py), and the `epics` block ships no gateway
+values — authoring them is the go-live edit.
 """
 
 from osprey.cli.build_profile_archiver import _expand_dotted
@@ -41,7 +38,6 @@ def _control_system_config():
 
 def test_all_connector_blocks_coexist():
     connector = _control_system_config()["connector"]
-    assert "mock" in connector
     assert "virtual_accelerator" in connector
     assert "epics" in connector
 
@@ -51,7 +47,7 @@ def test_type_selects_the_simulator():
 
     The stand-in's own connector block is not spelled here: the build
     assembles ``connector.live_standin`` for a deploying render, while the
-    three blocks above are the ones the preset carries verbatim.
+    two blocks above are the ones the preset carries verbatim.
     """
     control_system = _control_system_config()
     assert control_system["type"] == "virtual_accelerator"
@@ -68,18 +64,6 @@ def test_virtual_accelerator_block_does_not_rely_on_broadcast_discovery():
     va = _control_system_config()["connector"]["virtual_accelerator"]
     assert va["gateways"]["read_only"]["use_name_server"] is True
     assert va["gateways"]["write_access"]["use_name_server"] is True
-
-
-def test_virtual_accelerator_simulation_file_matches_mock_connector():
-    """Contract with the type-aware simulation lookup: the virtual_accelerator
-    block's simulation_file must be present at
-    connector.virtual_accelerator.simulation_file and match the mock
-    connector's value so both types resolve the same machine model."""
-    connector = _control_system_config()["connector"]
-    assert "simulation_file" in connector["virtual_accelerator"]
-    assert (
-        connector["virtual_accelerator"]["simulation_file"] == connector["mock"]["simulation_file"]
-    )
 
 
 def test_epics_block_ships_no_gateway_values():

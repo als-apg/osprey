@@ -39,7 +39,7 @@ The greyed ``hyde`` branch ships in the image but nothing in OSPREY calls it.
 
 It is entirely self-contained --- its language models are baked into the image,
 so unlike the ``semantic`` search mode it needs no Ollama on the host --- and
-the ``ariel-standalone`` and ``control-assistant`` templates deploy it **by
+the ``control-assistant`` template deploys it **by
 default**, together with its two ARIEL consumers (the ``qmd_export``
 enhancement module and the ``hybrid`` search mode). The OKF bundle needs only
 ``facility_knowledge.bundle_path``, which it already has.
@@ -207,10 +207,10 @@ Sharing the knowledge bundle
 
 The OKF bundle is different from the other corpora: web terminals write to it.
 So the *deployment's* bundle is bind-mounted **read-write** into every
-``web-<user>`` service whose persona enables facility knowledge, at a target
-computed from that persona's own project directory inside its container. There
+``web-<user>`` service whose tier or app enables facility knowledge, at a target
+computed from that render's own project directory inside its container. There
 is one directory, not a copy per user --- and it deliberately **shadows the
-copy baked into each persona image**, because the bundle is operational
+copy baked into each terminal image**, because the bundle is operational
 knowledge that changes far more often than images are rebuilt.
 
 Sharing it works through a Unix group, and ``osprey up`` sets both halves up:

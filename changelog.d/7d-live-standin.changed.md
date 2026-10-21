@@ -1,0 +1,1 @@
+The live stand-in no longer carries BPM readout offsets, so the build no longer refuses a stand-in whose environment serves no lattice. The virtual accelerator containers append their model logs under `var/simulator/` (the stand-in under `var/simulator/standin/`).

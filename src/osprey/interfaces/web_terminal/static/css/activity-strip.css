@@ -109,7 +109,7 @@
 /* ---- History popover ----
  *
  * The strip is its own trigger: clicking it expands the recent-activity list.
- * Cursor and focus ring are the only affordances — no added box, so the live
+ * Cursor and focus outline are the only affordances — no added box, so the live
  * line's layout is untouched. */
 .activity-strip-trigger {
   cursor: pointer;

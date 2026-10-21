@@ -1,6 +1,6 @@
 """What an attached render is told about the services its host deploys.
 
-An *attached* project (``deploy_services: false`` — every web-terminal persona)
+An *attached* project (``deploy_services: false`` — every web-terminal render)
 scaffolds no services and so never reaches the build-step injectors that write
 ``services.<name>`` blocks into a deploying project's config. Its in-container
 clients still resolve their endpoints from those blocks — the bluesky MCP
@@ -12,7 +12,7 @@ logbook search through :func:`osprey.deployment.qmd_service.resolve_qmd_service_
 absent, or refuses at first use inside a per-user container. At the shipped
 defaults a default equals the port the host publishes, so the drift is
 invisible until an operator moves a port on the hosting profile and every
-persona keeps dialing the old one.
+render keeps dialing the old one.
 
 The build therefore PROJECTS: for an attached render built beside its hosting
 deployment, the client-facing facts the Reach Contract registry
@@ -20,7 +20,7 @@ deployment, the client-facing facts the Reach Contract registry
 config into the attached render on the ordinary config-override path, exactly
 as :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides` does
 for the archive: the build already knows where every service is, and no
-persona restates it. Built with no host in its repo, an attached profile is
+render restates it. Built with no host in its repo, an attached profile is
 projected from its own ``config:`` rendered as a deployment (it extends a
 deployment spelled by that same block), with the layout's ports filled in for
 the service blocks it names. A deploying project gets nothing from here; its
@@ -271,15 +271,15 @@ def reach_override_errors(config: Any, projected: Mapping[str, Any]) -> list[str
     ``config:`` entry for the same key is a second home for one fact. The
     invariant is therefore agreement, not silence, and the reason is the
     preset: every shipped preset states its whole rendered configuration under
-    ``config:``, personas ``extends:`` one, and a persona's merged ``config:``
-    is its preset's plus its own delta. So a persona ALREADY spells most of
+    ``config:``, renders ``extends:`` one, and a render's merged ``config:``
+    is its preset's plus its own delta. So a render ALREADY spells most of
     what the host publishes — ``services.postgresql.username``,
     ``services.graphdb.uri``, every projected key the preset happens to carry —
     and those spellings are not copies of the host's value, they are where the
     host's value came from. Refusing an inherited preset key would refuse every
-    persona built from a preset that names a projected service.
+    render built from a preset that names a projected service.
 
-    A DISAGREEMENT is the silent case, and that is what is refused: a persona
+    A DISAGREEMENT is the silent case, and that is what is refused: a render
     dialing a port the host stopped publishing gets connection refused with
     nothing to say which of the two spellings was stale. A hand-copied value
     that agrees today is refused the day the host moves and it does not. Built
@@ -304,7 +304,7 @@ def reach_override_errors(config: Any, projected: Mapping[str, Any]) -> list[str
                 f"every attached render — a second copy that disagrees would dial the "
                 f"wrong place. Remove it from config: (the host's value is what this "
                 f"render is told), or move the service on the hosting deployment. A "
-                f"persona file materialized by an earlier release pinned this key "
+                f"tier file materialized by an earlier release pinned this key "
                 f"itself; delete that line — the build now supplies it."
             )
     return errors

@@ -29,7 +29,7 @@ prevent.
 This is a top-level leaf module (the precedent is
 ``osprey.bluesky_tool_names``): it imports **nothing** from
 ``osprey.mcp_server`` or ``osprey.services`` so both may import it without a
-cycle. ``osprey.utils.workspace`` is imported lazily, inside the resolver
+cycle. ``osprey_connectors.workspace`` is imported lazily, inside the resolver
 functions, only when a config fallback is actually needed.
 """
 
@@ -68,9 +68,9 @@ def bridge_url_from_config(config: Mapping[str, Any] | None) -> str:
        this deployment publishes on loopback (a dev convenience).
     2. ``services.bluesky.port`` — the port the deployment publishes its own
        bridge on. Written by the build for a deploying project and projected
-       into every attached render (a web-terminal persona), so a bridge moved
+       into every attached render (a web-terminal render), so a bridge moved
        on the hosting profile moves every client with it. Dialed on loopback:
-       a persona container shares the host network namespace, and the host's
+       a render container shares the host network namespace, and the host's
        own processes reach the published port there too.
     3. The ``bluesky`` layout slot at this config's own ``deployment.port_base``
        — the port the build would have published had it written the key. Not
@@ -217,7 +217,7 @@ def resolve_bridge_url(lane: str | None = None) -> str:
     if full:
         return full.rstrip("/")
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     if lane_key == LANE_ONE:
@@ -260,7 +260,7 @@ def resolve_launch_token(lane: str | None = None) -> str | None:
     if token:
         return token
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     bluesky = load_osprey_config().get("bluesky", {})
     per_lane = bluesky.get("lane_launch_tokens") or {}
@@ -281,7 +281,7 @@ def _loaded_config(config: dict | None) -> dict:
     if config is not None:
         return config
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         loaded = load_osprey_config()
     except Exception:

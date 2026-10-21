@@ -40,14 +40,13 @@ this lane's web-terminal stanza, and ``osprey build`` renders ``build/``. The
 repo's DIRECTORY NAME is the deployment name, so it is also the compose project
 name and the ``com.osprey.project`` label T1 asserts.
 
-The persona catalog is added to ``profile.yml`` between those two commands,
-which is the documented way to hand-write one: materialization requires every
-catalog entry to name a preset that extends the host preset, and this lane
-deliberately supplies a hand-written stub project instead of a rendered persona
-(see below). A start accepts that — it verifies each referenced persona HAS a
-usable project (``config.yml`` + ``Dockerfile``) and renders none itself.
+The roster runs the bundled ``readonly`` tier, which ``osprey init`` writes into
+``tiers/`` and ``osprey build`` renders; its name carries no meaning here. Between
+``build`` and ``up`` the tier's image recipe is swapped for a stub (see below and
+``tests/e2e/_render_stub.py``). A start accepts that — it verifies each referenced
+tier HAS a usable render (``config.yml`` + ``Dockerfile``) and renders none itself.
 
-WHY THE PERSONA STUB SERVES HTTP HERE
+WHY THE RENDER STUB SERVES HTTP HERE
 -------------------------------------
 The other lifecycle fixtures use an alpine stub that only idles (``tail -f
 /dev/null``), which is enough to inspect and exec into. That is NOT enough here:
@@ -58,8 +57,8 @@ failures. The stub below serves one byte-identifiable page over busybox
 produced — the positive control that distinguishes "auth let it through" from
 "auth let it through and the proxy pointed somewhere else".
 
-It is a stub for the same reason the sidecar is not: a real persona image is a
-full framework install per persona, and this lane's subject is the perimeter in
+It is a stub for the same reason the sidecar is not: a real render image is a
+full framework install per render, and this lane's subject is the perimeter in
 front of the terminal, not the terminal.
 
 COST, AND WHY THIS IS ITS OWN LANE
@@ -76,8 +75,8 @@ prime) and stages the locally-built wheel the image then overlays, so what runs
 here is this branch's code rather than a release.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<project>-nginx`` / ``<project>-auth`` /
-``<project>-web-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
+this test created — the ``<project>-nginx`` / ``<project>-auth`` / ``<project>-web-
+<user>`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
 """
@@ -99,8 +98,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.web_terminals.render_naming import render_project
+from tests.e2e._render_stub import stub_render_image
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -122,9 +123,11 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
 # config.yml's project_name, the compose project, and the com.osprey.project
 # label on every image this deploy builds.
 PROJECT_NAME = "osprey-e2e-auth-perimeter"
-PREFIX = "authe2e"
-PERSONA = "operator"
-PERSONA_PROJECT = f"{PREFIX}-operator"
+#: The compose project name the web tier's containers and the sidecar image
+#: are named by.
+PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
+RENDER = "readonly"
+RENDER_PROJECT, _ = render_project(PROJECT_NAME, RENDER)
 USERS = ("alice", "bob")
 #: The preset the repo is materialized from — the smallest one that builds.
 PRESET = "hello-world"
@@ -140,20 +143,24 @@ BASE_PORTS = {
     "ariel": 19391,
     "lattice": 19491,
     "channel_finder": 19591,
+    # Every family is pinned: one left out defaults into the live default
+    # block, where a developer's own deployment already binds it.
+    "okf": 19611,
+    "system_health": 19621,
 }
 
 #: Served by each user's stub upstream, so an authorized response can be traced
 #: back to the container that produced it.
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
-AUTH_IMAGE_TAG = f"{PROJECT_NAME}-auth:local"
-# `<catalog project>:local`, exactly as resolve_personas derives a
-# local-mode persona tag. Teardown-only, but spelled the way the render spells
+AUTH_IMAGE_TAG = f"{PROJECT}-auth:local"
+# `<render project>:local`, exactly as resolve_cards derives a
+# local-mode render tag. Teardown-only, but spelled the way the render spells
 # it so an `rmi` here removes the tag this deploy actually built.
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
+RENDER_IMAGE_TAG = f"{RENDER_PROJECT}:local"
 
-NGINX_C = f"{PROJECT_NAME}-nginx"
-AUTH_C = f"{PROJECT_NAME}-auth"
+NGINX_C = f"{PROJECT}-nginx"
+AUTH_C = f"{PROJECT}-auth"
 
 # The sidecar build is a real framework install; everything else here is alpine.
 DEPLOY_UP_TIMEOUT_SEC = 1800
@@ -177,7 +184,7 @@ _ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n" + "".join(
 
 
 def _web_container(user: str) -> str:
-    return f"{PROJECT_NAME}-web-{user}"
+    return f"{PROJECT}-web-{user}"
 
 
 def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -247,8 +254,8 @@ def _logs(name: str) -> str:
     return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
 
 
-def _write_persona_project(root: Path) -> Path:
-    """A minimal local-mode persona project whose stub actually SERVES.
+def _stub_dockerfile() -> str:
+    """The recipe of a tier image whose stub actually SERVES.
 
     Beyond what the idling lifecycle stub provides (a ``dispatch`` user and the
     two mount-point directories the per-user compose service declares volumes
@@ -257,14 +264,9 @@ def _write_persona_project(root: Path) -> Path:
     ``127.0.0.1`` mirrors the production app: nginx shares the host network
     namespace and is the only thing meant to reach a per-user port.
 
-    ``config.yml`` and ``Dockerfile`` are the two files a start requires of a
-    persona's rendered project (``_check_existing_render``) — in BOTH copies a
-    real build produces: the flat host render at the project path, and the
-    container copy at the ``.image/<name>`` sibling whose ``build/Dockerfile``
-    is what the persona image is actually built from
-    (``_persona_image_context``). The stub writes the same two files into each,
-    which is why something this small is accepted where a rendered persona
-    would otherwise be.
+    It replaces the recipe ``osprey build`` rendered for the tier
+    (:func:`tests.e2e._render_stub.stub_render_image`); the tier's rendered
+    ``config.yml`` stays, so a start checks it exactly as it would a real one.
 
     ``busybox-extras`` is REQUIRED and easy to lose: alpine's default busybox
     does NOT include the ``httpd`` applet, so without this package the CMD dies
@@ -272,14 +274,13 @@ def _write_persona_project(root: Path) -> Path:
     far from its cause — as ``osprey up`` aborting because it could not seed a
     container that never stayed up.
     """
-    root.mkdir(parents=True)
-    config_text = f"project_name: {PERSONA_PROJECT}\n"
-    (root / "config.yml").write_text(config_text, encoding="utf-8")
-    container_dir = f"/app/{PERSONA_PROJECT}"
-    (root / "Dockerfile").write_text(
+    container_dir = f"/app/{RENDER_PROJECT}"
+    return (
         "FROM alpine:3.20\n"
         # busybox-extras carries the httpd applet; the base busybox does not.
-        "RUN apk add --no-cache busybox-extras \\\n"
+        # curl runs the per-user service's healthcheck (`curl -fsS
+        # http://<bind>:<port>/health`), which `osprey up` waits on.
+        "RUN apk add --no-cache busybox-extras curl \\\n"
         "    && adduser -D dispatch \\\n"
         "    && mkdir -p /data/claude-config \\\n"
         # var/agent_data, not a literal of this test's own choosing: the render
@@ -293,7 +294,9 @@ def _write_persona_project(root: Path) -> Path:
         f"    && chown -R dispatch:dispatch /data/claude-config {container_dir} \\\n"
         # /srv belongs to dispatch too: the CMD writes index.html at start-up,
         # and a root-owned directory would make that write the next crashloop.
+        # /srv/health is the page that healthcheck asks for.
         "    && mkdir -p /srv \\\n"
+        "    && echo ok > /srv/health \\\n"
         "    && chown -R dispatch:dispatch /srv\n"
         # Written at START-UP, not build time: OSPREY_TERMINAL_USER and
         # OSPREY_TERMINAL_WEB_PORT are per-user values compose supplies to the
@@ -303,18 +306,8 @@ def _write_persona_project(root: Path) -> Path:
         'CMD ["sh", "-c", "echo '
         f"'{UPSTREAM_MARKER} for '"
         '\\"$OSPREY_TERMINAL_USER\\" > /srv/index.html; '
-        'exec httpd -f -p 127.0.0.1:\\"$OSPREY_TERMINAL_WEB_PORT\\" -h /srv"]\n',
-        encoding="utf-8",
+        'exec httpd -f -p 127.0.0.1:\\"$OSPREY_TERMINAL_WEB_PORT\\" -h /srv"]\n'
     )
-    # The container copy the image is actually built from: `docker build
-    # -f <context>/build/Dockerfile <context>` with the context at the
-    # `.image/<name>` sibling. The stub's recipe holds no host paths, so the
-    # container copy IS the host copy.
-    image_build = root.parent / ".image" / root.name / "build"
-    image_build.mkdir(parents=True)
-    (image_build / "config.yml").write_text(config_text, encoding="utf-8")
-    shutil.copy2(root / "Dockerfile", image_build / "Dockerfile")
-    return root
 
 
 def _profile_edits() -> dict[str, Any]:
@@ -335,18 +328,13 @@ def _profile_edits() -> dict[str, Any]:
     service would only add containers and bound ports to a proof about nginx.
 
     Telemetry goes off with them, and for the same reason. The preset ships it
-    enabled against ``backend: openobserve`` with no explicit ``endpoint``, which
-    derives the store's address from THIS deploy — so dropping the store while
-    leaving the block on describes an exporter aimed at a port this lane binds
-    nothing to. It is also refused before it gets there: the ingest token is
-    minted by the store, and preflight will not generate ``.env.users`` for a
-    telemetry block naming a credential no deploy on this config can issue.
+    enabled against ``backend: gateway``, which derives the gateway's address
+    from THIS deploy — so dropping the gateway while leaving the block on
+    describes an exporter aimed at a port this lane binds nothing to.
     """
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": "E2E Auth Perimeter Fixture",
-            "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
@@ -354,13 +342,15 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": PERSONA,
+                "default_tier": RENDER,
                 "nginx_port": NGINX_PORT,
                 "web_base_port": BASE_PORTS["web"],
                 "artifact_base_port": BASE_PORTS["artifact"],
                 "ariel_base_port": BASE_PORTS["ariel"],
                 "lattice_base_port": BASE_PORTS["lattice"],
                 "channel_finder_base_port": BASE_PORTS["channel_finder"],
+                "okf_base_port": BASE_PORTS["okf"],
+                "system_health_base_port": BASE_PORTS["system_health"],
                 "users": list(USERS),
                 "auth": {
                     "method": "password",
@@ -372,40 +362,12 @@ def _profile_edits() -> dict[str, Any]:
     }
 
 
-def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
-    """Point the profile's persona catalog at the hand-written stub project.
-
-    After materialization, deliberately. ``osprey init`` renders one delta per
-    catalog entry and requires each entry to name a preset that EXTENDS the host
-    preset — the shape a rendered persona has. This lane's persona is a stub
-    project instead (see the module docstring), so the entry is added to
-    ``profile.yml`` once the repo exists and before ``osprey build`` reads it,
-    which is the remedy materialization itself names for a hand-written persona.
-
-    Written as the dotted key ``modules.web_terminals.personas``, the same
-    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
-    of dotted paths into the rendered config, and one more path is how a
-    catalog joins the stanza the edits already wrote.
-
-    A YAML round-trip rather than a text splice: the emitted profile is plain
-    YAML, and the comments a dump drops are documentation for an operator, not
-    input to the build.
-    """
-    profile_path = repo / "profile.yml"
-    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals.personas"] = {
-        PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
-    }
-    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-
-
 def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
-    """``init`` + persona catalog + ``build`` — the repo this lane deploys.
+    """``init`` + ``build`` + the stub recipe — the repo this lane deploys.
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
     quick: nothing here runs the deployment's own venv, only its containers.
     """
-    persona_path = _write_persona_project(tmp_path / "persona")
     repo = tmp_path / PROJECT_NAME
 
     init = _run_osprey(
@@ -423,8 +385,6 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     )
     assert init.returncode == 0, _fmt("osprey init (auth perimeter)", init)
 
-    _add_persona_catalog(repo, persona_path)
-
     build = _run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -432,6 +392,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
         timeout=RENDER_TIMEOUT_SEC,
     )
     assert build.returncode == 0, _fmt("osprey build (auth perimeter)", build)
+    stub_render_image(repo, RENDER_PROJECT, _stub_dockerfile())
 
     # The repo root's .env is this deployment's whole secret store: the auth
     # provisioning reads each user's chosen OSPREY_AUTH_PW_<USER> from it, the
@@ -456,7 +417,7 @@ def _teardown() -> None:
     _runtime_cli("rm", "-f", NGINX_C)
     _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
     remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
-    for tag in (AUTH_IMAGE_TAG, PERSONA_IMAGE_TAG):
+    for tag in (AUTH_IMAGE_TAG, RENDER_IMAGE_TAG):
         _runtime_cli("rmi", "-f", tag, timeout=60)
 
 

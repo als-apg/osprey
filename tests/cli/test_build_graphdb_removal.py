@@ -18,7 +18,8 @@ that does ship the store — and pin the three halves of the new contract:
 
 * **Deleting the keys removes the store.** The render carries no
   ``services.graphdb`` block, no ``graphdb`` in ``deployed_services``, no
-  compose fragment, and no ``graph`` MCP server. A sibling baseline build off
+  compose fragment, and no ``graph`` MCP server. The shared ``knowledge`` app
+  reads the deployment's store, so it is withdrawn with it. A sibling baseline build off
   the untouched profile shows all four are really there to remove, so the
   removal assertions cannot pass vacuously.
 * **The mode still needs a store.** ``channel_finder_mode: graph`` on a profile
@@ -44,7 +45,7 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import load_profile
 from osprey.cli.init_cmd import init
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The preset that ships the graph store. Every project here starts from it.
 PRESET = "control-assistant"
@@ -106,6 +107,32 @@ def _delete_graphdb_keys(profile_path: Path) -> None:
     profile_path.write_text("".join(kept))
 
 
+#: The roster line that shares the one bundled app answering from the graph store.
+GRAPH_APP_SHARED_ENTRY = "      - knowledge"
+
+
+def _remove_graph_app(project: Path) -> None:
+    """Withdraw the shared app whose channel finder reads the graph store.
+
+    An app runs on the deployment's services, so the ``knowledge`` app (graph
+    channel-finder mode) needs the store as much as the root profile does. A
+    deployment that runs no store stops offering it: its ``shared:`` entry and
+    its ``apps/`` file go, since the build renders every file in ``apps/``.
+    Asserts exactly one roster line and the file were removed.
+
+    Args:
+        project: The project directory.
+    """
+    profile_path = project / "profile.yml"
+    lines = profile_path.read_text().splitlines(keepends=True)
+    kept = [line for line in lines if not line.startswith(GRAPH_APP_SHARED_ENTRY + " ")]
+    assert len(lines) - len(kept) == 1, "expected exactly one shared `knowledge` entry"
+    profile_path.write_text("".join(kept))
+    app_file = project / "apps" / "knowledge.yml"
+    assert app_file.is_file()
+    app_file.unlink()
+
+
 def _build(project: Path, monkeypatch) -> Result:
     """Run ``osprey build`` in *project* and return the click result."""
     monkeypatch.chdir(project)
@@ -136,9 +163,10 @@ def baseline_render(tmp_path_factory, monkeypatch_module) -> Path:
 
 @pytest.fixture(scope="module")
 def storeless_render(tmp_path_factory, monkeypatch_module) -> tuple[Path, Result]:
-    """The same preset with the store's keys deleted from ``profile.yml``."""
+    """The same preset with the store's keys, and the app reading it, deleted."""
     project = _init_project(tmp_path_factory.mktemp("storeless"), "storeless", MODE)
     _delete_graphdb_keys(project / "profile.yml")
+    _remove_graph_app(project)
     return project, _build(project, monkeypatch_module)
 
 

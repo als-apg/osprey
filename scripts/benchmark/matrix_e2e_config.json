@@ -24,15 +24,11 @@
     },
     {
       "path": "tests/e2e/test_full_chain_auth.py",
-      "reason": "Stands up a real auth-sidecar image plus a role-resolved persona behind nginx and asserts forwarded identity headers, login refusals and audit-ledger placement. Pure deploy/auth-infrastructure proof: no agent session, no LLM round-trip, nothing about the model-under-test. Runs in its own CI job (full-chain-auth-e2e)."
+      "reason": "Stands up a real auth-sidecar image plus a role-resolved tier render behind nginx and asserts forwarded identity headers, login refusals and audit-ledger placement. Pure deploy/auth-infrastructure proof: no agent session, no LLM round-trip, nothing about the model-under-test. Runs in its own CI job (full-chain-auth-e2e)."
     },
     {
       "path": "tests/e2e/test_claude_code_build_integration.py",
       "reason": "Own init_project hardcoded to als-apg; doesn't honor the model override."
-    },
-    {
-      "path": "tests/e2e/test_llm_channel_namer.py",
-      "reason": "Config/pattern + naming; doesn't honor the model override."
     },
     {
       "path": "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
@@ -45,6 +41,10 @@
     {
       "path": "tests/e2e/test_sdk_helpers.py",
       "reason": "Pure-logic unit tests for sdk_helpers: the transcript dump, the hook read-back and the approval-policy binder (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
+      "path": "tests/e2e/test_scripted_model.py",
+      "reason": "HTTP-level unit tests for the scripted model endpoint (no agent, no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
     {
       "path": "tests/e2e/test_judge.py",
@@ -135,12 +135,20 @@
       "reason": "Runs against a pinned, PRIVATE ghcr Nextcloud + Talk fixture image; the module never builds or pulls it and skips outright when it is absent from the local store, so on the bench box this file contributes nothing but skips. Its substance is the two-party wire contract with a real Talk server (room-type rules, mention filter, poll cursor, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says — an adapter-integrity proof, not a model-capability signal."
     },
     {
-      "path": "tests/e2e/test_openobserve_telemetry.py",
-      "reason": "Docker deploy + synthetic OTLP ingest with no LLM; the one live-agent smoke hardcodes als-apg/haiku in config and never routes through the model-under-test."
-    },
-    {
       "path": "tests/e2e/test_orm_roundtrip.py",
       "reason": "Non-agentic ORM round-trip: the test constructs the orm plan request over HTTP and cross-checks the response matrix against the lattice model oracle — no LLM call anywhere."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_access_e2e.py",
+      "reason": "Model-free: telemetry store accounts, row policies and limits proved with synthetic rows over SQL — no LLM call anywhere."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_contract_live.py",
+      "reason": "Wire-contract check: one fixed turn of the pinned CLI compared structurally with the recorded OTLP fixture (event names and attribute keys); what the model says is never judged, so it measures nothing about the model-under-test."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_store_e2e.py",
+      "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
     },
     {
       "path": "tests/e2e/test_tiled_roundtrip.py",
@@ -176,7 +184,7 @@
     },
     {
       "path": "tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py",
-      "reason": "Default-posture (auth.method: none) multi-user proof that the terminal app's own gate refuses an uncredentialed mutation and admits the `?token=` cookie, driven over plain HTTP against a real `osprey up`; no LLM anywhere, and its persona image is a real `pip install osprey-framework` that would cost every matrix cell minutes for no model signal."
+      "reason": "Default-posture (auth.method: none) multi-user proof that the terminal app's own gate refuses an uncredentialed mutation and admits the `?token=` cookie, driven over plain HTTP against a real `osprey up`; no LLM anywhere, and its render image is a real `pip install osprey-framework` that would cost every matrix cell minutes for no model signal."
     },
     {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",
@@ -200,11 +208,15 @@
     },
     {
       "path": "tests/e2e/test_jupyter_panel_lifecycle.py",
-      "reason": "Builds the persona image and drives one real `osprey up --dev`, then exercises the notebook panel over HTTP and the kernel's websocket channels. No agent session runs and nothing here contacts a model: the fixture writes a fake ANTHROPIC_API_KEY, and the assertions are the kernel's stamps, its refusal text and the audit ledger. Also needs Docker, which the bench box lacks. Runs in its own CI job (jupyter-panel-e2e)."
+      "reason": "Builds the render image and drives one real `osprey up --dev`, then exercises the notebook panel over HTTP and the kernel's websocket channels. No agent session runs and nothing here contacts a model: the fixture writes a fake ANTHROPIC_API_KEY, and the assertions are the kernel's stamps, its refusal text and the audit ledger. Also needs Docker, which the bench box lacks. Runs in its own CI job (jupyter-panel-e2e)."
     },
     {
       "path": "tests/e2e/test_target_switch_agentic.py",
       "reason": "Docker-bound two-container fixture, bespoke pinned init."
+    },
+    {
+      "path": "tests/e2e/test_graph_reseed_stamp.py",
+      "reason": "Real `osprey build` renders plus a throwaway Neo4j store driven by the deploy's own graph staging step, asserting the seed marker and store contents; no LLM anywhere, nothing about the model-under-test. Runs in its own CI job (graph-reseed-e2e)."
     }
   ],
   "baseline_expected_run_min": 15

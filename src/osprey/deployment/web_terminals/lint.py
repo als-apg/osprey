@@ -1,15 +1,15 @@
 """Static validation for the ``modules.web_terminals`` multi-user stanza.
 
-The multi-user web stack is derived entirely from ``users[]`` and the persona
+The multi-user web stack is derived entirely from ``users[]`` and the render
 catalog beside it, so "consistent" here means: every user resolves to exactly one
-container with its own port family, every persona reference resolves to a catalog
+container with its own port family, every render reference resolves to a catalog
 entry, and nothing in the stack contends with another service for a host port.
 
 Two surfaces call in, at different altitudes:
 
 * :func:`lint_web_terminals` reads a **rendered project ``config.yml``** — the
   deploy-time view, where the ``services:`` block names every published host port
-  and every persona project either exists on disk or is one ``osprey build``
+  and every render project either exists on disk or is one ``osprey build``
   away. ``osprey scaffold web-terminals lint|render`` runs this one.
 * :func:`lint_profile_config` reads a **build profile's ``config:`` block** — the
   authoring-time view, before anything is materialized. It runs the same checks
@@ -19,7 +19,9 @@ Two surfaces call in, at different altitudes:
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import posixpath
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,37 +34,7 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     resolve_project_name,
 )
-from osprey.deployment.web_terminals.persona_images import (
-    PREDATES_DELTA_REMEDY,
-    persona_build_profile_shape_problem,
-)
-from osprey.deployment.web_terminals.personas import (
-    ALL_PRIVILEGES,
-    REGISTRY_MODE_MISSING_URL,
-    SUPPORTED_MCP_TOPOLOGY,
-    USERNAME_CHARSET_RE,
-    _is_shared_entry,
-    as_dict,
-    auth_is_enforced,
-    configured_registry_url,
-    control_identity_collision_warnings,
-    control_identity_problems,
-    deployment_wide_privileged_exposure_problems,
-    effective_image_source,
-    effective_persona,
-    entry_is_shared,
-    normalize_users,
-    persona_privileges,
-    privilege_phrase,
-    privileged_default_persona_problem,
-    privileges_beyond_baseline,
-    rendered_persona_config_file,
-    rendered_persona_configs,
-    resolve_access_principals,
-    resolve_image_tag,
-    resolve_personas,
-    shared_card_privileged_problems,
-)
+from osprey.deployment.telemetry_config import RESERVED_ACCOUNT_NAMES, RESERVED_ACCOUNT_PREFIX
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
     allocate_ports,
@@ -86,8 +58,49 @@ from osprey.deployment.web_terminals.render import (
     _tls_enabled,
     deployment_origin,
 )
+from osprey.deployment.web_terminals.render_images import (
+    PREDATES_DELTA_REMEDY,
+    _canonical_delta_reference,
+    render_build_profile_shape_problem,
+)
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, RENDER_KIND_TIER
+from osprey.deployment.web_terminals.roster import (
+    ALL_PRIVILEGES,
+    APP_ENTRY_KIND,
+    REGISTRY_MODE_MISSING_URL,
+    RENDER_CATALOG_REQUIRED,
+    SUPPORTED_MCP_TOPOLOGY,
+    USERNAME_CHARSET_RE,
+    _is_shared_entry,
+    _roster_entry_name,
+    as_dict,
+    auth_is_enforced,
+    authored_people,
+    configured_registry_url,
+    control_identity_collision_warnings,
+    control_identity_problems,
+    deployment_wide_privileged_exposure_problems,
+    dispatch_tier_name,
+    effective_image_source,
+    effective_tier,
+    entry_is_shared,
+    is_app_entry,
+    privilege_phrase,
+    privileged_default_tier_problem,
+    privileges_beyond_baseline,
+    rendered_config_file,
+    rendered_configs,
+    resolve_access_principals,
+    resolve_cards,
+    resolve_image_tag,
+    roster_entries,
+    roster_people,
+    served_render_names,
+    shared_card_privileged_problems,
+    tier_privileges,
+)
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
-from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
+from osprey.port_layout import _MAX_PORT, INDEX_MAX, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.services.auth_sidecar.passwords import stored_hash_problem
 from osprey.services.auth_sidecar.roster_env import (
@@ -95,7 +108,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
     TYPE_WRITES_ENABLED_LEAF,
@@ -104,6 +117,7 @@ from osprey_connectors.types import (
     resolve_target,
     type_writes_enabled,
 )
+from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
 # listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
@@ -131,7 +145,7 @@ class Finding:
     """A single lint result.
 
     ``severity`` is ``"error"`` (a config that must be rejected) or ``"warn"``
-    (worth flagging, does not fail the check — e.g. a persona whose
+    (worth flagging, does not fail the check — e.g. a render whose
     ``project_path`` has not been rendered yet, which no start will run past but
     an ``osprey build`` clears).
 
@@ -170,7 +184,7 @@ def lint_web_terminals(
             command surface passes it explicitly.
         profile_root: The same fact at profile altitude — the directory holding
             the ``profile.yml`` being linted, which a catalog entry's
-            ``build_profile: personas/<name>.yml`` resolves against. ``None``
+            ``build_profile: tiers/<name>.yml`` resolves against. ``None``
             likewise falls back to the working directory.
 
     Returns:
@@ -184,8 +198,13 @@ def lint_web_terminals(
     if not web_terminals.get("enabled"):
         return []
 
-    users_raw = web_terminals.get("users")
-    users = list(users_raw) if isinstance(users_raw, list) else []
+    if not rendered_project:
+        root, web_terminals = _with_profile_renders(root, web_terminals, profile_root)
+
+    # The people as authored: every check below reads the keys a person's entry
+    # carries, and `_check_bare_list_port_drift_risk` in particular is about the
+    # people's positional indices alone.
+    users = authored_people(web_terminals)
 
     findings: list[Finding] = []
     findings.extend(_check_empty_users(users))
@@ -198,19 +217,27 @@ def lint_web_terminals(
     findings.extend(_check_user_access(users))
     findings.extend(_check_control_identities(web_terminals, users))
     findings.extend(_check_invalid_index(users))
-    findings.extend(_check_duplicate_index(users))
+    findings.extend(_check_duplicate_index(users, _app_slots(web_terminals)))
     findings.extend(_check_bare_list_port_drift_risk(users))
     findings.extend(_check_port_families_allocatable(root, web_terminals, users))
     findings.extend(_check_port_overlap(root, web_terminals, users))
-    findings.extend(_check_persona_charset(web_terminals))
-    findings.extend(_check_persona_seed_base(web_terminals))
-    findings.extend(_check_default_persona_exists(web_terminals))
-    findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
-    # Reads each referenced persona's config — a rendered `config.yml` here, a
-    # `personas/<name>.yml` delta or a bundled preset at profile time — so it
+    findings.extend(
+        _check_shared_apps(
+            web_terminals,
+            users,
+            rendered_project=rendered_project,
+            profile_root=profile_root,
+        )
+    )
+    findings.extend(_check_render_charset(web_terminals))
+    findings.extend(_check_render_seed_base(web_terminals))
+    findings.extend(_check_default_tier_exists(web_terminals))
+    findings.extend(_check_unknown_tier_reference(root, web_terminals, users))
+    # Reads each referenced render's config — a rendered `config.yml` here, a
+    # `tiers/<name>.yml` delta or a bundled preset at profile time — so it
     # takes the gate rather than riding one, and runs at both altitudes.
     findings.extend(
-        _check_privileged_persona_exposure(
+        _check_privileged_tier_exposure(
             root,
             web_terminals,
             users,
@@ -219,19 +246,18 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
-    # Reads the same persona layers, and asks the one question that needs them
-    # unmerged: whether a read-only-looking persona inherits an armed connector
+    # Reads the same tier layers, and asks the one question that needs them
+    # unmerged: whether a read-only-looking render inherits an armed connector
     # block. Profile altitude only — see the check.
     findings.extend(
-        _check_readonly_persona_inherits_writes(
+        _check_readonly_tier_inherits_writes(
             root,
             web_terminals,
-            users,
             rendered_project=rendered_project,
             profile_root=profile_root,
         )
     )
-    # The same persona walk once more, asking whether a card writes to the real
+    # The same render walk once more, asking whether a card writes to the real
     # machine without saying who is writing. Both altitudes.
     findings.extend(
         _check_live_writer_without_control_identity(
@@ -243,32 +269,27 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
-    findings.extend(_check_empty_facility_prefix(root, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
-    findings.extend(_check_local_mode_requires_catalog(web_terminals))
-    findings.extend(_check_persona_project_collisions(root, web_terminals, users))
+    findings.extend(_check_requires_catalog(web_terminals))
+    findings.extend(_check_render_project_collisions(root, web_terminals))
     if rendered_project:
-        findings.extend(
-            _check_persona_project_paths(web_terminals, users, project_root=project_root)
-        )
-        # Reads each persona's rendered config.yml, so it rides on the same
+        findings.extend(_check_render_project_paths(root, web_terminals, project_root=project_root))
+        # Reads each render's rendered config.yml, so it rides on the same
         # gate: a profile has no rendered project to compare against yet.
         findings.extend(
-            _check_persona_bundle_path_agreement(
-                root, web_terminals, users, project_root=project_root
-            )
+            _check_render_bundle_path_agreement(root, web_terminals, project_root=project_root)
         )
-        # Same split, for the ARIEL mirror: entitlement from the persona's
+        # Same split, for the ARIEL mirror: entitlement from the render's
         # config, the bind's source and target from the deploy's.
         findings.extend(
-            _check_persona_mirror_agreement(root, web_terminals, users, project_root=project_root)
+            _check_render_mirror_agreement(root, web_terminals, project_root=project_root)
         )
         # Resolves notice paths against the project directory, so it rides the
         # same gate: a profile has no rendered project to look in yet.
         findings.extend(_check_notice_docs(root, web_terminals))
-        # Reads each persona's rendered `.claude/settings.json`, so it rides the
+        # Reads each render's rendered `.claude/settings.json`, so it rides the
         # same gate for the same reason — and rides it honestly: at profile
         # altitude there is no shipped artifact to read, and a rule that
         # answered anyway would be guessing at the one file the deploy gate
@@ -278,8 +299,9 @@ def lint_web_terminals(
         # same gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
         findings.extend(_check_auth_stored_hashes(web_terminals, users, project_root=project_root))
-    findings.extend(_check_registry_mode_build_profile(web_terminals, users))
-    findings.extend(_check_persona_extra_mounts(web_terminals))
+    findings.extend(_check_registry_mode_build_profile(root, web_terminals))
+    findings.extend(_check_render_missing_project(root, web_terminals))
+    findings.extend(_check_render_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     findings.extend(_check_nginx_image(web_terminals))
     findings.extend(_check_external_origin(web_terminals))
@@ -310,7 +332,7 @@ def lint_profile_config(
     """Validate the ``modules.web_terminals`` a build profile's ``config:`` sets.
 
     A ``config:`` block is a flat bag of dotted keys (``modules.web_terminals``,
-    ``facility.prefix``, ``services.openobserve.port``, …) applied over the
+    ``deploy.fqdn``, ``services.postgresql.port_host``, …) applied over the
     rendered template, so it is nested into the shape the checks read before
     linting. Shallowest key first, so a deeper key refines the subtree a
     shallower one set rather than being overwritten by it — the same order
@@ -318,11 +340,11 @@ def lint_profile_config(
 
     Two checks are skipped, because a profile cannot answer them yet:
 
-    * **Persona project paths.** ``project_path`` resolves against the rendered
+    * **Render project paths.** ``project_path`` resolves against the rendered
       project's directory, which does not exist at authoring time.
     * **``build_profile`` shape**, which rides on the same check.
       ``osprey init`` rewrites each catalog entry's preset name into the
-      ``personas/<name>.yml`` delta it materializes beside the profile, so the
+      ``tiers/<name>.yml`` delta it materializes beside the profile, so the
       value is only in its final form once that has happened.
 
     Both are enforced in full by :func:`lint_web_terminals` at deploy time.
@@ -332,16 +354,16 @@ def lint_profile_config(
 
     ``profile_root`` is the directory the profile being linted lives in, and it
     is not optional in practice: a catalog entry's
-    ``build_profile: personas/<name>.yml`` is relative to the profile, so
+    ``build_profile: tiers/<name>.yml`` is relative to the profile, so
     without it this falls back to the working directory and a validate run from
     a subdirectory, or through ``--repo`` from outside the repo entirely, reads
-    no persona delta at all and reports every persona as unprivileged. Pass it.
+    no layer at all and reports every render as unprivileged. Pass it.
 
     Call this from a COMMAND, never from ``BuildProfile.validate()``. That
     method also runs during profile *resolution*, which ``osprey init``
     goes through, and these findings would then pre-empt that command's own
-    persona validator — which reports every unusable catalog entry at once and
-    names the file-name rule a persona name really has to meet. The engine
+    render validator — which reports every unusable catalog entry at once and
+    names the file-name rule a render name really has to meet. The engine
     would replace a better error with a worse one.
     """
     return lint_web_terminals(
@@ -459,30 +481,12 @@ def _check_duplicate_users(users: list[Any]) -> list[Finding]:
     ]
 
 
-def _user_name(user: Any) -> str | None:
-    """Return a user entry's name, uniformly for either roster form.
-
-    A bare string is its own name. An object-form entry contributes its
-    ``name`` field, but only when it's actually a string — a malformed dict
-    without a str name is simply skipped by the checks that use this (name
-    well-formedness isn't their concern; only well-formed names are held to the
-    charset).
-    """
-    if isinstance(user, str):
-        return user
-    if isinstance(user, dict):
-        name = user.get("name")
-        if isinstance(name, str):
-            return name
-    return None
-
-
 def _check_username_charset(users: list[Any]) -> list[Finding]:
     """A user name becomes an nginx `location` key and a URL path segment
     (``/u/<user>/...``); it must match ``^[a-z0-9][a-z0-9_-]*$``."""
     findings: list[Finding] = []
     for user in users:
-        name = _user_name(user)
+        name = _roster_entry_name(user)
         if name is not None and not USERNAME_CHARSET_RE.fullmatch(name):
             findings.append(
                 Finding(
@@ -502,7 +506,7 @@ def _check_display_name(users: list[Any]) -> list[Finding]:
     """An object-form entry's optional ``display_name`` (the per-user window/tab
     title emitted as ``OSPREY_WEB_APP_NAME``) must be a string when present.
 
-    The renderer reads it defensively (:func:`resolve_personas` drops a non-string
+    The renderer reads it defensively (:func:`resolve_cards` drops a non-string
     one rather than emitting a broken env line), so a bad value degrades silently
     at render time; this check pulls that config typo forward to lint/build time
     as an ERROR. An empty string is a well-formed (if inert) value — the template
@@ -603,11 +607,11 @@ def _check_control_identities(web_terminals: dict[str, Any], users: list[Any]) -
 
     ``control_identity`` is the account name the control system sees a card's
     writes arrive under. Every refusal the builders name
-    (:func:`~osprey.deployment.web_terminals.personas.control_identity_problems`)
+    (:func:`~osprey.deployment.web_terminals.roster.control_identity_problems`)
     is an ERROR — an unusable value, a value on a shared card, or one value
     carried for two different people — so lint accepts exactly what the
     container accepts. A collision the roster cannot prove wrong
-    (:func:`~osprey.deployment.web_terminals.personas.control_identity_collision_warnings`)
+    (:func:`~osprey.deployment.web_terminals.roster.control_identity_collision_warnings`)
     is a WARN.
 
     The rules read only the roster, so they run in every auth posture. The
@@ -634,7 +638,7 @@ def _check_user_access(users: list[Any]) -> list[Finding]:
     ``access`` says who may open an entry's card, authored either as one of the
     two shorthands (``own``, ``any``) or as a list of principals (``self``,
     ``roster``, ``user:<id>``, ``domain:<domain>``).
-    :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+    :func:`~osprey.deployment.web_terminals.roster.resolve_access_principals`
     is the single parser of that vocabulary, so this rule resolves the entry and
     reports the resolver's refusal verbatim rather than re-stating the grammar.
     Lint and the render preflight therefore cannot disagree about which
@@ -716,27 +720,40 @@ def _check_invalid_index(users: list[Any]) -> list[Finding]:
     return findings
 
 
-def _check_duplicate_index(users: list[Any]) -> list[Finding]:
-    """Two object-form users sharing an index would collide on every per-user
-    port family. Entries with an already-invalid index are skipped here — that's
-    reported by :func:`_check_invalid_index` instead."""
+def _check_duplicate_index(
+    users: list[Any], app_slots: Sequence[tuple[str, int]] = ()
+) -> list[Finding]:
+    """Two cards sharing an index would collide on every per-user port family.
+
+    The cards are the object-form users and the derived shared-app slots. Entries
+    with an already-invalid index are skipped here — that's reported by
+    :func:`_check_invalid_index` instead."""
     by_index: dict[int, list[Any]] = {}
+    apps_at: set[int] = set()
     for user in users:
         index = _valid_index(user)
         if index is None:
             continue
         by_index.setdefault(index, []).append(user.get("name", user))
+    for name, index in app_slots:
+        by_index.setdefault(index, []).append(name)
+        apps_at.add(index)
 
     findings: list[Finding] = []
     for index in sorted(by_index):
         names = by_index[index]
         if len(names) > 1:
+            where = (
+                "modules.web_terminals users and shared apps"
+                if index in apps_at
+                else "modules.web_terminals.users entries"
+            )
             findings.append(
                 Finding(
                     severity="error",
                     code="web_terminals.duplicate_index",
                     message=(
-                        f"modules.web_terminals.users entries {names} share index "
+                        f"{where} {names} share index "
                         f"{index}, which would collide on every per-user port family"
                     ),
                 )
@@ -767,10 +784,10 @@ def _check_bare_list_port_drift_risk(users: list[Any]) -> list[Finding]:
     ]
 
 
-def _roster_indices(users: list[Any]) -> list[int]:
-    """The per-user port index each roster entry allocates on.
+def _people_slots(users: list[Any]) -> list[tuple[Any, int]]:
+    """Each person's name and the per-user port index it allocates on.
 
-    Mirrors ``personas.normalize_users``: an object entry carries its own
+    Mirrors ``renders.normalize_users``: an object entry carries its own
     ``index``, a legacy bare string takes its position in the list. An object
     entry with an unusable index is skipped — that is
     :func:`_check_invalid_index`'s finding, and guessing a number for it here
@@ -780,17 +797,31 @@ def _roster_indices(users: list[Any]) -> list[int]:
         users: The raw ``modules.web_terminals.users`` list.
 
     Returns:
-        The indices, in roster order.
+        ``(name, index)`` pairs, in roster order.
     """
-    indices: list[int] = []
+    slots: list[tuple[Any, int]] = []
     for position, user in enumerate(users):
         if isinstance(user, dict):
             index = _valid_index(user)
             if index is not None:
-                indices.append(index)
+                slots.append((user.get("name"), index))
         else:
-            indices.append(position)
-    return indices
+            slots.append((user, position))
+    return slots
+
+
+def _app_slots(web_terminals: dict[str, Any]) -> list[tuple[str, int]]:
+    """Each derived shared-app card's name and port index, in ``shared:`` order.
+
+    Read through :func:`~osprey.deployment.web_terminals.roster.roster_entries`,
+    the one reader that derives them, so lint judges the slots the deployment
+    will actually run.
+    """
+    return [
+        (entry["name"], entry["index"])
+        for entry in roster_entries(web_terminals, strict=False)
+        if is_app_entry(entry)
+    ]
 
 
 def _check_port_families_allocatable(
@@ -804,11 +835,10 @@ def _check_port_families_allocatable(
     What can still fail is the roster outgrowing the block: a family band holds
     one hundred users, so a user index past
     :data:`osprey.port_layout.INDEX_MAX` would take a port belonging to the
-    next family. The highest index in the roster is the one that decides it."""
-    if not users:
-        return []
+    next family. The highest index in the roster — a person's or a derived
+    shared-app slot's — is the one that decides it."""
+    indices = [index for _, index in (*_people_slots(users), *_app_slots(web_terminals))]
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
-    indices = _roster_indices(users)
     if not indices:
         return []
     try:
@@ -852,15 +882,17 @@ def _check_port_overlap(
     """
     entries: list[tuple[int, str]] = []
 
-    # Per-user families: one range per family, over the N configured users.
-    # Derived from the base this deployment resolved, so the overlap set is the
-    # ports it will actually bind rather than the default block's.
+    # Per-user families: one range per family, over the N configured users and
+    # the derived shared-app slots at the top of the band. Derived from the base
+    # this deployment resolved, so the overlap set is the ports it will actually
+    # bind rather than the default block's.
+    app_indices = [index for _, index in _app_slots(web_terminals)]
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
     for base_field, family in FAMILY_BASE_FIELDS.items():
         base = base_ports.get(family)
         if base is None:
             continue
-        for index in range(len(users)):
+        for index in [*range(len(users)), *app_indices]:
             entries.append((base + index, f"web_terminals.{base_field}[index={index}]"))
 
     # nginx's own listener, the one port the stack is reached on from off-host.
@@ -869,10 +901,8 @@ def _check_port_overlap(
     # port the stack will bind belongs in the collision set however it was
     # spelled. A value that is not a port binds nothing and joins nothing —
     # render refuses that config outright, and this rule is about collisions.
-    try:
+    with contextlib.suppress(ValueError):
         entries.append((resolve_nginx_port(root), "web_terminals.nginx_port"))
-    except ValueError:
-        pass
 
     # Every host port the deployed services publish.
     services = root.get("services")
@@ -942,41 +972,285 @@ def _check_port_overlap(
     return findings
 
 
-# --- persona catalog identity/reference checks ------------------------------
+# --- shared app cards --------------------------------------------------------
 #
-# Note on duplicate catalog keys: `modules.web_terminals.personas` arrives here
+# `modules.web_terminals.shared` names the apps every roster login may open. Each
+# name derives one card (see `renders.roster_entries`) at port slot
+# `INDEX_MAX - position`, counting down from the top of the family band while the
+# people count up from 0. The checks below are the ones the derivation leaves to
+# lint: what a name must be, what it must not collide with, and which app files
+# exist to back it.
+
+
+def _with_profile_renders(
+    root: dict[str, Any], web_terminals: dict[str, Any], profile_root: Path | None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """*root* and *web_terminals* with the renders a profile repo holds on disk.
+
+    A profile carries no ``renders`` projection — the build writes that — so at
+    profile altitude the tiers and apps are the ``tiers/<name>.yml`` and
+    ``apps/<name>.yml`` files beside the profile. They are projected here into
+    the same ``renders`` shape the rendered config carries, so every check reads
+    one catalog at both altitudes. A config that already states ``renders`` or a
+    ``renders`` catalog is returned unchanged; the caller's dicts are never
+    mutated.
+    """
+    if isinstance(web_terminals.get("renders"), Mapping):
+        return root, web_terminals
+    base = profile_root or Path(".")
+    renders: dict[str, Any] = {}
+    for dirname, kind in LAYER_DIR_KINDS.items():
+        directory = base / dirname
+        if directory.is_dir():
+            for path in sorted(directory.glob("*.yml")):
+                renders.setdefault(path.stem, {"kind": kind})
+    if not renders:
+        return root, web_terminals
+    projected = {**web_terminals, "renders": renders}
+    modules = {**as_dict(root.get("modules")), "web_terminals": projected}
+    return {**root, "modules": modules}, projected
+
+
+def _known_apps(
+    web_terminals: dict[str, Any], *, rendered_project: bool, profile_root: Path | None
+) -> frozenset[str] | None:
+    """The apps a ``shared:`` name may name, or ``None`` when this altitude cannot tell.
+
+    At profile altitude they are the ``apps/<name>.yml`` files beside the
+    profile. At rendered altitude they are the ``modules.web_terminals.renders``
+    entries of kind ``app`` the build projected; a rendered config without that
+    projection names no apps either way, so nothing is judged against it.
+    """
+    if not rendered_project:
+        apps_dir = (profile_root or Path(".")) / APPS_DIRNAME
+        if not apps_dir.is_dir():
+            return frozenset()
+        return frozenset(path.stem for path in apps_dir.glob("*.yml"))
+    renders = web_terminals.get("renders")
+    if not isinstance(renders, Mapping):
+        return None
+    return frozenset(
+        str(name)
+        for name, entry in renders.items()
+        if isinstance(entry, Mapping) and entry.get("kind") == APP_ENTRY_KIND
+    )
+
+
+def _check_shared_apps(
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    profile_root: Path | None,
+) -> list[Finding]:
+    """Every ``shared:`` name must derive one card that collides with nothing.
+
+    Errors, each its own code:
+
+    * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is not a
+      non-empty string (it derives no card but keeps its slot).
+    * ``duplicate_shared_app`` — one app named twice would run two cards under
+      one compose service name.
+    * ``unknown_shared_app`` — no app file backs the name, so there is nothing to
+      render for it.
+    * ``user_named_like_app`` — a person whose name is an app's would share the
+      app card's service name, URL and secrets.
+    * ``user_index_in_app_band`` — a person whose index reaches
+      ``INDEX_MAX - len(shared) + 1`` sits in the slots the shared apps take.
+    """
+    if "shared" not in web_terminals:
+        return []
+    raw = web_terminals.get("shared")
+    if not isinstance(raw, list):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_shared_entry",
+                message=(
+                    "modules.web_terminals.shared must be a list of app names, got "
+                    f"{type(raw).__name__}"
+                ),
+            )
+        ]
+    findings: list[Finding] = []
+    names: list[str] = []
+    for position, item in enumerate(raw):
+        if isinstance(item, str) and item:
+            names.append(item)
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_shared_entry",
+                message=(
+                    f"modules.web_terminals.shared[{position}] is {item!r}; each entry "
+                    "must be the name of an app in this repo's apps/ directory"
+                ),
+            )
+        )
+
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for name in names:
+        if name in seen:
+            duplicates.add(name)
+        seen.add(name)
+    if duplicates:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.duplicate_shared_app",
+                message=(
+                    f"modules.web_terminals.shared names {sorted(duplicates)} more than "
+                    "once; each app is one shared card, so list it once"
+                ),
+            )
+        )
+
+    known = _known_apps(web_terminals, rendered_project=rendered_project, profile_root=profile_root)
+    if known is not None:
+        unknown = sorted({name for name in names if name not in known})
+        if unknown:
+            where = "modules.web_terminals.renders" if rendered_project else "this repo's apps/"
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.unknown_shared_app",
+                    message=(
+                        f"modules.web_terminals.shared names {unknown}, which "
+                        f"{'have' if len(unknown) > 1 else 'has'} no app in {where}. "
+                        "Add the app with `osprey scaffold apps`, or remove the name "
+                        "from modules.web_terminals.shared"
+                    ),
+                )
+            )
+
+    app_names = set(names) | set(known or ())
+    clashing = sorted(
+        {name for name, _ in _people_slots(users) if isinstance(name, str) and name in app_names}
+    )
+    if clashing:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.user_named_like_app",
+                message=(
+                    f"modules.web_terminals.users names {clashing}, which "
+                    f"{'are apps' if len(clashing) > 1 else 'is an app'}; a person and an "
+                    "app card would share one service name, URL and secret. Rename the "
+                    "person"
+                ),
+            )
+        )
+
+    if raw:
+        floor = INDEX_MAX - len(raw) + 1
+        crowded = [(name, index) for name, index in _people_slots(users) if index >= floor]
+        for name, index in crowded:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.user_index_in_app_band",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has index {index}, "
+                        f"but indices {floor}..{INDEX_MAX} are the {len(raw)} shared "
+                        "app slots (modules.web_terminals.shared counts down from "
+                        f"{INDEX_MAX}). Give the person an index below {floor}"
+                    ),
+                )
+            )
+    return findings
+
+
+# --- render catalog identity/reference checks ------------------------------
+#
+# Note on duplicate catalog keys: `modules.web_terminals.renders` arrives here
 # already parsed by `yaml.safe_load`, which silently collapses a YAML mapping's
 # duplicate keys down to the last-declared value — by the time this module
-# sees a Python dict, a duplicate `personas:` key has already vanished without
-# a trace (no exception, no marker to detect). There is nothing observable
+# sees a Python dict, a duplicate render key has already vanished without a trace (no exception, no marker to detect). There is nothing observable
 # post-load, so no duplicate-catalog-key check exists here.
 #
 # Mode-coherence checks (image_source/registry.url agreement, project_path /
 # Dockerfile / config.yml existence, build_profile requirements) are below,
-# layered on top of `_persona_catalog` and the checks above.
+# layered on top of `_render_catalog` and the checks above.
 
 
-def _persona_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
-    """Read ``modules.web_terminals.personas``, defensively as a dict."""
-    catalog = web_terminals.get("personas")
-    return catalog if isinstance(catalog, dict) else {}
+def _render_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """Every render the projection lists, tiers and apps, as catalog entries keyed by name.
+
+    Read from the render projection ``modules.web_terminals.renders``. Each
+    entry keeps its ``kind``, ``project``, ``project_path`` and file knobs and
+    states the file the build renders it from as ``build_profile``
+    (``tiers/<name>.yml`` or ``apps/<name>.yml``, by kind) unless the entry
+    states one of its own, so the checks below judge the layer file exactly as
+    they judge any rendered-from-a-file entry. A rule whose question is about
+    the tiers a person can be given reads :func:`_tier_catalog` instead."""
+    renders = web_terminals.get("renders")
+    if not isinstance(renders, dict):
+        return {}
+    catalog: dict[str, Any] = {}
+    for name, render in renders.items():
+        if not isinstance(render, dict) or render.get("kind") not in (
+            RENDER_KIND_TIER,
+            RENDER_KIND_APP,
+        ):
+            continue
+        entry = dict(render)
+        entry.setdefault("build_profile", _canonical_delta_reference(name, render["kind"]))
+        catalog[name] = entry
+    return catalog
 
 
-def _check_persona_charset(web_terminals: dict[str, Any]) -> list[Finding]:
-    """A persona catalog key becomes an image-tag suffix
-    (``web-terminal-<persona>:latest``) and a path component (``/app/<project>``,
+def _tier_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """The tiers a person can be given: :func:`_render_catalog`'s ``kind: tier`` entries.
+
+    A shared app carries no access level of its own, so an app's name never
+    stands in for a tier — not as ``default_tier``, and not as the catalog a
+    roster needs."""
+    return {
+        name: entry
+        for name, entry in _render_catalog(web_terminals).items()
+        if entry.get("kind") == RENDER_KIND_TIER
+    }
+
+
+def _served_names(root: dict[str, Any], web_terminals: dict[str, Any]) -> dict[str, str]:
+    """Every render this deployment serves, by name and kind, read leniently.
+
+    :func:`~osprey.deployment.web_terminals.roster.served_render_names` over
+    this stanza and the dispatch tier the config carries
+    (``services.dispatch_worker.tier``, at both altitudes): every card's
+    render, ``default_tier``, every role's tier and the dispatch tier. A render
+    the projection lists that nobody serves sits outside every per-render check
+    — an unused draft entry with a broken ``project_path`` never blocks a
+    deploy, since only served renders are ever built or pulled.
+
+    Lenient: this is a reporting surface, and an entry whose binding does not
+    resolve already has its own ERROR (``web_terminals.unknown_role_reference``
+    / ``web_terminals.conflicting_user_tier_and_role``)."""
+    return served_render_names(web_terminals, dispatch_tier_name(root), strict=False)
+
+
+def _default_tier(web_terminals: dict[str, Any]) -> Any:
+    """``modules.web_terminals.default_tier`` — the tier of every person who names none."""
+    return web_terminals.get("default_tier")
+
+
+def _check_render_charset(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A render catalog key becomes an image-tag suffix
+    (``web-terminal-<render>:latest``) and a path component (``/app/<project>``,
     local-mode image tags); it's held to the same charset as usernames,
     ``^[a-z0-9][a-z0-9_-]*$`` (see :func:`_check_username_charset`)."""
     findings: list[Finding] = []
-    for persona_name in _persona_catalog(web_terminals):
-        if isinstance(persona_name, str) and not USERNAME_CHARSET_RE.fullmatch(persona_name):
+    for render_name in _render_catalog(web_terminals):
+        if isinstance(render_name, str) and not USERNAME_CHARSET_RE.fullmatch(render_name):
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.invalid_persona_charset",
+                    code="web_terminals.invalid_render_charset",
                     message=(
-                        f"modules.web_terminals.personas key {persona_name!r} does not "
-                        f"match {USERNAME_CHARSET_RE.pattern!r} (persona names become "
+                        f"modules.web_terminals.renders key {render_name!r} does not "
+                        f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
                         "image-tag suffixes and path components)"
                     ),
                 )
@@ -984,16 +1258,16 @@ def _check_persona_charset(web_terminals: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def _check_persona_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
-    """A persona catalog entry's ``seed_base``, when present, must be a boolean.
+def _check_render_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A render catalog entry's ``seed_base``, when present, must be a boolean.
 
-    ``seed_base`` opts a persona's users out of the mandatory shared base-context
+    ``seed_base`` opts a render's users out of the mandatory shared base-context
     prepend at seed time (default ``true``). A non-boolean value (e.g. a YAML
-    string ``"false"``) is a config typo — ``resolve_personas`` defensively
+    string ``"false"``) is a config typo — ``resolve_cards`` defensively
     coerces it back to ``True``, so without this check the opt-out would silently
     not take effect. Reported here so the mistake fails the config instead."""
     findings: list[Finding] = []
-    for persona_name, entry in _persona_catalog(web_terminals).items():
+    for render_name, entry in _render_catalog(web_terminals).items():
         if not isinstance(entry, dict) or "seed_base" not in entry:
             continue
         value = entry["seed_base"]
@@ -1001,9 +1275,9 @@ def _check_persona_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_invalid_seed_base",
+                    code="web_terminals.render_invalid_seed_base",
                     message=(
-                        f"modules.web_terminals.personas[{persona_name!r}].seed_base "
+                        f"modules.web_terminals.renders[{render_name!r}].seed_base "
                         f"{value!r} is not a boolean; seed_base must be true or false"
                     ),
                 )
@@ -1011,36 +1285,36 @@ def _check_persona_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def _check_default_persona_exists(web_terminals: dict[str, Any]) -> list[Finding]:
-    """``default_persona``, when set, must name an entry in the persona catalog
-    — the entry every roster user with no ``persona:`` of its own inherits."""
-    default_persona = web_terminals.get("default_persona")
-    if not isinstance(default_persona, str) or not default_persona:
+def _check_default_tier_exists(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``default_tier``, when set, must name an entry in the render catalog
+    — the entry every roster user with no ``tier:`` of its own inherits."""
+    default_tier = _default_tier(web_terminals)
+    if not isinstance(default_tier, str) or not default_tier:
         return []
-    if default_persona in _persona_catalog(web_terminals):
+    if default_tier in _tier_catalog(web_terminals):
         return []
     return [
         Finding(
             severity="error",
-            code="web_terminals.unknown_default_persona",
+            code="web_terminals.unknown_default_tier",
             message=(
-                f"modules.web_terminals.default_persona {default_persona!r} has no "
-                "entry in modules.web_terminals.personas"
+                f"modules.web_terminals.default_tier {default_tier!r} names no "
+                f"tier: there is no {_canonical_delta_reference(default_tier, RENDER_KIND_TIER)}"
             ),
         )
     ]
 
 
 @dataclass(frozen=True)
-class _UnreadablePersona:
-    """Why one referenced persona's privileges could not be determined.
+class _UnreadableRender:
+    """Why one referenced render's privileges could not be determined.
 
     The alternative to a ``None`` that means both "no privilege" and "no idea".
-    At NEITHER altitude may those two answers collapse: a persona whose document
+    At NEITHER altitude may those two answers collapse: a render whose document
     cannot be read may hold everything the base tier floors, and reading that as
     "holds nothing" is how a catalog entry pointed at a file outside
-    ``personas/`` walks an unauthenticated admin terminal past the gate — and,
-    at rendered altitude, how a persona whose project was never rendered (a
+    ``tiers/`` walks an unauthenticated admin terminal past the gate — and,
+    at rendered altitude, how a render whose project was never rendered (a
     ``project_path`` typo, a partial build) walks one past ``osprey up``.
     """
 
@@ -1050,72 +1324,76 @@ class _UnreadablePersona:
     build_profile: Any
     #: The path this tried to read, when it got as far as naming one.
     path_tried: str | None
-    #: :func:`persona_build_profile_shape_problem`'s clause, when the value's
+    #: :func:`render_build_profile_shape_problem`'s clause, when the value's
     #: shape is itself the reason nothing resolved.
     shape_problem: str | None
     #: The catalog entry's ``project_path``, whose ``config.yml`` is not there:
     #: at rendered altitude for any entry, at profile altitude for an entry
-    #: with no ``build_profile`` (a persona the build does not render is read
+    #: with no ``build_profile`` (a render the build does not render is read
     #: from its own render at both). Quoted verbatim rather than resolved — the
     #: join that decides where it resolves lives in
-    #: :func:`~osprey.deployment.web_terminals.personas.rendered_persona_config_file`
+    #: :func:`~osprey.deployment.web_terminals.roster.rendered_config_file`
     #: and repeating it here is exactly the second convention that walk exists
     #: to prevent. ``None`` means "not this shape of failure", including when
     #: the entry declares no usable ``project_path`` at all.
     project_path: str | None = None
+    #: The composer's own refusal, verbatim, when an app file read cleanly but
+    #: the build would refuse to compose it: the reason the build gives is the
+    #: one worth repeating, not that the file "cannot be read".
+    refusal: str | None = None
 
 
-#: Persona name → the privileges it holds. Two of these travel together out of
-#: :func:`_privileges_by_persona` — one absolute, one baseline-relative — and
+#: Render name → the privileges it holds. Two of these travel together out of
+#: :func:`_privileges_by_tier` — one absolute, one baseline-relative — and
 #: naming the shape once keeps the pair readable at the call sites.
 _PrivilegeMap = dict[str, tuple[str, ...]]
 
 
 @dataclass(frozen=True)
-class _PersonaLayers:
-    """One catalog persona's config chain, and the one layer it wrote itself.
+class _TierLayers:
+    """One catalog render's config chain, and the one layer it wrote itself.
 
     Two answers rather than one, because two checks here ask different
-    questions of the same persona. What it *holds* is the whole chain merged —
+    questions of the same render. What it *holds* is the whole chain merged —
     that is what gets deployed. What its author *said* is one layer of it, and
     the difference between the two is exactly an inherited key: see
-    :func:`_check_readonly_persona_inherits_writes`, the check that cannot be
+    :func:`_check_readonly_tier_inherits_writes`, the check that cannot be
     written against the merged document at all.
     """
 
     #: The chain, base first, in the order a merge applies them — the argument
-    #: list :func:`~osprey.deployment.web_terminals.personas.persona_privileges`
+    #: list :func:`~osprey.deployment.web_terminals.roster.tier_privileges`
     #: and friends take.
     layers: tuple[Any, ...]
-    #: The persona's OWN ``config:`` block: the delta file's, or the preset's
+    #: The render's OWN ``config:`` block: the delta file's, or the preset's
     #: before ``extends`` folds its parents in. Always the last word in
     #: ``layers`` too, never a layer that is missing from it.
     authored: dict[str, Any]
     #: The catalog entry's ``build_profile`` value, verbatim — the file or
     #: preset name a message points the operator's edit at.
     source: str
-    #: Whether *source* is a persona delta beside the profile (rather than a
+    #: Whether *source* is a layer beside the profile (rather than a
     #: bundled preset name). The two inherit from different documents, which is
     #: the half a message has to phrase differently.
     is_delta: bool
 
 
-def _profile_persona_layers(
+def _profile_tier_layers(
     root: dict[str, Any],
     entry: dict[str, Any],
     *,
     profile_root: Path | None,
-) -> _PersonaLayers | _UnreadablePersona:
-    """The config layers that decide one catalog persona's privileges, at PROFILE altitude.
+) -> _TierLayers | _UnreadableRender:
+    """The config layers that decide one catalog render's privileges, at PROFILE altitude.
 
     Nothing is rendered yet and the catalog's ``build_profile`` names one of two
     things. A bundled PRESET name resolves on its own and carries its whole
-    ``extends`` chain, so it is the only layer. A persona DELTA
-    (``personas/<name>.yml``, which is what ``osprey init`` writes) is by
+    ``extends`` chain, so it is the only layer. A render DELTA
+    (``tiers/<name>.yml``, which is what ``osprey init`` writes) is by
     construction *only* its own layer — it is merged over the host profile
     beside it — so the host's ``config:`` block, which is the document being
     linted, is layered underneath it. An entry with NO ``build_profile`` is a
-    persona the build does not render, and the one document that says what it
+    render the build does not render, and the one document that says what it
     holds is the render its ``project_path`` points at — see
     :func:`_rendered_elsewhere_layers`.
 
@@ -1124,33 +1402,35 @@ def _profile_persona_layers(
     the cwd made the whole check a no-op from anywhere but the repo root: ``cd
     data && osprey build``, ``osprey profile validate <repo>`` from the
     directory above, and ``osprey build --repo <path>`` each read no delta at
-    all and therefore reported every persona as unprivileged — a guard that
+    all and therefore reported every render as unprivileged — a guard that
     passes when it cannot see is worse than no guard, because the build says the
     word "valid".
 
     Returns:
-        A :class:`_PersonaLayers`, or an :class:`_UnreadablePersona` saying why
+        A :class:`_TierLayers`, or an :class:`_UnreadableRender` saying why
         there are none. "Cannot tell" is deliberately NOT "no privilege" here —
-        see :func:`_check_unreadable_persona_privileges` for what is done with
+        see :func:`_check_unreadable_tier_privileges` for what is done with
         it.
     """
     build_profile = entry.get("build_profile")
     if not isinstance(build_profile, str) or not build_profile:
         return _rendered_elsewhere_layers(entry, profile_root=profile_root)
 
-    shape_problem = persona_build_profile_shape_problem(build_profile)
+    shape_problem = render_build_profile_shape_problem(build_profile)
+    if shape_problem is None and entry.get("kind") == RENDER_KIND_APP:
+        return _profile_app_layers(root, build_profile, profile_root=profile_root)
     if shape_problem is None:
         # A delta beside the host profile: its own layer over the linted config.
         delta_file = (profile_root or Path(".")) / build_profile
         if not delta_file.is_file():
-            return _UnreadablePersona(build_profile, str(delta_file), None)
+            return _UnreadableRender(build_profile, str(delta_file), None)
         try:
             with delta_file.open("r", encoding="utf-8") as fh:
                 delta = yaml.safe_load(fh)
         except (OSError, yaml.YAMLError):
-            return _UnreadablePersona(build_profile, str(delta_file), None)
+            return _UnreadableRender(build_profile, str(delta_file), None)
         authored = as_dict(as_dict(delta).get("config"))
-        return _PersonaLayers((root, authored), authored, build_profile, is_delta=True)
+        return _TierLayers((root, authored), authored, build_profile, is_delta=True)
 
     # Not a delta reference, so the only other thing it can be is a bundled
     # preset name — the shape the presets themselves ship with, before
@@ -1174,27 +1454,87 @@ def _profile_persona_layers(
         # `../admin.yml` is neither a delta this may read nor a preset name that
         # resolves, and naming both halves is the difference between "could not
         # resolve" and an instruction.
-        return _UnreadablePersona(build_profile, None, shape_problem)
-    return _PersonaLayers((resolved.config,), authored, build_profile, is_delta=False)
+        return _UnreadableRender(build_profile, None, shape_problem)
+    return _TierLayers((resolved.config,), authored, build_profile, is_delta=False)
+
+
+def _profile_app_layers(
+    root: dict[str, Any], build_profile: str, *, profile_root: Path | None
+) -> _TierLayers | _UnreadableRender:
+    """The one config an app render is deployed from, at PROFILE altitude.
+
+    An app render is never a delta merged over the host: the build composes it
+    (:func:`~osprey.cli.build_profile_merge.render_document`) from the host
+    profile and the app's complete file, pinning what the app may not hold. So
+    the layer chain a tier has does not exist for an app, and judging the app
+    file as a tier delta would read a document no deployment runs. The
+    composed config is the single layer, and the app's own ``config:`` the
+    authored one. The host is ``profile.yml`` beside the app's directory,
+    resolved the way the build resolves it (its ``extends`` chain folded in).
+    Where there is none — a bundled preset, whose ``apps/`` sit beside the
+    preset file rather than a ``profile.yml`` — the host is the document being
+    linted, the same host a tier delta is layered over here.
+
+    Returns:
+        A :class:`_TierLayers`, or an :class:`_UnreadableRender` when either
+        file cannot be read or the composer refuses the app.
+    """
+    base = profile_root or Path(".")
+    app_file = base / build_profile
+    if not app_file.is_file():
+        return _UnreadableRender(build_profile, str(app_file), None)
+    # The profile engine, imported here for the reason the preset branch of
+    # `_profile_tier_layers` gives: this module is imported by the deploy path.
+    try:
+        from osprey.cli.build_profile_document import _read_profile_document
+        from osprey.cli.build_profile_merge import _resolve_extends, render_document
+        from osprey.cli.profile_root import ProfileKind
+        from osprey_connectors.errors import BuildProfileError
+        from osprey_connectors.workspace import PROFILE_FILENAME
+
+        app_raw = _read_profile_document(app_file, build_profile)
+        if not isinstance(app_raw, dict):
+            return _UnreadableRender(build_profile, str(app_file), None)
+        host_path = base / PROFILE_FILENAME
+        if host_path.is_file():
+            host_raw = _read_profile_document(host_path)
+            if not isinstance(host_raw, dict):
+                return _UnreadableRender(build_profile, str(host_path), None)
+            host = _resolve_extends(dict(host_raw), host_path)
+        else:
+            host = {"config": copy.deepcopy(root)}
+    except Exception:
+        return _UnreadableRender(build_profile, str(app_file), None)
+    try:
+        composed = render_document(ProfileKind.APP, host, dict(app_raw), build_profile)
+    except BuildProfileError as refusal:
+        # The files read; the composer refused the app, and says why. That
+        # reason is the instruction, so it travels instead of "cannot be read".
+        return _UnreadableRender(build_profile, str(app_file), None, refusal=str(refusal))
+    except Exception:
+        return _UnreadableRender(build_profile, str(app_file), None)
+    config = as_dict(composed.get("config"))
+    authored = as_dict(app_raw.get("config"))
+    return _TierLayers((config,), authored, build_profile, is_delta=True)
 
 
 def _rendered_elsewhere_layers(
     entry: dict[str, Any], *, profile_root: Path | None
-) -> _PersonaLayers | _UnreadablePersona:
-    """The config a persona the build does not render is judged by, at PROFILE altitude.
+) -> _TierLayers | _UnreadableRender:
+    """The config a render the build does not render is judged by, at PROFILE altitude.
 
     A catalog entry with no ``build_profile`` points at a project rendered
-    somewhere else — a persona supplied ready-made rather than materialized from
+    somewhere else — a render supplied ready-made rather than materialized from
     a delta beside the profile — and names where with its ``project_path``. The
-    render's ``config.yml`` is the one document that says what that persona
+    render's ``config.yml`` is the one document that says what that render
     holds, and it is the same file ``osprey up`` reads at rendered altitude
-    (:func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`),
-    so a hand-written persona proves its tier the same way at both altitudes
-    and may be the ``default_persona`` or sit on a shared card like any other.
+    (:func:`~osprey.deployment.web_terminals.roster.rendered_configs`),
+    so a hand-written render proves its tier the same way at both altitudes
+    and may be the ``default_tier`` or sit on a shared card like any other.
 
     One composed document, so it is both the only layer and the authored one:
     there is no delta or preset for an inherited key to have come from, which
-    is why :func:`_check_readonly_persona_inherits_writes` finds nothing to ask
+    is why :func:`_check_readonly_tier_inherits_writes` finds nothing to ask
     of it.
 
     ``project_path`` is spelled against the repo root, which at this altitude is
@@ -1202,18 +1542,18 @@ def _rendered_elsewhere_layers(
     through the one join every other reader of a render uses.
 
     Returns:
-        A :class:`_PersonaLayers` holding the render, or an
-        :class:`_UnreadablePersona` naming the path tried. An entry naming no
+        A :class:`_TierLayers` holding the render, or an
+        :class:`_UnreadableRender` naming the path tried. An entry naming no
         ``project_path`` at all is unreadable too: nothing points at a document.
     """
     project_path = entry.get("project_path")
     if not isinstance(project_path, str) or not project_path:
-        return _UnreadablePersona(
+        return _UnreadableRender(
             build_profile=None, path_tried=None, shape_problem=None, project_path=""
         )
-    config_yml = rendered_persona_config_file(profile_root or Path("."), project_path)
+    config_yml = rendered_config_file(profile_root or Path("."), project_path)
     if not config_yml.is_file():
-        return _UnreadablePersona(
+        return _UnreadableRender(
             build_profile=None,
             path_tried=str(config_yml),
             shape_problem=None,
@@ -1223,65 +1563,64 @@ def _rendered_elsewhere_layers(
         with config_yml.open("r", encoding="utf-8") as fh:
             rendered = yaml.safe_load(fh)
     except (OSError, yaml.YAMLError):
-        return _UnreadablePersona(
+        return _UnreadableRender(
             build_profile=None,
             path_tried=str(config_yml),
             shape_problem=None,
             project_path=project_path,
         )
     document = as_dict(rendered)
-    return _PersonaLayers((document,), document, str(config_yml), is_delta=False)
+    return _TierLayers((document,), document, str(config_yml), is_delta=False)
 
 
-def _persona_documents(
+def _render_documents(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
-    users: list[Any],
     *,
     rendered_project: bool,
     project_root: Path | None,
     profile_root: Path | None,
-) -> tuple[dict[str, tuple[Any, ...]], dict[str, _UnreadablePersona]]:
-    """The config layers each REFERENCED persona is deployed from, at either altitude.
+) -> tuple[dict[str, tuple[Any, ...]], dict[str, _UnreadableRender]]:
+    """The config layers each REFERENCED render is deployed from, at either altitude.
 
-    The one persona walk behind every rule here that asks what a persona holds,
-    so those rules cannot disagree about which personas they could read:
+    The one render walk behind every rule here that asks what a render holds,
+    so those rules cannot disagree about which renders they could read:
 
-    * **Rendered project.** Each persona's ``build/<project_path>/config.yml``
+    * **Rendered project.** Each render's ``build/<project_path>/config.yml``
       is already the fully composed answer, so it is the only layer. Read
       through
-      :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
+      :func:`~osprey.deployment.web_terminals.roster.rendered_configs`
       — the same walk the credential grants use.
     * **Profile.** There is no merged document yet, so the chain
-      :func:`_profile_persona_layers` returns is handed back as it stands, base
+      :func:`_profile_tier_layers` returns is handed back as it stands, base
       first; a rule folds it the way it needs (see :func:`_fold_layers`).
 
     Returns:
-        ``(layers, unreadable)``. A referenced persona whose catalog entry does
+        ``(layers, unreadable)``. A referenced render whose catalog entry does
         not resolve is in neither — that reference is reported elsewhere. One
         whose document could not be read is in ``unreadable`` only: "cannot
         tell" is never "holds nothing".
     """
-    layers_by_persona: dict[str, tuple[Any, ...]] = {}
-    unreadable: dict[str, _UnreadablePersona] = {}
+    layers_by_render: dict[str, tuple[Any, ...]] = {}
+    unreadable: dict[str, _UnreadableRender] = {}
 
     if rendered_project:
-        documents = rendered_persona_configs(root, project_root or Path("."))
-        catalog = _persona_catalog(web_terminals)
-        for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-            if persona_name in documents:
-                layers_by_persona[persona_name] = (documents[persona_name],)
+        documents = rendered_configs(root, project_root or Path("."))
+        catalog = _render_catalog(web_terminals)
+        for render_name in sorted(_served_names(root, web_terminals)):
+            if render_name in documents:
+                layers_by_render[render_name] = (documents[render_name],)
                 continue
-            if not isinstance(catalog.get(persona_name), dict):
+            if not isinstance(catalog.get(render_name), dict):
                 continue  # unresolvable reference — reported elsewhere
-            # No rendered config.yml where this persona's project_path says one
+            # No rendered config.yml where this render's project_path says one
             # is. "Cannot tell" is not "holds nothing" here either: once `osprey
             # up` gates on this belt, reading an absent render as unprivileged
             # is fail-open on the deploy path itself, and the only other signal
-            # is `persona_project_path_not_rendered_yet` — a WARN about a
+            # is `render_project_path_not_rendered_yet` — a WARN about a
             # different question that no error-filtering surface sees.
-            project_path = as_dict(catalog.get(persona_name)).get("project_path")
-            unreadable[persona_name] = _UnreadablePersona(
+            project_path = as_dict(catalog.get(render_name)).get("project_path")
+            unreadable[render_name] = _UnreadableRender(
                 build_profile=None,
                 path_tried=None,
                 shape_problem=None,
@@ -1289,110 +1628,108 @@ def _persona_documents(
                 # own sentence rather than as a quoted empty path.
                 project_path=project_path if isinstance(project_path, str) else "",
             )
-        return layers_by_persona, unreadable
+        return layers_by_render, unreadable
 
-    catalog = _persona_catalog(web_terminals)
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    catalog = _render_catalog(web_terminals)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue  # unresolvable reference — reported elsewhere
-        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
-        if isinstance(layers, _UnreadablePersona):
-            unreadable[persona_name] = layers
+        layers = _profile_tier_layers(root, entry, profile_root=profile_root)
+        if isinstance(layers, _UnreadableRender):
+            unreadable[render_name] = layers
             continue
-        layers_by_persona[persona_name] = layers.layers
-    return layers_by_persona, unreadable
+        layers_by_render[render_name] = layers.layers
+    return layers_by_render, unreadable
 
 
-def _privileges_by_persona(
+def _privileges_by_tier(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
-    users: list[Any],
     *,
     rendered_project: bool,
     project_root: Path | None,
     profile_root: Path | None,
-) -> tuple[_PrivilegeMap, _PrivilegeMap, dict[str, _UnreadablePersona]]:
-    """What each REFERENCED persona can edit — absolutely, and beyond its baseline.
+) -> tuple[_PrivilegeMap, _PrivilegeMap, dict[str, _UnreadableRender]]:
+    """What each REFERENCED render can edit — absolutely, and beyond its baseline.
 
-    Only referenced personas are read: a catalog entry nobody runs deploys
+    Only referenced renders are read: a catalog entry nobody runs deploys
     nothing, and resolving it would make an unused entry able to fail a build.
 
     BOTH answers are returned because the two rules built on them disagree, on
     purpose. The shared-card rule reads the absolute set — a terminal every
-    login may open hands out what its persona holds, not what it holds more
-    than its neighbours — and the ``default_persona`` rule reads the set beyond
+    login may open hands out what its render holds, not what it holds more
+    than its neighbours — and the ``default_tier`` rule reads the set beyond
     the baseline, because that key is inherited by profiles written before the
     floor existed. See
-    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
+    :func:`~osprey.deployment.web_terminals.roster.privileges_beyond_baseline`
     for the full statement of the asymmetry.
 
-    Both altitudes are read through :func:`_persona_documents`, the persona
-    walk every rule here that asks what a persona holds shares.
+    Both altitudes are read through :func:`_render_documents`, the render
+    walk every rule here that asks what a render holds shares.
 
     Returns:
-        ``(absolute, lifted, unreadable)``. A persona absent from all three is
+        ``(absolute, lifted, unreadable)``. A render absent from all three is
         readable and holds nothing at all. ``absolute`` and ``lifted`` each omit
-        the personas whose entry would be empty, so a missing key reads as "no
+        the renders whose entry would be empty, so a missing key reads as "no
         privilege" to
-        :func:`~osprey.deployment.web_terminals.personas._privileged_entries`
+        :func:`~osprey.deployment.web_terminals.roster._privileged_entries`
         either way.
     """
-    baseline = persona_privileges(root)
+    baseline = tier_privileges(root)
     absolute: _PrivilegeMap = {}
     lifted: _PrivilegeMap = {}
 
-    def record(persona_name: str, held: tuple[str, ...]) -> None:
+    def record(render_name: str, held: tuple[str, ...]) -> None:
         if held:
-            absolute[persona_name] = held
+            absolute[render_name] = held
         beyond = privileges_beyond_baseline(held, baseline)
         if beyond:
-            lifted[persona_name] = beyond
+            lifted[render_name] = beyond
 
-    documents, unreadable = _persona_documents(
+    documents, unreadable = _render_documents(
         root,
         web_terminals,
-        users,
         rendered_project=rendered_project,
         project_root=project_root,
         profile_root=profile_root,
     )
-    for persona_name, layers in documents.items():
-        record(persona_name, persona_privileges(*layers))
+    for render_name, layers in documents.items():
+        record(render_name, tier_privileges(*layers))
     return absolute, lifted, unreadable
 
 
 def _deployment_declares_a_privilege_split(root: dict[str, Any]) -> bool:
-    """Whether this deployment floors anything a persona tier could lift.
+    """Whether this deployment floors anything a render tier could lift.
 
     The precondition for the MIGRATION-SENSITIVE findings in this belt, asked
-    without holding a persona. A baseline that already grants the setup tool and
-    the Config panel leaves nothing for any persona to rise above, so there is
+    without holding a render. A baseline that already grants the setup tool and
+    the Config panel leaves nothing for any render to rise above, so there is
     no split to protect and nothing to report that would not simply be "you have
     not adopted tiers yet" — see
-    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`.
+    :func:`~osprey.deployment.web_terminals.roster.privileges_beyond_baseline`.
 
-    :func:`_privileges_by_persona` reaches the same verdict per persona, by
-    comparison. This is the version for the persona whose document could not be
+    :func:`_privileges_by_tier` reaches the same verdict per render, by
+    comparison. This is the version for the render whose document could not be
     read at all.
 
     NOT a precondition for the shared-card finding, nor for the advisory
-    ``auth.method: none`` arm of the unreadable-persona rule. The first is
-    absolute (see :func:`_check_privileged_persona_exposure`); the second names
+    ``auth.method: none`` arm of the unreadable-render rule. The first is
+    absolute (see :func:`_check_privileged_tier_exposure`); the second names
     an exposure the deployment has whatever it floors.
     """
-    return bool(privileges_beyond_baseline(ALL_PRIVILEGES, persona_privileges(root)))
+    return bool(privileges_beyond_baseline(ALL_PRIVILEGES, tier_privileges(root)))
 
 
-def _check_unreadable_persona_privileges(
+def _check_unreadable_tier_privileges(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
     resolved_entries: list[dict[str, Any]],
-    unreadable: Mapping[str, _UnreadablePersona],
+    unreadable: Mapping[str, _UnreadableRender],
     *,
     rendered_project: bool,
 ) -> list[Finding]:
-    """Refuse a persona whose privileges cannot be read where it would matter.
+    """Refuse a render whose privileges cannot be read where it would matter.
 
     ``None`` used to mean "cannot tell" and was treated as "holds nothing",
     which is the fail-OPEN direction on the one question this belt exists to
@@ -1402,10 +1739,10 @@ def _check_unreadable_persona_privileges(
     clean, and rendered a terminal holding the deployment-editing setup tool.
 
     Reported only where the answer would decide something, which is exactly
-    the two rules this belt owns: the ``default_persona`` every unlabelled
+    the two rules this belt owns: the ``default_tier`` every unlabelled
     entry inherits, and a shared card (``access: any``) every login may open —
     plus, advisorily, a deployment that stands no login wall at all. A
-    privileged persona behind one person's own login is not an exposure, so an
+    privileged tier behind one person's own login is not an exposure, so an
     unreadable one there is not one either, and refusing it would fail builds
     over catalog entries whose real problem — an absent delta, a preset that
     does not resolve — is already reported, in better words, by the check that
@@ -1413,16 +1750,16 @@ def _check_unreadable_persona_privileges(
 
     Three narrowings, all deliberate:
 
-    * The ``default_persona`` half is reported only where the deployment
+    * The ``default_tier`` half is reported only where the deployment
       declares a privilege split (:func:`_deployment_declares_a_privilege_split`)
       — the same migration argument that makes the KNOWN version of that rule
       baseline-relative: an inherited default on a floorless deployment has no
       unprivileged tier to be re-pointed at. The shared-card half is NOT so
       narrowed, for the same reason its known version is absolute: on a
-      floorless deployment a persona nobody can read is one nobody can show
+      floorless deployment a render nobody can read is one nobody can show
       holds less than everything, and that card is opened by every login.
-    * At rendered altitude the ``default_persona`` half is further gated on
-      ``image_source: local``. A registry-mode host has no local persona render
+    * At rendered altitude the ``default_tier`` half is further gated on
+      ``image_source: local``. A registry-mode host has no local render
       by design, so an unreadable default is that mode's normal state rather
       than drift, and no remedy the operator can execute exists there — the
       profile altitude, where the deltas live, owns that question. Again the
@@ -1432,11 +1769,11 @@ def _check_unreadable_persona_privileges(
       card is inert (there is no authenticated identity for it to widen), so
       no entry singled itself out; the
       deployment-wide exposure is advisory (see
-      :func:`~osprey.deployment.web_terminals.personas.deployment_wide_privileged_exposure_problems`)
-      and an ERROR on a persona that *might* be privileged would be a harder
-      refusal than the one for a persona known to be. So the unreadable persona
+      :func:`~osprey.deployment.web_terminals.roster.deployment_wide_privileged_exposure_problems`)
+      and an ERROR on a render that *might* be privileged would be a harder
+      refusal than the one for a render known to be. So the unreadable render
       is reported as a WARN instead — not dropped. Under that posture a READABLE
-      privileged persona still draws its own warning, and "cannot tell" must
+      privileged tier still draws its own warning, and "cannot tell" must
       never be quieter than "known privileged"; skipping the advisory rung
       entirely was how one cell of the matrix (registry mode, no
       authentication) came to report nothing at all.
@@ -1446,9 +1783,9 @@ def _check_unreadable_persona_privileges(
     presuppose a document that can be made to resolve, which a deployment
     building its images in CI (``image_source: registry``, the default) cannot
     produce on the host it starts on. Wherever an entry's own ``access: any``
-    is what put the persona at stake, ``access: own`` for that card is offered
+    is what put the render at stake, ``access: own`` for that card is offered
     too — the same remedy the KNOWN version of this rule
-    (:func:`~osprey.deployment.web_terminals.personas.shared_card_privileged_problems`)
+    (:func:`~osprey.deployment.web_terminals.roster.shared_card_privileged_problems`)
     leads with, so the two halves of one rule do not disagree about their own
     remedy set.
     """
@@ -1456,59 +1793,59 @@ def _check_unreadable_persona_privileges(
         return []
     declares_a_split = _deployment_declares_a_privilege_split(root)
 
-    # Persona name → every reason an unknown answer for it is not survivable.
-    # A persona can be at stake for BOTH halves at once — it is the
-    # `default_persona` AND a shared card resolves to it — and the two reasons
+    # Render name → every reason an unknown answer for it is not survivable.
+    # A render can be at stake for BOTH halves at once — it is the
+    # `default_tier` AND a shared card resolves to it — and the two reasons
     # have different remedies, so the finding says both rather than letting
     # whichever ran first win.
     at_stake: dict[str, list[str]] = {}
-    # Persona name → EVERY shared card that put it at stake, in roster order.
+    # Render name → EVERY shared card that put it at stake, in roster order.
     # All of them, not just the first: the known half of this rule emits one
     # message per entry and names them all, and an operator who sets
     # `access: own` for the one name they were given only to meet the same
     # refusal for the next has paid for a round trip this message could have
     # saved them.
     shared_by: dict[str, list[Any]] = {}
-    # Persona name → the users a wall-less deployment serves it to. Kept apart
+    # Render name → the users a wall-less deployment serves it to. Kept apart
     # from `shared_by` because it is the ADVISORY arm: with no wall standing no
     # entry singled itself out, and the deployment-wide exposure this belongs
     # to is deliberately not build-failing.
     open_to_everyone: dict[str, list[Any]] = {}
 
-    # The default_persona half is a RENDERED-altitude question only where a
+    # The default_tier half is a RENDERED-altitude question only where a
     # render was supposed to happen here. With `image_source: registry` — the
     # default, and every value but the literal `local` — the images and their
-    # deltas are built in CI and the deploy host holds no persona project by
-    # design, which is why `verify_persona_renders` is skipped there too. So
+    # deltas are built in CI and the deploy host holds no render project by
+    # design, which is why `verify_renders` is skipped there too. So
     # "cannot tell" is that mode's normal state rather than drift, and no
     # remedy exists that an operator on a pull-only host can carry out. The
     # profile altitude, where the deltas live, owns that question.
     reads_a_local_render = not rendered_project or effective_image_source(web_terminals) == "local"
-    default_persona = web_terminals.get("default_persona")
+    default_tier = _default_tier(web_terminals)
     if (
         declares_a_split
         and reads_a_local_render
-        and isinstance(default_persona, str)
-        and default_persona in unreadable
+        and isinstance(default_tier, str)
+        and default_tier in unreadable
     ):
-        at_stake.setdefault(default_persona, []).append(
-            "it is this deployment's default_persona, which every roster entry with no "
-            "persona: key of its own inherits"
+        at_stake.setdefault(default_tier, []).append(
+            "it is this deployment's default_tier, which every roster entry with no "
+            "tier: key of its own inherits"
         )
 
     for entry in resolved_entries:
-        persona = entry.get("persona")
-        if not isinstance(persona, str) or persona not in unreadable:
+        render = entry.get("render")
+        if not isinstance(render, str) or render not in unreadable:
             continue
         if not auth_is_enforced(web_terminals):
-            open_to_everyone.setdefault(persona, []).append(entry.get("name"))
+            open_to_everyone.setdefault(render, []).append(entry.get("name"))
             continue
         if not entry_is_shared(dict(entry)):
             continue
-        shared_by.setdefault(persona, []).append(entry.get("name"))
-    for persona_name, names in shared_by.items():
+        shared_by.setdefault(render, []).append(entry.get("name"))
+    for render_name, names in shared_by.items():
         many = len(names) > 1
-        at_stake.setdefault(persona_name, []).append(
+        at_stake.setdefault(render_name, []).append(
             f"{'users' if many else 'user'} {_named_users(names)} "
             f"{'are' if many else 'is'} shared with somebody beyond "
             f"{'their' if many else 'its'} own user and "
@@ -1519,53 +1856,53 @@ def _check_unreadable_persona_privileges(
     # deployment's own posture makes true — built from the same baseline reading
     # every remedy in this family uses, so one message cannot claim a floor in
     # one sentence and name it as missing in the next.
-    stance = _unknown_privilege_stance(persona_privileges(root))
+    stance = _unknown_privilege_stance(tier_privileges(root))
     findings: list[Finding] = []
 
     def report(
-        persona_name: str, reasons: list[str], remedy: str, severity: Literal["error", "warn"]
+        render_name: str, reasons: list[str], remedy: str, severity: Literal["error", "warn"]
     ) -> None:
         findings.append(
             Finding(
                 severity=severity,
-                code="web_terminals.persona_privileges_unknown",
+                code="web_terminals.render_privileges_unknown",
                 message=(
-                    f"modules.web_terminals persona {persona_name!r} could not be read, so "
+                    f"modules.web_terminals tier or app {render_name!r} could not be read, so "
                     f"this build cannot tell whether it holds "
                     f"{privilege_phrase(ALL_PRIVILEGES)} — and {', and '.join(reasons)}. "
                     # The shape clause is a whole sentence and brings its own
                     # full stop; the others do not.
-                    f"{_unreadable_persona_clause(unreadable[persona_name]).rstrip('.')}. "
+                    f"{_unreadable_render_clause(unreadable[render_name]).rstrip('.')}. "
                     f"{stance}. {remedy}"
                 ),
             )
         )
 
-    def altitude_remedy(persona_name: str, re_point: str) -> str:
+    def altitude_remedy(render_name: str, re_point: str) -> str:
         # The remedy is about the document that was not there, which is a
         # different document at each altitude: a delta the operator writes, or a
         # render `osprey build` produces. `re_point` names the roster edit that
         # sidesteps the document — the one remedy every host holds.
         if rendered_project:
             return (
-                f"Re-run `osprey build` to render it, or point {re_point} at a persona "
+                f"Re-run `osprey build` to render it, or point {re_point} at a tier "
                 f"whose project is rendered"
             )
         return (
             f"Point build_profile at the delta beside this profile "
-            f"(personas/{persona_name}.yml), or point {re_point} at a persona that does "
+            f"(tiers/{render_name}.yml), or point {re_point} at a tier that does "
             f"resolve"
         )
 
-    for persona_name in sorted(at_stake):
+    for render_name in sorted(at_stake):
         re_point = (
-            "default_persona and the shared card"
-            if persona_name in shared_by and persona_name == default_persona
+            "default_tier and the shared card"
+            if render_name in shared_by and render_name == default_tier
             else "the shared card"
-            if persona_name in shared_by
-            else "default_persona"
+            if render_name in shared_by
+            else "default_tier"
         )
-        remedy = altitude_remedy(persona_name, re_point)
+        remedy = altitude_remedy(render_name, re_point)
         # The one remedy an operator can always carry out, and the one that
         # actually closes the door this half of the rule is about. Both remedies
         # above presuppose a document that resolves — a delta the operator has
@@ -1573,31 +1910,31 @@ def _check_unreadable_persona_privileges(
         # so without this clause a registry-mode or delta-less deployment reads
         # the refusal as a dead end. Said at BOTH altitudes, and only where an
         # entry named itself, which is what `shared_by` records.
-        if persona_name in shared_by:
-            remedy += f", or set access: own for {_named_users(shared_by[persona_name])}"
-        report(persona_name, at_stake[persona_name], remedy, "error")
+        if render_name in shared_by:
+            remedy += f", or set access: own for {_named_users(shared_by[render_name])}"
+        report(render_name, at_stake[render_name], remedy, "error")
 
     # The advisory rung. With no wall standing no entry singled itself out, so
-    # nothing here is refused — but a READABLE privileged persona under that
+    # nothing here is refused — but a READABLE privileged tier under that
     # same posture still draws
     # `unauthenticated_privileged_deployment` as a WARN, and this belt's whole
     # premise is that "cannot tell" is never quieter than "known privileged".
-    # Reported for the personas the error arm did not already name, so one
-    # unreadable persona is one finding.
-    for persona_name in sorted(open_to_everyone):
-        if persona_name in at_stake:
+    # Reported for the renders the error arm did not already name, so one
+    # unreadable render is one finding.
+    for render_name in sorted(open_to_everyone):
+        if render_name in at_stake:
             continue
-        names = open_to_everyone[persona_name]
+        names = open_to_everyone[render_name]
         many = len(names) > 1
         report(
-            persona_name,
+            render_name,
             [
                 f"{'users' if many else 'user'} {_named_users(names)} "
                 f"{'are' if many else 'is'} served with no login wall at all "
                 f"(modules.web_terminals.auth.method is not password or oidc) and "
                 f"{'resolve' if many else 'resolves'} to it"
             ],
-            f"{altitude_remedy(persona_name, 'the exposed terminal')}, or turn "
+            f"{altitude_remedy(render_name, 'the exposed terminal')}, or turn "
             f"authentication on (auth.method: password or oidc)",
             "warn",
         )
@@ -1619,34 +1956,34 @@ def _named_users(names: Sequence[Any]) -> str:
 
 
 def _unknown_privilege_stance(baseline: Sequence[str]) -> str:
-    """Why an unreadable persona is not read as holding nothing, per posture.
+    """Why an unreadable render is not read as holding nothing, per posture.
 
     Built from the deployment's own baseline rather than from a "does it declare
     a split at all" boolean, so the sentence stays true of the deployment it is
     printed for. A PARTIALLY floored deployment used to be told it "floors
-    those surfaces" while one of them was open to every persona it has.
+    those surfaces" while one of them was open to every render it has.
     """
     unfloored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege in baseline)
     if not unfloored:
         return (
-            "This deployment floors both surfaces for its base tier, so a persona nobody "
+            "This deployment floors every door for its base tier, so a render nobody "
             "can read is not assumed harmless"
         )
     if len(unfloored) < len(ALL_PRIVILEGES):
         floored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege not in unfloored)
         return (
             f"This deployment floors {privilege_phrase(floored)} for its base tier but "
-            f"leaves {privilege_phrase(unfloored)} open to every persona, so a persona "
+            f"leaves {privilege_phrase(unfloored)} open to every render, so a render "
             f"nobody can read is not assumed harmless"
         )
     return (
-        "This deployment floors neither surface, so a persona nobody can read cannot "
-        "be shown to hold anything less than both of them — and this one is served "
-        "to whoever opens its page"
+        "This deployment floors no door, so a render nobody can read cannot "
+        "be shown to hold anything less than every one of them — and this one is "
+        "served to whoever opens its page"
     )
 
 
-def _unreadable_persona_clause(record: _UnreadablePersona) -> str:
+def _unreadable_render_clause(record: _UnreadableRender) -> str:
     """One sentence saying what was tried and why nothing came back."""
     if record.project_path is not None:
         # The render is what was read, not a delta: at rendered altitude for
@@ -1666,8 +2003,12 @@ def _unreadable_persona_clause(record: _UnreadablePersona) -> str:
             f"Its project_path {record.project_path!r} holds no rendered config.yml, so "
             f"nothing was built there for this deployment to read"
         )
+    if record.refusal is not None:
+        return (
+            f"Its build_profile {record.build_profile!r} is refused by the build: {record.refusal}"
+        )
     if record.shape_problem is not None:
-        # Phrased by `persona_build_profile_shape_problem` to follow exactly
+        # Phrased by `render_build_profile_shape_problem` to follow exactly
         # this subject, so the two halves are written once between them.
         return f"Its build_profile {record.shape_problem}"
     if not isinstance(record.build_profile, str) or not record.build_profile:
@@ -1680,7 +2021,7 @@ def _unreadable_persona_clause(record: _UnreadablePersona) -> str:
     return f"Its build_profile {record.build_profile!r} did not resolve to a profile"
 
 
-def _check_privileged_persona_exposure(
+def _check_privileged_tier_exposure(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
     users: list[Any],
@@ -1692,25 +2033,25 @@ def _check_privileged_persona_exposure(
     """Deployment-editing privilege must not be inherited by accident or handed to the roster.
 
     The belt behind the one build-time guard —
-    :func:`osprey.cli.profile_cmd._privileged_persona_problems`, which
-    :func:`~osprey.cli.profile_cmd._persona_profile_texts` raises at ``osprey
+    :func:`osprey.cli.profile_cmd._privileged_tier_problems`, which
+    :func:`~osprey.cli.profile_cmd._layer_profile_texts` raises at ``osprey
     init`` — catching the same mistakes on the paths that guard does not sit
     on: a profile edited after ``osprey init`` (``osprey profile validate``,
     ``osprey build``) and a project already rendered (``osprey up``). Every
     rule and every message comes from
-    :mod:`~osprey.deployment.web_terminals.personas`, so the belt and the brace
+    :mod:`~osprey.deployment.web_terminals.roster`, so the belt and the brace
     cannot disagree about what counts as privileged or about what to do next.
 
     **The rules read two different answers**, which is the one thing to know
     before reading the code below. The shared-card rule is judged on what a
-    persona ABSOLUTELY holds; the ``default_persona`` rule (and the advisory
+    render ABSOLUTELY holds; the ``default_tier`` rule (and the advisory
     no-wall arm) on what it holds beyond its deployment's baseline. Exempting a
     floorless deployment from the first would be a hole big enough to drive the
     whole belt through: delete the base tier's deny floor from a profile and
-    every persona is at baseline, so a shared admin card would validate clean,
+    every render is at baseline, so a shared admin card would validate clean,
     build clean and lint clean while rendering a settings.json with nothing
     denied. See
-    :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
+    :func:`~osprey.deployment.web_terminals.roster.privileges_beyond_baseline`
     for why the other rules keep the relative reading.
 
     **A shared privileged card is an ERROR at BOTH altitudes.** The exposure is
@@ -1719,7 +2060,7 @@ def _check_privileged_persona_exposure(
     altitude is the only place a hand-edited ``config.yml`` is ever read, so a
     warning there is a finding the surfaces that gate on errors discard.
 
-    A privileged ``default_persona`` stays advisory against a RENDERED project.
+    A privileged ``default_tier`` stays advisory against a RENDERED project.
     It is an authoring mistake, not an open door — the entries that inherit it
     are still behind whatever wall the deployment has. Refusing the start of a
     running stack over the shape of its roster would stop a shift to fix a
@@ -1727,10 +2068,9 @@ def _check_privileged_persona_exposure(
     loud either way, and rebuilding turns it into the error it is at profile
     altitude.
     """
-    absolute, lifted, unreadable = _privileges_by_persona(
+    absolute, lifted, unreadable = _privileges_by_tier(
         root,
         web_terminals,
-        users,
         rendered_project=rendered_project,
         project_root=project_root,
         profile_root=profile_root,
@@ -1742,23 +2082,10 @@ def _check_privileged_persona_exposure(
     # Resolved only once there is something to say about an entry: this walks
     # the whole roster, and a clean config must not pay for a report nobody is
     # going to make.
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
-    resolved = (
-        list(
-            resolve_personas(
-                web_terminals,
-                registry_cfg,
-                facility_prefix,
-                project_name=resolve_project_name(root),
-                strict=False,
-            )
-        )
-        if users
-        else []
-    )
+    resolved = list(resolve_cards(web_terminals, registry_cfg, strict=False)) if users else []
 
-    findings: list[Finding] = _check_unreadable_persona_privileges(
+    findings: list[Finding] = _check_unreadable_tier_privileges(
         root, web_terminals, resolved, unreadable, rendered_project=rendered_project
     )
     if not absolute and not lifted:
@@ -1767,9 +2094,9 @@ def _check_privileged_persona_exposure(
     # Baseline-relative, deliberately: an inherited default on a deployment with
     # no floor has no unprivileged tier to be pointed at. See
     # `privileges_beyond_baseline`.
-    default_problem = privileged_default_persona_problem(
-        web_terminals.get("default_persona"),
-        lifted.get(str(web_terminals.get("default_persona")), ()),
+    default_problem = privileged_default_tier_problem(
+        _default_tier(web_terminals),
+        lifted.get(str(_default_tier(web_terminals)), ()),
     )
     if default_problem is not None:
         findings.append(
@@ -1777,7 +2104,7 @@ def _check_privileged_persona_exposure(
                 # See the docstring: an authored default blocks, a rendered one
                 # is advisory.
                 severity="warn" if rendered_project else "error",
-                code="web_terminals.privileged_default_persona",
+                code="web_terminals.privileged_default_tier",
                 message=default_problem,
             )
         )
@@ -1846,22 +2173,26 @@ def _config_leaves(*layers: Any) -> dict[str, Any]:
     Layers fold base first, so a later layer's leaf replaces an earlier one's —
     the merge order the build itself applies.
     """
-    leaves: dict[str, Any] = {}
+    spelled: list[tuple[str, Any]] = []
     for layer in layers:
-        _collect_leaves(layer, (), leaves)
-    return leaves
+        _collect_every_leaf(layer, (), spelled)
+    return dict(spelled)
 
 
-def _collect_leaves(node: Any, prefix: tuple[str, ...], into: dict[str, Any]) -> None:
-    """Walk one config layer into ``into``; see :func:`_config_leaves`."""
+def _collect_every_leaf(node: Any, prefix: tuple[str, ...], into: list[tuple[str, Any]]) -> None:
+    """Every leaf of one config layer as ``(dotted path, value)``, repeats kept.
+
+    Unlike :func:`_config_leaves`, two spellings of one path both appear, so a
+    check that every spelling holds cannot be satisfied by whichever came last.
+    """
     if not isinstance(node, Mapping):
         return
     for key, value in node.items():
         path = prefix + tuple(str(key).split("."))
         if isinstance(value, Mapping) and value:
-            _collect_leaves(value, path, into)
+            _collect_every_leaf(value, path, into)
         else:
-            into[".".join(path)] = value
+            into.append((".".join(path), value))
 
 
 def _connector_writes_type(path: str) -> str | None:
@@ -1882,25 +2213,109 @@ def _connector_writes_type(path: str) -> str | None:
     return ".".join(parts[2:-1])
 
 
-def _check_readonly_persona_inherits_writes(
+#: The hook that refuses a write tool call while the target's posture is off.
+#: Every app render selects it, so a write switch is never its only guard.
+_WRITES_CHECK_HOOK = "writes-check"
+
+
+def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
+    """Check that one composed app render can neither write nor edit the deployment.
+
+    An app render runs beside a deployment, never as its writer: its
+    ``control_system.writes_enabled`` is pinned ``false``, every connector
+    type's ``writes_enabled`` that appears anywhere in its config is
+    ``false``, ``writes-check`` is among its hooks, and every door in
+    :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is
+    closed — the setup tool denied (it rewrites the render's own config,
+    write switches included), the Config panel and gallery writes off. Every
+    spelling of a write switch or a door switch counts — dotted, partly
+    nested, nested, or under a custom connector's dotted type — each one is
+    checked, at least one must be present, and only a literal ``False``
+    passes.
+
+    Args:
+        render: The resolved app render (its ``hooks`` and ``config``).
+
+    Returns:
+        One ``web_terminals.app_render_holds_privilege`` error naming every
+        problem, or ``[]`` for a render that holds nothing.
+    """
+    from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
+    from osprey.deployment.web_terminals.roster import (
+        DEPLOYMENT_EDIT_DOORS,
+        render_capability_document,
+    )
+
+    config = render.get("config")
+    config = config if isinstance(config, Mapping) else {}
+    spelled: list[tuple[str, Any]] = []
+    _collect_every_leaf(config, (), spelled)
+    problems: list[str] = []
+    global_switch = [value for path, value in spelled if path == WRITES_ENABLED_KEY]
+    if not global_switch or any(value is not False for value in global_switch):
+        problems.append(f"{WRITES_ENABLED_KEY} is not pinned to false")
+    for path, value in spelled:
+        if path == WRITES_ENABLED_KEY or _connector_writes_type(path) is None:
+            continue
+        if value is not False:
+            problems.append(f"{path} is {value!r}")
+    hooks = render.get("hooks")
+    if not isinstance(hooks, list) or _WRITES_CHECK_HOOK not in hooks:
+        problems.append(f"{_WRITES_CHECK_HOOK!r} is not among its hooks")
+    if is_setup_patch_capable(render_capability_document(dict(config))):
+        problems.append(f"{SETUP_PATCH_TOOL!r} is not denied, so it could rewrite its own config")
+    for door in DEPLOYMENT_EDIT_DOORS:
+        if not door.is_switch:
+            continue
+        # A scalar written where the door's section belongs
+        # (`web.config_panel: true`) is one more spelling, and never a closed one.
+        declared = [
+            (path, value)
+            for path, value in spelled
+            if path == door.key or (path.count(".") >= 1 and door.key.startswith(path + "."))
+        ]
+        if not any(path == door.key for path, _ in declared):
+            problems.append(f"{door.key} is not pinned to false")
+        for path, value in declared:
+            if path != door.key or value is not door.closed:
+                problems.append(
+                    f"{path} is {value!r}, so {door.privilege} could edit the deployment"
+                )
+    if not problems:
+        return []
+    return [
+        Finding(
+            "error",
+            "web_terminals.app_render_holds_privilege",
+            "An app render must not be able to write or edit the deployment, and this "
+            "one can: "
+            + "; ".join(problems)
+            + ". An app is composed with every writes_enabled switch pinned to "
+            "false, every deployment-editing door closed and 'writes-check' selected; "
+            "rebuild with `osprey build` rather than editing the render, and give "
+            "write or editing access through a tier.",
+        )
+    ]
+
+
+def _check_readonly_tier_inherits_writes(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
-    users: list[Any],
     *,
     rendered_project: bool,
     profile_root: Path | None,
 ) -> list[Finding]:
-    """A persona that writes down a read-only posture must not inherit an armed connector.
+    """A render that writes down a read-only posture must not inherit an armed connector.
 
     Write posture is per connector type: ``control_system.writes_enabled`` is
     only what a type inherits when its own
     ``control_system.connector.<type>.writes_enabled`` block says nothing, and a
-    block that says ``true`` never falls back to it. So a persona layer whose
+    block that says ``true`` never falls back to it. So a tier layer whose
     author typed ``control_system.writes_enabled: false`` — the one line that
     makes a tier read as read-only, and the line an operator scans for — can
     still be handed an armed connector by the document underneath it: the
     profile a delta is merged over, or the preset a preset extends. Nothing
-    downstream is wrong when that happens. The persona is armed, every surface
+    downstream is wrong when that happens. The render is armed, every surface
     agrees it is armed, and only the author thinks otherwise.
 
     **This is the one check that must be keyed on the AUTHORED file rather than
@@ -1918,15 +2333,15 @@ def _check_readonly_persona_inherits_writes(
     if rendered_project:
         return []
 
-    catalog = _persona_catalog(web_terminals)
+    catalog = _render_catalog(web_terminals)
     findings: list[Finding] = []
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue  # unresolvable reference — reported elsewhere
-        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
-        if isinstance(layers, _UnreadablePersona):
-            continue  # reported by `_check_unreadable_persona_privileges`
+        layers = _profile_tier_layers(root, entry, profile_root=profile_root)
+        if isinstance(layers, _UnreadableRender):
+            continue  # reported by `_check_unreadable_tier_privileges`
 
         authored = _config_leaves(layers.authored)
         # Not `is False`: the resolver arms a type on a literal `true` and on
@@ -1954,13 +2369,13 @@ def _check_readonly_persona_inherits_writes(
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_inherits_armed_connector",
+                code="web_terminals.tier_inherits_armed_connector",
                 message=(
-                    f"modules.web_terminals persona {persona_name!r} sets "
+                    f"modules.web_terminals tier {render_name!r} sets "
                     f"{WRITES_ENABLED_KEY}: false in {layers.source!r}, but inherits "
                     f"{privilege_phrase(inherited)}: true from {inherited_from} — a key "
                     f"this {layer_word} does not set itself. A per-type key never falls "
-                    f"back to the flat one, so this persona would be served as a "
+                    f"back to the flat one, so this tier would be served as a "
                     f"read-only tier while writes stay armed for it. Set "
                     f"{privilege_phrase(inherited)}: false in {layers.source!r} too, or "
                     f"take the inherited true out of {inherited_from}"
@@ -1971,10 +2386,10 @@ def _check_readonly_persona_inherits_writes(
 
 
 def _fold_layers(*layers: Any) -> dict[str, Any]:
-    """One nested document out of a persona's config layers, later layers winning.
+    """One nested document out of a render's config layers, later layers winning.
 
     The merged document a rendered project already is, assembled from the chain
-    :func:`_persona_documents` returns at profile altitude, where the layers mix
+    :func:`_render_documents` returns at profile altitude, where the layers mix
     dotted and nested spellings of the same keys (see :func:`_config_leaves`).
     """
     return _nest_dotted(_config_leaves(*layers))
@@ -2013,7 +2428,7 @@ def _check_live_writer_without_control_identity(
     """An owner-only card that writes to the real machine should say who is writing.
 
     A WARN, per roster entry: behind a login wall, an owner-only card whose
-    persona arms writes on the ``live`` target, and which carries no
+    render arms writes on the ``live`` target, and which carries no
     ``control_identity``. Its writes then reach the control system under the
     container's shared account, so the machine's own records cannot tell which
     person made them — the one attribution ``control_identity`` exists to give.
@@ -2022,41 +2437,33 @@ def _check_live_writer_without_control_identity(
     control system does not attribute by account loses nothing. Silent where
     the question has no answer — with no wall there is no person behind a card,
     a shared card must not carry one person's identity (that is an error of its
-    own), and a persona that cannot write to ``live`` writes nothing to
-    attribute. Personas whose documents cannot be read are reported by the
+    own), and a render that cannot write to ``live`` writes nothing to
+    attribute. Renders whose documents cannot be read are reported by the
     privilege belt, not here.
     """
     if not users or not auth_is_enforced(web_terminals):
         return []
 
-    documents, _unreadable = _persona_documents(
+    documents, _unreadable = _render_documents(
         root,
         web_terminals,
-        users,
         rendered_project=rendered_project,
         project_root=project_root,
         profile_root=profile_root,
     )
     live_writers: dict[str, str] = {}
-    for persona_name, layers in documents.items():
+    for render_name, layers in documents.items():
         live_type = _live_writes_type(as_dict(_fold_layers(*layers).get("control_system")))
         if live_type is not None:
-            live_writers[persona_name] = live_type
+            live_writers[render_name] = live_type
     if not live_writers:
         return []
 
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(
-        web_terminals,
-        registry_cfg,
-        facility_prefix,
-        project_name=resolve_project_name(root),
-        strict=False,
-    ):
-        persona = entry.get("persona")
-        if not isinstance(persona, str) or persona not in live_writers:
+    for entry in resolve_cards(web_terminals, registry_cfg, strict=False):
+        render = entry.get("render")
+        if not isinstance(render, str) or render not in live_writers:
             continue
         if entry.get("control_identity") or entry_is_shared(dict(entry)):
             continue
@@ -2066,9 +2473,9 @@ def _check_live_writer_without_control_identity(
                 severity="warn",
                 code="web_terminals.live_writer_without_control_identity",
                 message=(
-                    f"modules.web_terminals user {name!r} resolves to persona "
-                    f"{persona!r}, which arms writes on the live machine "
-                    f"({live_writers[persona]!r}), but sets no control_identity; its "
+                    f"modules.web_terminals user {name!r} resolves to render "
+                    f"{render!r}, which arms writes on the live machine "
+                    f"({live_writers[render]!r}), but sets no control_identity; its "
                     f"writes reach the control system under the container's shared "
                     f"account, so the machine cannot tell who made them. Set "
                     f"control_identity on {name!r} to the account name that person "
@@ -2079,87 +2486,72 @@ def _check_live_writer_without_control_identity(
     return findings
 
 
-def _check_unknown_persona_reference(
+def _check_unknown_tier_reference(
     root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
-    """Every roster entry's effective persona reference must name a catalog entry.
+    """Every tier the deployment serves must be a tier the projection lists.
 
-    "Effective" is :func:`~osprey.deployment.web_terminals.personas.effective_persona`'s
-    answer — the entry's ``role:`` binding, else its own ``persona:`` key, else
-    the inherited ``default_persona`` — so this one rule covers a role naming a
-    persona the catalog has never heard of. That is why the ``authorization``
-    parser adds no separate "role's persona exists" rule: it would report the
-    same config twice.
+    Walks the served set (:func:`_served_names`: every card's render,
+    ``default_tier``, every role's tier, the dispatch tier) and reports each
+    tier name with no ``kind: tier`` entry in ``modules.web_terminals.renders``
+    — an app's name does not stand in for a tier — once per key that names it:
 
-    Resolves via :func:`resolve_personas`'s lenient path (``strict=False``) —
-    the same function the render path calls with ``strict=True`` — so an
-    unresolvable reference degrades to a reportable :class:`Finding` here
-    instead of raising ``ValueError``.
+    * ``user <name>`` — the person's own ``tier:`` pin;
+    * ``default_tier`` — what every person who names none inherits (also
+      ``web_terminals.unknown_default_tier``, which judges the key itself);
+    * ``authorization.roles.<role>.tier`` — a role binds the tier of every
+      person who carries it, so this one rule covers a role naming a tier
+      nobody has heard of, and a person carrying that role is not reported a
+      second time;
+    * ``dispatch.tier`` — the tier the dispatch workers run at.
+
+    App names stay with :func:`_check_shared_apps`. Lenient throughout: an
+    entry whose binding does not resolve has its own finding.
     """
-    if not users:
-        return []
-    personas_catalog = _persona_catalog(web_terminals)
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
-    registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(
-        web_terminals,
-        registry_cfg,
-        facility_prefix,
-        project_name=resolve_project_name(root),
-        strict=False,
+    tiers = _tier_catalog(web_terminals)
+    unknown = sorted(
+        name
+        for name, kind in _served_names(root, web_terminals).items()
+        if kind == RENDER_KIND_TIER and name not in tiers
     )
+    if not unknown:
+        return []
+
+    context = _authorization_ctx(web_terminals)
+    roles: dict[str, str] = (context or {}).get("authorization_roles") or {}
+    sources: dict[str, list[str]] = {name: [] for name in unknown}
+    for user in users:
+        # The entry's OWN reference (default_tier is reported on its own key).
+        own = effective_tier(user, roles, None, strict=False)
+        role = user.get("role") if isinstance(user, dict) else None
+        if isinstance(role, str) and role in roles and own == roles[role]:
+            continue  # bound by its role, which is reported below
+        if own in sources:
+            sources[own].append(f"modules.web_terminals user {as_dict(user).get('name')!r}")
+    default_tier = _default_tier(web_terminals)
+    if isinstance(default_tier, str) and default_tier in sources:
+        sources[default_tier].append("modules.web_terminals.default_tier")
+    for role, tier in sorted(roles.items()):
+        if tier in sources:
+            sources[tier].append(f"modules.web_terminals.authorization.roles.{role}.tier")
+    dispatch_tier = dispatch_tier_name(root)
+    if dispatch_tier in sources:
+        sources[dispatch_tier].append("dispatch.tier")
 
     findings: list[Finding] = []
-    for entry in resolved:
-        persona_ref = entry["persona"]
-        if persona_ref is not None and persona_ref not in personas_catalog:
+    for name in unknown:
+        for source in sources[name]:
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.unknown_persona_reference",
+                    code="web_terminals.unknown_tier_reference",
                     message=(
-                        f"modules.web_terminals user {entry['name']!r} references "
-                        f"persona {persona_ref!r}, which has no entry in "
-                        "modules.web_terminals.personas"
+                        f"{source} references tier {name!r}, which names no tier: there "
+                        f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
                     ),
                 )
             )
     return findings
-
-
-def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """A roster entry with no persona render of its own runs in
-    ``/app/<prefix>-assistant`` (see :func:`personas.resolve_personas`), and the
-    facility graph is keyed by the same ``facility.prefix``. An empty prefix
-    renders that directory as ``/app/-assistant`` — a path no OSPREY image
-    build creates, so the user's agent data and seeded context land somewhere the agent never
-    reads — and only at ``osprey up``, which never runs this lint pass. This
-    check pulls that failure forward to lint/build time. Container names are
-    not involved: they are spelled on the compose project
-    (:mod:`osprey.deployment.web_terminals.naming`).
-
-    The effective prefix is derived exactly as ``render.py`` derives it
-    (``facility.get("prefix") or ""``). Scoped to a configured roster — an
-    empty ``users[]`` renders no per-user services and is handled by
-    :func:`_check_empty_users` instead.
-    """
-    if not users:
-        return []
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
-    if facility_prefix:
-        return []
-    return [
-        Finding(
-            severity="error",
-            code="web_terminals.empty_facility_prefix",
-            message=(
-                "modules.web_terminals has users configured but the effective "
-                "facility.prefix is empty; a terminal with no persona render of "
-                "its own then runs in '/app/-assistant', a directory no OSPREY "
-                "image build creates, and the facility graph has no key"
-            ),
-        )
-    ]
 
 
 # --- mode-coherence checks --------------------------------------------------
@@ -2218,8 +2610,7 @@ def _check_registry_url_coherence(
     """``image_source`` and ``registry.url`` must agree.
 
     Registry mode names every web-terminal image under ``registry.url``, the
-    no-catalog default image included, so the check runs whether or not a
-    persona catalog is configured. Local mode builds its images, so a URL set
+    default tier's image included. Local mode builds its images, so a URL set
     there only draws a warning.
     """
     registry_url = configured_registry_url(root.get("registry"))
@@ -2241,71 +2632,36 @@ def _check_registry_url_coherence(
                 message=(
                     "modules.web_terminals.image_source is 'local' but "
                     f"registry.url is set to {registry_url!r}; local mode builds "
-                    "every persona's image and never reads registry.url"
+                    "every render's image and never reads registry.url"
                 ),
             )
         ]
     return []
 
 
-def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
-    """The lint-side mirror of
-    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    ``strict=True`` ``ValueError`` guard. ``osprey up`` never runs the lint
-    pass, so both guards must independently fail closed on ``image_source:
-    local`` without a catalog + ``default_persona``."""
-    if effective_image_source(web_terminals) != "local":
-        return []
-    default_persona = web_terminals.get("default_persona")
-    has_default = isinstance(default_persona, str) and bool(default_persona)
-    if _persona_catalog(web_terminals) and has_default:
+def _check_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
+    """The lint-side mirror of the strict guard in
+    :func:`~osprey.deployment.web_terminals.roster.resolve_cards`: web
+    terminals need a render catalog and a ``default_tier``, in either image
+    source. ``osprey up`` never runs the full lint, so both fail closed."""
+    default_tier = _default_tier(web_terminals)
+    has_default = isinstance(default_tier, str) and bool(default_tier)
+    if _tier_catalog(web_terminals) and has_default:
         return []
     return [
         Finding(
             severity="error",
-            code="web_terminals.local_mode_requires_catalog",
-            message=(
-                "modules.web_terminals.image_source is 'local', which requires "
-                "both a non-empty modules.web_terminals.personas catalog and "
-                "default_persona to be configured"
-            ),
+            code="web_terminals.requires_catalog",
+            message=RENDER_CATALOG_REQUIRED,
         )
     ]
 
 
-def _referenced_persona_names(web_terminals: dict[str, Any], users: list[Any]) -> set[str]:
-    """Every persona name actually in play for this roster: ``default_persona``
-    plus each roster entry's own reference — its ``role:`` binding or its
-    ``persona:`` pin, resolved by
-    :func:`~osprey.deployment.web_terminals.personas.effective_persona` so a
-    role-bound persona is checked exactly as a pinned one is. A catalog
-    entry nobody references sits outside every check below — an unused draft
-    entry with a broken ``project_path`` never blocks a deploy, since only
-    referenced personas are ever built or pulled.
-
-    Lenient (``strict=False``): this is a reporting surface, and an entry whose
-    binding does not resolve already has its own ERROR
-    (``web_terminals.unknown_role_reference`` /
-    ``web_terminals.conflicting_user_persona_and_role``). Raising here would
-    replace every other finding in the report with a traceback."""
-    context = _authorization_ctx(web_terminals)
-    roles = context["authorization_roles"] if context else {}
-    names: set[str] = set()
-    default_persona = web_terminals.get("default_persona")
-    if isinstance(default_persona, str) and default_persona:
-        names.add(default_persona)
-    for user in users:
-        persona = effective_persona(user, roles, None, strict=False)
-        if persona:
-            names.add(persona)
-    return names
-
-
 def _read_project_name(config_yml_path: Path) -> str | None:
-    """Best-effort read of a persona project's own ``config.yml``
+    """Best-effort read of a render project's own ``config.yml``
     ``project_name``. Any failure to open or parse degrades to ``None`` rather
     than raising — an unreadable ``config.yml`` is already its own ERROR (see
-    :func:`_check_persona_project_paths`, which only calls this once the file
+    :func:`_check_render_project_paths`, which only calls this once the file
     is confirmed to exist)."""
     try:
         with config_yml_path.open("r", encoding="utf-8") as fh:
@@ -2334,36 +2690,35 @@ def _read_bundle_path(config_yml_path: Path) -> str | None:
     return raw.strip() if isinstance(raw, str) and raw.strip() else None
 
 
-def _check_persona_bundle_path_agreement(
+def _check_render_bundle_path_agreement(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
-    users: list[Any],
     *,
     project_root: Path | None = None,
 ) -> list[Finding]:
-    """Every entitled persona must put its knowledge bundle where the deploy does.
+    """Every entitled render must put its knowledge bundle where the deploy does.
 
-    The split this catches: **entitlement** is decided by each persona's own
+    The split this catches: **entitlement** is decided by each render's own
     rendered ``config.yml`` (does it name a ``facility_knowledge.bundle_path``?),
     while the in-container **mount target** is derived from the DEPLOY config's
-    ``bundle_path`` anchored on that persona's project directory. Where the two
-    values disagree, a persona is entitled and gets the deployment's bundle bound
+    ``bundle_path`` anchored on that render's project directory. Where the two
+    values disagree, a render is entitled and gets the deployment's bundle bound
     at the deployment's path — while its OKF panel and ``facility_knowledge`` MCP
-    server both read the persona's path, which nothing mounted.
+    server both read the render's path, which nothing mounted.
 
     The result is an empty bundle with no error anywhere: the panel lists no
     concepts, the agent's knowledge tools return nothing, and every layer reports
     success. Nothing at runtime can tell that apart from a facility that simply
     has not written any concepts yet, which is why it is caught here.
 
-    An ERROR rather than a warning: unlike a persona that is merely unrendered,
+    An ERROR rather than a warning: unlike a render that is merely unrendered,
     nothing an operator does later resolves this. The two keys have to be made to
     agree.
 
-    Read from disk on the same terms as :func:`_check_persona_project_paths` —
+    Read from disk on the same terms as :func:`_check_render_project_paths` —
     ``project_path`` resolved against ``project_root``, the deployment repo the
     caller names, an unreadable or unrendered project contributing nothing,
-    since a persona that has not been built yet is already reported by that
+    since a render that has not been built yet is already reported by that
     check.
     """
     deploy_bundle = as_dict(root.get("facility_knowledge")).get("bundle_path")
@@ -2371,10 +2726,10 @@ def _check_persona_bundle_path_agreement(
         return []  # nothing is mounted at all — no target to disagree with
     deploy_bundle = deploy_bundle.strip()
 
-    catalog = _persona_catalog(web_terminals)
+    catalog = _render_catalog(web_terminals)
     findings: list[Finding] = []
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue
         project_path_raw = entry.get("project_path")
@@ -2383,18 +2738,18 @@ def _check_persona_bundle_path_agreement(
         config_yml = (project_root or Path(".")) / project_path_raw / "config.yml"
         if not config_yml.is_file():
             continue
-        persona_bundle = _read_bundle_path(config_yml)
-        if persona_bundle is None or persona_bundle == deploy_bundle:
+        render_bundle = _read_bundle_path(config_yml)
+        if render_bundle is None or render_bundle == deploy_bundle:
             continue
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_bundle_path_divergence",
+                code="web_terminals.render_bundle_path_divergence",
                 message=(
-                    f"persona {persona_name!r} sets facility_knowledge.bundle_path to "
-                    f"{persona_bundle!r}, but this deployment sets {deploy_bundle!r}. "
+                    f"tier or app {render_name!r} sets facility_knowledge.bundle_path to "
+                    f"{render_bundle!r}, but this deployment sets {deploy_bundle!r}. "
                     "The bundle is bind-mounted at the DEPLOYMENT's path while the "
-                    "persona's knowledge tools read its own, so that container would "
+                    "card's knowledge tools read its own, so that container would "
                     "see an empty bundle and report no error. Make the two agree"
                 ),
             )
@@ -2413,28 +2768,27 @@ def _read_config(config_yml_path: Path) -> dict[str, Any]:
         return {}
 
 
-def _check_persona_mirror_agreement(
+def _check_render_mirror_agreement(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
-    users: list[Any],
     *,
     project_root: Path | None = None,
 ) -> list[Finding]:
-    """Every persona that writes the ARIEL mirror must write the deployment's.
+    """Every render that writes the ARIEL mirror must write the deployment's.
 
-    The mirror counterpart of :func:`_check_persona_bundle_path_agreement`.
-    **Entitlement** to the mirror bind is decided by each persona's own
+    The mirror counterpart of :func:`_check_render_bundle_path_agreement`.
+    **Entitlement** to the mirror bind is decided by each render's own
     rendered ``config.yml`` (does it run a qmd export with a ``mirror_path``?),
     while the bind's SOURCE and its in-container TARGET both come from the
     deploy config's ``ariel.enhancement_modules.qmd_export.mirror_path``. Two
     ways for those to disagree, both silent:
 
-    * The deployment writes no mirror at all. The persona is entitled but the
+    * The deployment writes no mirror at all. The render is entitled but the
       overlay emits no bind (there is no source), so its exporter writes the
       mirror into the container's writable layer — indexed by nothing,
       discarded at the next recreate — while every layer reports success.
     * The deployment writes one somewhere else. The deployment's directory is
-      bound at the deployment's path; the persona's exporter writes its own
+      bound at the deployment's path; the render's exporter writes its own
       path, which nothing mounted.
 
     An ERROR: nothing at run time resolves either, and a search that returns
@@ -2444,10 +2798,10 @@ def _check_persona_mirror_agreement(
 
     deploy_mirror = configured_ariel_mirror_path(root)
 
-    catalog = _persona_catalog(web_terminals)
+    catalog = _render_catalog(web_terminals)
     findings: list[Finding] = []
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue
         project_path_raw = entry.get("project_path")
@@ -2456,81 +2810,83 @@ def _check_persona_mirror_agreement(
         config_yml = (project_root or Path(".")) / project_path_raw / "config.yml"
         if not config_yml.is_file():
             continue
-        persona_mirror = configured_ariel_mirror_path(_read_config(config_yml))
-        if persona_mirror is None or persona_mirror == deploy_mirror:
+        render_mirror = configured_ariel_mirror_path(_read_config(config_yml))
+        if render_mirror is None or render_mirror == deploy_mirror:
             continue
         if deploy_mirror is None:
             message = (
-                f"persona {persona_name!r} runs an ARIEL qmd export writing "
-                f"{persona_mirror!r}, but this deployment runs none, so no mirror "
+                f"tier or app {render_name!r} runs an ARIEL qmd export writing "
+                f"{render_mirror!r}, but this deployment runs none, so no mirror "
                 "directory is bound into that container: its exporter would write into "
                 "the container's writable layer, which the qmd sidecar never indexes and "
                 "the next recreate discards. Enable the export on the hosting profile "
                 "(one shared mirror, indexed by the sidecar) or switch it off in the "
-                "persona"
+                "tier or app"
             )
         else:
             message = (
-                f"persona {persona_name!r} sets ariel.enhancement_modules.qmd_export."
-                f"mirror_path to {persona_mirror!r}, but this deployment sets "
+                f"tier or app {render_name!r} sets ariel.enhancement_modules.qmd_export."
+                f"mirror_path to {render_mirror!r}, but this deployment sets "
                 f"{deploy_mirror!r}. The mirror is bind-mounted at the DEPLOYMENT's path "
-                "while the persona's exporter writes its own, so its entries would land "
+                "while the card's exporter writes its own, so its entries would land "
                 "in the writable layer and never reach the sidecar. Make the two agree"
             )
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_mirror_path_divergence",
+                code="web_terminals.render_mirror_path_divergence",
                 message=message,
             )
         )
     return findings
 
 
-def _check_persona_project_collisions(
-    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+def _check_render_project_collisions(
+    root: dict[str, Any], web_terminals: dict[str, Any]
 ) -> list[Finding]:
-    """Local mode: every persona image tag must name exactly one image.
+    """Local mode: every render image tag must name exactly one image.
 
-    A persona image is tagged by its render alone
+    A render image is tagged by its render alone
     (``<project>:local`` — see
-    :func:`osprey.deployment.web_terminals.personas.resolve_personas`), so tag
+    :func:`osprey.deployment.web_terminals.roster.resolve_cards`), so tag
     uniqueness is exactly ``project`` uniqueness, and that is enforced here
     rather than by a tag suffix. Config-only, so it runs at both altitudes —
     no filesystem is consulted. Two invariants:
 
-    * **Persona vs persona.** Two referenced personas may share a ``project``
-      only when they also share the same ``project_path`` — one render, one
-      image, deliberately serving both. The same ``project`` over DIFFERENT
-      renders would race both builds onto one tag: the last build wins, and
-      every user of the losing persona silently runs the winning persona's
-      image — an entitlement bleed, not just a naming wart.
-    * **Persona vs worker.** No persona ``project`` may equal the deployment's
-      own project name: the dispatch worker's image already owns that
-      ``<project>:local`` tag, and a persona build would overwrite it (or be
+    * **Render vs render.** No two referenced tiers or apps may share a
+      ``project``. Each one is its own render, so two of them on one
+      ``project`` race their builds onto one tag: the last build wins, and
+      every card of the losing render silently runs the winning render's
+      image — an entitlement bleed, not just a naming wart. Pointing both at
+      one ``project_path`` does not make that safe: a tier and an app are
+      separate definitions, and one render serving two names is a second
+      name for one agent rather than a second agent.
+    * **Render vs project.** No tier or app ``project`` may equal the
+      deployment's own project name: the project image already owns that
+      ``<project>:local`` tag (the dispatch worker and the deployment's own
+      services run it), and a render build would overwrite it (or be
       overwritten) with entirely different content. Checked only when the
       config declares an explicit ``project_name`` — the resolver's
       path-derived fallbacks are unknowable at profile altitude, and every
       rendered project carries the key.
 
-    A catalog entry with no ``project`` of its own resolves to the legacy
-    suffixed tag (``<default>-<persona>:local``) and cannot collide with
-    either, so it is skipped.
+    A catalog entry with no ``project`` is skipped: it names no tag, and
+    :func:`_check_render_missing_project` reports it.
     """
     if effective_image_source(web_terminals) != "local":
         return []
-    catalog = _persona_catalog(web_terminals)
+    catalog = _render_catalog(web_terminals)
     by_project: dict[str, list[tuple[str, str]]] = {}
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue  # unresolvable reference — reported elsewhere
         project = entry.get("project")
         if not isinstance(project, str) or not project:
-            continue  # legacy suffixed fallback; no collision possible
+            continue  # no project: reported by _check_render_missing_project
         project_path = entry.get("project_path")
         by_project.setdefault(project, []).append(
-            (persona_name, project_path if isinstance(project_path, str) else "")
+            (render_name, project_path if isinstance(project_path, str) else "")
         )
 
     deployment_project = root.get("project_name")
@@ -2539,20 +2895,18 @@ def _check_persona_project_collisions(
 
     findings: list[Finding] = []
     for project, members in sorted(by_project.items()):
-        if len(members) > 1 and len({path for _, path in members}) > 1:
+        if len(members) > 1:
             names = ", ".join(repr(name) for name, _ in members)
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_project_collision",
+                    code="web_terminals.render_project_collision",
                     message=(
-                        f"personas {names} share project {project!r} but point at "
-                        "different project_paths; their builds would race onto the "
-                        f"one image tag '{project}:local', and users of the losing "
-                        "persona would silently run the winning persona's image. "
-                        "Give each persona its own project (matching its render), "
-                        "or point them at the same project_path to share one image "
-                        "deliberately"
+                        f"tiers or apps {names} share project {project!r}; their builds "
+                        f"would race onto the one image tag '{project}:local', and the "
+                        "cards of the losing one would silently run the winning one's "
+                        "image. Give each tier and app its own project (matching its "
+                        "render)"
                     ),
                 )
             )
@@ -2560,29 +2914,29 @@ def _check_persona_project_collisions(
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_project_shadows_worker_image",
+                    code="web_terminals.render_shadows_project_image",
                     message=(
-                        f"personas {', '.join(repr(name) for name, _ in members)} use "
-                        f"project {project!r}, which is this deployment's own project "
-                        f"name; the persona image tag '{project}:local' would collide "
-                        "with the dispatch worker's image. Rename the persona's render "
-                        "(osprey build names each one <repo>-<persona>)"
+                        f"tiers or apps {', '.join(repr(name) for name, _ in members)} "
+                        f"use project {project!r}, which is this deployment's own project "
+                        f"name; their image tag '{project}:local' would collide with the "
+                        "project image. Rename the render (osprey build names each one "
+                        "<repo>-<name>)"
                     ),
                 )
             )
     return findings
 
 
-def _check_persona_project_paths(
-    web_terminals: dict[str, Any], users: list[Any], *, project_root: Path | None = None
+def _check_render_project_paths(
+    root: dict[str, Any], web_terminals: dict[str, Any], *, project_root: Path | None = None
 ) -> list[Finding]:
-    """Local mode: validate every referenced persona's ``project_path``.
+    """Local mode: validate every referenced render's ``project_path``.
 
-    ``project_path`` names the directory ``osprey up`` builds a persona's
+    ``project_path`` names the directory ``osprey up`` builds a render's
     image from. Two invariants are enforced here:
 
     * **Name invariant.** When ``project_path`` is set, its basename must equal
-      the catalog entry's ``project``. ``osprey build`` names each persona render
+      the catalog entry's ``project``. ``osprey build`` names each render
       ``<repo>-<delta stem>`` and writes it into ``build/``, so a basename that
       disagrees with ``project`` would leave the render in one directory while
       the catalog builds/mounts
@@ -2592,11 +2946,11 @@ def _check_persona_project_paths(
       ``config.yml`` whose own ``project_name`` equals the catalog ``project``
       (a mismatch silently produces a dead mount, since the per-svc
       ``container_project_dir`` derivation is keyed on the catalog's ``project``,
-      not on anything read from the persona's own ``config.yml``).
+      not on anything read from the render's own ``config.yml``).
 
     Existence is relaxed to a WARNING — never waived — for a ``project_path``
     that does not exist yet but whose entry carries a usable ``build_profile``.
-    That is the ordinary state of a persona added since the last build, and the
+    That is the ordinary state of a render added since the last build, and the
     ordinary command clears it: ``osprey build`` renders one project per delta.
     It is not an error because nothing is misconfigured; it is not merely
     informational because ``osprey up`` refuses to start until the render is
@@ -2606,23 +2960,23 @@ def _check_persona_project_paths(
     """
     if effective_image_source(web_terminals) != "local":
         return []
-    catalog = _persona_catalog(web_terminals)
+    catalog = _render_catalog(web_terminals)
     findings: list[Finding] = []
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
-            continue  # unresolvable reference — _check_unknown_persona_reference /
-            # _check_default_persona_exists already report this
+            continue  # unresolvable reference — _check_unknown_tier_reference /
+            # _check_default_tier_exists already report this
         findings.extend(
-            _check_one_persona_project_path(persona_name, entry, project_root=project_root)
+            _check_one_render_project_path(render_name, entry, project_root=project_root)
         )
     return findings
 
 
-def _check_one_persona_project_path(
-    persona_name: str, entry: dict[str, Any], *, project_root: Path | None = None
+def _check_one_render_project_path(
+    render_name: str, entry: dict[str, Any], *, project_root: Path | None = None
 ) -> list[Finding]:
-    """The per-persona body of :func:`_check_persona_project_paths`: validate one
+    """The per-render body of :func:`_check_render_project_paths`: validate one
     catalog entry's ``project_path``. Early returns short-circuit the later
     checks exactly where a failed prerequisite makes them meaningless (see the
     parent's docstring for the invariants)."""
@@ -2636,33 +2990,33 @@ def _check_one_persona_project_path(
         return [
             Finding(
                 severity="error",
-                code="web_terminals.persona_missing_project_path",
+                code="web_terminals.render_missing_project_path",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}] has no "
+                    f"modules.web_terminals.renders[{render_name!r}] has no "
                     "project_path set; image_source: local requires one to "
-                    "build this persona's image from"
+                    "build this tier or app's image from"
                 ),
             )
         ]
 
     # Resolved against the deployment repo the caller names, not the working
     # directory: `osprey scaffold web-terminals lint` run from a subdirectory
-    # otherwise reports every rendered persona as missing.
+    # otherwise reports every rendered render as missing.
     project_path = (project_root or Path(".")) / project_path_raw
 
-    # Name invariant: the build writes each persona render at a path whose
+    # Name invariant: the build writes each render at a path whose
     # basename is the catalog `project`, so project_path's basename must equal
     # it. A
     # disagreement is a hard config error regardless of whether the
     # directory exists yet, and supersedes every existence check below —
-    # there is nothing else about this persona worth reporting on top of it.
+    # there is nothing else about this render worth reporting on top of it.
     if has_catalog_project and project_path.name != catalog_project:
         return [
             Finding(
                 severity="error",
-                code="web_terminals.persona_project_path_name_mismatch",
+                code="web_terminals.render_project_path_name_mismatch",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}].project_path "
+                    f"modules.web_terminals.renders[{render_name!r}].project_path "
                     f"{project_path_raw!r} has basename {project_path.name!r}, which "
                     f"does not match its project {catalog_project!r}; the render "
                     "`osprey build` writes is found by project, so the two must agree"
@@ -2682,17 +3036,21 @@ def _check_one_persona_project_path(
     # the name mismatch above it supersedes the existence findings — an entry no
     # build could ever render has nothing to add about being missing.
     if has_build_profile:
-        problem = persona_build_profile_shape_problem(cast(str, build_profile))
+        problem = render_build_profile_shape_problem(cast(str, build_profile))
         if problem is not None:
+            kind = entry.get("kind")
+            reference = _canonical_delta_reference(
+                render_name, kind if isinstance(kind, str) else RENDER_KIND_TIER
+            )
             return [
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_build_profile_not_a_delta",
+                    code="web_terminals.render_build_profile_not_a_delta",
                     message=(
-                        f"modules.web_terminals.personas[{persona_name!r}].build_profile "
-                        f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
-                        "delta `osprey init` writes in this repo's personas/ directory, "
-                        "which is what `osprey build` renders the persona project from. "
+                        f"modules.web_terminals.renders[{render_name!r}].build_profile "
+                        f"{problem} Set it to {reference!r} — the delta `osprey init` "
+                        f"writes in this repo's {posixpath.dirname(reference)}/ directory, "
+                        "which is what `osprey build` renders this project from. "
                         + PREDATES_DELTA_REMEDY
                     ),
                 )
@@ -2701,16 +3059,16 @@ def _check_one_persona_project_path(
     if not project_path.is_dir():
         # Missing directory: a warning rather than the hard error when a
         # build_profile names the delta a build would render it from, because
-        # that is the ordinary state of a persona added since the last build and
+        # that is the ordinary state of a render added since the last build and
         # the ordinary command clears it. It is not merely informational: no
         # start will run until it is cleared.
         if has_build_profile:
             return [
                 Finding(
                     severity="warn",
-                    code="web_terminals.persona_project_path_not_rendered_yet",
+                    code="web_terminals.render_project_path_not_rendered_yet",
                     message=(
-                        f"modules.web_terminals.personas[{persona_name!r}].project_path "
+                        f"modules.web_terminals.renders[{render_name!r}].project_path "
                         f"{project_path_raw!r} does not exist. `osprey build` renders it "
                         f"from the delta its build_profile names ({build_profile!r}); "
                         "`osprey up` REFUSES to start until it is there. Run `osprey build`"
@@ -2720,9 +3078,9 @@ def _check_one_persona_project_path(
         return [
             Finding(
                 severity="error",
-                code="web_terminals.persona_project_path_not_dir",
+                code="web_terminals.render_project_path_not_dir",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"modules.web_terminals.renders[{render_name!r}]."
                     f"project_path {project_path_raw!r} does not exist or is "
                     "not a directory"
                 ),
@@ -2734,11 +3092,11 @@ def _check_one_persona_project_path(
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_missing_dockerfile",
+                code="web_terminals.render_missing_dockerfile",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"modules.web_terminals.renders[{render_name!r}]."
                     f"project_path {project_path_raw!r} has no Dockerfile; "
-                    "local mode builds each persona's image from its own "
+                    "local mode builds each tier or app's image from its own "
                     "project directory"
                 ),
             )
@@ -2749,9 +3107,9 @@ def _check_one_persona_project_path(
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_missing_config_yml",
+                code="web_terminals.render_missing_config_yml",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"modules.web_terminals.renders[{render_name!r}]."
                     f"project_path {project_path_raw!r} has no config.yml"
                 ),
             )
@@ -2765,9 +3123,9 @@ def _check_one_persona_project_path(
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_project_mismatch",
+                code="web_terminals.render_project_mismatch",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}].project "
+                    f"modules.web_terminals.renders[{render_name!r}].project "
                     f"{catalog_project!r} does not match its project_path's "
                     f"config.yml project_name {rendered_project_name!r}"
                 ),
@@ -2777,22 +3135,22 @@ def _check_one_persona_project_path(
 
 
 def _check_registry_mode_build_profile(
-    web_terminals: dict[str, Any], users: list[Any]
+    root: dict[str, Any], web_terminals: dict[str, Any]
 ) -> list[Finding]:
-    """Registry mode only: every referenced non-default persona must set
+    """Registry mode only: every referenced non-default tier must set
     ``build_profile`` — the committed profile YAML that feeds its one
-    ``.gitlab-ci.yml`` build job. The default persona is exempt: its image
+    ``.gitlab-ci.yml`` build job. The default tier is exempt: its image
     stays the un-suffixed ``web-terminal:latest``, built by the core CI job,
-    not a per-persona one."""
+    not a per-render one."""
     if effective_image_source(web_terminals) != "registry":
         return []
-    catalog = _persona_catalog(web_terminals)
-    default_persona = web_terminals.get("default_persona")
+    catalog = _render_catalog(web_terminals)
+    default_tier = _default_tier(web_terminals)
     findings: list[Finding] = []
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        if persona_name == default_persona:
+    for render_name in sorted(_served_names(root, web_terminals)):
+        if render_name == default_tier:
             continue
-        entry = catalog.get(persona_name)
+        entry = catalog.get(render_name)
         if not isinstance(entry, dict):
             continue  # unresolvable reference — reported elsewhere
         build_profile = entry.get("build_profile")
@@ -2801,11 +3159,49 @@ def _check_registry_mode_build_profile(
         findings.append(
             Finding(
                 severity="error",
-                code="web_terminals.persona_missing_build_profile",
+                code="web_terminals.render_missing_build_profile",
                 message=(
-                    f"modules.web_terminals.personas[{persona_name!r}] has no "
+                    f"modules.web_terminals.renders[{render_name!r}] has no "
                     "build_profile set; image_source: registry needs one to "
-                    "generate this non-default persona's CI build job"
+                    "generate this non-default tier's CI build job"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_render_missing_project(
+    root: dict[str, Any], web_terminals: dict[str, Any]
+) -> list[Finding]:
+    """Every referenced render must name the project its terminal runs.
+
+    A terminal runs in ``/app/<project>``, so a render with no ``project``
+    names no directory. An entry with a ``build_profile`` is skipped: the build
+    derives its ``project``
+    (:func:`~osprey.deployment.web_terminals.render_naming.derived_renders`),
+    and at profile altitude there is nothing to derive yet. A ready-made entry —
+    an image built elsewhere — states the project that image was built from.
+    Config-only, so it runs at both altitudes, in either image source."""
+    catalog = _render_catalog(web_terminals)
+    findings: list[Finding] = []
+    for render_name in sorted(_served_names(root, web_terminals)):
+        entry = catalog.get(render_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        build_profile = entry.get("build_profile")
+        if isinstance(build_profile, str) and build_profile:
+            continue
+        project = entry.get("project")
+        if isinstance(project, str) and project:
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.render_missing_project",
+                message=(
+                    f"modules.web_terminals.renders[{render_name!r}] has no project; "
+                    "a tier or app whose image is built elsewhere states the project that "
+                    "image was built from (its directory is /app/<project>)"
                 ),
             )
         )
@@ -2821,14 +3217,14 @@ def _is_valid_mount_string(value: Any) -> bool:
     return len(parts) in (2, 3) and all(parts)
 
 
-def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
-    """Every ``modules.web_terminals.personas.<name>.extra_mounts`` entry must be a
+def _check_render_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Every ``modules.web_terminals.renders.<name>.extra_mounts`` entry must be a
     compose volume string (2 or 3 non-empty colon-separated parts). These generic
-    host-path mounts are applied to every user of that persona, so a malformed
+    host-path mounts are applied to every user of that render, so a malformed
     entry would render a broken per-user ``volumes:`` line — reject it here. The
     ``extra_mounts`` key is optional; an entry that omits it is never flagged."""
     findings: list[Finding] = []
-    for persona_name, entry in _persona_catalog(web_terminals).items():
+    for render_name, entry in _render_catalog(web_terminals).items():
         if not isinstance(entry, dict):
             continue
         raw = entry.get("extra_mounts")
@@ -2838,9 +3234,9 @@ def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_extra_mounts_not_list",
+                    code="web_terminals.render_extra_mounts_not_list",
                     message=(
-                        f"modules.web_terminals.personas[{persona_name!r}].extra_mounts "
+                        f"modules.web_terminals.renders[{render_name!r}].extra_mounts "
                         f"must be a list of compose volume strings, got {type(raw).__name__}"
                     ),
                 )
@@ -2851,9 +3247,9 @@ def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
                 findings.append(
                     Finding(
                         severity="error",
-                        code="web_terminals.persona_invalid_extra_mount",
+                        code="web_terminals.render_invalid_extra_mount",
                         message=(
-                            f"modules.web_terminals.personas[{persona_name!r}]."
+                            f"modules.web_terminals.renders[{render_name!r}]."
                             f"extra_mounts entry {mount!r} is not a valid compose volume "
                             "string; expected 'source:target' or 'source:target:mode' "
                             "with non-empty colon-separated parts"
@@ -3019,7 +3415,7 @@ def _auth_context(
 
 
 def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) -> list[Finding]:
-    """An OPEN deployment whose personas can still reach the host network.
+    """An OPEN deployment whose renders can still reach the host network.
 
     The authoring-time voice of the deploy gate
     :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`,
@@ -3030,15 +3426,15 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
     meet the refusal one step later than the edit that caused it.
 
     Driven by
-    :func:`~osprey.deployment.web_terminals.artifacts.open_mode_missing_by_persona`
+    :func:`~osprey.deployment.web_terminals.artifacts.open_mode_missing_by_render`
     — the SAME predicate the gate raises on, not a second reading of the same
-    idea. A lint rule that re-derived "which personas may reach the network"
+    idea. A lint rule that re-derived "which renders may reach the network"
     would be free to clear a deployment the gate refuses, which is the worst of
     both surfaces: a green authoring run and a start nobody can perform.
 
     ERROR rather than WARN, and for the gate's reason rather than lint's usual
     one: under ``auth.method: none`` nginx vouches for every terminal it
-    proxies, so a persona that keeps one of these entries is one prompt away
+    proxies, so a render that keeps one of these entries is one prompt away
     from a neighbour's session.
 
     Imported at call time. This module is static validation of a config file,
@@ -3058,30 +3454,20 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
         One finding naming every offender and what each is missing, or none.
     """
     from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
-    from osprey.deployment.web_terminals.artifacts import (
-        ZERO_MIGRATION_OFFENDER,
-        open_mode_missing_by_persona,
-    )
+    from osprey.deployment.web_terminals.artifacts import open_mode_missing_by_render
 
-    missing = open_mode_missing_by_persona(root, project_root or Path("."))
+    missing = open_mode_missing_by_render(root, project_root or Path("."))
     if not missing:
         return []
     detail = "; ".join(
         (
-            f"{persona!r} does not deny {', '.join(repr(tool) for tool in tools)}"
+            f"{render!r} does not deny {', '.join(repr(tool) for tool in tools)}"
             if tools
             # The empty tuple is the gate's "there is nothing rendered here to
             # read", whose remedy is a render rather than a deny entry.
-            else f"{persona!r} has no rendered .claude/settings.json on this host"
+            else f"{render!r} has no rendered .claude/settings.json on this host"
         )
-        for persona, tools in sorted(missing.items())
-    )
-    zero_migration_note = (
-        f". {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run no persona "
-        "at all: they run the deploy project itself, so the settings.json read for them "
-        "is the deploy project's own .claude/settings.json"
-        if ZERO_MIGRATION_OFFENDER in missing
-        else ""
+        for render, tools in sorted(missing.items())
     )
     return [
         Finding(
@@ -3092,12 +3478,12 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
                 f"for every terminal it proxies — but {detail}. An agent in one terminal "
                 f"reaches nginx over loopback and is served a neighbour's session, and "
                 f"the python executor's socket guard covers only executed code. Every "
-                f"persona's shipped .claude/settings.json must deny all of "
+                f"render's shipped .claude/settings.json must deny all of "
                 f"{', '.join(repr(tool) for tool in OPEN_MODE_EGRESS_TOOLS)} (a missing "
                 f"or unparseable settings.json counts the same). Set auth.method to "
                 f"'token' to keep the magic-link wall, or restore those deny entries, "
                 f"render with `osprey build` and rebuild the images this deployment "
-                f"runs{zero_migration_note}"
+                "runs"
             ),
         )
     ]
@@ -3387,7 +3773,7 @@ def _check_seeded_passwords(
         return []
     # The lenient normalizer drops an entry whose `access` is unreadable, so
     # `entry_is_shared` never refuses one of these.
-    roster = normalize_users(web_terminals.get("users"), strict=False)
+    roster = roster_people(web_terminals, strict=False)
     shared = frozenset(entry["name"] for entry in roster if entry_is_shared(entry))
 
     from osprey.deployment.web_terminals.auth_credentials import seeded_password_users
@@ -3547,7 +3933,7 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
     # honest failure. The message names the user, never the subject: not
     # because the subject is secret (it is published by the IdP), but because
     # echoing a value compose would mangle invites pasting the mangled form.
-    for entry in web_terminals.get("users") or []:
+    for entry in authored_people(web_terminals):
         if not isinstance(entry, dict):
             continue
         subject = entry.get("oidc_subject")
@@ -3620,7 +4006,7 @@ def _check_auth_credential_collisions(
     context = _auth_context(web_terminals)
     if context is None or context["auth_method"] != "password":
         return []
-    names = [name for name in (_user_name(user) for user in users) if name is not None]
+    names = [name for name in (_roster_entry_name(user) for user in users) if name is not None]
     return [
         Finding(
             severity="error",
@@ -3667,7 +4053,7 @@ def _check_auth_stored_hashes(
     except (OSError, UnicodeDecodeError):
         return []
     findings: list[Finding] = []
-    for name in (_user_name(user) for user in users):
+    for name in (_roster_entry_name(user) for user in users):
         if name is None:
             continue
         suffix = env_var_suffix(name)
@@ -3739,7 +4125,7 @@ def _check_shared_card_duplicate_subject(
     for user in users:
         if not isinstance(user, dict):
             continue
-        name = _user_name(user)
+        name = _roster_entry_name(user)
         subject = user.get("oidc_subject")
         if name is None or not isinstance(subject, str) or not subject.strip():
             continue
@@ -3842,7 +4228,7 @@ def _access_members(user: Any) -> tuple[str, list[str]] | None:
       name no ``user:``/``domain:`` principal at all, so there is nothing here
       to ask about;
     * an ``access`` value
-      :func:`~osprey.deployment.web_terminals.personas.resolve_access_principals`
+      :func:`~osprey.deployment.web_terminals.roster.resolve_access_principals`
       refuses is skipped, because :func:`_check_user_access` already reports
       that refusal verbatim. A second finding over the same value would bury the
       one sentence that says how to fix it.
@@ -3858,7 +4244,7 @@ def _access_members(user: Any) -> tuple[str, list[str]] | None:
         The entry's name and its authored members, or ``None`` when the entry is
         one of the silences above.
     """
-    name = _user_name(user)
+    name = _roster_entry_name(user)
     if not isinstance(user, dict) or name is None:
         return None
     authored = user.get("access")
@@ -4252,7 +4638,7 @@ def _check_authorization(web_terminals: dict[str, Any]) -> list[Finding]:
       deployment would come up with none of the privilege bindings the operator
       wrote — silently, since nothing downstream can tell a stanza that was
       never written from one that was written wrongly.
-    * An **incoherent** stanza: a role naming no persona, a claim map naming an
+    * An **incoherent** stanza: a role naming no render, a claim map naming an
       undeclared role, half a ``claims`` block. The render raises on each of
       these; reporting it as a finding is what lets a scaffold command name
       every problem in one pass instead of dying on the first.
@@ -4304,7 +4690,7 @@ def _check_claims_without_oidc(web_terminals: dict[str, Any]) -> list[Finding]:
     """A ``claims`` block only does anything under single sign-on. WARN.
 
     The one inert source left in this stanza. Its sibling — a roster ``role:``
-    under ``oidc`` — is *not* inert: the render resolves that entry's persona
+    under ``oidc`` — is *not* inert: the render resolves that entry's render
     from it, and the sidecar cross-checks the ID token's role against it, so it
     is emitted under both methods. ``claims`` has no such second job. It maps
     the values of an ID-token claim, and under ``password`` or ``none`` no ID
@@ -4381,9 +4767,9 @@ def _authorization_strings(authorization: dict[str, Any]) -> list[tuple[str, str
         if not isinstance(role_name, str):
             continue
         strings.append(("authorization.roles", role_name))
-        persona = as_dict(entry).get("persona")
-        if isinstance(persona, str):
-            strings.append((f"authorization.roles.{role_name}.persona", persona))
+        tier = as_dict(entry).get("tier")
+        if isinstance(tier, str):
+            strings.append((f"authorization.roles.{role_name}.tier", tier))
     claims = as_dict(authorization.get("claims"))
     claim = claims.get("claim")
     if isinstance(claim, str):
@@ -4434,24 +4820,24 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
     entry renders with a privilege set nobody chose for it:
 
     * A **wrong-typed** ``role`` (an int, a YAML boolean, an empty string).
-      :func:`~osprey.deployment.web_terminals.personas.normalize_users` drops it
+      :func:`~osprey.deployment.web_terminals.roster.normalize_users` drops it
       defensively, so nothing downstream can see that a role was meant at all.
-    * A ``role`` **carried alongside a ``persona:`` pin**. Both bind the same
+    * A ``role`` **carried alongside a ``tier:`` pin**. Both bind the same
       slot — the role through
-      ``modules.web_terminals.authorization.roles.<role>.persona``, the pin
+      ``modules.web_terminals.authorization.roles.<role>.render``, the pin
       directly — so which one governs is unwritten, and a later edit to the
-      role's persona would silently not reach this entry. Reported even when the
+      role's render would silently not reach this entry. Reported even when the
       two agree today, and reported *instead of* the checks below for that entry:
       the ambiguity is the finding.
     * A ``role`` **naming no declared role**. The render does not yet refuse
       this one: at the parse stage the roster's roles are unresolved, and
       nothing has looked one up. It is not undetectable, though —
-      :func:`~osprey.deployment.web_terminals.personas.normalize_users` carries
+      :func:`~osprey.deployment.web_terminals.roster.normalize_users` carries
       every non-empty string ``role`` through, so a resolver can tell "named a
       role that does not exist" apart from "named no role at all". The shared
-      persona helper (Task 4.2) is therefore expected to RAISE on a carried
+      render helper (Task 4.2) is therefore expected to RAISE on a carried
       role absent from ``authorization_roles`` rather than fall back to the
-      default persona, so that ``--no-lint`` cannot silently change a binding;
+      default tier, so that ``--no-lint`` cannot silently change a binding;
       this finding is the earlier, friendlier half of that pair.
 
     Skipped entirely when the stanza does not parse — :func:`_check_authorization`
@@ -4467,20 +4853,20 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
         if not isinstance(user, dict) or "role" not in user:
             continue
         role = user.get("role")
-        name = _user_name(user)
-        persona = user.get("persona")
-        if isinstance(role, str) and role and isinstance(persona, str) and persona:
+        name = _roster_entry_name(user)
+        render = user.get("tier")
+        if isinstance(role, str) and role and isinstance(render, str) and render:
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.conflicting_user_persona_and_role",
+                    code="web_terminals.conflicting_user_tier_and_role",
                     message=(
-                        f"modules.web_terminals.users entry {name!r} has both persona "
-                        f"{persona!r} and role {role!r}; a role binds the persona "
-                        f"(modules.web_terminals.authorization.roles.{role}.persona) and a "
-                        "direct 'persona' pin binds the same slot, so which one governs is "
-                        "unwritten and a later edit to the role's persona would silently "
-                        "not reach this entry. Keep one: drop 'persona' to let the role "
+                        f"modules.web_terminals.users entry {name!r} has both tier "
+                        f"{render!r} and role {role!r}; a role binds the tier "
+                        f"(modules.web_terminals.authorization.roles.{role}.render) and a "
+                        "direct tier pin binds the same slot, so which one governs is "
+                        "unwritten and a later edit to the role's tier would silently "
+                        "not reach this entry. Keep one: drop the tier to let the role "
                         "bind it, or drop 'role' to pin it directly"
                     ),
                 )
@@ -4494,7 +4880,7 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
                         f"modules.web_terminals.users entry {name!r} has role {role!r}, "
                         "which is not a non-empty string; it is dropped when the roster "
                         "is normalized, so the entry would silently render with the "
-                        "deployment's default persona"
+                        "deployment's default tier"
                     ),
                 )
             )
@@ -4509,7 +4895,7 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
                         "which is not declared under "
                         f"modules.web_terminals.authorization.roles (declared: "
                         f"{declared}); the entry would silently render with the "
-                        "deployment's default persona"
+                        "deployment's default tier"
                     ),
                 )
             )
@@ -4538,7 +4924,7 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
     """
     findings: list[Finding] = []
     for user in users:
-        name = _user_name(user)
+        name = _roster_entry_name(user)
         if name is None or not _RESERVED_AUDIT_IDENTITY_RE.fullmatch(name):
             continue
         findings.append(
@@ -4549,7 +4935,11 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
                     f"modules.web_terminals.users entry {name!r} collides with a "
                     "service's own audit identity (the auth sidecar writes "
                     f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
-                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/). Each "
+                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
+                    "queueserver writes var/audit/[<lane>-]queueserver/) or with a "
+                    "name the telemetry store keeps for its own accounts "
+                    f"({RESERVED_ACCOUNT_PREFIX}*, "
+                    f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Each "
                     "user's container binds var/audit/<user>/ read-write, so this user "
                     "could read and rewrite the audit trail of the component that "
                     "records them. Rename the roster entry"

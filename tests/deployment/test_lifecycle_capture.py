@@ -46,7 +46,7 @@ import pytest
 from osprey.cli import phase_reporter
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
-from osprey.simulation import archiver_seed as seed_mod
+from osprey_connectors.simulation import archive as seed_mod
 
 #: The ``(1.2s)`` / ``(2m03s)`` suffix ``Phase.step`` appends to a slow lap.
 _DURATION = re.compile(r" \((?:\d+\.\d+s|\d+m\d{2}s)\)$")
@@ -110,7 +110,19 @@ class CaptureRecorder:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def __call__(self, cmd, *, env=None, spool_name, repo_root=None, check=True, on_line=None):
+    def __call__(
+        self,
+        cmd,
+        *,
+        env=None,
+        spool_name,
+        repo_root=None,
+        check=True,
+        on_line=None,
+        timeout=None,
+        watch=None,
+        watch_interval=None,  # noqa: ARG002 - run_captured's keyword-only arguments
+    ):
         self.calls.append(
             {
                 "cmd": list(cmd),
@@ -119,6 +131,8 @@ class CaptureRecorder:
                 "repo_root": repo_root,
                 "check": check,
                 "on_line": on_line,
+                "timeout": timeout,
+                "watch": watch,
             }
         )
         return subprocess.CompletedProcess(list(cmd), 0)
@@ -268,6 +282,7 @@ def archiver_stubs(monkeypatch):
             "username": "root",
             "host": "localhost",
             "port": 27017,
+            "collection": "pv_history",
         },
     )
     monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
@@ -281,7 +296,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: ([], None, {}, None, None),
+        lambda config, project_dir: SimpleNamespace(addresses=[]),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -364,6 +379,7 @@ def test_a_recorder_that_will_not_stop_still_warns(monkeypatch, tmp_path, caplog
         spool_name,
         repo_root=None,  # noqa: ARG001 - run_captured's keyword-only arguments
         check=True,  # noqa: ARG001 - run_captured's keyword-only arguments
+        **_bounds,
     ):
         code = 1 if spool_name == "archiver-recorder-stop" else 0
         return subprocess.CompletedProcess(list(cmd), code)
@@ -466,6 +482,25 @@ def test_the_stack_compose_calls_all_spool_their_output(captured, reporter, tmp_
         "service images built",
         "containers started",
     ]
+
+
+@pytest.mark.usefixtures("reporter", "start_stack_stubs", "no_bare_subprocess")
+def test_only_the_up_is_bounded_and_watched(captured, tmp_path, monkeypatch):
+    """A `compose up` can wait forever on a dependency; the steps around it cannot.
+
+    The up carries the configured time limit and a still-waiting watch; the
+    self-heal `rm` and the build keep the plain capture.
+    """
+    from osprey.deployment.compose_watch import COMPOSE_UP_TIMEOUT_ENV
+
+    monkeypatch.setenv(COMPOSE_UP_TIMEOUT_ENV, "90")
+    _start(_repo(tmp_path), dev_mode=True)
+
+    assert captured.call("compose-up")["timeout"] == 90.0
+    assert callable(captured.call("compose-up")["watch"])
+    for name in ("compose-rm", "compose-build"):
+        assert captured.call(name)["timeout"] is None
+        assert captured.call(name)["watch"] is None
 
 
 @pytest.mark.usefixtures("reporter", "start_stack_stubs", "no_bare_subprocess")

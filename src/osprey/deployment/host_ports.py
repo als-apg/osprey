@@ -38,6 +38,7 @@ Access 5064 and pvAccess port, and a collision on either says so rather than
 sending an operator to a knob that cannot move it.
 """
 
+import contextlib
 import json
 import socket
 import subprocess
@@ -63,10 +64,24 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.deployment.host_binding import host_binding_of
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.qmd_service import QMD_SERVICE_NAME, QMD_SERVICE_PREFIX, dial_host
+from osprey.deployment.qmd_service import (
+    QMD_SERVICE_NAME,
+    QMD_SERVICE_PREFIX,
+    dial_host,
+    resolve_bind_address,
+)
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
-from osprey.deployment.web_terminals.personas import normalize_users
+from osprey.deployment.telemetry_config import (
+    GATEWAY_METRICS_CONTAINER_PORT,
+    GATEWAY_OTLP_CONTAINER_PORT,
+    GATEWAY_SERVICE,
+    HISTORY_SERVICE,
+    STORE_SERVICE,
+    reader_port,
+    store_deployed,
+)
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
+from osprey.deployment.web_terminals.roster import is_app_entry, roster_entries
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
     PORT_BASE_CONFIG_KEY,
@@ -77,7 +92,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.host_ports")
 
@@ -93,7 +108,10 @@ logger = get_logger("deployment.host_ports")
 _SERVICE_REMEDY_KEYS = {
     "postgresql": "services.postgresql.port_host",
     "mongodb": "services.mongodb.port_host",
-    "openobserve": "services.openobserve.port",
+    STORE_SERVICE: "services.telemetry_store.port",
+    GATEWAY_SERVICE: "services.telemetry_gateway.port",
+    # No key of its own moves the history app's loopback port; the block does.
+    HISTORY_SERVICE: PORT_BASE_CONFIG_KEY,
     "event-dispatcher": "services.event_dispatcher.port",
     "dispatch-worker": "dispatch.worker_port_base",
     "bluesky-bridge": "services.bluesky.port",
@@ -140,6 +158,10 @@ _SERVICE_REMEDY_KEYS = {
 _SERVICE_PORT_REMEDY_KEYS = {
     (GRAPHDB_SERVICE_NAME, CONTAINER_BOLT_PORT): GRAPHDB_PORT_CONFIG_KEY,
     (GRAPHDB_SERVICE_NAME, CONTAINER_HTTP_PORT): GRAPHDB_HTTP_PORT_CONFIG_KEY,
+    # The gateway publishes the port senders post to and, on loopback, its own
+    # counters. Only the first has a key; the second moves with the block.
+    (GATEWAY_SERVICE, GATEWAY_OTLP_CONTAINER_PORT): "services.telemetry_gateway.port",
+    (GATEWAY_SERVICE, GATEWAY_METRICS_CONTAINER_PORT): PORT_BASE_CONFIG_KEY,
 }
 
 # Compose service name mapped to the layout slot (or slots) whose port it
@@ -160,7 +182,9 @@ _SERVICE_PORT_REMEDY_KEYS = {
 _SERVICE_LAYOUT_SLOTS = {
     "postgresql": ("postgres",),
     "mongodb": ("mongo",),
-    "openobserve": ("openobserve",),
+    STORE_SERVICE: ("telemetry_store",),
+    GATEWAY_SERVICE: ("telemetry_gateway", "telemetry_metrics"),
+    HISTORY_SERVICE: ("history",),
     "event-dispatcher": ("dispatcher",),
     "dispatch-worker": ("worker",),
     "bluesky-bridge": ("bluesky", "bluesky_second_lane"),
@@ -174,7 +198,7 @@ _SERVICE_LAYOUT_SLOTS = {
 }
 
 # The CONTAINER port a slot's service speaks on, for the slots that a service
-# name alone cannot tell apart. Only the graph store needs this: it owns two
+# name alone cannot tell apart. The graph store needs this: it owns two
 # slots one port apart, so matching on the host port alone would read a bolt
 # port hand-placed on the HTTP slot's default as "still on its slot" and send
 # the operator to ``deployment.port_base``, which would move the block and leave
@@ -182,10 +206,12 @@ _SERVICE_LAYOUT_SLOTS = {
 # distinguishes the two, and the image fixes it. A slot absent here is matched
 # on its port alone, which is right for the Bluesky lanes: both lanes are the
 # same image on the same container port, and only the host port tells them
-# apart.
+# apart. The telemetry gateway's two slots are likewise one port apart.
 _SLOT_CONTAINER_PORTS = {
     "graphdb_bolt": CONTAINER_BOLT_PORT,
     "graphdb_http": CONTAINER_HTTP_PORT,
+    "telemetry_gateway": GATEWAY_OTLP_CONTAINER_PORT,
+    "telemetry_metrics": GATEWAY_METRICS_CONTAINER_PORT,
 }
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
@@ -745,7 +771,7 @@ def derive_web_terminal_bindings(config):
     family at its roster index: ``<family base> + index`` for the terminal
     itself and for each companion server (artifact gallery, ARIEL, lattice, …).
     The index band is allocated whole — a user holds a slot in every family
-    whether or not the persona starts that panel — so the whole band is checked,
+    whether or not the render starts that panel — so the whole band is checked,
     the same way the allocator reserves it.
 
     The ports are derived the same way the render derives them, from the same
@@ -778,7 +804,9 @@ def derive_web_terminal_bindings(config):
 
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(config))
     bindings = []
-    for entry in normalize_users(web_terminals.get("users")):
+    # Every card the deployment runs, shared app cards included: an app's
+    # derived slot binds host ports like any person's, so the preflight must see it.
+    for entry in roster_entries(web_terminals):
         user = entry["name"]
         try:
             ports = allocate_ports(base_ports, entry["index"])
@@ -788,7 +816,11 @@ def derive_web_terminal_bindings(config):
         for family, port in ports.items():
             slot = SLOTS_BY_NAME.get(family)
             family_key = slot.config_key if slot is not None else None
-            remedy = f"index for user {user!r} in modules.web_terminals.users"
+            remedy = (
+                f"position of app {user!r} in modules.web_terminals.shared"
+                if is_app_entry(entry)
+                else f"index for user {user!r} in modules.web_terminals.users"
+            )
             if family_key:
                 remedy = f"{remedy} (or {family_key})"
             bindings.append(
@@ -803,6 +835,48 @@ def derive_web_terminal_bindings(config):
                 )
             )
     return bindings
+
+
+def derive_reader_origin_bindings(config):
+    """Derive the port of the readers' origin, when this deployment serves one.
+
+    The readers' origin is a second server of the web tier's nginx, which runs
+    on the host network and so has no ``ports:`` block to parse. It exists when
+    the web terminals are enabled and the telemetry store is deployed, and
+    listens on the ``reader`` slot unless ``modules.web_terminals.reader_port``
+    places it elsewhere.
+
+    A ``reader_port`` that is not a port derives nothing here; the telemetry
+    lint refuses that config by name.
+
+    :param config: Loaded (rendered) configuration dictionary
+    :type config: dict
+    :return: The one binding, labeled ``nginx`` and marked host-network, or an
+        empty list
+    :rtype: list[HostPortBinding]
+    """
+    if not isinstance(config, dict) or not store_deployed(config):
+        return []
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if not isinstance(web_terminals, dict) or not web_terminals.get("enabled"):
+        return []
+    try:
+        port = reader_port(config)
+    except ValueError as exc:
+        logger.debug(f"The readers' origin derives no port for the preflight: {exc}")
+        return []
+    on_slot = port == default_port("reader", base=resolve_port_base(config))
+    return [
+        HostPortBinding(
+            service="nginx",
+            host_ip=resolve_bind_address(config),
+            host_port=port,
+            container_port=port,
+            compose_file=_DERIVED_SOURCE,
+            host_network=True,
+            remedy=PORT_BASE_CONFIG_KEY if on_slot else SLOTS_BY_NAME["reader"].config_key,
+        )
+    ]
 
 
 def _probe_host(host_ip):
@@ -932,10 +1006,8 @@ def _record_from_ps_obj(obj):
             if isinstance(item, dict):
                 published = item.get("host_port") or item.get("hostPort")
                 if published:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         host_ports.add(int(published))
-                    except (TypeError, ValueError):
-                        pass
             elif isinstance(item, str):
                 host_ports |= _host_ports_from_ports_string(item)
 
@@ -1201,7 +1273,10 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
     # published one already took is the one that has to move, and its remedy is
     # the key that moves it.
     bindings = (
-        list(bindings) + derive_host_network_bindings(config) + derive_web_terminal_bindings(config)
+        list(bindings)
+        + derive_host_network_bindings(config)
+        + derive_web_terminal_bindings(config)
+        + derive_reader_origin_bindings(config)
     )
 
     def _conflict(binding, kind, holder):

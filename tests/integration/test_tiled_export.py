@@ -34,6 +34,7 @@ Skips cleanly when no container runtime is reachable (`is_docker_available`).
 
 from __future__ import annotations
 
+import contextlib
 import io
 import time
 from collections.abc import Iterator
@@ -130,10 +131,8 @@ def _serving_uri(container: Any, timeout: float = 90.0) -> str:
             pass
         time.sleep(0.5)
     logs = ""
-    try:
+    with contextlib.suppress(Exception):
         logs = container.get_logs()[1].decode()[-2000:]
-    except Exception:
-        pass
     pytest.fail(f"Tiled at {uri or '<unmapped>'} never served /healthz within {timeout}s.\n{logs}")
 
 

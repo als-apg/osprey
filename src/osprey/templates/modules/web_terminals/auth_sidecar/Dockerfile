@@ -20,8 +20,9 @@
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op.
 # This image is built locally by `osprey up` in `image_source: local`
-# mode; a registry-mode deployment sets modules.web_terminals.auth.image to a
-# published image instead, and publishing that image is the facility CI's job.
+# mode; a registry-mode deployment pulls <registry.url>/<project>-auth:<image_tag>
+# (or a pinned modules.web_terminals.auth.image) instead, and publishing that
+# image is the facility CI's job, as for the terminal images.
 #
 # WHY THIS LIVES UNDER templates/modules/ AND NOT templates/services/: that tree
 # is catalog-bound — every directory in it must be a registered BuildArtifactCatalog

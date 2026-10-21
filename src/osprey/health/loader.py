@@ -7,7 +7,7 @@ and without entangling itself with the CLI's process-global config singleton.
 This module owns the *synchronous* half of one refresh cycle:
 resolve the config path, cheaply skip work when nothing on disk changed (an
 mtime/size gate), reload ``.env`` only when it actually changed, load and parse
-``config.yml`` through a private :class:`~osprey.utils.config.ConfigBuilder`
+``config.yml`` through a private :class:`~osprey_connectors.config.ConfigBuilder`
 (never the shared ``get_config_builder`` singleton), and assemble the merged
 category records via :mod:`osprey.health.records`.
 
@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.health.signatures import stat_signature
-from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
+from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
@@ -91,7 +91,7 @@ def _load_config(
     from osprey.health.records import _load_config_result
 
     def _load() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         builder = ConfigBuilder(str(config_path), load_env=False)
         return builder.raw_config, builder.get_unexpanded_config()
@@ -112,7 +112,7 @@ class HealthConfigLoader:
         """
         Args:
             config_path: Explicit ``config.yml`` path. ``None`` (the default)
-                resolves per :func:`osprey.utils.workspace.resolve_config_path`
+                resolves per :func:`osprey_connectors.workspace.resolve_config_path`
                 on every cycle (``OSPREY_CONFIG`` env, else ``./config.yml``), so
                 resolution tracks the process cwd/env like the CLI does.
         """
@@ -162,7 +162,7 @@ class HealthConfigLoader:
     def _resolve_path(self) -> Path:
         if self._config_path_override is not None:
             return self._config_path_override
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         return resolve_config_path()
 

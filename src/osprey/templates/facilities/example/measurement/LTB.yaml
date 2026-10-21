@@ -1,0 +1,7 @@
+kinds:
+- orm
+groups:
+  bpm: LTB/BPM
+  hcor: LTB/HCM
+  vcor: LTB/VCM
+corrector_delta: 1.0e-05
