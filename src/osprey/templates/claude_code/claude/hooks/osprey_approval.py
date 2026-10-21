@@ -24,6 +24,12 @@ stdin ──► Parse JSON
              YES
               │
               ▼
+         plan mode, and the plan-mode
+         rule denies it?  ──YES──► EXIT, no decision
+              │
+             NO
+              │
+              ▼
          Load config.yml
               │
               ▼
@@ -162,6 +168,13 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
+
+# The plan-mode rule, a sibling script like the reader above. Guarded the same
+# way: a render without it has no early exit below, so the hook asks as before.
+try:
+    import osprey_plan_mode as _plan_mode
+except Exception:  # pragma: no cover - render without the plan-mode rule
+    _plan_mode = None
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
@@ -3253,6 +3266,11 @@ def main():
 
     tool_input = hook_input.get("tool_input", {})
     short_name = short_tool_name(tool_name, _prefixes)
+
+    # Plan mode: the plan-mode rule denies this call, and an ask here would win over its deny.
+    if _plan_mode is not None and _plan_mode.plan_mode_denies(hook_input):
+        log_hook("approval", hook_input, status="defer", detail=f"plan_mode tool={short_name}")
+        sys.exit(0)
 
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
