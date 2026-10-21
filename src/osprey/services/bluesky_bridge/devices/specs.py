@@ -25,6 +25,11 @@ class SettableSpec:
     ``motion_band`` is how far the readback's simulated motion carries it,
     which only a simulated lane settles within. With none of the three the
     device settles within the profile's floor.
+
+    ``unit`` is the unit of the value the device reports under its own name
+    (its readback, or its setpoint when it reads that back); ``setpoint_unit``
+    is the unit of its setpoint channel when that is a separate channel. Each
+    is ``None`` when the facility states none.
     """
 
     name: str
@@ -33,11 +38,18 @@ class SettableSpec:
     settle_tolerance: float | None = None
     settle_relative: float | None = None
     motion_band: float | None = None
+    unit: str | None = None
+    setpoint_unit: str | None = None
 
 
 @dataclass(frozen=True)
 class ReadableSpec:
-    """One read-only device to build: its device-mapping name and read PV."""
+    """One read-only device to build: its device-mapping name and read PV.
+
+    ``unit`` is the unit of the value it reads, ``None`` when the facility
+    states none.
+    """
 
     name: str
     read_pv: str
+    unit: str | None = None

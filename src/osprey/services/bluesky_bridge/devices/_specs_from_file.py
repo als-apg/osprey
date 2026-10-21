@@ -17,12 +17,15 @@ line naming the document and its version::
         setpoint: SR:C01:QF:1:SP
         readback: SR:C01:QF:1:RB   # optional; omitted => reads the setpoint PV
         settle_tolerance: 0.05     # optional; or {relative: 1.0e-4} of the demand
+        unit: A                    # optional; the unit of the value under `name`
+        setpoint_unit: A           # optional; the setpoint's unit, with a readback
       - name: SR:C01:QD:1
         setpoint: SR:C01:QD:1:SP
         motion_band: 0.011         # optional; the readback's simulated motion
     readables:
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
+        unit: mm                   # optional
 
 ``yaml.safe_load`` parses it, so a ``.json`` file is read by the same code
 path. Nothing here splits a value on any character, which is the point of the
@@ -70,8 +73,14 @@ TOP_LEVEL_KEYS = (SETTABLES_KEY, READABLES_KEY)
 ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 """The only keys the document may carry; anything else rejects the document."""
 
+UNIT_KEY = "unit"
+"""Optional settable and readable key: the unit of the value a device reports
+under its own name, a non-empty string. A device without one declares no unit."""
+SETPOINT_UNIT_KEY = "setpoint_unit"
+"""Optional settable key: the unit of the setpoint channel of a device with a
+separate readback, a non-empty string."""
 _SETTABLE_REQUIRED = ("name", "setpoint")
-_SETTABLE_OPTIONAL = ("readback",)
+_SETTABLE_OPTIONAL = ("readback", UNIT_KEY, SETPOINT_UNIT_KEY)
 SETTLE_TOLERANCE_KEY = "settle_tolerance"
 """Optional settable key: how far the readback may sit from the demand once settled.
 
@@ -89,7 +98,7 @@ RELATIVE_KEY = "relative"
 _SETTABLE_NUMERIC_OPTIONAL = (MOTION_BAND_KEY,)
 _SETTABLE_TOLERANCE_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
-_READABLE_OPTIONAL: tuple[str, ...] = ()
+_READABLE_OPTIONAL = (UNIT_KEY,)
 
 
 def _clean(value: Any) -> str | None:
@@ -102,6 +111,28 @@ def _clean(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip() or None
+
+
+def _optional_strings(
+    entry: dict[str, Any], keys: tuple[str, ...], where: str, name: str
+) -> dict[str, str | None] | None:
+    """Each optional string key of ``entry``, or ``None`` when one is malformed.
+
+    Absent or null leaves the key ``None``; present but not a non-empty string
+    is a malformed entry, warned about by name.
+    """
+    values: dict[str, str | None] = {}
+    for key in keys:
+        values[key] = None
+        if entry.get(key) is None:
+            continue
+        values[key] = _clean(entry[key])
+        if values[key] is None:
+            logger.warning(
+                "skipping %s (%r): %r is present but not a non-empty string", where, name, key
+            )
+            return None
+    return values
 
 
 def _tolerance(value: Any) -> float | None:
@@ -175,7 +206,9 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     ``settle_tolerance`` and ``motion_band`` are optional too: absent or null
     leaves the device without that bound; a ``settle_tolerance`` that is not a
     number >= 0 or ``{relative: <number >= 0>}``, or a ``motion_band`` that is
-    not a number >= 0, is a malformed entry.
+    not a number >= 0, is a malformed entry. ``unit`` and ``setpoint_unit`` are
+    optional strings: absent or null declares no unit; present but not a
+    non-empty string is a malformed entry.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -229,6 +262,10 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 )
                 continue
 
+        units = _optional_strings(entry, (UNIT_KEY, SETPOINT_UNIT_KEY), where, name)
+        if units is None:
+            continue
+
         specs.append(
             SettableSpec(
                 name=name,
@@ -237,6 +274,8 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 settle_tolerance=settle[0],
                 settle_relative=settle[1],
                 motion_band=band,
+                unit=units[UNIT_KEY],
+                setpoint_unit=units[SETPOINT_UNIT_KEY],
             )
         )
     return specs
@@ -245,7 +284,8 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
 def _parse_readables(section: Any) -> list[ReadableSpec]:
     """Parse the ``readables`` section, skipping malformed entries with a warning.
 
-    An entry needs a non-empty ``name`` and ``pv``; see ``_parse_settables``.
+    An entry needs a non-empty ``name`` and ``pv``; ``unit`` is optional, as
+    on a settable. See ``_parse_settables``.
     """
     specs: list[ReadableSpec] = []
     for index, entry in enumerate(_entries(section, READABLES_KEY)):
@@ -264,7 +304,11 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
             )
             continue
 
-        specs.append(ReadableSpec(name=name, read_pv=read_pv))
+        units = _optional_strings(entry, (UNIT_KEY,), where, name)
+        if units is None:
+            continue
+
+        specs.append(ReadableSpec(name=name, read_pv=read_pv, unit=units[UNIT_KEY]))
     return specs
 
 
