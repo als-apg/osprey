@@ -582,7 +582,7 @@ def test_the_zero_source_facts_carry_the_key_and_the_schema_number() -> None:
     zero = zero_source_facts({})
     assert zero["trajectory_slots"] == {}
     assert "trajectory_slots" in FACTS_KEYS
-    assert FACTS_SCHEMA == "osprey.facility.facility_facts/5"
+    assert FACTS_SCHEMA == "osprey.facility.facility_facts/6"
 
 
 def test_the_facts_and_the_zero_source_facts_carry_the_same_keys(tmp_path: Path) -> None:

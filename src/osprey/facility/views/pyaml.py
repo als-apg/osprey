@@ -79,6 +79,7 @@ __all__ = [
     "measurement_groups",
     "pyaml_view_wanted",
     "trajectory_slots",
+    "trajectory_catalog",
     "tune_references",
     "view_names",
     "write_pyaml_view",
@@ -564,6 +565,157 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
         _step(step, position) for position, step in enumerate(declared.get("steps") or [])
     ]
     return slots
+
+
+#: Each plane word of the trajectory matrix's columns and the catalog role and
+#: plane of the correctors it marks.
+_CATALOG_CORRECTORS: dict[str, tuple[str, str]] = {
+    PLANE_WORDS["x"]: ("hcms", "x"),
+    PLANE_WORDS["y"]: ("vcms", "y"),
+}
+
+
+def _shown_name(record: Mapping[str, Any]) -> str:
+    """The one name a person reads for a record: its ``label``, else its first name, else its id."""
+    label = record.get("label")
+    if label:
+        return str(label)
+    names = sorted(str(name) for name in record.get("names") or [])
+    return names[0] if names else str(record["id"])
+
+
+def _place_chain(
+    places: Mapping[str, Mapping[str, Any]], place: Any
+) -> list[dict[str, str | None]]:
+    """The places holding ``place``, root to leaf, each ``{id, level}``.
+
+    A place's id is a ``/``-separated path; every prefix of it that is a place
+    is a link of the chain.
+    """
+    if place is None:
+        return []
+    parts = str(place).split("/")
+    chain: list[dict[str, str | None]] = []
+    for depth in range(1, len(parts) + 1):
+        here = "/".join(parts[:depth])
+        record = places.get(here)
+        if record is None:
+            continue
+        level = record.get("level")
+        chain.append({"id": here, "level": None if level is None else str(level)})
+    return chain
+
+
+def _catalog_entry(
+    name: str,
+    device: Mapping[str, Any],
+    places: Mapping[str, Mapping[str, Any]],
+    listing: Mapping[str, list[str]],
+    plane: str | None,
+) -> dict[str, Any]:
+    """One catalog entry: the matrix name and what the facility file says of its device."""
+    device_id = str(device["id"])
+    s = device.get("s")
+    return {
+        "name": name,
+        "device": device_id,
+        "label": _shown_name(device),
+        "places": _place_chain(places, device.get("place")),
+        "s": float(s) if isinstance(s, int | float) and not isinstance(s, bool) else None,
+        "plane": plane,
+        "groups": sorted(listing.get(device_id, ())),
+    }
+
+
+def trajectory_catalog(
+    doc: Mapping[str, Any], model: str, matrix: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The devices a model's trajectory response matrix covers, as the facility names them.
+
+    ``bpms`` holds one entry per ``x`` row of the matrix, ``hcms`` one per
+    horizontal column and ``vcms`` one per vertical column, each in matrix
+    order. An entry is ``{name, device, label, places, s, plane, groups}``:
+    ``name`` the matrix name, the channel address; ``device`` the id of the
+    device the channel is on; ``label`` the device's ``label``, else the first
+    of its ``names`` in sorted order, else its id; ``places`` the places
+    holding the device, root to leaf, each ``{id, level}`` with the facility's
+    own ``level`` word or ``None``; ``s`` the device's position in metres or
+    ``None``; ``plane`` ``x`` or ``y`` for a corrector and ``None`` for a
+    monitor; ``groups`` the sorted ids of the groups listing the device.
+    ``groups`` holds, sorted by id, each group listing a device of an entry as
+    ``{id, label, members}``, its ``label`` read as an entry's is and its
+    ``members`` the matrix names of its devices, in ``bpms``, ``hcms``,
+    ``vcms`` order.
+
+    Args:
+        doc: The facility file.
+        model: The model's name.
+        matrix: The model's trajectory response matrix, as
+            :data:`TRAJECTORY_RM_FILE` holds it.
+
+    Returns:
+        The catalog, its keys in the order above.
+
+    Raises:
+        FacilityBuildError: ``reference-missing``: a matrix name is no channel
+            on a device of the facility file.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.validate import stating_files
+
+    channels = {str(channel["id"]): channel for channel in doc.get("channels", [])}
+    devices = {str(device["id"]): device for device in doc.get("devices", [])}
+    places = {str(place["id"]): place for place in doc.get("places", [])}
+    groups = sorted(doc.get("groups", []), key=lambda group: str(group["id"]))
+    listing: dict[str, list[str]] = {}
+    for group in groups:
+        for member in dict.fromkeys(str(member) for member in group.get("members") or []):
+            listing.setdefault(member, []).append(str(group["id"]))
+
+    def device_of(name: str) -> Mapping[str, Any]:
+        channel = channels.get(name)
+        device_id = ((channel or {}).get("on") or {}).get("device")
+        device: Mapping[str, Any] | None = (
+            devices.get(str(device_id)) if device_id is not None else None
+        )
+        if device is None:
+            raise FacilityBuildError(
+                "reference-missing",
+                name,
+                stating_files(channel or {}, None, fallback="channels.yaml"),
+                "put the channel on a device of the facility, or leave it out of the "
+                "model's measurement groups",
+                record_kind="channel",
+                detail=(
+                    f"matrix name {name} of model {model}'s trajectory response has no "
+                    + ("channel" if channel is None else "device")
+                    + (f" (device {device_id} is no record)" if device_id is not None else "")
+                ),
+            )
+        return device
+
+    catalog: dict[str, Any] = {"bpms": [], "hcms": [], "vcms": []}
+    for name, plane in zip(matrix["observable_names"], matrix["observable_planes"], strict=True):
+        if plane == PLANE_WORDS["x"]:
+            catalog["bpms"].append(
+                _catalog_entry(str(name), device_of(str(name)), places, listing, None)
+            )
+    for name, plane in zip(matrix["variable_names"], matrix["variable_planes"], strict=True):
+        role, word = _CATALOG_CORRECTORS[plane]
+        catalog[role].append(_catalog_entry(str(name), device_of(str(name)), places, listing, word))
+    entries = [*catalog["bpms"], *catalog["hcms"], *catalog["vcms"]]
+    catalog["groups"] = [
+        {"id": str(group["id"]), "label": _shown_name(group), "members": members}
+        for group in groups
+        if (
+            members := [
+                entry["name"]
+                for entry in entries
+                if str(group["id"]) in listing.get(entry["device"], ())
+            ]
+        )
+    ]
+    return catalog
 
 
 def _reading_of(channels: Mapping[str, Mapping[str, Any]], address: Any) -> str | None:
