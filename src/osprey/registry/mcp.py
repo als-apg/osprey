@@ -106,6 +106,12 @@ class ServerDefinition:
     # listed here must be one the classifier marks: exempting a read is a no-op
     # and a stale name is a test failure.
     plan_mode_allowed: list[str] = field(default_factory=list)
+    # Approval-gated tools that only read, by short tool name. An audited read
+    # is approval-gated because what it reads is sensitive; it changes nothing,
+    # so plan mode never refuses it. Every approval-gated tool of a server is
+    # exactly one of side-effecting (refused in plan mode unless
+    # ``plan_mode_allowed``) or an audited read.
+    audited_reads: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +253,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
         hooks_post=[_post_error("mcp__controls__.*")],
+        audited_reads=["channel_read", "archiver_read"],
     ),
     "phoebus": ServerDefinition(
         name="phoebus",
@@ -999,9 +1006,8 @@ def server_side_effect_tools(sdef: ServerDefinition) -> list[str]:
     * every ``hooks_pre`` matcher gated by the writes-check hook (hardware
       writes).
 
-    Deliberately NOT keyed on ``_APPROVAL``: that hook also wraps audited
-    *reads* (``channel_read``, ``archiver_read``), which a read-only query must
-    still be able to call.
+    Deliberately NOT keyed on ``_APPROVAL``: that hook also wraps the server's
+    ``audited_reads``, which a read-only query must still be able to call.
 
     Applies unchanged to a framework template, an ``extends`` clone and a
     custom server built from a config spec.
@@ -1021,8 +1027,13 @@ def server_side_effect_tools(sdef: ServerDefinition) -> list[str]:
 
 
 def _server_plan_mode_denied(sdef: ServerDefinition) -> list[str]:
-    """The side-effecting tools of *sdef* minus its ``plan_mode_allowed``, deduplicated."""
-    allowed = {f"mcp__{sdef.name}__{tool}" for tool in sdef.plan_mode_allowed}
+    """The side-effecting tools of *sdef* minus its exemptions and reads, deduplicated.
+
+    Neither a ``plan_mode_allowed`` tool nor an ``audited_reads`` tool is ever denied.
+    """
+    allowed = {
+        f"mcp__{sdef.name}__{tool}" for tool in (*sdef.plan_mode_allowed, *sdef.audited_reads)
+    }
     out: list[str] = []
     for name in server_side_effect_tools(sdef):
         if name not in allowed and name not in out:
