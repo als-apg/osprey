@@ -255,6 +255,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
+    ariel_sql_tool = _ariel_sql_tool(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -333,10 +334,15 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # attachment_view, and the logbook templates read it to leave the tool
         # and its viewing rules out of the rendered guidance.
         "ariel_attachment_view": ariel_attachment_view,
+        # Whether the ARIEL server serves sql_query: false where the profile
+        # authors `ariel.database.uri` without `ariel.database.readonly_uri`.
+        # resolve_servers reads it to withhold the tool, and the logbook
+        # templates read it to leave the tool and its SQL guidance out.
+        "ariel_sql_tool": ariel_sql_tool,
         # The ARIEL read tools the control-assistant CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
-        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
+        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view, ariel_sql_tool),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -497,6 +503,21 @@ def _ariel_attachment_view(config: dict) -> bool:
         raise BuildProfileError(str(exc)) from exc
 
 
+def _ariel_sql_tool(config: dict) -> bool:
+    """Whether the ARIEL server serves ``sql_query``; ``True`` with no ``ariel`` mapping.
+
+    The tool is served only through a SELECT-only login, so a profile that
+    authors ``ariel.database.uri`` without ``ariel.database.readonly_uri`` gets
+    no SQL tool.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    from osprey.services.ariel_search.config import sql_tool_offered
+
+    return sql_tool_offered(ariel)
+
+
 #: The ARIEL tools the main agent calls itself rather than through a logbook
 #: subagent: the two introspection tools, and the two verbs that put an entry or
 #: picture the subagent found in front of the operator.
@@ -505,19 +526,21 @@ _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
 )
 
 
-def _ariel_read_tools(view_enabled: bool) -> list[str]:
+def _ariel_read_tools(view_enabled: bool, sql_tool: bool = True) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
-    ``attachment_view`` while the view is off (the server then does not offer
-    it).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, except
+    ``attachment_view`` while the view is off, and except ``sql_query`` while
+    the SQL tool is withheld (the server then does not offer either).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
     excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
     if not view_enabled:
         excluded.add("attachment_view")
+    if not sql_tool:
+        excluded.add("sql_query")
     return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
 
 

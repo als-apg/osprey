@@ -85,6 +85,15 @@ def test_attachment_view_row_is_conditional_on_the_view_switch():
     assert "{%- endif %}" not in text[opener:row]
 
 
+def test_sql_query_row_is_conditional_on_the_readonly_login():
+    text = _TEMPLATE.read_text(encoding="utf-8")
+    row = text.index("- `sql_query`")
+    opener = text.rfind("{%- if ariel_sql_tool %}", 0, row)
+    assert opener != -1
+    assert "{%- endif %}" in text[row:]
+    assert "{%- endif %}" not in text[opener:row]
+
+
 def test_contract_documents_the_view_switch():
     """The view-off rule is stated in the contract next to ``attachment_view``."""
     text = _CONTRACT_RST.read_text(encoding="utf-8")
