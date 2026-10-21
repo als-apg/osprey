@@ -176,7 +176,18 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # passing over an empty list. Raise this when probe lanes are added.
 EXPECTED_MIN_ALS_APG_PROBES = 10
 
-CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
+#: Where the scheduler override is defined. Both conftests import it by name
+#: from here (see ``test_both_conftests_import_the_scheduler_override``).
+CONFTEST = Path(__file__).resolve().parents[1] / "_connectors_harness.py"
+#: The conftests that must carry the override for pytest to call it.
+SCHEDULER_CONFTESTS = (
+    Path(__file__).resolve().parents[1] / "conftest.py",
+    Path(__file__).resolve().parents[2]
+    / "packages"
+    / "osprey-connectors"
+    / "tests"
+    / "conftest.py",
+)
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 
 #: The per-test hang-breaker on the unit lane. Both halves are load-bearing and
@@ -1487,13 +1498,28 @@ def _missing_scheduler_parts(source: str) -> list[str]:
 
 def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
     """Source-level counterpart to the ci.yml pin above. `--dist loadgroup` is
-    only safe for this suite because ``tests/conftest.py`` replaces stock
+    only safe for this suite because the conftests replace stock
     ``LoadGroupScheduling`` — which gives every unmarked nodeid its own scope
     — with one that falls back to file scope. Deleting the override while
     leaving the CI flag in place would parallelize the lane per-test again,
     silently, and the failures would land as intermittent reds in unrelated
     PRs."""
     assert _missing_scheduler_parts(_conftest_source()) == []
+
+
+def test_both_conftests_import_the_scheduler_override() -> None:
+    """The override is defined in the harness, and pytest calls a hook only from
+    a conftest or a registered plugin. A conftest that stopped importing it
+    would hand its tree back to stock scheduling while the definition above
+    still passed."""
+    for conftest in SCHEDULER_CONFTESTS:
+        imported = {
+            alias.name
+            for node in ast.parse(conftest.read_text(encoding="utf-8")).body
+            if isinstance(node, ast.ImportFrom) and node.module == "tests._connectors_harness"
+            for alias in node.names
+        }
+        assert SCHEDULER_HOOK in imported, f"{conftest} does not import {SCHEDULER_HOOK}"
 
 
 def test_conftest_scheduler_override__mutation_renames_hook() -> None:
@@ -1583,18 +1609,19 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     sharded unit lane counts as the whole-tree sweep it is. An invocation
     whose only path is a bare variable (``$E2E_FILTER``) is an operator-chosen
     debug path on a manual dispatch, not a lane, and reaches nothing here; an
-    invocation with no path at all collects ``testpaths``, which is ``tests``.
+    invocation with no path at all collects ``testpaths``, which is ``tests``
+    and the packages' own suites (:data:`PACKAGE_TEST_ROOTS`).
     """
     try:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
-    paths = [t for t in tokens if t == "tests" or t.startswith("tests/")]
+    paths = [t for t in tokens if t == "tests" or t.startswith(("tests/", "packages/"))]
     ignores = [t.removeprefix("--ignore=") for t in tokens if t.startswith("--ignore=")]
     if not paths:
         if any(t.startswith("$") for t in tokens):
             return False
-        paths = ["tests"]
+        paths = ["tests", *PACKAGE_TEST_ROOTS]
 
     def _covers(path: str) -> bool:
         path = path.split("::", 1)[0]
@@ -4237,6 +4264,10 @@ def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = TESTS_ROOT.parent
+#: Workspace packages' own suites, which the root ``testpaths`` lists beside
+#: ``tests``. Each is one entry of the unit shards' partition, like a top-level
+#: ``tests/<dir>``.
+PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 
 
 #: The marker a module applies to itself to say it drives a browser. It is
@@ -10880,8 +10911,11 @@ def _shard_reaches(wf: dict[str, Any], shard: str, test_file: str) -> bool:
 def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     """The top level of ``tests/`` as the shards see it: every directory that
     holds a test module somewhere below it, and every test module directly in
-    ``tests/``, as repo-relative posix paths."""
-    entries = set()
+    ``tests/``, as repo-relative posix paths, plus each package suite in
+    :data:`PACKAGE_TEST_ROOTS`."""
+    entries = {
+        package for package in PACKAGE_TEST_ROOTS if any((root.parent / package).rglob("test_*.py"))
+    }
     for pattern in ("test_*.py", "*_test.py"):
         for path in root.rglob(pattern):
             if "__pycache__" in path.parts:
@@ -10925,6 +10959,7 @@ def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str
 def test_the_unit_shards_cover_the_test_tree_exactly_once(workflow: dict[str, Any]) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
     problems = _shard_coverage_problems(workflow, entries)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
 

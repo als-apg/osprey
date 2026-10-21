@@ -56,3 +56,35 @@ version-file = "src/osprey_connectors/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_connectors"]
+
+# What the package's own suite (tests/) needs on top of the runtime dependencies.
+# A dependency group rather than an extra, so it never reaches the published
+# wheel's metadata. `uv sync --package osprey-connectors` installs it (`dev` is
+# uv's default group) and nothing of the framework, which is the point: the
+# `connectors-standalone` CI lane runs this suite where `import osprey` fails.
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-timeout",
+    "pytest-xdist",
+    "cryptography",  # tests/osprey_connectors_tests/_loopback_https.py mints its certificates
+]
+
+# Read when pytest runs from this directory (the standalone lane). A run from the
+# repository root reads the root pyproject.toml instead, which lists tests/ here
+# among its testpaths, so both entry points collect the same suite.
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -v --tb=short --strict-markers --color=yes"
+testpaths = ["tests"]
+# The repository root, for the framework-free guards in tests/_connectors_harness.py
+# that both suites share. It holds no importable `osprey`: the framework lives
+# under src/, which is deliberately absent, so a test that reached for it fails.
+pythonpath = ["../.."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+tmp_path_retention_policy = "failed"

@@ -30,14 +30,14 @@ import pytest
 from osprey_connectors.control_system._epics_connector import (
     _ChannelSubscription,
 )
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     FakeAioca,
     FakeChannel,
     FakeDisconnected,
     FakeValue,
     ca_reading,
 )
-from tests.connectors._epics_fakes import pva_connector as _pva_connector
+from osprey_connectors_tests._epics_fakes import pva_connector as _pva_connector
 
 PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"

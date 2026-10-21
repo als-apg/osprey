@@ -8,9 +8,9 @@ from osprey_connectors.types import (
     archiver_settings_key,
     resolve_archiver_settings,
 )
-from tests.connectors._mock_dynamic_connector import RecordingArchiver
+from osprey_connectors_tests._mock_dynamic_connector import RecordingArchiver
 
-RECORDING = "tests.connectors._mock_dynamic_connector.RecordingArchiver"
+RECORDING = "osprey_connectors_tests._mock_dynamic_connector.RecordingArchiver"
 
 
 @pytest.fixture(autouse=True)

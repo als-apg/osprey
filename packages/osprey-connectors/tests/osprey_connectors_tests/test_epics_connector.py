@@ -3,7 +3,7 @@
 These tests drive the connector's real code paths — connect error/name-server
 handling, the read path and its facility-timezone timestamp, the confirm flow
 and its outcomes, the fail-closed write guard, and subscription plumbing —
-with an injected fake ``aioca`` (``tests/connectors/_epics_fakes.py``) so no
+with an injected fake ``aioca`` (``packages/osprey-connectors/tests/osprey_connectors_tests/_epics_fakes.py``) so no
 real Channel Access is required. Gateway selection lives in
 ``test_epics_gateway_selection.py``.
 
@@ -32,7 +32,7 @@ from osprey_connectors.control_system._epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
 )
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     DBR_CHAR,
     DBR_DOUBLE,
     DBR_ENUM,
@@ -50,10 +50,10 @@ from tests.connectors._epics_fakes import (
     install_fake_aioca,
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     ca_connector as _connector,
 )
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     patch_writes_enabled as _patch_writes_enabled,
 )
 

@@ -6,7 +6,7 @@ Channel Access path, a fake ``p4p`` package, a p4p ``Value`` stand-in, and
 connectors wired without going through ``connect()``.
 
 Fixtures defined here reach a test module only when that module imports them,
-for example ``from tests.connectors._epics_fakes import fake_aioca  # noqa: F401``.
+for example ``from osprey_connectors_tests._epics_fakes import fake_aioca  # noqa: F401``.
 """
 
 from __future__ import annotations

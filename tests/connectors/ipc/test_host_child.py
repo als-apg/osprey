@@ -62,7 +62,7 @@ PYTHONPATH = os.pathsep.join(
 IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 #: A connector whose ``connect()`` never returns, by dotted path.
-HANGING_TYPE = "tests.connectors.ipc._pool_connectors.HangingConnector"
+HANGING_TYPE = "osprey_connectors_tests.ipc._pool_connectors.HangingConnector"
 
 #: The addresses a spawned child writes, and the ones it only reads.
 SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
@@ -1284,7 +1284,13 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         cwd=tmp_path,
         env_extra={
             host.START_MARKS_FD_ENV: str(write_fd),
-            "PYTHONPATH": os.pathsep.join([str(REPO_ROOT), PYTHONPATH]),
+            "PYTHONPATH": os.pathsep.join(
+                [
+                    str(REPO_ROOT),
+                    str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
+                    PYTHONPATH,
+                ]
+            ),
         },
         pass_fds=(write_fd,),
     )

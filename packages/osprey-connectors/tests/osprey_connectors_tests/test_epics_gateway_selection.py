@@ -22,7 +22,7 @@ import pytest
 import osprey_connectors.control_system._epics_connector as epics_connector_module
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
-from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
+from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     clean_epics_env,
     fake_aioca,
 )

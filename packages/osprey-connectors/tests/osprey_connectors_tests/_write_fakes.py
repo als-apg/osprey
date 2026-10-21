@@ -16,7 +16,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.types import WRITES_ENABLED_KEY
-from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector
+from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector
 
 
 def writes_enabled_config(key: str, default: Any = None) -> Any:

@@ -24,7 +24,7 @@ import sys
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     EPICS_PVA_VARS,
     clean_epics_env,  # noqa: F401 - fixture, used by name
     fake_aioca,  # noqa: F401 - fixture, used by name

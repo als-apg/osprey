@@ -20,7 +20,6 @@ import socket
 import subprocess
 import sys
 from datetime import UTC, datetime
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -44,10 +43,9 @@ from osprey_connectors.ipc._proxy import (
     ConnectorHostProxy,
     raised_by_child,
 )
+from osprey_connectors_tests._paths import PACKAGE_SRC
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _channel_value(value, units="A"):
@@ -857,9 +855,7 @@ def test_the_import_closure_never_reaches_a_control_system_client():
         for key, value in os.environ.items()
         if not key.startswith(("EPICS_", "PYEPICS_"))
     }
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
-    )
+    env["PYTHONPATH"] = str(PACKAGE_SRC)
     probe = (
         "import osprey_connectors.ipc._pool, os, sys; "
         "loaded = [m for m in ('epics', 'pyepics', 'p4p') if m in sys.modules]; "

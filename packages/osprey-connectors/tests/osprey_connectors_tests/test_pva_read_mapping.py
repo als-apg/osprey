@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     FakeDisconnected,
     FakeRemoteError,
     FakeValue,

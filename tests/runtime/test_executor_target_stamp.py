@@ -15,7 +15,7 @@ happened.
 
 The convergence half is the executor's *use* of
 :func:`osprey_connectors.control_context.blocking_pids` — that predicate's own
-rules are exercised exhaustively in ``tests/connectors/test_control_context.py``
+rules are exercised exhaustively in ``packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py``
 and are not restated here.
 """
 

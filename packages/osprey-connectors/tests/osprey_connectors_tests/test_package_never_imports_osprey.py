@@ -23,8 +23,9 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = REPO_ROOT / "packages" / "osprey-connectors" / "src" / "osprey_connectors"
+from osprey_connectors_tests._paths import PACKAGE_SRC, REPO_ROOT
+
+PACKAGE = PACKAGE_SRC / "osprey_connectors"
 FRAMEWORK = "osprey"
 
 # Below the package's module count and above that of any one subpackage, so a

@@ -68,10 +68,10 @@ WHITELIST: dict[str, set[str]] = {
     "facility/test_transfer_decks.py": {"sys.modules", "sys.path"},
     "facility/test_transfer_wiring.py": {"sys.modules", "sys.path"},
     "va/e2e/conftest.py": {"socket", "sys.modules"},
-    # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
+    # the conftest harness scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
     # imports any osprey module: osprey.cli.styles builds its Console at import
     # time, so a fixture would un-force a console that already exists.
-    "conftest.py": {"os.environ"},
+    "_connectors_harness.py": {"os.environ"},
 }
 
 #: Marker every whitelisted site must carry, next to the mutation.

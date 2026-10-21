@@ -16,7 +16,7 @@ from osprey_connectors.archiver._base import ArchiverMetadata
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._timerange import Processing
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from tests.connectors._loopback_https import Reply, loopback_pair
+from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 
 def _make_open_response(payload: list) -> MagicMock:

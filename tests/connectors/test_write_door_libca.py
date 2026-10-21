@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.connectors.ipc._soft_ioc import SoftIOC
+from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
 # Decided by lookup, never by import: importing either would load libca here.
 pytestmark = pytest.mark.skipif(

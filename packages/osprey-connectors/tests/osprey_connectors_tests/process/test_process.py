@@ -6,7 +6,6 @@ import select
 import signal
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -17,6 +16,7 @@ from osprey_connectors.process import (
     reap_exit_code,
     terminate,
 )
+from osprey_connectors_tests._paths import PACKAGE_SRC
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal semantics")
 
@@ -365,7 +365,7 @@ async def test_a_job_writing_a_mebibyte_to_stderr_still_completes_and_keeps_its_
 
 
 def test_the_module_imports_only_the_standard_library():
-    src = Path(__file__).resolve().parents[3] / "packages" / "osprey-connectors" / "src"
+    src = PACKAGE_SRC
     code = (
         "import sys\n"
         "import osprey_connectors.process\n"

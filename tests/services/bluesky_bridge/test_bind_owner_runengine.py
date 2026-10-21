@@ -13,7 +13,7 @@ That is the whole of what is pinned here, and it is what neither neighbour
 can pin. ``test_plan_wrapper_owner.py`` drives both wrappers as the plain
 generators they are, so it sees the owner at every yield and never sees a
 write; ``test_connector_devices.py`` drives the device without a wrapper, so
-it sees the write and never an owner. ``tests/connectors/test_owner_context.py``
+it sees the write and never an owner. ``packages/osprey-connectors/tests/osprey_connectors_tests/test_owner_context.py``
 owns the ladder and the sentinel, and none of the three are restated here.
 
 Both wrappers run every row — ``qserver_startup._make_plan_function`` for a

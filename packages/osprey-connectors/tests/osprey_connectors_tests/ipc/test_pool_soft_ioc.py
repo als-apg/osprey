@@ -15,8 +15,6 @@ child, which is the only way one process can talk to both IOCs at once.
 """
 
 import asyncio
-import os
-from pathlib import Path
 
 import pytest
 import yaml
@@ -24,12 +22,10 @@ import yaml
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.ipc._pool import ConnectorHostPool
-from tests.connectors.ipc._soft_ioc import SoftIOC
+from osprey_connectors_tests._paths import PACKAGE_SRC
+from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
-)
+PYTHONPATH = str(PACKAGE_SRC)
 
 
 #: Seed values, deliberately far apart so a read from the wrong IOC is obvious.

@@ -15,7 +15,7 @@ from osprey_connectors.connection import (
     read_credential_env_names,
     urllib_opener,
 )
-from tests.connectors._loopback_https import Reply, loopback_pair
+from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 WHERE = "archiver.settings"
 SECRET = "s3cr3t-token-value"
