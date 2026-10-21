@@ -79,10 +79,6 @@ dev = [
 minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = ["tests"]
-# The repository root, for the framework-free guards in tests/_connectors_harness.py
-# that both suites share. It holds no importable `osprey`: the framework lives
-# under src/, which is deliberately absent, so a test that reached for it fails.
-pythonpath = ["../.."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

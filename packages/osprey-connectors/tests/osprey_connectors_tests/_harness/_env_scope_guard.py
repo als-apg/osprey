@@ -1,6 +1,6 @@
-"""Scope-aware ``os.environ`` restoration, used by ``tests/conftest.py``.
+"""Scope-aware ``os.environ`` restoration, used by the conftest guards.
 
-Two guards there snapshot and restore the environment: one per test, one per
+Two guards in ``_guards`` snapshot and restore the environment: one per test, one per
 test *module*. The module-scoped one exists because a module-scoped fixture --
 a real ``osprey build`` over a seeded repo, which loads that repo's ``.env``
 with override semantics -- is set up *before* the per-test snapshot is taken,
@@ -18,11 +18,11 @@ asks pytest instead: :func:`pytest_fixture_setup` measures the setup of every
 fixture that outlives a module, and :func:`restore_module_environment` replays
 what it recorded on top of the snapshot it puts back.
 
-``tests/conftest.py`` registers this as a *plugin* rather than keeping the hook
-in its own body. ``pytest_fixture_setup`` is dispatched on the node that owns
-the fixture's scope, and a session-scoped fixture's node is the Session --
-whose hook proxy carries only the conftests above it, which ``tests/conftest.py``
-is not. A plainly registered plugin is in scope for every node, which is exactly
+``_guards.pytest_configure`` registers this as a *plugin* rather than leaving
+the hook in a conftest. ``pytest_fixture_setup`` is dispatched on the node that
+owns the fixture's scope, and a session-scoped fixture's node is the Session --
+whose hook proxy carries only the conftests above it, which neither suite's
+conftest is. A plainly registered plugin is in scope for every node, which is exactly
 the set this has to see.
 """
 

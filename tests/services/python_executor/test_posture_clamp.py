@@ -21,7 +21,10 @@ from fastmcp.exceptions import ToolError
 
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
-from tests._control_context_fixtures import DEFAULT_TARGET, write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    DEFAULT_TARGET,
+    write_control_context,
+)
 
 
 @pytest.fixture(autouse=True)

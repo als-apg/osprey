@@ -67,7 +67,7 @@ from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _CTX = "osprey.mcp_server.bluesky.server_context"

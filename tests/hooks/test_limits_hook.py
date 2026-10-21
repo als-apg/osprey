@@ -20,7 +20,10 @@ import pytest
 import yaml
 
 from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
-from tests._control_context_fixtures import state_dir_under, write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    state_dir_under,
+    write_control_context,
+)
 
 
 def _make_limits_config(tmp_path, channels_db, enabled=True, mode="exclusive"):

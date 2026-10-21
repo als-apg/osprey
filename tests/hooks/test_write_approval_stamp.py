@@ -31,7 +31,7 @@ import time
 
 import pytest
 
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     state_dir_under,
     write_control_context,
     write_server_report,
@@ -96,8 +96,8 @@ def state_dir(root):
     """The directory the record, the reports and the stamps share.
 
     One directory per identity below the root, asked of
-    :func:`~tests._control_context_fixtures.state_dir_under` rather than joined
-    here: a suite that spelled the hops itself would keep provisioning a
+    :func:`~osprey_connectors_tests._harness._control_context_fixtures.state_dir_under`
+    rather than joined here: a suite that spelled the hops itself would keep provisioning a
     directory no reader resolves, and an empty stamp listing is the only
     symptom that leaves behind.
     """

@@ -10,7 +10,7 @@ readiness wait and the teardown all live there, as does the skip on a host with
 no container engine.
 
 ``ioc_prefix``, the record prefix every soft-IOC suite names its records
-with, is the harness's (``tests/_connectors_harness.py``), shared with the
+with, is the harness's (``osprey_connectors_tests._harness._guards``), shared with the
 connectors suite.
 """
 
@@ -18,7 +18,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from tests._connectors_harness import ioc_prefix  # noqa: F401 - a fixture, used by name
+from osprey_connectors_tests._harness._guards import (
+    ioc_prefix,  # noqa: F401 - a fixture, used by name
+)
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 

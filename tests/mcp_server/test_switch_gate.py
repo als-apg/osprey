@@ -38,7 +38,7 @@ import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context
-from tests._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness._control_context_fixtures import state_dir_under
 
 # ===========================================================================
 # evaluate_switch: the same gate, context-free, as both callers will ask it

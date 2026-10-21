@@ -15,14 +15,19 @@ by name within that conftest, and every docstring below that reasons about
 fixtures would instead all run ahead of every conftest fixture. Importing keeps
 the framework suite's order exactly what it was.
 
-A hook defined here runs once per test either way: conftest hooks are applied
-by path, so the framework's conftest covers ``tests/`` and the connectors
-suite's covers its own tree. Session-level hooks (configure, unconfigure,
-collection finish, the xdist scheduler) are called for both conftests in a full
-run, and each one is written to be idempotent for that reason.
+A per-test hook defined here is applied by path: the framework's conftest
+covers ``tests/`` and the connectors suite's covers its own tree, so on a
+worker each runs once per test. The xdist controller is the exception. It
+re-emits every worker's ``pytest_runtest_logstart`` and ``logfinish`` through
+the unfiltered hook relay, which reaches both conftests in a run that collects
+both trees, so the two CI diagnostics hooks keep their own record of what they
+wrote. Session-level hooks (configure, unconfigure, collection finish, the
+xdist scheduler) are likewise called for both conftests in such a run, and
+each one is written to be idempotent for that reason.
 
-Nothing in this module imports ``osprey``; ``osprey_connectors`` and the
-framework-free helpers in ``tests/`` are all it reaches.
+Nothing in this package imports ``osprey`` or the framework's ``tests``
+package; ``osprey_connectors`` and the modules beside this one are all it
+reaches.
 """
 
 import logging
@@ -36,11 +41,18 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
-from tests._env_scope_guard import restore_module_environment
+from osprey_connectors_tests._harness import (
+    _env_scope_guard,
+    _live_threads,
+    _repo_cleanliness,
+    ci_diagnostics,
+)
+from osprey_connectors_tests._harness._env_scope_guard import restore_module_environment
+from osprey_connectors_tests._paths import REPO_ROOT as _REPO_ROOT
 
-#: Repo root — the fallback when a test leaves the process in a deleted cwd.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+# ``_REPO_ROOT`` is the checkout this package sits in: the fallback when a test
+# leaves the process in a deleted cwd, and the root whose ``var/`` the guards
+# below watch.
 
 #: Root-logging state as it was before collection — see ``restore_root_logging``.
 #: Captured at conftest import, which is the only moment guaranteed to precede
@@ -174,8 +186,9 @@ def restore_environ_per_module():
     module that created them.
 
     A fixture that outlives the module keeps its writes: the plugin registered
-    in :func:`pytest_configure` records them, and :func:`~tests._env_scope_guard.restore_module_environment` replays
-    them on top of the snapshot. Without that, a session-scoped fixture first
+    in :func:`pytest_configure` records them, and
+    :func:`~osprey_connectors_tests._harness._env_scope_guard.restore_module_environment`
+    replays them on top of the snapshot. Without that, a session-scoped fixture first
     requested by this module's second test would be left alive with its
     environment rolled back under it.
     """
@@ -740,7 +753,7 @@ def reset_second_real_block_warning():
 # OOM, a wedged worker held until the step cap — reports nothing at all: the
 # signal lands while pytest's output is still in a buffer. These hooks keep a
 # continuously flushed record on disk instead, so the post-mortem has something
-# to read. See tests/ci_diagnostics.py for the file formats and for why
+# to read. See ci_diagnostics.py for the file formats and for why
 # faulthandler must target a file rather than a worker's stderr.
 #
 # Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set, as is the
@@ -755,12 +768,12 @@ def pytest_configure(config):
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this
-    # one is not among them. See tests/_env_scope_guard.py.
+    # one is not among them. See _env_scope_guard.py.
     if not config.pluginmanager.is_registered(_env_scope_guard):
         config.pluginmanager.register(_env_scope_guard, "osprey-env-scope-guard")
 
     # Reports what keeps the process alive after its last test; on for every
-    # run because it prints nothing when nothing is left. See tests/_live_threads.py.
+    # run because it prints nothing when nothing is left. See _live_threads.py.
     if not config.pluginmanager.is_registered(_live_threads):
         config.pluginmanager.register(_live_threads, _live_threads.PLUGIN_NAME)
 
@@ -774,27 +787,45 @@ def pytest_configure(config):
             _CI_DIAGNOSTICS.start()
 
     # A failing test's containers are snapshotted before its module's fixtures
-    # remove them. See tests/ci_diagnostics.py.
+    # remove them. See ci_diagnostics.py.
     ci_diagnostics.register_container_snapshots(config.pluginmanager)
+
+
+#: The ``(event, nodeid)`` this process recorded last. The xdist controller
+#: relays a worker's ``logstart``/``logfinish`` through ``config.hook``, which
+#: is not filtered by path, so in a run that loads both conftests one relayed
+#: event reaches both of the hooks below, back to back, and the second is
+#: dropped here. Only the immediately preceding record is compared: a test that
+#: pytest-rerunfailures runs again logs a fresh ``start`` after its ``finish``,
+#: and that one must be recorded, or a rerun that wedges would leave no trace.
+_CI_LAST_RECORDED: tuple[str, str] | None = None
+
+
+def _record_once(event: str, nodeid: str) -> None:
+    """Record *event* for *nodeid* unless it is the record just written."""
+    global _CI_LAST_RECORDED
+    if _CI_DIAGNOSTICS is None or _CI_LAST_RECORDED == (event, nodeid):
+        return
+    _CI_LAST_RECORDED = (event, nodeid)
+    _CI_DIAGNOSTICS.record(event, nodeid=nodeid)
 
 
 def pytest_runtest_logstart(nodeid):
     """Fires before setup — so a test that never returns is still on record."""
-    if _CI_DIAGNOSTICS is not None:
-        _CI_DIAGNOSTICS.record("start", nodeid=nodeid)
+    _record_once("start", nodeid)
 
 
 def pytest_runtest_logfinish(nodeid):
     """Fires after teardown. A `start` left unmatched is the wedged test."""
-    if _CI_DIAGNOSTICS is not None:
-        _CI_DIAGNOSTICS.record("finish", nodeid=nodeid)
+    _record_once("finish", nodeid)
 
 
 def pytest_unconfigure():
-    global _CI_DIAGNOSTICS
+    global _CI_DIAGNOSTICS, _CI_LAST_RECORDED
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.stop()
         _CI_DIAGNOSTICS = None
+    _CI_LAST_RECORDED = None
 
 
 # ===================================================================
@@ -854,8 +885,8 @@ def pytest_xdist_make_scheduler(config, log):
 # Control context — the record and the per-server reports
 # ===================================================================
 #
-# Re-exported from ``tests._control_context_fixtures`` so that every suite
-# downstream of the control target writes the two files the same way, and a
+# Re-exported from ``osprey_connectors_tests._harness._control_context_fixtures``
+# so that every suite downstream of the control target writes the two files the same way, and a
 # schema change fails all of them at once instead of one at a time. The
 # writers are plain functions there for suites that would rather import them
 # at module level; these are the factory fixtures that hand the same functions
@@ -868,11 +899,13 @@ def write_control_context():
 
     ``write_control_context(root, target="va", generation=3,
     posture={"va": "sandbox"})`` — see
-    :func:`tests._control_context_fixtures.write_control_context` for the
+    :func:`osprey_connectors_tests._harness._control_context_fixtures.write_control_context` for the
     owner and ``last_switch`` arguments. Defaults to a record this process
     owns, so a test gets a live owner without asking for one.
     """
-    from tests._control_context_fixtures import write_control_context as _write
+    from osprey_connectors_tests._harness._control_context_fixtures import (
+        write_control_context as _write,
+    )
 
     return _write
 
@@ -883,10 +916,12 @@ def write_server_report():
 
     ``write_server_report(root, 4321, session="s", applied_target="va",
     applied_generation=3)`` — see
-    :func:`tests._control_context_fixtures.write_server_report`. Every field
-    but the PID defaults to "this server has not answered yet".
+    :func:`osprey_connectors_tests._harness._control_context_fixtures.write_server_report`.
+    Every field but the PID defaults to "this server has not answered yet".
     """
-    from tests._control_context_fixtures import write_server_report as _write
+    from osprey_connectors_tests._harness._control_context_fixtures import (
+        write_server_report as _write,
+    )
 
     return _write
 

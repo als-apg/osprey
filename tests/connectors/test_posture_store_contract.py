@@ -24,7 +24,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import CONTROL_TARGETS
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
 # --- config sections -------------------------------------------------------
 # A switch-capable deployment: live is EPICS, va and standin both configured.

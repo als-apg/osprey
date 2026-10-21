@@ -34,7 +34,7 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     pin_identity,
     state_dir_under,
     write_control_context,

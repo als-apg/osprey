@@ -178,7 +178,17 @@ EXPECTED_MIN_ALS_APG_PROBES = 10
 
 #: Where the scheduler override is defined. Both conftests import it by name
 #: from here (see ``test_both_conftests_import_the_scheduler_override``).
-CONFTEST = Path(__file__).resolve().parents[1] / "_connectors_harness.py"
+CONFTEST = (
+    Path(__file__).resolve().parents[2]
+    / "packages"
+    / "osprey-connectors"
+    / "tests"
+    / "osprey_connectors_tests"
+    / "_harness"
+    / "_guards.py"
+)
+#: The module both conftests import the override from.
+SCHEDULER_MODULE = "osprey_connectors_tests._harness._guards"
 #: The conftests that must carry the override for pytest to call it.
 SCHEDULER_CONFTESTS = (
     Path(__file__).resolve().parents[1] / "conftest.py",
@@ -196,7 +206,7 @@ PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 #: minutes) while still ending a hang far inside the step cap, and the method
 #: has to be ``signal`` — ``thread`` ends a timed-out test with ``os._exit`` of
 #: the xdist worker, which is the "node down: Not properly terminated" wedge
-#: tests/ci_diagnostics.py documents.
+#: osprey_connectors_tests._harness.ci_diagnostics documents.
 PER_TEST_TIMEOUT_FLAGS = ("--timeout=600", "--timeout-method=signal")
 SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
 SCHEDULER_CLASS = "FileOrGroupScheduling"
@@ -1516,7 +1526,7 @@ def test_both_conftests_import_the_scheduler_override() -> None:
         imported = {
             alias.name
             for node in ast.parse(conftest.read_text(encoding="utf-8")).body
-            if isinstance(node, ast.ImportFrom) and node.module == "tests._connectors_harness"
+            if isinstance(node, ast.ImportFrom) and node.module == SCHEDULER_MODULE
             for alias in node.names
         }
         assert SCHEDULER_HOOK in imported, f"{conftest} does not import {SCHEDULER_HOOK}"
@@ -5279,8 +5289,8 @@ def test_unit_test_step_timeout_is_below_the_job_cap__mutation_raises_it_to_the_
 
 
 def test_unit_lane_arms_the_diagnostics_recorder(workflow: dict[str, Any]) -> None:
-    """``tests/ci_diagnostics.py`` installs nothing unless this variable is set,
-    so without it the lane runs exactly as blind as before."""
+    """``osprey_connectors_tests._harness.ci_diagnostics`` installs nothing unless
+    this variable is set, so without it the lane runs exactly as blind as before."""
     step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
     assert step.get("env", {}).get("OSPREY_CI_DIAG_DIR"), (
         "the unit lane must set OSPREY_CI_DIAG_DIR on the pytest step to enable the "
@@ -5369,8 +5379,9 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
     frames without holding the GIL. A sample landing inside one of the parsers
     this suite lives in — PyYAML, ruamel, Jinja2 — reads a frame that is being
     freed and takes the worker down with it, which xdist reports only as ``node
-    down: Not properly terminated``. ``tests/ci_diagnostics.py`` samples from an
-    ordinary Python thread for that reason, and setting this option would put
+    down: Not properly terminated``.
+    ``osprey_connectors_tests._harness.ci_diagnostics`` samples from an ordinary
+    Python thread for that reason, and setting this option would put
     the unsafe watchdog back, on a per-test timer.
 
     Its dumps would also reach only the job log, which is exactly what a
@@ -5381,7 +5392,7 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
         "the unit lane must not pass `-o faulthandler_timeout`: pytest implements it "
         "with faulthandler.dump_traceback_later, whose GIL-free watchdog segfaults "
         "workers that are inside a YAML or Jinja parser. See the docstring of "
-        "tests/ci_diagnostics.py."
+        "osprey_connectors_tests._harness.ci_diagnostics."
     )
 
 
@@ -5398,8 +5409,8 @@ def test_unit_lane_passes_per_test_timeout(workflow: dict[str, Any]) -> None:
     ``--timeout-method=signal`` is the other half. pytest-timeout's ``thread``
     method ends the test with ``os._exit`` of the worker, and a dead worker
     under ``--dist loadgroup`` takes the whole lane with it rather than one
-    test — see the docstring of tests/ci_diagnostics.py. The cost of ``signal``
-    is that it cannot interrupt a hang inside a C extension holding the GIL;
+    test — see the docstring of ``osprey_connectors_tests._harness.ci_diagnostics``.
+    The cost of ``signal`` is that it cannot interrupt a hang inside a C extension holding the GIL;
     for that case the step cap is still the backstop.
     """
     line = _unit_test_pytest_line(workflow)

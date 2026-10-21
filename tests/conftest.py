@@ -14,18 +14,13 @@ from pathlib import Path
 import pytest
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
-from tests import _connectors_harness as _harness
-from tests import _repo_cleanliness, _scoped_temp
-from tests._agent_cli import STUB_AGENT_CLI
-from tests._builds import (  # noqa: F401 - the session's shared builds
-    built_control_assistant,
-    offline_build_env,
-)
+from osprey_connectors_tests._harness import _guards as _harness
+from osprey_connectors_tests._harness import _repo_cleanliness
 
 # The guards the connectors suite shares, imported by name so their autouse
 # fixtures take their usual places in this conftest's alphabetical order. See
-# tests/_connectors_harness.py for why they are not a registered plugin.
-from tests._connectors_harness import (  # noqa: F401 - fixtures and hooks, used by name
+# osprey_connectors_tests._harness._guards for why they are not a registered plugin.
+from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
     _AUDIT_RESOLVER_LANE,
     _GUARD_KNOWN_LIMIT,
     _PRISTINE_LOGGING,
@@ -53,6 +48,12 @@ from tests._connectors_harness import (  # noqa: F401 - fixtures and hooks, used
     session_posture_leak_guard,
     write_control_context,
     write_server_report,
+)
+from tests import _scoped_temp
+from tests._agent_cli import STUB_AGENT_CLI
+from tests._builds import (  # noqa: F401 - the session's shared builds
+    built_control_assistant,
+    offline_build_env,
 )
 
 # ===================================================================
@@ -165,7 +166,8 @@ _PLAN_DIR_FIRST_SEEN: str | None = None
 def pytest_runtest_teardown(item):
     """Bound the Bluesky plan directory's leak the way the harness bounds its two.
 
-    The harness's own teardown (:func:`tests._connectors_harness.pytest_runtest_teardown`)
+    The harness's own teardown
+    (:func:`osprey_connectors_tests._harness._guards.pytest_runtest_teardown`)
     records ``<repo>/var/agent_data`` and ``<repo>/var/audit`` and closes the
     real-deployment window; it is delegated to here, because one conftest
     carries one implementation of a hook. The plan directory is the
@@ -925,7 +927,7 @@ def pytest_configure(config):
     """Register the shared plugins and the markers whose seams live in this file.
 
     The plugins and CI diagnostics are the harness's
-    (:func:`tests._connectors_harness.pytest_configure`), which the connectors
+    (:func:`osprey_connectors_tests._harness._guards.pytest_configure`), which the connectors
     suite runs too.
     """
     _harness.pytest_configure(config)

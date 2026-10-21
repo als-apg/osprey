@@ -1,6 +1,6 @@
 """Name what keeps a finished pytest process alive, and bound how long it takes to end.
 
-Registered by ``tests/conftest.py`` for every pytest process the suite starts:
+Registered by ``_guards.pytest_configure`` for every pytest process a suite starts:
 serial, the xdist controller and each xdist worker. Once a process has run its
 last test it is not done: interpreter teardown joins every non-daemon thread
 (``ThreadPoolExecutor`` workers included), ``multiprocessing``'s atexit hook
@@ -39,7 +39,7 @@ registered earlier are counted, not named.
 The stacks come from ``sys._current_frames()`` read under the GIL, so no frame
 can change underneath the walk. ``faulthandler.dump_traceback_later`` walks
 frames without the GIL and is not safe in this suite --
-``tests/ci_diagnostics.py`` records why.
+``ci_diagnostics.py`` records why.
 
 The report observes and nothing more. It waits at most ``GRACE_SECONDS`` in
 total for threads the interpreter would join anyway, writes each line once,
@@ -61,7 +61,7 @@ from typing import Any, TextIO
 
 import pytest
 
-from tests.ci_diagnostics import worker_id
+from osprey_connectors_tests._harness.ci_diagnostics import worker_id
 
 #: The name this plugin is registered under.
 PLUGIN_NAME = "osprey-live-threads"

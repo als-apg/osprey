@@ -25,7 +25,7 @@ complete at every instant rather than at exit:
     What follows — the non-daemon threads still alive, the exit callbacks, the
     final garbage collection, and a process that outlives its exit bound — is
     named on every run, CI or not, by the exit report in
-    ``tests/_live_threads.py``.
+    ``_live_threads.py``.
 
 A third record is written only when a test fails:
 

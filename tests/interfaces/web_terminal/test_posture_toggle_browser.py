@@ -95,7 +95,10 @@ import yaml
 
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import write_control_context, write_server_report
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    write_control_context,
+    write_server_report,
+)
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 

@@ -43,7 +43,7 @@ import os
 import pytest
 
 from osprey.port_layout import default_port
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     state_dir_under,
     write_control_context,
     write_server_report,
@@ -115,8 +115,8 @@ def state_dir(tmp_path, reader, monkeypatch):
     Returns the ROOT the shared writers take. The two files land in the acting
     identity's directory below it, which is what the reader's single path seam
     is aimed at here — asked of
-    :func:`~tests._control_context_fixtures.state_dir_under` so the seam and the
-    writers cannot be pointed at two different directories. Every report PID is
+    :func:`~osprey_connectors_tests._harness._control_context_fixtures.state_dir_under`
+    so the seam and the writers cannot be pointed at two different directories. Every report PID is
     treated as running, since the reports the tests write name servers that do
     not exist.
     """

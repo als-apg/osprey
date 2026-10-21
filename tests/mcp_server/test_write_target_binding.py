@@ -52,7 +52,7 @@ from osprey.mcp_server.control_system.server_context import initialize_server_co
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     state_dir_under,
     write_control_context,
     write_server_report,

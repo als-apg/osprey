@@ -28,16 +28,15 @@ behind would also reach the next test in the process.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from osprey_connectors import control_context
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.safety_file import atomic_replace
 
 #: The target a record carries when a test does not care which one it is.
 DEFAULT_TARGET = "live"
@@ -241,14 +240,8 @@ def write_payload(path: Path, payload: Any) -> Path:
     and a same-size rewrite is still seen.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    atomic_replace(
+        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
+    )
     control_context.invalidate_cache()
     return path

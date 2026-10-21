@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from tests._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_port
 
 IOC_READY_TIMEOUT_S = 30.0
 

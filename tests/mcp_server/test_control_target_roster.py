@@ -36,7 +36,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
-from tests._control_context_fixtures import owner, write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
     VA_PROBE,

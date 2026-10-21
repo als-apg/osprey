@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._control_context_fixtures import pin_identity, state_dir_under
+from osprey_connectors_tests._harness._control_context_fixtures import pin_identity, state_dir_under
 
 HOOK = "osprey_approval.py"
 CHANNEL_WRITE = "mcp__controls__channel_write"

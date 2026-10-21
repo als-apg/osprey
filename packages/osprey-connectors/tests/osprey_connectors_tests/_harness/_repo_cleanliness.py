@@ -1,8 +1,8 @@
-"""What a test run did to ``<repo>/var/agent_data``, used by ``tests/conftest.py``.
+"""What a test run did to ``<repo>/var/agent_data``, used by the conftest guards.
 
 That directory is the mark left behind when something resolved the agent-data
-root to the checkout instead of to a tmp path, and the guard in
-``tests/conftest.py`` fails a session that produced one.
+root to the checkout instead of to a tmp path, and the guard in ``_guards``
+fails a session that produced one.
 
 Existence is the wrong question to ask of it. A developer who has actually run
 OSPREY in this checkout owns that directory, and what is inside it is that

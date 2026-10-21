@@ -50,7 +50,7 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
