@@ -196,7 +196,8 @@ def test_server_instructions_forbid_fabricated_urls():
 def _setup_registry(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
+        '{"ariel": {"database": {"uri": "postgresql://ariel@localhost/test",'
+        ' "readonly_uri": "postgresql://ariel_ro@localhost/test"}}}'
     )
     initialize_ariel_context()
 
