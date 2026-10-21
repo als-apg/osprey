@@ -965,8 +965,8 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),
             # The SELECT-only role the agent's raw-SQL path connects as. Same
             # entitlement as the owner password: a container that derives an
-            # ARIEL DSN derives both rungs of it, and without this one the SQL
-            # tool falls back to the ingestion connection with a warning.
+            # ARIEL DSN derives both logins, and without this one the read-only
+            # login is refused and the SQL tool refuses every query.
             CredentialGrant("ARIEL_DB_READONLY_PASSWORD", config_needs_ariel_password),
         ),
         names_external=_ariel_database_named,

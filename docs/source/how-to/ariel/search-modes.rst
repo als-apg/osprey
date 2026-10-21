@@ -759,21 +759,26 @@ tables and sets default privileges for the owner, so the ``enhanced_entries``
 table the migrations create and the per-model ``text_embeddings_*`` tables an
 enhancement module adds are readable without a second grant.
 
+A deployment that points ARIEL at a database it does not run, with the ``uri``
+key, gets no derived role. Name a SELECT-only login on that database in
+``ariel.database.readonly_uri``; without it the SQL tool is not offered (see
+:ref:`config-ariel-database-readonly-uri`).
+
 Adopting the role on an existing database
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A data volume created before the role existed never runs the init script, so it
-has no ``<username>_ro``. Nothing breaks: the agent notices at start-up, logs
-one warning, and runs the SQL tool on the ingestion connection as it did
-before. To adopt the role without recreating the volume, run the same script by
-hand once:
+has no ``<username>_ro``. The agent logs one warning at start-up, and the SQL
+tool refuses every query, naming the refused login, until the role exists. The
+other ARIEL tools keep working. To adopt the role without recreating the
+volume, run the same script by hand once:
 
 .. code-block:: bash
 
    docker exec -e ARIEL_DB_READONLY_PASSWORD="$(grep '^ARIEL_DB_READONLY_PASSWORD=' .env | cut -d= -f2-)" \
        <project>-ariel-postgres bash /docker-entrypoint-initdb.d/10-readonly-role.sh
 
-Restart the agent afterwards so it picks up the role, and the warning stops.
+Restart the agent afterwards so it picks up the role and the SQL tool answers.
 The script is idempotent — running it again is how you roll the role's password
 after changing it in ``.env``.
 

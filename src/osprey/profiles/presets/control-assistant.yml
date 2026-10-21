@@ -528,6 +528,9 @@ config:
   # below, so moving the database stays a one-place edit. Set it only to point
   # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
   # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your

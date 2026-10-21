@@ -50,7 +50,10 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Keyword and semantic ranking combined, with optional query expansion
        and reranking (offered when the hybrid module is enabled)
    * - ``sql_query``
-     - Direct SQL queries against the logbook database
+     - Direct SQL queries against the logbook database, as its SELECT-only
+       login (not offered when the ``uri`` key names the database and
+       ``ariel.database.readonly_uri`` is unset; see
+       :ref:`config-ariel-database-readonly-uri`)
    * - ``browse``
      - Browse entries with pagination and filters
    * - ``filter_options``

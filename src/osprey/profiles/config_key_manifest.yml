@@ -2156,6 +2156,19 @@ keys:
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
     default: null
+  ariel.database.readonly_uri:
+    rendered: false
+    evidence: 'database\.get\("readonly_uri"\)'
+    note: >-
+      The SELECT-only login the agent's SQL tool connects as, on a store the
+      deployment names itself with the `uri` key. Commented in control-assistant,
+      the one root preset that ships an `ariel:` block, because an external
+      database is facility content. Read by `resolve_ariel_readonly_dsn` and `sql_tool_offered`; a
+      value equal to the ingestion login is refused at config parse.
+    default: derived
+    default_note: >-
+      unset, a derived store uses the `<services.postgresql.username>_ro`
+      login; with the `uri` key authored there is no SQL tool
   ariel.embedded_search:
     rendered: false
     evidence: 'config_dict\.get\("embedded_search"\)'

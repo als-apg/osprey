@@ -15,8 +15,9 @@ settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 full tool-call record (``audit.tool_call:``), the links from an answer to a
-logbook entry (``ariel.entry_url_template``), how much of each logbook entry
-the agent reads (``ariel.entry_text``), the signals the agent exports
+logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
+uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
+how much of each logbook entry the agent reads (``ariel.entry_text``), the signals the agent exports
 (``claude_code.telemetry.signals``), the collector token the agent sends
 (``claude_code.telemetry.auth.token_env``), the Phoebus display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
@@ -989,6 +990,32 @@ A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after ``osprey build`` and a restart of the stack.
+
+.. _config-ariel-database-readonly-uri:
+
+``ariel.database.readonly_uri`` — the SQL tool's login on your own database
+---------------------------------------------------------------------------
+
+The agent's ``sql_query`` tool connects to the logbook database as a
+SELECT-only login, never as the owner ingestion writes with. When OSPREY runs
+the database, it creates that login itself. When you name your own database
+with the ``uri`` key, name the read-only login beside it:
+
+.. code-block:: yaml
+
+   config:
+     ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+     ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
+
+Set, the key is used verbatim on any store; a derived store needs it only to
+replace the ``<username>_ro`` login OSPREY creates. Without it the SQL tool is
+not offered on a database named with the ``uri`` key: it is left out of the agent's tools and guidance, and a call that
+arrives anyway is refused with a message naming this key. Every other ARIEL
+tool keeps working.
+
+The login must be SELECT-only. The role is the boundary: OSPREY cannot check
+its grants on a database it did not provision. A value equal to the ingestion
+login is refused when the configuration loads.
 
 .. _config-ariel-entry-text:
 

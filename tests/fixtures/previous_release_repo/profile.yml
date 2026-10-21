@@ -543,10 +543,7 @@ config:
   audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
-  # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
-  # below, so moving the database stays a one-place edit. Set it only to point
-  # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
-  # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+@ARIEL_DATABASE_EXAMPLE@
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
