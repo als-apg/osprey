@@ -32,7 +32,8 @@ the same line.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
@@ -392,18 +393,38 @@ class RowWindow(NamedTuple):
     positionally -- the orm render deriving which corrector a row belongs to
     from its position in the sweep -- is only sound over a complete set, and
     must fall back to something position-free when this is ``False``.
+
+    ``units`` maps a column to the unit the run declared for it; a column it
+    does not name declared none. A panel takes its units from here
+    (`shared_unit`), never from a unit typed into the plan.
     """
 
     rows: list[dict[str, Any]]
     columns: list[str]
     rows_complete: bool
     total_seen: int
+    units: Mapping[str, str] = MappingProxyType({})
+
+
+def shared_unit(window: RowWindow, columns: Sequence[str]) -> str | None:
+    """The one unit every column in ``columns`` declares, or ``None``.
+
+    ``None`` when any of them declares no unit, when they declare two
+    different units, or when ``columns`` is empty: a panel over them then
+    states no unit rather than one some of its values are not in.
+    """
+    declared = {window.units.get(column) for column in columns}
+    if len(declared) != 1:
+        return None
+    (unit,) = declared
+    return unit
 
 
 def rows_from_columnar(
     columns: Sequence[str],
     rows: Sequence[Sequence[Any]],
     total_seen: int,
+    units: Mapping[str, str] | None = None,
 ) -> RowWindow:
     """Turn the bridge's columnar row payload into per-row dicts.
 
@@ -431,6 +452,8 @@ def rows_from_columnar(
         total_seen: How many rows the run has produced in total, which is more
             than ``len(rows)`` when the window is paginated or the buffer hit
             its retention cap.
+        units: Each column's declared unit, as the source holds them; copied
+            onto the window.
 
     Returns:
         A `RowWindow` whose ``rows_complete`` is exact: ``True`` only when the
@@ -455,7 +478,13 @@ def rows_from_columnar(
         for values in rows
     ]
 
-    return RowWindow(mapped, list(columns), len(mapped) == total_seen, total_seen)
+    return RowWindow(
+        mapped,
+        list(columns),
+        len(mapped) == total_seen,
+        total_seen,
+        MappingProxyType(dict(units or {})),
+    )
 
 
 # --- Default figure ----------------------------------------------------------
