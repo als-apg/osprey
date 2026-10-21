@@ -615,6 +615,9 @@ itself.
    itself, so the sync cannot reach the database. Either write a URI the
    container can resolve, or remove the key and let the address be derived.
 
+   An authored URI also needs ``ariel.database.readonly_uri`` for the agent's
+   SQL tool to be served (see :ref:`config-ariel-database-readonly-uri`).
+
 **The mirror directory.** When ``ariel.enhancement_modules.qmd_export`` is
 enabled with a ``mirror_path``, the host directory it names is bind-mounted into
 the container read-write. The exporter runs inside this container, so without
