@@ -190,8 +190,11 @@ class _FakeCompositeClient:
         "the base Container client using `.base['{key}']` instead."
     )
 
-    def __init__(self, base: _FakeBaseContainer) -> None:
+    def __init__(self, base: _FakeBaseContainer, descriptors: list[dict] | None = None) -> None:
         self.base = base
+        # `BlueskyEventStream.descriptors`: the stream's descriptor documents,
+        # rebuilt from the `data_keys` its node's metadata stores.
+        self.descriptors = list(descriptors or [])
 
     @property
     def _flat_keys(self) -> list[str]:
@@ -350,6 +353,7 @@ def _run_node_with_events(
     stopped: bool = True,
     row_order: list[int] | None = None,
     extra_parts: dict | None = None,
+    descriptors: list[dict] | None = None,
 ) -> _FakeRunNode:
     """A run container whose `"primary"` composite wraps `TiledWriter`-shaped parts."""
     metadata: dict[str, Any] = {"start": {"uid": run_uid, "osprey_run_id": run_id}}
@@ -358,7 +362,7 @@ def _run_node_with_events(
 
     parts: dict[str, Any] = {"internal": _FakeTablePart(_internal_frame(rows, row_order=row_order))}
     parts.update(extra_parts or {})
-    primary = _FakeCompositeClient(base=_FakeBaseContainer(parts))
+    primary = _FakeCompositeClient(base=_FakeBaseContainer(parts), descriptors=descriptors)
     return _FakeRunNode(metadata=metadata, streams={"primary": primary})
 
 
@@ -456,6 +460,48 @@ def test_matching_run_projects_away_seq_num_time_and_ts_columns(
     assert len(result["rows"]) == 3
     assert result["truncated"] is False
     assert "partial" not in result  # this run's stop document landed
+
+
+def _descriptor(data_keys: dict) -> dict:
+    """A stored descriptor document carrying *data_keys*."""
+    return {"uid": "desc", "name": "primary", "run_start": "uid", "data_keys": data_keys}
+
+
+def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Units come off the stream's descriptors, projected onto the served columns:
+    a column no descriptor gives a unit has none, and a declared key that is not a
+    served column is not reported."""
+    first = {"motor": {"dtype": "number", "units": "u-motor"}, "det": {"dtype": "number"}}
+    later = {"det": {"dtype": "number", "units": "u-det"}, "gone": {"units": "u-gone"}}
+    run_node = _run_node_with_events(
+        run_uid="bluesky-uid-u",
+        run_id="run-u",
+        rows=[{"motor": 1.0, "det": 10, "flag": 0}],
+        descriptors=[_descriptor(first), _descriptor(later)],
+    )
+    _configured(monkeypatch, "run-u", run_node)
+
+    snapshot = app_module._tiled_run_snapshot("run-u")
+
+    assert snapshot is not None
+    assert snapshot["units"] == {
+        "motor": first["motor"]["units"],
+        "det": later["det"]["units"],
+    }
+
+
+def test_a_run_with_no_primary_stream_declares_no_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_node = _FakeRunNode(
+        metadata={"start": {"uid": "bluesky-uid-n", "osprey_run_id": "run-n"}}, streams={}
+    )
+    _configured(monkeypatch, "run-n", run_node)
+
+    snapshot = app_module._tiled_run_snapshot("run-n")
+
+    assert snapshot is not None
+    assert snapshot["units"] == {}
 
 
 def test_matching_run_pagination_delegates_to_window(monkeypatch: pytest.MonkeyPatch) -> None:

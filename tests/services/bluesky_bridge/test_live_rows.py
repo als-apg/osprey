@@ -255,6 +255,73 @@ def test_get_returns_a_copy_not_a_live_reference() -> None:
 
 
 # =========================================================================
+# Descriptors: the units a run declares for its columns
+# =========================================================================
+
+
+def _descriptor_doc(data_keys: dict) -> dict:
+    return {"data_keys": data_keys}
+
+
+def test_a_start_doc_opens_an_empty_unit_map() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+
+    assert live_rows.get("run-1")["units"] == {}
+
+
+def test_a_descriptor_records_each_declared_unit_by_column() -> None:
+    declared = {"x": {"dtype": "number", "units": "u-x"}, "y": {"dtype": "number", "units": "u-y"}}
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc(declared))
+
+    assert live_rows.get("run-1")["units"] == {
+        column: key["units"] for column, key in declared.items()
+    }
+
+
+@pytest.mark.parametrize("units", [None, "", 3, ["u"]])
+def test_a_data_key_without_a_usable_unit_declares_none(units: object) -> None:
+    key: dict = {"dtype": "number"}
+    if units is not None:
+        key["units"] = units
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc({"x": key}))
+
+    assert live_rows.get("run-1")["units"] == {}
+
+
+def test_a_later_descriptor_adds_units_and_never_clears_them() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc({"x": {"units": "u-x"}}))
+    recorder("descriptor", _descriptor_doc({"y": {"units": "u-y"}, "z": {}}))
+
+    assert live_rows.get("run-1")["units"] == {"x": "u-x", "y": "u-y"}
+
+
+def test_get_returns_a_copy_of_the_units() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc({"x": {"units": "u-x"}}))
+
+    live_rows.get("run-1")["units"]["x"] = "bogus"
+
+    assert live_rows.get("run-1")["units"] == {"x": "u-x"}
+
+
+def test_a_malformed_descriptor_does_not_raise() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", {"data_keys": ["not", "a", "mapping"]})
+    recorder("descriptor", {"data_keys": {"x": "not a mapping"}})
+
+    assert live_rows.get("run-1")["units"] == {}
+
+
+# =========================================================================
 # The two caps are read from the environment, not fixed in the module
 # =========================================================================
 
