@@ -161,10 +161,10 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
 
 
 def _fail_reads(monkeypatch) -> None:
-    """Make every process-table read fail."""
+    """Make every process-table read fail the way no retry can answer: a refused read."""
 
     def unreadable():
-        raise process_table.ProcessTableUnreadable(OSError("process table"))
+        raise process_table.ProcessTableUnreadable(PermissionError("process table"))
 
     monkeypatch.setattr(process_table, "snapshot", unreadable)
 
