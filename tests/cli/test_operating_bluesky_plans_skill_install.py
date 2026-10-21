@@ -188,6 +188,11 @@ class TestOperatingBlueskyPlansSkillStructure:
             "with get_run_data" in prose
         )
 
+    def test_a_unit_is_the_one_the_run_declares(self, skill_text):
+        prose = _prose(skill_text)
+        assert "a value's unit is the one the run declares for its column" in prose
+        assert "say the unit is not stated, never assume one" in prose
+
     # --- the choreography ---
 
     def test_stage_complete_config_in_one_call(self, skill_text):

@@ -456,6 +456,11 @@ rows the figure is being built from, and how much of the run they are:
 | `window.columns` | the column names those rows use |
 | `window.rows_complete` | whether those rows are all the run has produced so far, or only a prefix of them |
 | `window.total_seen` | how many rows the source has actually seen — never fewer than `len(window.rows)` |
+| `window.units` | the unit the run declared for each column; a column it does not name declared none |
+
+A render takes its panels' units from `window.units` — `shared_unit(window,
+columns)` gives the one unit a set of columns shares, or `None` — never from a
+unit typed into the plan.
 
 `params` are the parameters the run was launched with, and the return value is
 a `Figure` from
