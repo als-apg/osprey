@@ -459,9 +459,11 @@ def dotenv_shell_overrides() -> dict[str, str]:
     return dict(_dotenv_shell_overrides)
 
 
-#: Variables the env chain never sets in a process environment. Each one
-#: chooses which program runs or what code a shell, Python or Node loads at
-#: start, so it comes from the operator's shell, never from a repo file.
+#: Variables the env chain never sets in a process environment. Each one is a
+#: name that chooses which program runs, what code a runtime loads at start, or
+#: what code an installer fetches, so it comes from the operator's shell, never
+#: from a repo file. Names compare case-insensitively; the entries here and in
+#: :data:`SHELL_ONLY_ENV_PREFIXES` are upper-case.
 SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
     {
         "PATH",
@@ -476,12 +478,73 @@ SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
         "PYTHONHOME",
         "PYTHONSTARTUP",
         "PYTHONUSERBASE",
+        "PYTHONWARNINGS",
+        "PYTHONINSPECT",
+        "PYTHONBREAKPOINT",
+        "PYTHONEXECUTABLE",
+        "PYTHONPLATLIBDIR",
+        "PYTHONPYCACHEPREFIX",
+        "NODE_REPL_EXTERNAL_MODULE",
+        "PERL5LIB",
+        "PERLLIB",
+        "PERL5OPT",
+        "PERL5DB",
+        "RUBYOPT",
+        "RUBYLIB",
+        "JAVA_TOOL_OPTIONS",
+        "_JAVA_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "CLASSPATH",
+        "GCONV_PATH",
+        "GLIBC_TUNABLES",
+        "LOCPATH",
+        "NLSPATH",
+        "HOSTALIASES",
+        "OPENSSL_CONF",
+        "OPENSSL_MODULES",
+        "OPENSSL_ENGINES",
+        "XDG_CONFIG_HOME",
+        "XDG_CONFIG_DIRS",
+        "PROMPT_COMMAND",
+        "PS4",
+        "IFS",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "CC",
+        "CXX",
+        "LDSHARED",
+        "DOCKER_HOST",
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_CODE_SHELL",
+        "CLAUDE_CODE_SHELL_PREFIX",
+        "CLAUDE_CODE_GIT_BASH_PATH",
+        "SSH_ASKPASS",
+        "SUDO_ASKPASS",
+        "LESSOPEN",
+        "LESSCLOSE",
+        "PAGER",
+        "MANPAGER",
+        "EDITOR",
+        "VISUAL",
+        "BROWSER",
     }
 )
 
-#: Name prefixes of the dynamic loader's variables, shell-only for the same
-#: reason as :data:`SHELL_ONLY_ENV_VARS`.
-SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = ("LD_", "DYLD_")
+#: Name prefixes of the dynamic loader's variables, bash's exported functions
+#: and the variables git, npm, uv, pip and compose read, shell-only for the same reason
+#: as :data:`SHELL_ONLY_ENV_VARS`.
+SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
+    "LD_",
+    "DYLD_",
+    "BASH_FUNC_",
+    "GIT_",
+    "NPM_CONFIG_",
+    "UV_",
+    "PIP_",
+    "COMPOSE_",
+)
 
 #: ``(resolved file, name)`` pairs whose ignored shell-only name was already
 #: reported, so a chain applied many times in one process warns once.
@@ -489,8 +552,9 @@ _shell_only_reported: set[tuple[str, str]] = set()
 
 
 def is_shell_only_env_var(name: str) -> bool:
-    """Whether ``name`` is a launch variable the env chain never applies."""
-    return name in SHELL_ONLY_ENV_VARS or name.startswith(SHELL_ONLY_ENV_PREFIXES)
+    """Whether ``name`` is a launch variable the env chain never applies, in any case."""
+    upper = name.upper()
+    return upper in SHELL_ONLY_ENV_VARS or upper.startswith(SHELL_ONLY_ENV_PREFIXES)
 
 
 def apply_env_chain(
