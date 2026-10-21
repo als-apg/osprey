@@ -584,11 +584,14 @@ green.
 workflow (`.github/workflows/release-connectors.yml`) — never with a framework
 tag, and the framework's `release.yml` never builds it.
 
-**Tag format:** `osprey-connectors-vYYYY.M.P`, with `bN` / `rcN` for
-pre-releases (`osprey-connectors-v2026.10.0`, `osprey-connectors-v2026.10.1b1`).
+**Tag format:** `osprey-connectors-vYYYY.M.P` (`osprey-connectors-v2026.10.0`).
 The workflow fires on `osprey-connectors-v2*` pushes and nothing else — there is
-no dispatch. Anything that is not exactly `X.Y.Z` becomes a GitHub pre-release,
-and a connectors release is never marked "Latest" (that stays the framework's).
+no dispatch — and a connectors release is never marked "Latest" (that stays the
+framework's). **Connectors releases are stable by default.** The tooling would
+accept a `bN` / `rcN` tag (it becomes a GitHub pre-release), but do not cut one
+without a reason: a beta framework is installed with pre-releases admitted for
+the whole resolve (`--prerelease=allow`), so it would absorb any connectors
+beta on PyPI.
 
 **Preconditions:**
 
@@ -657,7 +660,7 @@ This is a fallback. The default path is the automated workflow.
 | PyPI rejects the upload as a duplicate | This version was already published | CalVer means version numbers are unique; you cannot republish. Bump the patch counter and try again |
 | `gh pr merge` fails with "not mergeable" | Stale checks because `main` moved | Merge or rebase `origin/main` into the release branch, push, wait for CI to re-run |
 | CI "plugin tree changed without a version bump" | A PR touched `plugins/osprey/` without `plugin_version.py bump` | Run the bump on that branch and push |
-| GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |
+| GitHub Release body is just "See CHANGELOG.md for details.", or wrong | `scripts/ci/release_notes.py` found no line starting with `## [<version>]` (matched literally, the tag's version without the `v` / `osprey-connectors-v` prefix) in `CHANGELOG.md`, or in `packages/osprey-connectors/CHANGELOG.md` for a connectors tag | Make sure the released section's heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` (pre-release: `## [YYYY.M.PbN] - …`) in that tree's `CHANGELOG.md` |
 | `uv lock --check` fails on the release PR | The connectors floor (or any `pyproject.toml` edit) changed without regenerating the lockfile | Run `uv lock`, commit `uv.lock` in the same commit |
 | `changelog_fragments.py apply` exits 1 | A fragment filename is malformed or carries an unrecognized type | Rename it `<name>.<type>.md` using one of added/changed/deprecated/removed/fixed/security/internal |
 | Released section is missing entries, or fragments are still on `main` after the release | `apply` was not run before the rotation, or its deletions were not staged | Fold the leftover fragments into the released section by hand, delete them, and open a PR carrying just `CHANGELOG.md` and the fragment deletions (`git add -A changelog.d/ CHANGELOG.md`) |

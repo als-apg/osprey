@@ -9487,11 +9487,13 @@ def test_the_tag_gate_covers_every_spending_lane() -> None:
     assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
 
 
-def _assert_lane_prefixes_match(workflow: dict[str, Any], lanes: dict[str, str]) -> None:
+def _assert_lane_prefixes_match(
+    workflow: dict[str, Any], lanes: dict[str, str], source: str = "release.yml"
+) -> None:
     jobs = _jobs(workflow)
     for lane, prefix in lanes.items():
         assert jobs[lane]["name"].startswith(prefix), (
-            f"{lane}: release.yml looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+            f"{lane}: {source} looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
         )
         others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
         assert others == [], f"{prefix!r} also matches {others}"
@@ -9709,7 +9711,9 @@ def test_the_connectors_publish_is_gated_and_scoped(release: dict[str, Any] | No
     assert {CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB, CONNECTORS_INSTALL_JOB} <= set(
         publish["needs"]
     ), f"the publish needs {publish['needs']}"
-    assert publish["environment"]["name"] == CONNECTORS_ENVIRONMENT
+    assert publish["environment"]["name"] == CONNECTORS_ENVIRONMENT, (
+        f"the publish runs in environment {publish['environment']['name']!r}"
+    )
     assert publish.get("permissions") == {"id-token": "write"}, "publish must hold id-token"
     assert "id-token" not in release.get("permissions", {}), (
         "id-token is granted at workflow level, so every job can mint a PyPI token"
@@ -9736,7 +9740,7 @@ def test_the_connectors_publish__mutation_ungated() -> None:
 def test_the_connectors_publish__mutation_framework_environment() -> None:
     mutated = _load_connectors_release()
     mutated["jobs"]["publish-to-pypi"]["environment"]["name"] = "pypi"
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="runs in environment 'pypi'"):
         test_the_connectors_publish_is_gated_and_scoped(mutated)
 
 
@@ -9748,7 +9752,7 @@ def test_the_connectors_gate_requires_the_connectors_lanes(
     lanes = _gate_lanes(release, CONNECTORS_GATE_JOB)
     expected = CONNECTORS_LANES | (CONNECTORS_COMPAT_LANES & set(_jobs(workflow)))
     assert set(lanes) == expected, f"the connectors gate requires {sorted(lanes)}"
-    _assert_lane_prefixes_match(workflow, lanes)
+    _assert_lane_prefixes_match(workflow, lanes, CONNECTORS_RELEASE_YML.name)
 
 
 def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
@@ -9761,7 +9765,7 @@ def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
 def test_the_connectors_gate__mutation_renames_a_lane() -> None:
     workflow = _load_workflow()
     _jobs(workflow)["connectors-standalone"]["name"] = "Standalone connectors suite"
-    with pytest.raises(AssertionError, match="release.yml looks for"):
+    with pytest.raises(AssertionError, match="release-connectors.yml looks for"):
         test_the_connectors_gate_requires_the_connectors_lanes(workflow)
 
 
@@ -9859,6 +9863,40 @@ def test_both_lean_wheel_checks_run_the_shared_walk(workflow: dict[str, Any]) ->
             "uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl"
             in runs[0]
         )
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """The gate walks the tag's parents and the build describes the package's
+    tags; a shallow checkout has neither and builds a wrong version silently."""
+    release = release if release is not None else _load_connectors_release()
+    for job in (CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB):
+        checkout = next(
+            s
+            for s in release["jobs"][job]["steps"]
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout.get("with", {}).get("fetch-depth") == 0, f"{job} checks out shallow"
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them__mutation_shallow_build() -> None:
+    mutated = _load_connectors_release()
+    for step in mutated["jobs"][CONNECTORS_BUILD_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            step.pop("with")
+    with pytest.raises(AssertionError, match="build checks out shallow"):
+        test_the_connectors_jobs_that_read_tags_fetch_them(mutated)
+
+
+def test_both_release_workflows_extract_notes_with_the_shared_script() -> None:
+    for release, changelog in (
+        (_load_release(), "CHANGELOG.md"),
+        (_load_connectors_release(), "packages/osprey-connectors/CHANGELOG.md"),
+    ):
+        runs = " ".join(s.get("run", "") for s in release["jobs"]["create-github-release"]["steps"])
+        assert f'python3 scripts/ci/release_notes.py {changelog} "$VERSION"' in runs
+        assert "sed -n" not in runs, "an inline sed extractor drops a last section's last line"
 
 
 def test_the_connectors_release_notes_come_from_its_own_changelog() -> None:

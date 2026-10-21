@@ -29,6 +29,7 @@ Stdlib-only.
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import subprocess
 import sys
@@ -39,6 +40,34 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "packages" / "osprey-connectors" / "pyproject.toml"
 TAG_PREFIX = "osprey-connectors-v"
+
+#: PEP 440's pre-release spellings, for the normalizer used where ``packaging``
+#: is not installed: ``2026.10.0-rc1`` / ``2026.10.0.RC.1`` -> ``2026.10.0rc1``.
+_PRE_RE = re.compile(
+    r"^(?P<release>\d+(?:\.\d+)*)[-_.]?(?P<letter>alpha|beta|preview|pre|rc|a|b|c)[-_.]?(?P<n>\d*)$"
+)
+_PRE_LETTER = {"alpha": "a", "beta": "b", "c": "rc", "pre": "rc", "preview": "rc"}
+
+
+def normalize(version: str) -> str:
+    """*version* in PEP 440 normal form, as the backend stamps it.
+
+    ``packaging`` where it is installed (the project venv every caller runs
+    this from); a minimal normalizer of release and pre-release segments
+    otherwise, which is every form a calendar tag takes.
+    """
+    try:
+        from packaging.version import InvalidVersion, Version
+    except ImportError:
+        match = _PRE_RE.match(version.lower())
+        if match is None:
+            return version.lower()
+        letter = _PRE_LETTER.get(match["letter"], match["letter"])
+        return f"{match['release']}{letter}{match['n'] or 0}"
+    try:
+        return str(Version(version))
+    except InvalidVersion:
+        return version
 
 
 def describe_command(pyproject: Path = PYPROJECT) -> list[str]:
@@ -63,6 +92,7 @@ def version_from_describe(described: str, *, today: datetime | None = None) -> s
     base = tag.removeprefix(TAG_PREFIX)
     if not base[:1].isdigit():
         return None
+    base = normalize(base)
     if distance == "0" and not dirty:
         return base
     local = f"g{node[:9]}"

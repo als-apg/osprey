@@ -79,6 +79,11 @@ version-file = "src/osprey_connectors/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_connectors"]
 
+# Unreleased changelog fragments are repository workflow, not package content:
+# the release fold empties the directory into CHANGELOG.md, which does ship.
+[tool.hatch.build.targets.sdist]
+exclude = ["changelog.d"]
+
 # The package suite's test dependencies: a group, not an extra, so they never
 # reach the wheel's metadata. `uv sync --package osprey-connectors` installs it.
 [dependency-groups]

@@ -186,6 +186,13 @@ jobs:
       uses: astral-sh/setup-uv@v7
 
     - name: Install framework wheel with deps from PyPI plus the lockstep member wheels
+      # `--prerelease if-necessary-or-explicit`, spelled out rather than left to
+      # whatever the floating uv defaults to: a pre-release is taken only where
+      # nothing stable satisfies a requirement, or the requirement names one —
+      # the policy the resolvers deployments use behave like. After the
+      # cut-over the framework's floor names a stable connectors release
+      # (osprey-connectors 2026.10.0, published before the floor is raised), so
+      # this resolves the stable one and a connectors beta is never absorbed.
       run: |
         mkdir -p /tmp/sibling
         for wheel in dist/*.whl; do
@@ -195,7 +202,8 @@ jobs:
           esac
         done
         ls /tmp/sibling
-        uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
+        uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling \
+          --prerelease if-necessary-or-explicit
         osprey --version
 
   publish-to-pypi:
@@ -281,18 +289,14 @@ jobs:
 
     - name: Extract release notes from CHANGELOG
       id: changelog
+      # scripts/ci/release_notes.py, shared with release-connectors.yml: the
+      # tag's section, its heading matched literally, up to the next release
+      # heading — or a pointer to the file when the section is missing.
+      env:
+        VERSION: ${{ steps.get_version.outputs.version }}
       run: |
-        VERSION="${{ steps.get_version.outputs.version }}"
         echo "Extracting release notes for version $VERSION"
-
-        # Extract section between [VERSION] and next [VERSION] or end
-        sed -n "/## \[$VERSION\]/,/## \[/p" CHANGELOG.md | sed '$d' > release_notes.md
-
-        # If empty, use a generic message
-        if [ ! -s release_notes.md ]; then
-          echo "See CHANGELOG.md for details." > release_notes.md
-        fi
-
+        python3 scripts/ci/release_notes.py CHANGELOG.md "$VERSION" > release_notes.md
         cat release_notes.md
 
     - name: Create Release

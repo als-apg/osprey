@@ -54,3 +54,41 @@ def test_the_conversion_matches_the_backend_schemes(described, version):
 )
 def test_anything_but_a_connectors_calendar_describe_is_refused(described):
     assert cv.version_from_describe(described) is None
+
+
+@pytest.mark.parametrize(
+    ("tag_version", "normal"),
+    [
+        ("2026.10.0", "2026.10.0"),
+        ("2026.10.0-rc1", "2026.10.0rc1"),
+        ("2026.10.0.RC.1", "2026.10.0rc1"),
+        ("2026.10.0beta2", "2026.10.0b2"),
+        ("2026.10.0-alpha", "2026.10.0a0"),
+    ],
+)
+def test_the_tag_version_is_normalized(tag_version, normal):
+    assert cv.normalize(tag_version) == normal
+    described = f"osprey-connectors-v{tag_version}-2-g{NODE}"
+    assert cv.version_from_describe(described) == f"{normal}.post2+g012345678"
+
+
+@pytest.mark.parametrize(
+    ("tag_version", "normal"),
+    [
+        ("2026.10.0-rc1", "2026.10.0rc1"),
+        ("2026.10.0.RC.1", "2026.10.0rc1"),
+        ("2026.10.0beta2", "2026.10.0b2"),
+    ],
+)
+def test_the_fallback_normalizer_agrees_without_packaging(monkeypatch, tag_version, normal):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_packaging(name, *args, **kwargs):
+        if name.startswith("packaging"):
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_packaging)
+    assert cv.normalize(tag_version) == normal

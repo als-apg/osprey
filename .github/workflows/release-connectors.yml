@@ -243,16 +243,13 @@ jobs:
     - name: Extract release notes from the connectors CHANGELOG
       # The package's own changelog, folded from packages/osprey-connectors/
       # changelog.d/ by `scripts/changelog_fragments.py apply --root
-      # packages/osprey-connectors`, and read the way release.yml reads the
-      # framework's.
+      # packages/osprey-connectors`, and read by the same script release.yml
+      # reads the framework's with.
       env:
         VERSION: ${{ needs.build.outputs.version }}
       run: |
         echo "Extracting release notes for osprey-connectors $VERSION"
-        sed -n "/## \[$VERSION\]/,/## \[/p" packages/osprey-connectors/CHANGELOG.md | sed '$d' > release_notes.md
-        if [ ! -s release_notes.md ]; then
-          echo "See packages/osprey-connectors/CHANGELOG.md for details." > release_notes.md
-        fi
+        python3 scripts/ci/release_notes.py packages/osprey-connectors/CHANGELOG.md "$VERSION" > release_notes.md
         cat release_notes.md
 
     - name: Create Release

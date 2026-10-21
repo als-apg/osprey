@@ -1253,11 +1253,19 @@ class TestGateFailures:
         assert len(failures) == 1
         assert "adds to ## [Unreleased] by hand" in failures[0]
 
-    def test_an_absent_base_changelog_still_recognizes_a_rotation(self):
+    def test_an_absent_base_changelog_is_a_new_changelog_not_a_rotation(self):
+        """The pull request that creates a tree's changelog releases nothing."""
         head = self.changelog(self.EMPTY)
         failures, ok_lines = cf.gate_failures(["CHANGELOG.md"], [], [], head, "")
         assert failures == []
-        assert ok_lines[1] == "✓ [Unreleased]: empty (rotation)"
+        assert ok_lines[1] == "✓ [Unreleased]: empty (new changelog)"
+
+    def test_an_absent_base_changelog_does_not_excuse_a_deleted_fragment(self):
+        head = self.changelog(self.EMPTY)
+        gone = "changelog.d/745.fixed.md"
+        failures, _ = cf.gate_failures(["CHANGELOG.md", gone], ["CHANGELOG.md"], [gone], head, "")
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
 
     # ---- rule 5: only the release fold deletes fragments -------------------
 
@@ -2266,6 +2274,13 @@ class TestTrees:
             (CONNECTORS, "osprey-connectors-v"),
         ]
 
+    def test_the_connectors_sdist_ships_no_fragments(self):
+        import tomllib
+
+        pyproject = cf.REPO_ROOT / CONNECTORS / "pyproject.toml"
+        hatch = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["hatch"]
+        assert cf.FRAGMENT_DIR in hatch["build"]["targets"]["sdist"]["exclude"]
+
     def test_the_connectors_tag_probe_asks_for_the_connectors_tag(self):
         git = FakeGit({})
         with pytest.raises(cf.ProbeError, match="refs/tags/osprey-connectors-v2026.10.0"):
@@ -2300,6 +2315,7 @@ class TestTrees:
         out = capsys.readouterr().out
         assert f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):" in out
         assert "✗ no changelog fragment for 1 changed file(s) under src/, pyproject.toml" in out
+        assert f"  add {CONNECTORS}/changelog.d/<name>.<type>.md" in out
 
     def test_a_connectors_fragment_satisfies_a_connectors_change(
         self, tmp_path, monkeypatch, capsys

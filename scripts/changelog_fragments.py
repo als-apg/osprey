@@ -813,6 +813,7 @@ def gate_failures(
     tagged: TagProbe | None = None,
     retired: Collection[str] = (),
     gated: Sequence[str] = GATED_PREFIXES,
+    fragment_dir: str = FRAGMENT_DIR,
 ) -> tuple[list[str], list[str]]:
     """Apply the three pull-request rules to one diff.
 
@@ -822,7 +823,9 @@ def gate_failures(
     one question rule 3's top-up shape asks outside the diff; without it that
     shape is never recognized. *retired* holds the fragment file names the
     range's commit messages retire (``retired_fragments``). *gated* is the
-    tree's gated prefixes; every path is relative to the tree's root. Nothing
+    tree's gated prefixes; every path is relative to the tree's root, and
+    *fragment_dir* is the tree's fragment directory as the remedies name it
+    (``packages/osprey-connectors/changelog.d``). Nothing
     here touches the filesystem or git, so the caller decides where the diff
     came from.
 
@@ -889,7 +892,7 @@ def gate_failures(
                     [
                         f"no changelog fragment for {len(gated)} changed file(s) under {prefixes}",
                         *_listed(gated),
-                        f"add {FRAGMENT_DIR}/<name>.<type>.md — <name> is the issue number when "
+                        f"add {fragment_dir}/<name>.<type>.md — <name> is the issue number when "
                         f"there is one, a short slug otherwise; for <type>, {_VOCABULARY}",
                         "the gate reads committed history — an unstaged fragment does not count",
                     ]
@@ -907,13 +910,21 @@ def gate_failures(
             "because apply folds the fragments into it"
         )
     else:
-        rotation = is_empty_block(head_block) and _release_count(head_lines) > _release_count(
-            base_lines
+        # A base with no [Unreleased] heading has no changelog to rotate: the
+        # pull request that creates one is not a release, so it is never read
+        # as a rotation and its deleted fragments are still checked.
+        base_has_heading = unreleased_span(base_lines) is not None
+        rotation = (
+            base_has_heading
+            and is_empty_block(head_block)
+            and _release_count(head_lines) > _release_count(base_lines)
         )
         if head_block == base_block:
             ok_lines.append("✓ [Unreleased]: untouched")
         elif rotation:
             ok_lines.append("✓ [Unreleased]: empty (rotation)")
+        elif not base_has_heading and is_empty_block(head_block):
+            ok_lines.append("✓ [Unreleased]: empty (new changelog)")
         elif set(changed) == {"CHANGELOG.md"} and _bullet_count(head_block) <= _bullet_count(
             base_block
         ):
@@ -925,7 +936,7 @@ def gate_failures(
         else:
             failures.append(
                 "this PR adds to ## [Unreleased] by hand — move the entry into "
-                f"{FRAGMENT_DIR}/<name>.<type>.md; corrections to existing bullets go in a "
+                f"{fragment_dir}/<name>.<type>.md; corrections to existing bullets go in a "
                 "CHANGELOG-only PR"
             )
 
@@ -1173,6 +1184,7 @@ def _check(targets: Sequence[Target], base: str, run: Runner) -> int:
             tag_probe(run, tree.tag_prefix),
             retired,
             tree.gated,
+            _fragment_label(tree),
         )
         for line in ok_lines:
             print(line)
