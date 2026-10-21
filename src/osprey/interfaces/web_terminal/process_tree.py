@@ -220,7 +220,7 @@ def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[Pr
 
     Must run while *root* is alive: a process that put itself in a new session
     keeps its parent link only until its parent exits. *rows* defaults to a
-    fresh :func:`snapshot`.
+    fresh :func:`~osprey.deployment.process_table.snapshot`.
 
     Raises:
         ProcessTableUnreadable: *rows* was not given and the table could not be read.
@@ -275,7 +275,7 @@ def server_group_members(root: int, rows: dict[int, ProcessRow] | None = None) -
     signals, so these are ended one by one with :func:`end_processes`.
     *root* itself and the server are never listed. Ordered by start time, then pid.
     Must run while *root* is alive, for the same reason as :func:`tree_groups`.
-    *rows* defaults to a fresh :func:`snapshot`.
+    *rows* defaults to a fresh :func:`~osprey.deployment.process_table.snapshot`.
 
     Raises:
         ProcessTableUnreadable: *rows* was not given and the table could not be read.
@@ -308,8 +308,9 @@ def still_running(
     A member that has exited but is not yet reaped (a zombie, which a server
     running as PID 1 without an init leaves behind) no longer counts.
 
-    *rows* defaults to a fresh :func:`snapshot`. When the table cannot be
-    read every group is returned: an unknown group is never claimed gone.
+    *rows* defaults to a fresh :func:`~osprey.deployment.process_table.snapshot`.
+    When the table cannot be read every group is returned: an unknown group is
+    never claimed gone.
     """
     if rows is None:
         try:
