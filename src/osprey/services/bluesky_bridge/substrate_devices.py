@@ -100,8 +100,10 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     READABLES_KEY,
     RELATIVE_KEY,
     SCHEMA_KEY,
+    SETPOINT_UNIT_KEY,
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
+    UNIT_KEY,
 )
 from osprey_connectors import yaml_loader
 from osprey_connectors.safety_file import atomic_replace
@@ -111,6 +113,7 @@ def devices_document(
     records: Sequence[ChannelRecord],
     tolerances: Mapping[str, Mapping[str, float]] | None = None,
     motion_bands: Mapping[str, float] | None = None,
+    units: Mapping[str, str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
@@ -137,6 +140,13 @@ def devices_document(
     has a band above zero carries it as ``motion_band``. Either key follows
     ``readback``; with no mappings no settable carries one.
 
+    ``units`` maps a channel address to the unit the facility states for it.
+    A device carries ``unit``, the unit of the value it reports under its name
+    -- a settable's readback (its pair, or its own setpoint when unpaired), a
+    readable's channel -- and a paired settable also carries
+    ``setpoint_unit``, its setpoint's unit. Each key is written only for a
+    channel the mapping names, after every other key.
+
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
     handling of an unknown direction is the build's, which refuses to stage a
@@ -147,6 +157,7 @@ def devices_document(
             ``registered_channels(config).records``.
         tolerances: Each setpoint address's tolerance record, or None.
         motion_bands: Each readback address's motion band, or None.
+        units: Each channel address's unit, or None.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
@@ -156,6 +167,7 @@ def devices_document(
     readables: list[dict[str, Any]] = []
     declared = tolerances or {}
     bands = motion_bands or {}
+    stated = units or {}
 
     for record in records:
         if record.direction == "write":
@@ -171,9 +183,16 @@ def devices_document(
                 entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
             elif band > 0:
                 entry[MOTION_BAND_KEY] = float(band)
+            if readback in stated:
+                entry[UNIT_KEY] = stated[readback]
+            if readback != record.address and record.address in stated:
+                entry[SETPOINT_UNIT_KEY] = stated[record.address]
             settables.append(entry)
         elif record.direction == "read":
-            readables.append({"name": record.address, "pv": record.address})
+            readable: dict[str, Any] = {"name": record.address, "pv": record.address}
+            if record.address in stated:
+                readable[UNIT_KEY] = stated[record.address]
+            readables.append(readable)
 
     return {SETTABLES_KEY: settables, READABLES_KEY: readables}
 
@@ -202,9 +221,10 @@ def write_devices_file(
     schema: str,
     tolerances: Mapping[str, Mapping[str, float]] | None = None,
     motion_bands: Mapping[str, float] | None = None,
+    units: Mapping[str, str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Write the document ``devices_document(records, tolerances, motion_bands)`` builds to
-    ``path`` as YAML, and return it.
+    """Write the document ``devices_document(records, tolerances, motion_bands, units)``
+    builds to ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
@@ -224,7 +244,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records, tolerances, motion_bands)
+    document = devices_document(records, tolerances, motion_bands, units)
     body = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True
     )
