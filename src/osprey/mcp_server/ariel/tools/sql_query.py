@@ -9,7 +9,12 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
+from osprey.mcp_server.ariel.server import (
+    build_entry_url,
+    check_sql_tool_offered,
+    make_error,
+    mcp,
+)
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.search.sql_query import (
     format_sql_result,
@@ -62,6 +67,8 @@ async def sql_query(
     Returns:
         JSON with query results as a list of row objects.
     """
+    check_sql_tool_offered()
+
     if not sql or not sql.strip():
         return make_error(
             "validation_error",
@@ -76,14 +83,25 @@ async def sql_query(
         registry = get_ariel_context()
         service = await registry.service()
 
-        # The SELECT-only role, where the deployment has one. `BEGIN READ ONLY`
-        # and the statement allowlist still apply underneath; what the role adds
-        # is the half neither can cover, since a transaction mode does not stop
-        # a server-side read and no pattern over query text enumerates every
-        # dangerous function. The fallback is a store whose data volume predates
-        # the role — the service logs one warning at start-up when it takes it.
-        # execute_sql_query re-validates internally
-        pool = service.readonly_pool or service.pool
+        # The SELECT-only login is the boundary. `BEGIN READ ONLY` and the
+        # statement allowlist still apply underneath; what the role adds is the
+        # half neither can cover, since a transaction mode does not stop a
+        # server-side read and no pattern over query text enumerates every
+        # dangerous function. So the query runs on that login or not at all,
+        # never on the ingestion pool. execute_sql_query re-validates internally.
+        pool = service.readonly_pool
+        if pool is None:
+            reason = service.readonly_pool_error
+            make_error(
+                "service_unavailable",
+                f"The SQL tool is unavailable: the database refused its read-only login ({reason})."
+                if reason
+                else "The SQL tool is unavailable: no read-only connection is open.",
+                [
+                    "An administrator can create the role as described in the how-to "
+                    "'Search Modes', section 'Read-only role for the SQL tool'."
+                ],
+            )
         rows = await execute_sql_query(pool, sql, max_rows=max_rows)
 
         # Egress: rows that select an entry_id column gain a canonical entry_url

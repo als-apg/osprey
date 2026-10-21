@@ -6,10 +6,12 @@ bundled Postgres. ``BEGIN READ ONLY`` and the statement allowlist stay, but
 neither covers a server-side read such as ``pg_read_file()``; the privileges the
 connection holds do.
 
-The fallback is the part that has to keep working: a data volume older than the
-role has no ``_ro`` login, and a project pointing at a database osprey did not
-provision has no read-only identity at all. Both keep the tool on the ingestion
-pool — where it already was — and say so once, at start-up.
+The ingestion pool is never the fallback: the role is the boundary, so a
+deployment that cannot open the read-only login has no SQL tool rather than an
+owner-privileged one. A project pointing at a database osprey did not provision
+has a read-only login only when it names one, and a data volume older than the
+role refuses the login; either way the service says so once, at start-up, and
+records why.
 
 The second pool belongs to the one build that hosts ``sql_query``. Every other
 build (sync, enhance, the web app) opens the ingestion pool alone and says
@@ -86,7 +88,9 @@ async def test_a_derived_dsn_opens_both_pools(pool_factory):
 
 @pytest.mark.asyncio
 async def test_an_explicit_dsn_leaves_one_pool_and_one_warning(pool_factory, caplog):
-    """A database osprey did not provision has no ``_ro`` role to open."""
+    """A database osprey did not provision has no ``_ro`` role to open: the
+    SQL tool is not served, and the warning names the key that would serve it."""
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
     from osprey.services.ariel_search.service import create_ariel_service
 
     explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
@@ -95,14 +99,36 @@ async def test_an_explicit_dsn_leaves_one_pool_and_one_warning(pool_factory, cap
 
     assert pool_factory == [(explicit, 10)]
     assert service.readonly_pool is None
-    assert "SQL tool is running on the ingestion role" in caplog.text
+    assert service.readonly_pool_error is None
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "the SQL tool is not served" in warnings[0]
+    assert READONLY_URI_KEY in warnings[0]
+    assert "ingestion role" not in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, caplog):
+async def test_an_authored_readonly_uri_opens_the_second_pool(pool_factory):
+    """With the read-only login named, the authored store gets both pools."""
+    from osprey.services.ariel_search.service import create_ariel_service
+
+    explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
+    readonly = "postgresql://someone_ro:other@logbook-db.example.org:5432/ariel"
+    service = await create_ariel_service(
+        _config(uri=explicit, readonly_uri=readonly), serves_sql_tool=True
+    )
+
+    assert pool_factory == [(explicit, 10), (readonly, 3)]
+    assert service.readonly_pool is not None
+    assert service.readonly_pool_error is None
+
+
+@pytest.mark.asyncio
+async def test_a_refused_readonly_login_records_why_and_says_so(monkeypatch, caplog):
     """The shape an existing data volume has: the DSN resolves, the login does
-    not exist. The tool already ran on the ingestion connection before the role
-    existed, so this is a warning rather than a refusal to start.
+    not exist. The service still starts — every other tool is safe on the
+    ingestion pool — but the SQL tool gets no pool, and the reason is kept for
+    the tool to report.
     """
     calls: list[str] = []
 
@@ -128,8 +154,14 @@ async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, capl
 
     assert len(calls) == 2
     assert service.readonly_pool is None
-    assert "SQL tool is running on the ingestion role" in caplog.text
-    assert "ariel_ro" in caplog.text
+    assert service.readonly_pool_error == (
+        'OSError: password authentication failed for user "ariel_ro"'
+    )
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert service.readonly_pool_error in warnings[0]
+    assert "Read-only role for the SQL tool" in warnings[0]
+    assert "ingestion role" not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -272,7 +304,7 @@ async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_single_pool_service_still_closes_cleanly(monkeypatch):
-    """A stack on the fallback has no readonly pool; neither teardown may trip."""
+    """A stack without the SQL tool has no readonly pool; neither teardown may trip."""
     from osprey.mcp_server.ariel.server_context import ARIELContext
     from osprey.services.ariel_search import capability
     from osprey.services.ariel_search.service import ARIELSearchService

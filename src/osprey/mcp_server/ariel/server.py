@@ -69,6 +69,45 @@ def check_attachment_view_offered() -> None:
     )
 
 
+#: The tool that runs the agent's raw SQL, as the store's SELECT-only login.
+SQL_QUERY_TOOL = "sql_query"
+
+
+def sql_tool_offered_here() -> bool:
+    """Return whether ``SQL_QUERY_TOOL`` is offered here.
+
+    Offered exactly when the ARIEL context resolved a read-only login
+    (``config.database.readonly_uri``). With no context to read it from the
+    tool is offered, as :func:`attachment_view_offered` offers the picture
+    tools, so a process that only lists tools sees the full surface.
+    """
+    from osprey.mcp_server.ariel.server_context import get_ariel_context
+
+    try:
+        config = get_ariel_context().config
+    except RuntimeError:
+        return True
+    return config.database.readonly_uri is not None
+
+
+def check_sql_tool_offered() -> None:
+    """Refuse with ``not_supported`` naming the key when no read-only login is configured."""
+    if sql_tool_offered_here():
+        return
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
+
+    make_error(
+        "not_supported",
+        "The SQL tool is not served on this deployment: ariel.database.uri is set "
+        f"and {READONLY_URI_KEY} is not.",
+        [
+            f"An administrator can name a SELECT-only login in {READONLY_URI_KEY} "
+            "in the build profile, then rebuild."
+        ],
+        details={"key": READONLY_URI_KEY},
+    )
+
+
 class AttachmentViewOfferMiddleware(Middleware):
     """Leave the picture tools out of ``tools/list`` when the view is switched off.
 

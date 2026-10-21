@@ -69,6 +69,11 @@ _DEFAULT_DB_PASSWORD = "ariel"
 #: step. The init template derives the same name from the same key.
 _READONLY_ROLE_SUFFIX = "_ro"
 
+#: The key that names the SQL tool's SELECT-only login on a store the
+#: deployment authored with ``ariel.database.uri``. A derived store needs none:
+#: its read-only role is derived beside the owner.
+READONLY_URI_KEY = "ariel.database.readonly_uri"
+
 #: Where the read-only role's password is read from, and the value that stands
 #: in before a deploy mints one -- mirroring ``ARIEL_DB_PASSWORD`` and the
 #: ``${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}`` fallback the compose service and
@@ -105,9 +110,8 @@ def resolve_ariel_dsn(
     env: Mapping[str, str] | None = None,
     *,
     base: int | None = None,
-    role: Literal["ingest", "readonly"] = "ingest",
 ) -> str:
-    """Resolve the effective ARIEL database DSN.
+    """Resolve the effective ARIEL database DSN: the owner login ingestion uses.
 
     ``ariel.database.uri`` is optional: with it unset, the DSN is derived from
     the ``services.postgresql`` block that defines the Postgres the agent talks
@@ -133,15 +137,8 @@ def resolve_ariel_dsn(
     run at all, so redirecting it would point the agent at a different store
     than the project asked for.
 
-    ``role`` selects WHICH identity on that store the DSN authenticates as, and
-    only changes the derived third rung. ``"readonly"`` names
-    ``<username>_ro``, the SELECT-only role the store's init script creates,
-    with its password read from ``ARIEL_DB_READONLY_PASSWORD``. The first two
-    rungs are returned verbatim for either role: a DSN the project wrote down
-    names one endpoint and one identity on a database osprey did not
-    provision, and inventing a second login for it would fabricate a role that
-    may not exist. :class:`DatabaseConfig` reads that equality as "this
-    deployment has no separate read-only identity".
+    The SELECT-only login beside this one is
+    :func:`resolve_ariel_readonly_dsn`'s; the two share one derivation.
 
     Args:
         ariel_section: The ``ariel`` section from config.yml.
@@ -156,9 +153,6 @@ def resolve_ariel_dsn(
             ``.env`` instead: run from another directory, the ambient value
             belongs to some other deployment, and using it would either fail
             confusingly or reach a database this call was never pointed at.
-        role: Which identity on the derived store to authenticate as --
-            ``"ingest"``, the owner the container is initialized with, or
-            ``"readonly"``, the SELECT-only role beside it.
         base: The port base this deployment resolved, from
             :func:`osprey.port_layout.resolve_port_base`. Only consulted when
             ``services`` sets no ``port_host``, in which case the derived DSN
@@ -186,11 +180,111 @@ def resolve_ariel_dsn(
         _warn_once_connection_string_retired()
         return str(legacy_uri)
 
+    return _derived_dsn(services, env, base=base, readonly=False)
+
+
+def resolve_ariel_readonly_dsn(
+    ariel_section: dict[str, Any],
+    services: dict[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+    *,
+    base: int | None = None,
+) -> str | None:
+    """Resolve the SELECT-only login the agent's raw-SQL path connects as.
+
+    Precedence:
+      1. An authored ``readonly_uri`` (:data:`READONLY_URI_KEY`) wins,
+         verbatim; like ``uri`` it names a store this deployment may not run,
+         so neither store-address override touches it.
+      2. Otherwise an authored ``uri``, or the legacy ``connection_string``,
+         gives ``None``: that DSN names one identity on a database osprey did
+         not provision, and inventing a second login for it would fabricate a
+         role that may not exist.
+      3. Otherwise the derived store's ``<username>_ro`` role, which the
+         store's init script creates, on the same host, port and database as
+         :func:`resolve_ariel_dsn`'s derived rung, with its password read from
+         ``ARIEL_DB_READONLY_PASSWORD``.
+
+    Args:
+        ariel_section: The ``ariel`` section from config.yml.
+        services: The ``services.postgresql`` mapping, as for
+            :func:`resolve_ariel_dsn`.
+        env: Where the derived rung reads its password and the store-address
+            overrides from, as for :func:`resolve_ariel_dsn`.
+        base: The port base this deployment resolved, as for
+            :func:`resolve_ariel_dsn`.
+
+    Returns:
+        The DSN to connect with, or ``None`` when the deployment has no
+        read-only login and the SQL tool is therefore not served.
+
+    Raises:
+        ValueError: If ``ARIEL_DATABASE_PORT`` is set to something that is not
+            an integer port number.
+    """
+    database = ariel_section.get("database") or {}
+
+    readonly_uri = database.get("readonly_uri")
+    if readonly_uri is not None:
+        return str(readonly_uri)
+
+    if _authors_its_store(database):
+        return None
+
+    return _derived_dsn(services, env, base=base, readonly=True)
+
+
+def sql_tool_offered(ariel_section: Mapping[str, Any] | None) -> bool:
+    """Return whether this ``ariel`` section serves the agent's SQL tool.
+
+    True exactly when :func:`resolve_ariel_readonly_dsn` resolves a login:
+    always on a derived store, and on an authored one only with
+    :data:`READONLY_URI_KEY` set. Reads the mapping alone and opens nothing,
+    so the build can ask it.
+
+    Args:
+        ariel_section: The ``ariel`` section from config.yml, or None.
+    """
+    database = (ariel_section or {}).get("database") or {}
+    if not isinstance(database, Mapping):
+        return True
+    return database.get("readonly_uri") is not None or not _authors_its_store(database)
+
+
+def _authors_its_store(database: Mapping[str, Any]) -> bool:
+    """Whether ``ariel.database`` names its store itself rather than deriving it."""
+    return database.get("uri") is not None or database.get("connection_string") is not None
+
+
+def _derived_dsn(
+    services: dict[str, Any] | None,
+    env: Mapping[str, str] | None,
+    *,
+    base: int | None,
+    readonly: bool,
+) -> str:
+    """Build the DSN of the store derived from ``services.postgresql``.
+
+    One body for both logins, so the owner and the SELECT-only role cannot
+    drift apart: they differ in username and password only.
+
+    Args:
+        services: The ``services.postgresql`` mapping, or None.
+        env: Where to read the password and the store-address overrides from;
+            None means the process environment.
+        base: The port base for the ``postgres`` layout slot.
+        readonly: True for ``<username>_ro`` with
+            ``ARIEL_DB_READONLY_PASSWORD``, False for the owner with
+            ``ARIEL_DB_PASSWORD``.
+
+    Raises:
+        ValueError: If ``ARIEL_DATABASE_PORT`` is not an integer port number.
+    """
     source: Mapping[str, str] = env if env is not None else os.environ
     postgresql = services or {}
     username = postgresql.get("username", _DEFAULT_DB_USERNAME)
     database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
-    if role == "readonly":
+    if readonly:
         username = f"{username}{_READONLY_ROLE_SUFFIX}"
         password = source.get(_DB_READONLY_PASSWORD_ENV_VAR, _DEFAULT_DB_READONLY_PASSWORD)
     else:
@@ -580,10 +674,12 @@ class DatabaseConfig:
 
     Attributes:
         uri: PostgreSQL connection URI (e.g., "postgresql://localhost:5432/ariel")
-        readonly_uri: The same store reached as its SELECT-only role, for the
-            agent's raw-SQL path. ``None`` when this deployment has no separate
-            read-only identity -- an explicit ``uri`` names a database osprey
-            did not provision and therefore created no second role on.
+        readonly_uri: The SELECT-only login the agent's raw-SQL path connects
+            as, from :func:`resolve_ariel_readonly_dsn`. On a derived store it
+            is the ``<username>_ro`` role beside the owner. On a store the
+            deployment authored it is :data:`READONLY_URI_KEY` as written.
+            ``None`` when the store is authored and that key is not: there is
+            no read-only login, and the SQL tool is not served.
     """
 
     uri: str
@@ -599,24 +695,27 @@ class DatabaseConfig:
     ) -> "DatabaseConfig":
         """Create DatabaseConfig from the ``ariel.database`` mapping.
 
-        Both identities come from the same resolver and the same inputs, so the
-        read-only DSN cannot drift from the one ingestion uses. They come back
-        equal exactly when an explicit ``uri`` (or the legacy alias) short-
-        circuits the derivation, which is the case where there is no second
-        role to reach -- recorded as ``None`` rather than as a duplicate DSN
-        that would silently connect the SQL tool as the owner.
-
         Args:
             data: The ``ariel.database`` mapping from config.yml.
             services: The ``services.postgresql`` mapping, used to derive the
                 DSN when ``uri`` is unset. See :func:`resolve_ariel_dsn`.
-            base: The port base this deployment resolved, handed to
-                :func:`resolve_ariel_dsn` so a derived DSN dials this
-                deployment's ``postgres`` slot rather than the default base's.
+            base: The port base this deployment resolved, handed to both
+                resolvers so a derived DSN dials this deployment's
+                ``postgres`` slot rather than the default base's.
+
+        Raises:
+            ConfigurationError: If an authored ``readonly_uri`` is the
+                ingestion DSN itself: that string is the owner's login.
         """
         uri = resolve_ariel_dsn({"database": data}, services, base=base)
-        readonly_uri = resolve_ariel_dsn({"database": data}, services, base=base, role="readonly")
-        return cls(uri=uri, readonly_uri=None if readonly_uri == uri else readonly_uri)
+        readonly_uri = resolve_ariel_readonly_dsn({"database": data}, services, base=base)
+        if readonly_uri is not None and readonly_uri == uri:
+            raise ConfigurationError(
+                f"{READONLY_URI_KEY} is the ingestion login itself; name a separate "
+                "SELECT-only login.",
+                config_key="database.readonly_uri",
+            )
+        return cls(uri=uri, readonly_uri=readonly_uri)
 
 
 @dataclass

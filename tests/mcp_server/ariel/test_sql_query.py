@@ -1,5 +1,6 @@
 """Tests for the sql_query MCP tool and sql_query validation."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -120,10 +121,18 @@ def _get_sql_query():
     return get_tool_fn(sql_query)
 
 
-def _setup_registry(tmp_path, monkeypatch):
+#: An authored store that also names the SQL tool's SELECT-only login, so the
+#: tool is served.
+_DATABASE = {
+    "uri": "postgresql://ariel@localhost/test",
+    "readonly_uri": "postgresql://ariel_ro@localhost/test",
+}
+
+
+def _setup_registry(tmp_path, monkeypatch, database=None):
     monkeypatch.chdir(tmp_path)
-    config = '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    (tmp_path / "config.yml").write_text(config)
+    config = {"ariel": {"database": _DATABASE if database is None else database}}
+    (tmp_path / "config.yml").write_text(json.dumps(config))
     initialize_ariel_context()
 
 
@@ -256,15 +265,42 @@ async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
     assert mock_sql.call_args.args[0] is mock_service.readonly_pool
 
 
-async def test_sql_query_falls_back_to_the_ingestion_pool(tmp_path, monkeypatch):
-    """A store whose data volume predates the role has no read-only pool. The
-    tool keeps working on the connection it always used; the service logs the
-    one warning about it at start-up rather than here, per query."""
+async def test_sql_query_without_a_readonly_login_is_not_supported(tmp_path, monkeypatch):
+    """An authored store with no ``readonly_uri`` has no login the tool may run
+    as. The refusal names the key and comes before any service is built, so the
+    ingestion pool is never reached."""
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
+
+    _setup_registry(tmp_path, monkeypatch, database={"uri": "postgresql://ariel@localhost/test"})
+
+    service = AsyncMock(side_effect=AssertionError("no service may be built"))
+    mock_sql = AsyncMock(side_effect=AssertionError("no query may run"))
+
+    with (
+        patch("osprey.mcp_server.ariel.server_context.ARIELContext.service", new=service),
+        patch("osprey.mcp_server.ariel.tools.sql_query.execute_sql_query", new=mock_sql),
+    ):
+        fn = _get_sql_query()
+        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
+
+    envelope = _exc_ctx["envelope"]
+    assert envelope["details"] == {"key": READONLY_URI_KEY}
+    assert READONLY_URI_KEY in envelope["error_message"]
+    service.assert_not_awaited()
+    mock_sql.assert_not_awaited()
+
+
+async def test_sql_query_with_a_refused_readonly_login_is_unavailable(tmp_path, monkeypatch):
+    """A store whose data volume predates the role refuses the read-only login.
+    The tool says so with the recorded reason and never queries through the
+    ingestion pool."""
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
     mock_service.readonly_pool = None
+    mock_service.readonly_pool_error = 'OSError: password authentication failed for user "ariel_ro"'
 
     mock_sql = AsyncMock(return_value=[])
 
@@ -279,9 +315,13 @@ async def test_sql_query_falls_back_to_the_ingestion_pool(tmp_path, monkeypatch)
         ),
     ):
         fn = _get_sql_query()
-        await fn(sql="SELECT entry_id FROM enhanced_entries")
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
 
-    assert mock_sql.call_args.args[0] is mock_service.pool
+    envelope = _exc_ctx["envelope"]
+    assert mock_service.readonly_pool_error in envelope["error_message"]
+    assert any("Read-only role for the SQL tool" in hint for hint in envelope["suggestions"])
+    mock_sql.assert_not_awaited()
 
 
 async def test_sql_query_binary_table_refusal_hints_at_text_columns():
