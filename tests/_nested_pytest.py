@@ -23,7 +23,8 @@ the sequence every bounded gate run is stopped with: a ``SIGABRT`` to that
 group, which makes each process write its stacks to the same stderr before it
 dies, then SIGTERM and SIGKILL. Whatever the run left in its group is stopped
 the same way when it ends, so no worker it started outlives the calling test,
-and one that survives SIGKILL fails the test by pid.
+and one that survives SIGKILL fails the test by pid, and one it could not look
+for fails it saying so.
 
 A finished run reports how long it sat silent before it exited
 (``NestedRun.quiet_before_exit``): the time between the last growth of its
@@ -145,7 +146,7 @@ def run_nested_pytest(
             try:
                 written = -1
                 last_progress = time.monotonic()
-                while proc.poll() is None:
+                while not _exited(proc):
                     size = out_path.stat().st_size + err_path.stat().st_size
                     now = time.monotonic()
                     if size != written:
@@ -165,7 +166,12 @@ def run_nested_pytest(
             finally:
                 leftover = stop_group(proc.pid, grace=_GRACE_SECONDS)
                 proc.wait()
-            if leftover:
+            if leftover is None:
+                pytest.fail(
+                    "could not tell whether the nested run left processes behind: "
+                    "the process table could not be read"
+                )
+            elif leftover:
                 pytest.fail(f"nested run left processes behind{_survivor_note(leftover)}")
         return NestedRun(
             argv,
@@ -176,8 +182,19 @@ def run_nested_pytest(
         )
 
 
-def _survivor_note(survivors: list[int]) -> str:
+def _exited(proc: subprocess.Popen[bytes]) -> bool:
+    """Whether ``proc`` has exited, observed without reaping it.
+
+    The leader stays unreaped until the group stop has run, so its id cannot be
+    taken by another process while the stop signals and reads the group.
+    """
+    return os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+
+
+def _survivor_note(survivors: list[int] | None) -> str:
     """The clause naming a stop's survivors, or nothing when there are none."""
+    if survivors is None:
+        return "; the process table could not be read to name what is still running"
     if not survivors:
         return ""
     return "; still running after SIGKILL: pids " + " ".join(str(pid) for pid in survivors)

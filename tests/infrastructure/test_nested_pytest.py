@@ -15,6 +15,8 @@ import sys
 
 import pytest
 
+from osprey.deployment.subprocess_capture import stop_group
+from tests import _nested_pytest
 from tests._nested_pytest import run_nested_pytest
 
 _TALKER = "import time\nfor _ in range(6):\n    print('.', flush=True)\n    time.sleep(0.5)\n"
@@ -90,3 +92,24 @@ def test_a_nested_run_leaves_the_shared_temporary_root_alone(tmp_path):
     assert "1 passed" in result.stdout
     assert sorted(p.name for p in numbered.iterdir()) == ["pytest-1", "pytest-2", "pytest-3"]
     assert (numbered / "pytest-1" / "left-by-a-finished-run").exists()
+
+
+def test_the_leftover_stop_runs_before_the_leader_is_reaped(monkeypatch):
+    seen: list[int] = []
+
+    def spy(pgid, **kwargs):
+        # The leader has exited but is still a zombie nobody has reaped.
+        assert os.waitid(os.P_PID, pgid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+        seen.append(pgid)
+        return stop_group(pgid, **kwargs)
+
+    monkeypatch.setattr(_nested_pytest, "stop_group", spy)
+    result = run_nested_pytest([sys.executable, "-c", "pass"], cwd=None, env=None)
+    assert result.returncode == 0
+    assert len(seen) == 1
+
+
+def test_a_nested_run_whose_table_could_not_be_read_fails_saying_so(monkeypatch):
+    monkeypatch.setattr(_nested_pytest, "stop_group", lambda *_a, **_k: None)
+    with pytest.raises(pytest.fail.Exception, match="process table could not be read"):
+        run_nested_pytest([sys.executable, "-c", "pass"], cwd=None, env=None)
