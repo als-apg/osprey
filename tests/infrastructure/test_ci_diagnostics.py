@@ -26,10 +26,12 @@ from osprey_connectors_tests._harness.ci_diagnostics import (
     ENV_DIR,
     ENV_E2E_RUNTIME,
     ENV_STACK_TIMEOUT,
+    RECORDER_PLUGIN,
     ContainerSnapshots,
     DiagnosticsRecorder,
     recorder_from_env,
     register_container_snapshots,
+    register_recorder,
     worker_id,
     worker_index,
 )
@@ -433,6 +435,33 @@ def test_container_snapshots_register_once_when_armed(monkeypatch, tmp_path):
     assert isinstance(first, ContainerSnapshots)
     assert manager.get_plugin(CONTAINER_SNAPSHOT_PLUGIN) is first
     assert register_container_snapshots(manager) is None
+
+
+def test_recorder_is_off_when_unset():
+    manager = pytest.PytestPluginManager()
+    assert register_recorder(manager) is None
+    assert not manager.has_plugin(RECORDER_PLUGIN)
+
+
+def test_registered_recorder_logs_each_event_once(monkeypatch, tmp_path):
+    """Registered once however many conftests ask, so an event the xdist
+    controller relays reaches one plugin instead of one hook per conftest."""
+    monkeypatch.setenv(ENV_DIR, str(tmp_path))
+    monkeypatch.setenv(ENV_STACK_TIMEOUT, "0")
+    manager = pytest.PytestPluginManager()
+    recorder = register_recorder(manager)
+    assert register_recorder(manager) is None
+    location = ("a.py", 0, "t")
+    manager.hook.pytest_runtest_logstart(nodeid="a.py::t", location=location)
+    manager.hook.pytest_runtest_logfinish(nodeid="a.py::t", location=location)
+    recorder.stop()
+    lines = (tmp_path / f"events-{recorder.worker}.jsonl").read_text().splitlines()
+    assert [(e["event"], e.get("nodeid")) for e in map(json.loads, lines)] == [
+        ("session_start", None),
+        ("start", "a.py::t"),
+        ("finish", "a.py::t"),
+        ("session_end", None),
+    ]
 
 
 def test_container_snapshot_engine_follows_the_e2e_runtime_switch(monkeypatch, tmp_path):

@@ -16,10 +16,7 @@ import sys
 
 import pytest
 
-from osprey_connectors_tests._harness._control_context_fixtures import (
-    write_control_context,
-    write_server_report,
-)
+from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests._guarded_run import (
     PLANTED_REFUSED,
     held_lock,
@@ -172,10 +169,7 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
     from pathlib import Path
 
-    from osprey_connectors_tests._harness._control_context_fixtures import (
-        pin_identity,
-        state_dir_under,
-    )
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
     pin_identity(monkeypatch)
     root = tmp_path / "agent_data"
@@ -2040,10 +2034,7 @@ def test_raw_client_write_deny_files_a_refused_record(
     import json
     from pathlib import Path
 
-    from osprey_connectors_tests._harness._control_context_fixtures import (
-        pin_identity,
-        state_dir_under,
-    )
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
     pin_identity(monkeypatch)
     root = tmp_path / "agent_data"
@@ -2275,10 +2266,7 @@ def test_the_prompt_binds_the_target_whatever_holds_its_lock(
 @pytest.fixture
 def stamp_dir(tmp_path, monkeypatch):
     """The identity state directory the hook files its ask stamps in."""
-    from osprey_connectors_tests._harness._control_context_fixtures import (
-        pin_identity,
-        state_dir_under,
-    )
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
     pin_identity(monkeypatch)
     root = tmp_path / "agent_data"

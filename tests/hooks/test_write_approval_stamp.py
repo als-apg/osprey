@@ -31,7 +31,7 @@ import time
 
 import pytest
 
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     state_dir_under,
     write_control_context,
     write_server_report,

@@ -95,7 +95,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
     this is the one test that spells the hops literally, and a literal that
     reads ``getpass.getuser()``'s answer states nothing about the layout.
     """
-    from osprey_connectors_tests._harness._control_context_fixtures import pin_identity
+    from osprey_connectors_tests._harness import pin_identity
 
     identity = pin_identity(monkeypatch)
 
@@ -1201,7 +1201,7 @@ def test_converged_reads_a_one_shot_iterable_of_reports_once():
 
 def test_the_record_fixture_round_trips_through_read_record(data_root):
     """What the fixture writes is what ``read_record`` gives back."""
-    from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+    from osprey_connectors_tests._harness import write_control_context
 
     path = write_control_context(
         data_root,
@@ -1227,7 +1227,7 @@ def test_the_record_fixture_defaults_to_an_owner_that_is_alive(data_root):
     silently put every suite on the claim path, where a reader is entitled to
     take the record over instead of following it.
     """
-    from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+    from osprey_connectors_tests._harness import write_control_context
 
     write_control_context(data_root)
 
@@ -1240,7 +1240,7 @@ def test_the_record_fixture_defaults_to_an_owner_that_is_alive(data_root):
 
 
 def test_the_record_fixture_writes_an_ownerless_record_on_request(data_root):
-    from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+    from osprey_connectors_tests._harness import write_control_context
 
     write_control_context(data_root, owned_by=None)
 
@@ -1250,10 +1250,7 @@ def test_the_record_fixture_writes_an_ownerless_record_on_request(data_root):
 
 
 def test_the_record_fixture_owns_by_a_named_process_on_request(data_root):
-    from osprey_connectors_tests._harness._control_context_fixtures import (
-        owner,
-        write_control_context,
-    )
+    from osprey_connectors_tests._harness import owner, write_control_context
 
     write_control_context(
         data_root,
@@ -1269,7 +1266,7 @@ def test_the_record_fixture_owns_by_a_named_process_on_request(data_root):
 
 def test_the_report_fixture_round_trips_through_read_report(data_root):
     """Same contract for the ten-field report the readers walk per server."""
-    from osprey_connectors_tests._harness._control_context_fixtures import write_server_report
+    from osprey_connectors_tests._harness import write_server_report
 
     path = write_server_report(
         data_root,
@@ -1303,7 +1300,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
 
 def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_root):
     """Null-bound, not baseline: a fresh server has not got anywhere yet."""
-    from osprey_connectors_tests._harness._control_context_fixtures import write_server_report
+    from osprey_connectors_tests._harness import write_server_report
 
     write_server_report(data_root, 4321)
 
@@ -1324,7 +1321,7 @@ def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, mo
     on every other line. Today the atomic replace also changes the inode, so a
     re-read alone cannot show the drop: the spy pins the fixture's own contract.
     """
-    from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+    from osprey_connectors_tests._harness import write_control_context
 
     drops = []
     real_invalidate = control_context.invalidate_cache
@@ -1353,7 +1350,7 @@ def test_the_record_fixture_writes_a_non_mapping_posture_verbatim(data_root):
     could only write mappings would leave every such suite hand-rolling a
     payload beside this writer.
     """
-    from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+    from osprey_connectors_tests._harness import write_control_context
 
     path = write_control_context(data_root, posture="sandbox")
 
@@ -1365,7 +1362,7 @@ def test_the_record_fixture_writes_a_non_mapping_posture_verbatim(data_root):
 
 def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data_root):
     """A record too broken to build from the dataclass still has to be writable."""
-    from osprey_connectors_tests._harness._control_context_fixtures import write_payload
+    from osprey_connectors_tests._harness import write_payload
 
     write_payload(control_context.record_path_under(data_root), {"target": "va"})
 

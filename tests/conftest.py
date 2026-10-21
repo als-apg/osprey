@@ -23,9 +23,6 @@ from osprey_connectors_tests._harness import _repo_cleanliness
 from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
     _AUDIT_RESOLVER_LANE,
     _GUARD_KNOWN_LIMIT,
-    _PRISTINE_LOGGING,
-    _REPO_ROOT,
-    FileOrGroupScheduling,
     _clear_dotenv_timezone,
     _first_seen_clause,
     _is_real_deployment_item,
@@ -35,10 +32,7 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     no_agent_data_in_the_repo,
     no_audit_ledger_in_the_repo,
     pytest_collection_finish,
-    pytest_runtest_logfinish,
-    pytest_runtest_logstart,
     pytest_runtest_setup,
-    pytest_unconfigure,
     pytest_xdist_make_scheduler,
     reset_second_real_block_warning,
     restore_cwd,
@@ -164,15 +158,10 @@ _PLAN_DIR_FIRST_SEEN: str | None = None
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_teardown(item):
-    """Bound the Bluesky plan directory's leak the way the harness bounds its two.
+    """Bound the Bluesky plan directory's leak, then run the harness's teardown.
 
-    The harness's own teardown
-    (:func:`osprey_connectors_tests._harness._guards.pytest_runtest_teardown`)
-    records ``<repo>/var/agent_data`` and ``<repo>/var/audit`` and closes the
-    real-deployment window; it is delegated to here, because one conftest
-    carries one implementation of a hook. The plan directory is the
-    framework's alone, so its bound is taken here, ahead of the delegate and
-    on the same terms.
+    A conftest carries one implementation of a hook, so the harness's is
+    delegated to; the plan directory is the framework's alone.
     """
     global _PLAN_DIR_FIRST_SEEN
     if (
@@ -924,12 +913,7 @@ def pytest_collection_modifyitems(items):
 
 
 def pytest_configure(config):
-    """Register the shared plugins and the markers whose seams live in this file.
-
-    The plugins and CI diagnostics are the harness's
-    (:func:`osprey_connectors_tests._harness._guards.pytest_configure`), which the connectors
-    suite runs too.
-    """
+    """Register the harness's plugins and the markers whose seams live in this file."""
     _harness.pytest_configure(config)
 
     # A shared fixture's temporary directories go when its scope ends, not when

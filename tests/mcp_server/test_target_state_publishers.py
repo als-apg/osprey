@@ -47,7 +47,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
-from osprey_connectors_tests._harness._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
 
 TARGETS_META = {

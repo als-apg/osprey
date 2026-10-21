@@ -1,13 +1,29 @@
-"""The guards and helpers both test suites run on.
+"""Framework-free guards and helpers both test suites share.
 
-Everything here is framework-free: it imports ``osprey_connectors`` and the
-standard library, never ``osprey`` and never the framework's ``tests`` package,
-so the connectors suite can run on it with only that distribution installed.
-The framework's suite imports the same modules, which is why a guard is written
-once, here.
-
-``_guards`` holds the conftest fixtures and hooks, imported by name into both
-conftests; the other modules are the helpers they and the tests reach for.
-Importing this package runs nothing: ``_guards`` acts on the environment at
-import, so it is never imported from here.
+The control-context writers are re-exported here for short imports. ``_guards``
+acts at import, so it is never imported from here.
 """
+
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    DEFAULT_GENERATION,
+    DEFAULT_TARGET,
+    FIXTURE_IDENTITY,
+    owner,
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_payload,
+    write_server_report,
+)
+
+__all__ = [
+    "DEFAULT_GENERATION",
+    "DEFAULT_TARGET",
+    "FIXTURE_IDENTITY",
+    "owner",
+    "pin_identity",
+    "state_dir_under",
+    "write_control_context",
+    "write_payload",
+    "write_server_report",
+]

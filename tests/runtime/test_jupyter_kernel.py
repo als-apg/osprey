@@ -46,7 +46,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
 )
 from osprey_connectors.types import baseline_target
-from osprey_connectors_tests._harness._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
 #: The engine's own ``install``, kept before the autouse stub replaces it.

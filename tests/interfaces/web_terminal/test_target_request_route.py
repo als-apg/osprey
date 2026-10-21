@@ -43,7 +43,7 @@ from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
     write_control_context,

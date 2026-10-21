@@ -46,9 +46,8 @@ just run one of them:
 Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound. A run stopped by its bound prints every
 process's Python stacks before it is killed. Every pytest process the suite
-starts carries an exit report
-(`packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_live_threads.py`):
-after its last test it names the non-daemon threads and child processes keeping it alive, and a slow
+starts carries an exit report (the harness's `_live_threads.py`): after its last test it
+names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
 controller still running `EXIT_BOUND_SECONDS` after its summary, or an xdist
 worker still running at half of the clock xdist kills it on after its exit
@@ -79,9 +78,8 @@ The two `flaky` markers in the unit suite rerun all failures and are unaffected.
 
 ### What `--dist loadgroup` does here
 
-`tests/conftest.py` installs a small scheduler (`FileOrGroupScheduling`, defined
-in `packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py` and shared with the connectors suite's conftest) that changes how work
-is handed to workers:
+`tests/conftest.py` installs a small scheduler (`FileOrGroupScheduling`, from the
+harness's `_guards.py`) that changes how work is handed to workers:
 
 - **A file with no `xdist_group` marker** goes to one worker as a unit. Every
   test in the file runs on the same worker, in file order. This is the default
@@ -216,11 +214,10 @@ cover it, so do not add one.
 
 `tests/conftest.py` runs these around **every** test in the suite. You do not
 need to repeat them, but you should know they exist so you can tell "my test
-leaked" from "my test was leaked on". The framework-free ones (`restore_environ`,
-`restore_cwd`, `restore_root_logging` and the rest of the environment, timezone
-and repository guards) are defined in `packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py` and imported by name, so the
-connectors suite under `packages/osprey-connectors/tests` runs the same guards
-without the framework installed.
+leaked" from "my test was leaked on". The framework-free ones live in the
+harness, `packages/osprey-connectors/tests/osprey_connectors_tests/_harness/`,
+whose `_guards.py` both conftests import by name, so the connectors suite runs
+the same guards without the framework installed.
 
 | Guard | Protects against |
 |---|---|
@@ -324,8 +321,7 @@ What this buys you when writing tests:
   The eager three are the stronger hazard, because collection alone can trigger
   them. Either way the value one test observes is not a valid expectation for
   the next, and WARNING is indistinguishable from what `configure_logging()`
-  itself sets. Compare against `_PRISTINE_LOGGING` (in the harness's `_guards.py`,
-re-exported by `tests/conftest.py`) instead; that
+  itself sets. Compare against the harness's `_guards._PRISTINE_LOGGING` instead; that
   is the guard's actual contract. `tests/utils/test_logging_guard.py` shows the
   pattern.
 

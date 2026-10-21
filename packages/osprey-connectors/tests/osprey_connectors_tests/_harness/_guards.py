@@ -1,33 +1,13 @@
 """The test guards that hold without the framework installed.
 
-``osprey-connectors`` is released on its own, so its suite
-(``packages/osprey-connectors/tests``) runs in an environment that has only that
-distribution, where ``tests/conftest.py`` cannot even be imported. The guards
-here are the ones that suite needs as much as the framework's does: the
-environment snapshot, the session-posture anchors, the divert that keeps the
-agent-data root and the ledger off this checkout, the timezone, working
-directory and root-logging guards, and the CI diagnostics hooks.
+The connectors suite runs where only ``osprey-connectors`` is installed, so the
+guards both suites need live here and both conftests import them by name. Not
+as a plugin: a conftest's autouse fixtures are ordered by name within that
+conftest, and the "set up before" reasoning below depends on that order, while
+a plugin's fixtures would all run first. In a run that collects both trees the
+session-level hooks are called once per conftest, so each is idempotent.
 
-They live here once and both conftests import them by name, rather than this
-module being registered as a plugin. A conftest's autouse fixtures are ordered
-by name within that conftest, and every docstring below that reasons about
-"set up before" and "torn down after" was written against that order; a plugin's
-fixtures would instead all run ahead of every conftest fixture. Importing keeps
-the framework suite's order exactly what it was.
-
-A per-test hook defined here is applied by path: the framework's conftest
-covers ``tests/`` and the connectors suite's covers its own tree, so on a
-worker each runs once per test. The xdist controller is the exception. It
-re-emits every worker's ``pytest_runtest_logstart`` and ``logfinish`` through
-the unfiltered hook relay, which reaches both conftests in a run that collects
-both trees, so the two CI diagnostics hooks keep their own record of what they
-wrote. Session-level hooks (configure, unconfigure, collection finish, the
-xdist scheduler) are likewise called for both conftests in such a run, and
-each one is written to be idempotent for that reason.
-
-Nothing in this package imports ``osprey`` or the framework's ``tests``
-package; ``osprey_connectors`` and the modules beside this one are all it
-reaches.
+Nothing here imports ``osprey`` or the framework's ``tests`` package.
 """
 
 import logging
@@ -760,11 +740,9 @@ def reset_second_real_block_warning():
 # snapshot of a failing test's containers that joins the event log there: with
 # the variable unset this installs nothing and costs nothing.
 
-_CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
-
 
 def pytest_configure(config):
-    """Open the per-worker records and arm the stack dumper."""
+    """Register the harness plugins, the CI recorder among them."""
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this
@@ -777,55 +755,12 @@ def pytest_configure(config):
     if not config.pluginmanager.is_registered(_live_threads):
         config.pluginmanager.register(_live_threads, _live_threads.PLUGIN_NAME)
 
-    # Started once per process: in a full run both the framework's conftest and
-    # the connectors suite's call this, and two recorders would interleave
-    # their records in one worker's files.
-    global _CI_DIAGNOSTICS
-    if _CI_DIAGNOSTICS is None:
-        _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
-        if _CI_DIAGNOSTICS is not None:
-            _CI_DIAGNOSTICS.start()
-
-    # A failing test's containers are snapshotted before its module's fixtures
-    # remove them. See ci_diagnostics.py.
+    # The event log and stack sampler, and a failing test's containers
+    # snapshotted before its module's fixtures remove them. Both are plugins,
+    # so a run that loads both conftests still records each event once. See
+    # ci_diagnostics.py.
+    ci_diagnostics.register_recorder(config.pluginmanager)
     ci_diagnostics.register_container_snapshots(config.pluginmanager)
-
-
-#: The ``(event, nodeid)`` this process recorded last. The xdist controller
-#: relays a worker's ``logstart``/``logfinish`` through ``config.hook``, which
-#: is not filtered by path, so in a run that loads both conftests one relayed
-#: event reaches both of the hooks below, back to back, and the second is
-#: dropped here. Only the immediately preceding record is compared: a test that
-#: pytest-rerunfailures runs again logs a fresh ``start`` after its ``finish``,
-#: and that one must be recorded, or a rerun that wedges would leave no trace.
-_CI_LAST_RECORDED: tuple[str, str] | None = None
-
-
-def _record_once(event: str, nodeid: str) -> None:
-    """Record *event* for *nodeid* unless it is the record just written."""
-    global _CI_LAST_RECORDED
-    if _CI_DIAGNOSTICS is None or _CI_LAST_RECORDED == (event, nodeid):
-        return
-    _CI_LAST_RECORDED = (event, nodeid)
-    _CI_DIAGNOSTICS.record(event, nodeid=nodeid)
-
-
-def pytest_runtest_logstart(nodeid):
-    """Fires before setup — so a test that never returns is still on record."""
-    _record_once("start", nodeid)
-
-
-def pytest_runtest_logfinish(nodeid):
-    """Fires after teardown. A `start` left unmatched is the wedged test."""
-    _record_once("finish", nodeid)
-
-
-def pytest_unconfigure():
-    global _CI_DIAGNOSTICS, _CI_LAST_RECORDED
-    if _CI_DIAGNOSTICS is not None:
-        _CI_DIAGNOSTICS.stop()
-        _CI_DIAGNOSTICS = None
-    _CI_LAST_RECORDED = None
 
 
 # ===================================================================

@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     pin_identity,
     state_dir_under,
     write_control_context,

@@ -13,7 +13,7 @@ import json
 import pytest
 
 from osprey_connectors.types import session_posture, target_writes_enabled
-from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 
 
 @pytest.fixture(autouse=True)

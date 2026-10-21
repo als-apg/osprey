@@ -93,7 +93,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import reset_config_cache
-from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs

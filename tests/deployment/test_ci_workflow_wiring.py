@@ -54,6 +54,8 @@ import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from osprey_connectors_tests._paths import TESTS_ROOT as CONNECTORS_TESTS_ROOT
+
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
 TILED_JOB = "tiled-roundtrip-e2e"
@@ -178,25 +180,13 @@ EXPECTED_MIN_ALS_APG_PROBES = 10
 
 #: Where the scheduler override is defined. Both conftests import it by name
 #: from here (see ``test_both_conftests_import_the_scheduler_override``).
-CONFTEST = (
-    Path(__file__).resolve().parents[2]
-    / "packages"
-    / "osprey-connectors"
-    / "tests"
-    / "osprey_connectors_tests"
-    / "_harness"
-    / "_guards.py"
-)
+SCHEDULER_SOURCE = CONNECTORS_TESTS_ROOT / "osprey_connectors_tests" / "_harness" / "_guards.py"
 #: The module both conftests import the override from.
 SCHEDULER_MODULE = "osprey_connectors_tests._harness._guards"
 #: The conftests that must carry the override for pytest to call it.
 SCHEDULER_CONFTESTS = (
     Path(__file__).resolve().parents[1] / "conftest.py",
-    Path(__file__).resolve().parents[2]
-    / "packages"
-    / "osprey-connectors"
-    / "tests"
-    / "conftest.py",
+    CONNECTORS_TESTS_ROOT / "conftest.py",
 )
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 
@@ -1477,7 +1467,7 @@ def test_coverage_cell_pins__mutation_back_to_the_floor_version() -> None:
 
 
 def _conftest_source() -> str:
-    return CONFTEST.read_text(encoding="utf-8")
+    return SCHEDULER_SOURCE.read_text(encoding="utf-8")
 
 
 def _hook_source(source: str) -> str:
@@ -1538,7 +1528,9 @@ def test_conftest_scheduler_override__mutation_renames_hook() -> None:
     defined below it."""
     source = _conftest_source()
     mutated = source.replace(f"def {SCHEDULER_HOOK}(", f"def _disabled_{SCHEDULER_HOOK}(")
-    assert mutated != source, f"no `def {SCHEDULER_HOOK}(` in {CONFTEST} — mutation is stale"
+    assert mutated != source, (
+        f"no `def {SCHEDULER_HOOK}(` in {SCHEDULER_SOURCE} — mutation is stale"
+    )
     assert _missing_scheduler_parts(mutated) == [
         f"def {SCHEDULER_HOOK}",
         "loadgroup guard",
@@ -1553,7 +1545,7 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
     override's reach beyond the lane it was written for."""
     source = _conftest_source()
     mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
-    assert mutated != source, f"no dist-option guard in {CONFTEST} — mutation is stale"
+    assert mutated != source, f"no dist-option guard in {SCHEDULER_SOURCE} — mutation is stale"
     assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 

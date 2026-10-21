@@ -22,7 +22,7 @@ import pytest
 from osprey.mcp_server.control_system import server, server_context, target_state
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
-from osprey_connectors_tests._harness._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
 
 TARGETS_META = {
@@ -706,7 +706,7 @@ class TestServerStartClaimsTheRecord:
     def test_server_start_claims_over_a_dead_owner(
         self, control_context_root, write_control_context
     ):
-        from osprey_connectors_tests._harness._control_context_fixtures import owner as make_owner
+        from osprey_connectors_tests._harness import owner as make_owner
 
         write_control_context(
             control_context_root,
@@ -725,7 +725,7 @@ class TestServerStartClaimsTheRecord:
     def test_server_start_claims_over_an_owner_too_degraded_to_name_a_process(
         self, control_context_root
     ):
-        from osprey_connectors_tests._harness._control_context_fixtures import write_payload
+        from osprey_connectors_tests._harness import write_payload
 
         write_payload(
             control_context.record_path_under(control_context_root),
@@ -762,7 +762,7 @@ class TestServerStartClaimsTheRecord:
     def test_server_start_follows_a_live_controls_server_owner(
         self, control_context_root, write_control_context
     ):
-        from osprey_connectors_tests._harness._control_context_fixtures import owner as make_owner
+        from osprey_connectors_tests._harness import owner as make_owner
 
         path = write_control_context(
             control_context_root,
@@ -791,7 +791,7 @@ class TestServerStartClaimsTheRecord:
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
         self, control_context_root
     ):
-        from osprey_connectors_tests._harness._control_context_fixtures import write_payload
+        from osprey_connectors_tests._harness import write_payload
 
         write_payload(control_context.record_path_under(control_context_root), ["not", "a record"])
 
@@ -849,7 +849,7 @@ class TestServerStartLaunchTarget:
     def test_server_start_launch_target_is_none_when_the_record_is_unreadable(
         self, control_context_root
     ):
-        from osprey_connectors_tests._harness._control_context_fixtures import write_payload
+        from osprey_connectors_tests._harness import write_payload
 
         write_payload(
             control_context.record_path_under(control_context_root),

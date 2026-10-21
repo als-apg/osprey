@@ -25,8 +25,7 @@ import yaml
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
 from osprey.profiles.providers import load_provider_catalog
-from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
-from tests._nested_pytest import run_nested_pytest
+from tests._nested_pytest import run_nested_pytest, with_harness_path
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
 from tests.e2e import sdk_helpers
@@ -399,10 +398,8 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
         for key, value in os.environ.items()
         if key not in (E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV)
     }
-    # `-c os.devnull` drops the root pyproject's `pythonpath`, which is how the
-    # outer run reaches the harness tests/conftest.py imports; the child gets
-    # that directory on PYTHONPATH instead.
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, (str(_HARNESS_ROOT), env.get("PYTHONPATH"))))
+    # `-c os.devnull` drops the root pyproject's `pythonpath` as well.
+    with_harness_path(env)
     return run_nested_pytest(
         [
             sys.executable,

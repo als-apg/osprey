@@ -45,7 +45,7 @@ from osprey_connectors.types import (
     writes_enabled_key,
     writes_enabled_remedy,
 )
-from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
 
 CUSTOM_TYPE = "mypackage.MoatConnector"

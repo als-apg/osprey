@@ -31,8 +31,7 @@ from osprey_connectors_tests._harness._live_threads import (
     registered_exit_callbacks,
     report_live_threads,
 )
-from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
-from tests._nested_pytest import outer_run_free_env, run_nested_pytest
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest, with_harness_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,18 +42,6 @@ _INNER_PLUGINS = (
     "osprey_connectors_tests._harness._live_threads",
     "no:cacheprovider",
 )
-
-
-def _child_env() -> dict[str, str]:
-    """The outer run's environment for a child that imports the harness.
-
-    The harness lives in the connectors suite, which the outer run reaches
-    through its ``pythonpath`` ini setting; a child process reads no ini file,
-    so the directory is handed to it on ``PYTHONPATH`` instead.
-    """
-    env = outer_run_free_env()
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, (str(_HARNESS_ROOT), env.get("PYTHONPATH"))))
-    return env
 
 
 def _hold(release: threading.Event) -> None:
@@ -73,7 +60,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = _child_env()
+    env = with_harness_path(outer_run_free_env())
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(
@@ -300,7 +287,7 @@ def test_teardown_still_finalizes_what_was_alive_at_the_final_collection():
     result = subprocess.run(
         [sys.executable, "-c", _FINALIZED_PROBE],
         cwd=_REPO_ROOT,
-        env=_child_env(),
+        env=with_harness_path(outer_run_free_env()),
         capture_output=True,
         text=True,
         timeout=60,

@@ -32,7 +32,7 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------

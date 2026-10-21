@@ -152,6 +152,9 @@ SNAPSHOT_CALL_TIMEOUT = 30.0
 #: The name the snapshot plugin is registered under.
 CONTAINER_SNAPSHOT_PLUGIN = "osprey-ci-diag-containers"
 
+#: The name the recorder plugin is registered under.
+RECORDER_PLUGIN = "osprey-ci-diag-recorder"
+
 #: The capture action's ``state.txt`` format, verbatim, so both files read alike.
 _STATE_FORMAT = (
     "{{.Name}} image={{.Config.Image}} status={{.State.Status}} "
@@ -280,6 +283,19 @@ class DiagnosticsRecorder:
         if self._events is not None:
             self._events.close()
             self._events = None
+
+    # -- pytest hooks: registered as a plugin, see register_recorder ---------
+
+    def pytest_runtest_logstart(self, nodeid: str) -> None:
+        """Fires before setup — so a test that never returns is still on record."""
+        self.record("start", nodeid=nodeid)
+
+    def pytest_runtest_logfinish(self, nodeid: str) -> None:
+        """Fires after teardown. A `start` left unmatched is the wedged test."""
+        self.record("finish", nodeid=nodeid)
+
+    def pytest_unconfigure(self) -> None:
+        self.stop()
 
     # -- writing -----------------------------------------------------------
 
@@ -412,6 +428,24 @@ def register_container_snapshots(
     )
     pluginmanager.register(snapshots, CONTAINER_SNAPSHOT_PLUGIN)
     return snapshots
+
+
+def register_recorder(pluginmanager: pytest.PytestPluginManager) -> DiagnosticsRecorder | None:
+    """Start the recorder and register it as a plugin when CI diag is on.
+
+    A plugin sees each event once however many conftests call this, including
+    the worker events the xdist controller relays. ``None`` when
+    ``OSPREY_CI_DIAG_DIR`` is unset or empty, and when the recorder is already
+    registered, so calling it twice is harmless.
+    """
+    if pluginmanager.has_plugin(RECORDER_PLUGIN):
+        return None
+    recorder = recorder_from_env()
+    if recorder is None:
+        return None
+    recorder.start()
+    pluginmanager.register(recorder, RECORDER_PLUGIN)
+    return recorder
 
 
 def recorder_from_env() -> DiagnosticsRecorder | None:

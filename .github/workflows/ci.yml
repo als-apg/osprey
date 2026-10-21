@@ -142,10 +142,9 @@ env:
   # three alias models collapse onto it, and the judge grades with it too.
   OSPREY_E2E_FORCE_MODEL: claude-haiku-5-5
   OSPREY_E2E_JUDGE_MODEL: claude-haiku-5-5
-  # Every pytest step writes its diagnostics here (the connectors suite's
-  # osprey_connectors_tests/_harness/ci_diagnostics.py): the per-worker event
-  # log, the stack samples, and the container snapshot a test's first failure
-  # in a module takes while its stack is still up. The capture
+  # Every pytest step writes its diagnostics here (_harness/ci_diagnostics.py): the
+  # per-worker event log, the stack samples, and the container snapshot a test's
+  # first failure in a module takes while its stack is still up. The capture
   # step uploads this directory; it cannot take that snapshot itself, because a
   # lane's module fixtures remove their containers inside the pytest step.
   # Stated once here so a new container lane cannot forget it.
@@ -293,8 +292,7 @@ jobs:
       # a ~18 min cell and became the healthy runtime itself.
       timeout-minutes: 55
       env:
-        # Switches on osprey_connectors_tests/_harness/ci_diagnostics.py (under
-        # packages/osprey-connectors/tests): a continuously flushed event log
+        # Switches on _harness/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.
         # Unset everywhere else, so local runs are unaffected.
         OSPREY_CI_DIAG_DIR: ci-diag
@@ -382,17 +380,15 @@ jobs:
         # No `-o faulthandler_timeout` here, deliberately. pytest's built-in
         # version does reach the job log under `-n` (xdist relays worker
         # stderr), but it dumps once per test and lands only in the log — which
-        # is precisely what a cancelled job truncates.
-        # osprey_connectors_tests/_harness/ci_diagnostics.py (armed by
-        # OSPREY_CI_DIAG_DIR above) writes the same stacks to a file per worker
-        # that is uploaded as an artifact, and repeats the dump, so a genuinely
-        # stuck stack is distinguishable from a merely slow one. Setting the ini
-        # option here would also be actively unsafe: pytest implements it with
-        # faulthandler.dump_traceback_later, whose watchdog walks frames without
-        # the GIL and segfaults workers that are inside a YAML or Jinja parser.
-        # That crashed this lane on three consecutive runs;
-        # osprey_connectors_tests/_harness/ci_diagnostics.py samples from a
-        # Python thread instead.
+        # is precisely what a cancelled job truncates. _harness/ci_diagnostics.py
+        # (armed by OSPREY_CI_DIAG_DIR above) writes the same stacks to a file
+        # per worker that is uploaded as an artifact, and repeats the dump, so
+        # a genuinely stuck stack is distinguishable from a merely slow one.
+        # Setting the ini option here would also be actively unsafe: pytest
+        # implements it with faulthandler.dump_traceback_later, whose watchdog
+        # walks frames without the GIL and segfaults workers that are inside a
+        # YAML or Jinja parser. That crashed this lane on three consecutive
+        # runs; _harness/ci_diagnostics.py samples from a Python thread instead.
         #
         # --timeout=600 --timeout-method=signal is the per-test cap that ends a
         # hang, and it is deliberately not the ini option above. Without a cap,
@@ -409,14 +405,14 @@ jobs:
         # signal, not thread: pytest-timeout's thread method ends the test with
         # os._exit of the xdist WORKER, and a worker that dies without a
         # protocol shutdown is the `node down: Not properly terminated` case
-        # osprey_connectors_tests/_harness/ci_diagnostics.py documents — the
-        # loadgroup scheduler then either raises KeyError or the controller
-        # parks forever, turning "one hung test" into "the lane is wedged". The
-        # signal method raises inside the test and leaves the worker alive to
-        # report it. What it gives up is a hang inside a C extension that holds
-        # the GIL: SIGALRM cannot be serviced there, no timeout fires, and the
-        # step cap is again the only backstop. That case is rare and it is the
-        # one the artifact upload and the sampled stacks below exist for.
+        # _harness/ci_diagnostics.py documents — the loadgroup scheduler then
+        # either raises KeyError or the controller parks forever, turning "one
+        # hung test" into "the lane is wedged". The signal method raises inside
+        # the test and leaves the worker alive to report it. What it gives up
+        # is a hang inside a C extension that holds the GIL: SIGALRM cannot be
+        # serviced there, no timeout fires, and the step cap is again the only
+        # backstop. That case is rare and it is the one the artifact upload and
+        # the sampled stacks below exist for.
         #
         # It lives here rather than as `timeout` in [tool.pytest.ini_options]
         # because an ini default would apply to every e2e lane too, none of
@@ -446,8 +442,8 @@ jobs:
         # the whole log. `pipefail` is set explicitly because an unspecified
         # `shell:` runs `bash -e` WITHOUT it — the pipe would otherwise turn
         # every red suite into tee's green exit. The directory is created here
-        # because osprey_connectors_tests/_harness/ci_diagnostics.py creates it
-        # at pytest configure time, which is after tee has to open its file.
+        # because _harness/ci_diagnostics.py creates it at pytest configure time,
+        # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
         # The shard: SHARD_PATH completes the first path, SHARD_ARGS names the
@@ -629,12 +625,9 @@ jobs:
     name: Connectors suite without the framework
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # osprey-connectors is released on its own cycle, so its suite has to prove
-    # the package on its own: installed with its runtime dependencies and its
-    # `dev` test group, and nothing of the framework. The `package` job's lean
-    # wheel check proves every module imports there; this proves the behaviour.
-    # The same suite also runs in the unit lane's rest-b shard, beside the
-    # framework, which is where a framework-side regression in it shows.
+    # osprey-connectors releases on its own cycle, so its suite runs with only
+    # that package installed. The same suite also runs beside the framework in
+    # the unit lane's rest-b shard.
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -648,30 +641,27 @@ jobs:
       run: uv python install 3.11
 
     - name: Install the connectors package alone
-      # --package narrows the workspace sync to this member, its dependencies
-      # and its default (`dev`) group. --locked installs exactly what uv.lock
-      # pins and fails on a lockfile that no longer matches the pyprojects,
-      # rather than re-locking it in the runner: this lane proves the versions
-      # a release would be tested against.
+      # The member, its dependencies and its `dev` group, exactly as uv.lock pins them.
       run: uv sync --locked --package osprey-connectors
 
     - name: Refuse an environment that holds the framework
-      # The lane is worthless if `osprey` resolves: every test would pass with
-      # the framework quietly backing it.
-      run: uv run --no-sync python -c "import importlib.util as u, sys; sys.exit('osprey is importable' if u.find_spec('osprey') else 0)"
+      run: >-
+        uv run --no-sync python -c "import importlib.metadata as m, importlib.util as u, sys;
+        sys.exit('osprey-framework is installed' if u.find_spec('osprey')
+        or any(d.name == 'osprey-framework' for d in m.distributions()) else 0)"
 
     - name: Run the connectors suite
-      # `-c` reads the package's own [tool.pytest.ini_options] (the rootdir
-      # follows it), and the explicit path keeps the framework's conftest out:
-      # only conftests above the collected tree are loaded. Nothing from the
-      # repository root is put on the path; the suite carries its own harness
-      # (osprey_connectors_tests/_harness), and
-      # osprey_connectors_tests/test_suite_is_self_contained.py refuses an
-      # import of the framework's tests package.
+      # `-c` makes the package the rootdir, so the framework's conftest never loads.
       run: >-
         uv run --no-sync pytest -c packages/osprey-connectors/pyproject.toml
         packages/osprey-connectors/tests -n 4 --dist loadgroup
         --timeout=600 --timeout-method=signal
+
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: connectors-standalone
 
   lint:
     name: Lint and Code Quality + Tier 0 config-key guard

@@ -240,8 +240,9 @@ def write_payload(path: Path, payload: Any) -> Path:
     and a same-size rewrite is still seen.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # 0o600 is what the tempfile.mkstemp this replaced created.
     atomic_replace(
-        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
+        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o600, sync="best_effort"
     )
     control_context.invalidate_cache()
     return path

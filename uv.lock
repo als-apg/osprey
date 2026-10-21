@@ -5160,7 +5160,6 @@ dev = [
     { name = "cryptography" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
 ]
@@ -5184,7 +5183,6 @@ dev = [
     { name = "cryptography" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
 ]
