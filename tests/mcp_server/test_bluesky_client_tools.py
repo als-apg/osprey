@@ -301,12 +301,14 @@ async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
 
     columns = [f"SR:DIAG:BPM:{index:03d}:POSITION:X" for index in range(300)]
     rows = [[0.123456789 * (row + column) for column in range(300)] for row in range(400)]
+    units = dict.fromkeys(columns, "unit-of-column")
     body = {
         "run_uid": "uid-1",
         "columns": columns,
         "rows": rows,
         "row_count": 400,
         "truncated": False,
+        "units": units,
         "partial": False,
     }
     monkeypatch.setattr(f"{_MOD}._http_get_json", lambda path, **kwargs: (200, body))
@@ -321,6 +323,7 @@ async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
         assert data["rows"] == (rows[-kept:] if tail else rows[:kept])
         assert data["truncated"] is True
         assert data["row_count"] == 400
+        assert data["units"] == units
         assert data["note"].startswith(f"{400 - kept} of the 400 rows asked for were left out")
 
 
