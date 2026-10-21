@@ -9637,7 +9637,7 @@ CONNECTORS_ENVIRONMENT = "pypi-connectors"
 CONNECTORS_VERSION_STEP = "Verify built versions match tag"
 LEAN_WALK_SCRIPT = "scripts/ci/connectors_lean_import_walk.py"
 #: The always-on lanes that prove the package. The backward-compatibility lanes
-#: join the gate the day ci.yml grows them; the test below fails until they do.
+#: join the gate whenever ci.yml carries them; the test below fails if one is missing.
 CONNECTORS_LANES = frozenset({"test", "lint", "package", "connectors-standalone"})
 CONNECTORS_COMPAT_LANES = frozenset({"connectors-compat", "framework-at-connectors-floor"})
 
@@ -9756,10 +9756,16 @@ def test_the_connectors_gate_requires_the_connectors_lanes(
 
 
 def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
-    workflow = _load_workflow()
-    _jobs(workflow)["connectors-compat"] = {"name": "Connectors against older frameworks"}
+    """ci.yml carries a compatibility lane the connectors gate does not list."""
+    release = _load_connectors_release()
+    step = _gate_step(release, CONNECTORS_GATE_JOB)
+    step["env"][GREEN_LANES_ENV] = "\n".join(
+        line
+        for line in step["env"][GREEN_LANES_ENV].splitlines()
+        if not line.strip().startswith("connectors-compat=")
+    )
     with pytest.raises(AssertionError, match="the connectors gate requires"):
-        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+        test_the_connectors_gate_requires_the_connectors_lanes(_load_workflow(), release)
 
 
 def test_the_connectors_gate__mutation_renames_a_lane() -> None:
