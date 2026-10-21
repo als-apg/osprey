@@ -206,6 +206,20 @@ class TestTolerancesAndMotionBands:
 
         assert validate_device_document(document) == []
 
+    def test_units_follow_the_tolerance_keys(self) -> None:
+        """A device's units come last, after every other optional key; a channel
+        the mapping does not name gets no unit key."""
+        units = {_SP: "u-sp", _RB: "u-rb", _UNPAIRED: "u-unpaired"}
+        document = devices_document(_RECORDS, tolerances={_SP: {"absolute": 0.05}}, units=units)
+
+        paired, unpaired = document["settables"]
+        assert list(paired)[-3:] == ["settle_tolerance", "unit", "setpoint_unit"]
+        assert (paired["unit"], paired["setpoint_unit"]) == (units[_RB], units[_SP])
+        assert unpaired["unit"] == units[_UNPAIRED] and "setpoint_unit" not in unpaired
+        readables = {entry["name"]: entry for entry in document["readables"]}
+        assert readables[_RB]["unit"] == units[_RB]
+        assert "unit" not in readables["SR:DIAG:MON:01:POSITION:X"]
+
     def test_no_mapping_writes_the_same_bytes(self, tmp_path: Path) -> None:
         """Roster-derived callers pass no mapping and see the file they always did."""
         plain = tmp_path / "plain.yml"

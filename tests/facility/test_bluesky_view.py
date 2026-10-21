@@ -130,6 +130,36 @@ def test_a_declared_tolerance_is_written_and_the_band_is_not() -> None:
     assert "motion_band" not in first and "motion_band" not in second
 
 
+def test_each_device_states_the_unit_its_channels_declare() -> None:
+    """``unit`` is the unit of the column a device's name records -- a paired
+    settable's readback, an unpaired one's setpoint, a readable's channel -- and
+    ``setpoint_unit`` the paired setpoint's; a channel with no unit gives no key."""
+    channels = [
+        {**_channel("A:SP", "setpoint", "A:RB"), "unit": "u-a-sp"},
+        {**_channel("A:RB", "readback"), "unit": "u-a-rb"},
+        {**_channel("B:SP", "setpoint"), "unit": "u-b-sp"},
+        {**_channel("C:RB", "readback"), "unit": "u-c-rb"},
+        _channel("D:SP", "setpoint", "D:RB"),
+        _channel("D:RB", "readback"),
+        {**_channel("E:SP", "setpoint", "E:RB"), "unit": ""},
+        _channel("E:RB", "readback"),
+    ]
+    unit = {channel["id"]: channel["unit"] for channel in channels if channel.get("unit")}
+
+    document = bluesky_document({"channels": channels})
+
+    paired, unpaired, unitless, blank = document["settables"]
+    assert (paired["unit"], paired["setpoint_unit"]) == (unit["A:RB"], unit["A:SP"])
+    assert unpaired["unit"] == unit["B:SP"] and "setpoint_unit" not in unpaired
+    assert "unit" not in unitless and "setpoint_unit" not in unitless
+    assert "unit" not in blank and "setpoint_unit" not in blank
+    readables = {entry["name"]: entry for entry in document["readables"]}
+    assert readables["C:RB"]["unit"] == unit["C:RB"]
+    assert readables["A:RB"]["unit"] == unit["A:RB"]
+    assert "unit" not in readables["D:RB"] and "unit" not in readables["E:RB"]
+    assert validate_device_document(document) == []
+
+
 def _toleranced(scenarios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A setpoint toleranced at 0.05 A, its readback noisy, and an untoleranced pair."""
     return {
