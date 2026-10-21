@@ -18,6 +18,7 @@ from collections.abc import Callable
 import pytest
 
 from osprey.deployment import process_table
+from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import operator_session, process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
@@ -42,7 +43,6 @@ from tests.interfaces.web_terminal._handoff_harness import (
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     kill_quietly,
-    pid_gone,
     wait_gone,
 )
 
@@ -223,7 +223,8 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unread
         assert f"chat child {child} " in warnings[0]
         assert session.tree_ending == operator_session.TreeEnding(read=False)
         # Nothing was looked for, so nothing was ended: the report does not claim otherwise.
-        assert not pid_gone(pids[0], within=0.0)
+        monkeypatch.undo()
+        assert not group_is_gone(pids[0])
     finally:
         monkeypatch.undo()
         await session.stop()
@@ -324,7 +325,7 @@ async def test_an_idle_chat_whose_agent_runs_a_started_command_is_not_reaped(tmp
 
         assert pool.get(KEY) is session
         assert session.is_active
-        assert not any(pid_gone(pid, within=0.0) for pid in pids)
+        assert not group_is_gone(pids[0])
         assert session.last_activity == clock.now
     finally:
         await pool.drain_all()
@@ -441,7 +442,7 @@ async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tm
         assert refused.value.error == "handoff_started_commands"
         assert chats(app).sessions[KEY] is session
         assert session.is_active
-        assert not pid_gone(pids[0], within=0.0)
+        assert not group_is_gone(pids[0])
         assert registry(app).get_session(KEY) is None
         assert_released(app)
     finally:

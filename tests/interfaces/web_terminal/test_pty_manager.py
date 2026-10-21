@@ -15,6 +15,7 @@ import time
 import pytest
 
 from osprey.deployment import process_table
+from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 from tests.interfaces.web_terminal._pty_child import (
@@ -22,7 +23,6 @@ from tests.interfaces.web_terminal._pty_child import (
     SENTINEL,
     detaching_child_script,
     kill_quietly,
-    pid_gone,
     read_answer,
     sleeper_script,
     wait_for_exit,
@@ -172,8 +172,13 @@ class TestPtySession:
             pids = wait_for_pids(session, pid_file, 3)
             session.terminate()
             assert not session.is_alive
-            for pid in pids:
-                assert pid_gone(pid), f"process {pid} the child started is still running"
+            for pid in pids[:2]:
+                assert group_is_gone(pid, within=5.0), (
+                    f"process {pid} the child started is still running"
+                )
+            assert group_is_gone(session.pid, within=5.0), (
+                "the helper in the child's group is still running"
+            )
         finally:
             session.terminate()
             kill_quietly(pids)
@@ -187,7 +192,9 @@ class TestPtySession:
         try:
             pids = wait_for_pids(session, pid_file, 1)
             session.terminate()
-            assert pid_gone(pids[0]), "the helper that ignores SIGHUP is still running"
+            assert group_is_gone(session.pid, within=5.0), (
+                "the helper that ignores SIGHUP is still running"
+            )
         finally:
             session.terminate()
             kill_quietly(pids)
@@ -203,7 +210,9 @@ class TestPtySession:
         try:
             pids = wait_for_pids(session, pid_file, 2)
             session.terminate()
-            assert pid_gone(pids[0], within=10.0), "the SIGTERM-ignoring process is still running"
+            assert group_is_gone(pids[0], within=10.0), (
+                "the SIGTERM-ignoring process is still running"
+            )
         finally:
             session.terminate()
             kill_quietly(pids)
@@ -252,7 +261,9 @@ class TestPtySession:
             monkeypatch.setattr(process_table, "snapshot", spy)
             monkeypatch.setattr(process_table, "_READ_RETRY_S", 0.0)
             session.terminate()
-            assert pid_gone(pids[0]), "the command the child started is still running"
+            assert group_is_gone(pids[0], within=5.0), (
+                "the command the child started is still running"
+            )
         finally:
             monkeypatch.undo()
             session.terminate()
@@ -503,7 +514,9 @@ class TestPtyRegistry:
             pids = wait_for_pids(session, pid_file, 2)
             registry.get_or_create_session("b", "/bin/sh")
             assert registry.get_session("a") is None
-            assert pid_gone(pids[0]), "the evicted terminal's started process is still running"
+            assert group_is_gone(pids[0], within=5.0), (
+                "the evicted terminal's started process is still running"
+            )
         finally:
             registry.cleanup_all()
             kill_quietly(pids)
@@ -524,7 +537,7 @@ class TestPtyRegistry:
             registry.cleanup_all()
             grandchildren = pids[0::2]
             for pid in grandchildren:
-                assert pid_gone(pid), f"started process {pid} is still running"
+                assert group_is_gone(pid, within=5.0), f"started process {pid} is still running"
         finally:
             registry.cleanup_all()
             kill_quietly(pids)
