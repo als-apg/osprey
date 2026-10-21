@@ -197,6 +197,46 @@ def drain_pending_queue(base_url: str) -> None:
         )
 
 
+#: One ``GET /runs`` page in :func:`clear_finished_runs`; a longer history is
+#: cleared over several rounds.
+_CLEAR_RUNS_PAGE = 100
+
+#: Rounds :func:`clear_finished_runs` takes before it reports what is left.
+_CLEAR_RUNS_ROUNDS = 5
+
+
+def clear_finished_runs(base_url: str) -> None:
+    """Remove every finished run from OSPREY's history view.
+
+    Each finished record (``TERMINAL_STATUSES``) is removed with the bridge's
+    own ``DELETE /runs/{id}``, page by page, until a read holds none. A 404 is
+    success: the run is already gone. The manager's history and the run data
+    are untouched; only the runs surface stops reporting them.
+    """
+    left: list[str] = []
+    for _round in range(_CLEAR_RUNS_ROUNDS):
+        status, records = request(base_url, f"/runs?limit={_CLEAR_RUNS_PAGE}", "GET")
+        assert status == 200 and isinstance(records, list), f"GET /runs failed: {status} {records}"
+        finished = [
+            r["id"]
+            for r in records
+            if isinstance(r, dict)
+            and isinstance(r.get("id"), str)
+            and r.get("status") in TERMINAL_STATUSES
+        ]
+        if not finished:
+            return
+        left = []
+        for run_id in finished:
+            removed_status, removed = request(base_url, f"/runs/{run_id}", "DELETE")
+            if removed_status not in (200, 404):
+                left.append(f"{run_id} ({removed_status} {removed})")
+    raise AssertionError(
+        f"finished runs still on the runs surface after {_CLEAR_RUNS_ROUNDS} rounds: "
+        f"{left or 'a full page each round'}"
+    )
+
+
 def stage_draft(base_url: str, plan_name: str, plan_args: dict[str, Any], *, client_id: str) -> int:
     """Clear the draft, stage ``plan_name``/``plan_args`` into it, return the revision."""
     request(base_url, f"/draft?client_id={client_id}", "DELETE")
