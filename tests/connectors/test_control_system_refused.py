@@ -8,7 +8,7 @@ misattributed the denial.
 
 The invariant this file pins: such a denial comes back as
 ``ChannelWriteResult(outcome=WriteOutcome.REFUSED,
-refusal_reason="CONTROL_SYSTEM_REFUSED")``, its message names the CONTROL
+refusal_reason="CONTROL_SYSTEM_REFUSED", error_message=...)``, its message names the CONTROL
 SYSTEM rather than OSPREY's reference monitor, and every rendering path that
 sees it says the same thing. The narrowing matters as much as the catch: any
 other put failure (a lost circuit) is still a genuine failure and still
