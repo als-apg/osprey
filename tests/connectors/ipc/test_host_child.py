@@ -41,6 +41,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import osprey_connectors
 from osprey_connectors import posture_store
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -54,9 +55,10 @@ from osprey_connectors_tests._harness import write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
-)
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
+PYTHONPATH = os.pathsep.join([str(REPO_ROOT / "src"), str(CONNECTORS_ROOT)])
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
 IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
