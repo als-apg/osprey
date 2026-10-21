@@ -3531,7 +3531,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     attempt's plan on the hardware too, and read back a run it never launched —
     a floor satisfied by someone else's run.
 
-    The five steps, and why each is needed:
+    The six steps, and why each is needed:
 
     1. ``POST /queue/abort`` — the only surface that stops a plan already
        moving hardware (``POST /queue/stop`` merely halts the queue AFTER the
@@ -3574,6 +3574,17 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        authoring is exactly what dooms the reruns meant to rescue it. Unlike
        the draft's leak this one is not self-limiting: every attempt leaves
        one more shortcut behind.
+    6. ``DELETE /runs/{id}`` for every finished run ``GET /runs`` lists —
+       empty the runs surface, after step 4 has removed the requeued copy so
+       nothing pending or running is left on it. The bridge's own ungated
+       route, never Redis.
+
+    Why the runs surface too. A live test's agent reads the run history to
+    find what the operator means, and another lane's run in it is a candidate
+    the request never meant: an agent asked to re-arm "the scan that was
+    stopped" rightly refuses to choose between its own stopped run and the one
+    the abort lane left behind. Every lane starts with a runs surface that
+    holds only what the lane itself creates.
     """
     if "deployed_scan_stack" not in request.fixturenames:
         return
@@ -3651,6 +3662,8 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
         "this test's armed start would drain work it did not enqueue. Items: "
         f"{[i.get('item_uid') for i in snapshot.get('items') or []]}"
     )
+
+    _queue_drive.clear_finished_runs(BRIDGE_URL)
 
 
 # ---------------------------------------------------------------------------
