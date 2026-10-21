@@ -94,12 +94,16 @@ and it can be both incomplete and stale:
 
 1. **Look for a registered plan.** Call `list_plans` and read what comes back.
    If a plan covers the request — even approximately, since most plans are
-   parameterised — that is the path.
+   parameterised — that is the path. A registered plan fits only when one run
+   of it takes the whole measurement: one run is one dataset, one figure, one
+   restore and one approval, so a measurement that would need several runs of
+   it chained together is not covered by it.
    → Use the **`operating-bluesky-plans`** skill. It owns staging, queuing,
    starting, and watching the run.
 2. **Author only when nothing fits.** A new plan is warranted when no
    registered plan expresses the measurement at all, not when an existing one
-   would need unfamiliar arguments.
+   would need unfamiliar arguments — and it is warranted when the measurement
+   would otherwise be split across several runs.
    → Use the **`writing-bluesky-plans`** skill. It owns the plan-file format,
    validation, and how a newly written plan becomes runnable.
 

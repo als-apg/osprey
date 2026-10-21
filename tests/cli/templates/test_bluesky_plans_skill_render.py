@@ -241,6 +241,12 @@ class TestRouting:
         assert "`queue_stop` halts the queue after the running item finishes" in text
         assert "`stop_run` aborts the plan already in motion" in text
 
+    def test_a_plan_fits_only_when_one_run_takes_the_whole_measurement(self):
+        """Several chained runs of a registered plan are not that plan covering it."""
+        text = unwrapped(render(full_index()))
+        assert "only when one run of it takes the whole measurement" in text
+        assert "split across several runs" in text
+
     def test_description_shares_no_long_phrase_with_a_sibling(self):
         """A shared 6-word phrase would steal triggers from a skill that can act."""
         mine = ngrams(frontmatter(render(full_index()))["description"])
