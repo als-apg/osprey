@@ -52,8 +52,9 @@ source = "vcs"
 # `2[0-9][0-9][0-9]` year skips the retired osprey-connectors-v0.1.0 (PyPI
 # already carries 0.1.0, so a dev build rebased onto it would sort below every
 # calendar release). `tag_regex` then strips the prefix the default regex would
-# choke on. With no matching tag reachable the backend yields 0.0.0.postN, which
-# the framework's floor refuses — so a fresh clone needs the tags fetched.
+# choke on. With no matching tag reachable the backend yields 0.0.postN+g…,
+# which the framework's floor refuses — so a fresh clone needs the tags fetched,
+# and a fork or mirror must sync the osprey-connectors-v* tags.
 # tests/osprey_connectors_tests/test_version.py pins the glob and the regex.
 raw-options = { root = "../..", version_scheme = "post-release", tag_regex = '^osprey-connectors-v(?P<version>2[0-9]{3}\..+)$', git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-connectors-v2[0-9][0-9][0-9].*" }
 

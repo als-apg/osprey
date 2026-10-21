@@ -631,6 +631,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from its own
+      # osprey-connectors-v* tags, and test_version.py fails a full checkout
+      # that cannot describe one.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7

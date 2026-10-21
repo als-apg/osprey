@@ -10,8 +10,11 @@ regex strips the prefix so the backend can parse what the glob found. The
 framework's own glob, read from the root ``pyproject.toml``, must in turn never
 reach a connectors tag.
 
-The checks on the glob and the regex are pure string checks; the two that read
-git skip where the checkout has no connectors calendar tag reachable.
+The checks on the glob and the regex are pure string checks. The ones that
+read the repository skip outside this monorepo's checkout (an unpacked sdist)
+and in a shallow clone, whose history may not reach a tag; a full checkout
+that still describes no connectors calendar tag fails, because that is the
+checkout that builds the package as ``0.0.postN+g…``.
 """
 
 from __future__ import annotations
@@ -66,11 +69,16 @@ def tag_regex(raw_options) -> re.Pattern[str]:
     return re.compile(raw_options["tag_regex"])
 
 
-def _describe(glob: str) -> str | None:
-    """``git describe`` this checkout over *glob*, or None where git cannot answer."""
+def _in_the_monorepo() -> bool:
+    """Whether :data:`REPO_ROOT` is the monorepo this package sits in, not an sdist's parent."""
+    return (REPO_ROOT / "packages" / "osprey-connectors").resolve() == PACKAGE_ROOT.resolve()
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str] | None:
+    """Run git in :data:`REPO_ROOT`, or None where git cannot run at all."""
     try:
-        described = subprocess.run(
-            ["git", "describe", "--tags", "--long", "--abbrev=40", "--match", glob],
+        return subprocess.run(
+            ["git", *args],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
@@ -79,8 +87,31 @@ def _describe(glob: str) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    if described.returncode != 0:
-        return None
+
+
+def _described_tag(glob: str) -> str:
+    """``git describe`` this checkout over *glob*.
+
+    Skips outside the monorepo's git checkout and in a shallow clone; fails a
+    full checkout that describes no matching tag, since that checkout builds
+    the package off the calendar.
+    """
+    if not _in_the_monorepo():
+        pytest.skip(f"{PACKAGE_ROOT} does not sit in the monorepo checkout")
+    shallow = _git("rev-parse", "--is-shallow-repository")
+    if shallow is None or shallow.returncode != 0:
+        pytest.skip(f"{REPO_ROOT} is not a git checkout")
+    if shallow.stdout.strip() != "false":
+        pytest.skip("a shallow clone's history may not reach a connectors tag")
+    described = _git("describe", "--tags", "--long", "--abbrev=40", "--match", glob)
+    if described is None or described.returncode != 0:
+        pytest.fail(
+            f"no tag matching {glob} is reachable from this full checkout, so "
+            "osprey-connectors builds as 0.0.postN+g… and the framework's floor "
+            "refuses it. Run `git fetch --tags` (a mirror or fork must sync the "
+            "osprey-connectors-v* tags); if the remote has none yet, push the "
+            "bootstrap tag osprey-connectors-v2026.9.0b3."
+        )
     return described.stdout.strip()
 
 
@@ -151,12 +182,11 @@ class TestTheTagRegex:
 
 class TestTheFrameworkStream:
     def test_the_framework_glob_never_reads_a_connectors_tag(self):
-        root_pyproject = REPO_ROOT / "pyproject.toml"
-        if not root_pyproject.is_file():
-            pytest.skip(
-                f"no framework pyproject.toml at {root_pyproject}: not a repository checkout"
-            )
-        framework_glob = _match_glob(_raw_options(root_pyproject)["git_describe_command"])
+        if not _in_the_monorepo():
+            pytest.skip(f"{PACKAGE_ROOT} does not sit in the monorepo checkout")
+        framework_glob = _match_glob(
+            _raw_options(REPO_ROOT / "pyproject.toml")["git_describe_command"]
+        )
 
         assert framework_glob == "v[0-9]*"
         assert _glob_matches(framework_glob, "v2026.10.0")
@@ -167,27 +197,38 @@ class TestTheFrameworkStream:
 class TestLiveCheckout:
     """What this checkout's own tags make of the package."""
 
-    def test_the_installed_version_is_on_the_calendar(self, connectors_glob):
-        if _describe(connectors_glob) is None:
-            pytest.skip(f"no tag matching {connectors_glob} reachable from this checkout")
+    def test_the_installed_version_is_on_the_calendar(self, connectors_glob, tag_regex):
+        """The installed version descends from the tag this checkout describes.
+
+        Only the release segment and the pre-release are compared, never the
+        distance: an editable install's metadata is stamped when it was last
+        synced and may predate the newest commit. The same staleness limits
+        what this proves — metadata stamped under the framework's old shared
+        stream also reads ``2026.9.0b3.postN`` while that release is the newest
+        tag of both streams, so it passes until the connectors stream moves on.
+        """
+        tag = _described_tag(connectors_glob).rsplit("-", 2)[0]
         try:
-            installed = dist_version("osprey-connectors")
+            installed = Version(dist_version("osprey-connectors"))
         except PackageNotFoundError:
             pytest.skip("osprey-connectors is not installed, only importable from source")
+        found = tag_regex.match(tag)
+        assert found is not None, tag
+        base = Version(found.group("version"))
 
-        # 0.0.0.postN (no calendar tag reachable at build time) or 0.1.0.postN
-        # (the retired tag read) both sort below the framework's floor.
-        assert Version(installed) >= CALENDAR_FLOOR, installed
+        # 0.0.postN (no calendar tag reachable at build time) or 0.1.0.postN
+        # (the retired tag read) both differ from the described tag.
+        assert installed >= CALENDAR_FLOOR, installed
+        assert (installed.release, installed.pre) == (base.release, base.pre), (
+            f"installed {installed}, described {tag}: re-sync the environment"
+        )
 
     def test_the_build_backend_derives_the_described_version(
         self, raw_options, connectors_glob, tag_regex
     ):
         """The backend's version is the describe's tag plus its distance, nothing else."""
         setuptools_scm = pytest.importorskip("setuptools_scm")
-        described = _describe(connectors_glob)
-        if described is None:
-            pytest.skip(f"no tag matching {connectors_glob} reachable from this checkout")
-        tag, distance, _node = described.rsplit("-", 2)
+        tag, distance, _node = _described_tag(connectors_glob).rsplit("-", 2)
         found = tag_regex.match(tag)
         assert found is not None, tag
 

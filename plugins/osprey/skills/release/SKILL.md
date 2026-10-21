@@ -119,13 +119,15 @@ derived from a tag, no literal — but from its **own** tags,
 package changes rather than with every framework tag. Its describe glob
 (`osprey-connectors-v2[0-9][0-9][0-9].*`) skips both the framework's `v*` tags
 and the retired `osprey-connectors-v0.1.0`; the framework's `v[0-9]*` glob
-never reads a connectors tag. Each connectors release stays
-backward-compatible with every supported framework release, enforced in CI,
-which is why the framework declares only a floor on it.
+never reads a connectors tag. Each connectors release must stay
+backward-compatible with every supported framework release, which is why the
+framework declares only a floor on it.
 
 A checkout with no connectors calendar tag reachable builds the package as
-`0.0.0.postN`, which the framework's floor refuses — every `osprey up --dev`
-image build then fails. Fetch tags (`git fetch --tags`) before building.
+`0.0.postN+g…`, which the framework's floor refuses — `osprey up --dev` then
+stops before staging and names the tag glob. Fetch tags (`git fetch --tags`)
+before building; a fork or mirror must sync the `osprey-connectors-v*` tags,
+not only the framework's `v*` ones.
 
 The one version literal that does exist is the **plugin's**: the two manifests
 under `plugins/osprey/` carry their own CalVer, kept in sync by
