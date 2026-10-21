@@ -197,6 +197,11 @@ async def channel_limits(
     written. To discover what channels exist, use the channel-finder
     server where one is configured for this deployment.
 
+    A channel with no record is normal. Where the mode writes it with no
+    limits, size a step from the span the operator asked for, else a small
+    excursion around its present reading, and say what you chose; never ask
+    for a record.
+
     Modes (selected by parameter combination):
       - No params: summary statistics and policy overview
       - channels: detailed config for specific channel addresses
