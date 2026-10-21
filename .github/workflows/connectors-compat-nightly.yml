@@ -1,0 +1,141 @@
+name: Connectors compatibility (nightly)
+
+# Lane C of the connectors compatibility lanes (the other two are
+# `connectors-compat` and `framework-at-connectors-floor` in ci.yml). Lane A
+# runs checks this tree owns against each supported framework release; this
+# runs each release's OWN connector-facing tests, checked out from its tag,
+# against that release from PyPI with the connectors built at HEAD. A release's
+# tests state what it expected of the connectors when it shipped, which no
+# check written later can restate.
+#
+# Nightly rather than per PR: one cell is a release's whole connector suite,
+# and what it catches is drift that accumulates across merges, not the shape
+# of one diff. A red cell opens an issue (or comments on the open one for that
+# release), because a scheduled run's red otherwise reaches nobody.
+#
+# The supported releases are [tool.osprey-connectors.compat] frameworks in
+# packages/osprey-connectors/pyproject.toml, read by
+# scripts/ci/connectors_compat_matrix.py. While that list is empty (until the
+# cut-over release; see ci.yml) the one cell says so and succeeds.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectors-compat-nightly
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan the nightly connectors compatibility run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Read the supported releases
+      id: plan
+      run: python3 scripts/ci/connectors_compat_matrix.py github-output
+
+  release-tests:
+    name: Framework ${{ matrix.framework || '(none listed)' }} tests against connectors HEAD
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # The release's checkout, beside HEAD's rather than inside it.
+      RELEASE_DIR: release
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      run: |
+        echo "no supported framework release listed yet:"
+        echo "[tool.osprey-connectors.compat] frameworks in packages/osprey-connectors/pyproject.toml is empty"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      # Full history + tags: the wheel's version is derived from the git tag.
+      with:
+        fetch-depth: 0
+
+    - name: Checkout the release's tag
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      with:
+        ref: v${{ matrix.framework }}
+        path: release
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: matrix.framework != ''
+      run: uv python install 3.11
+
+    - name: Build the connectors wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-connectors --wheel --out-dir dist/
+
+    - name: Keep the release's sources out of its test run
+      if: matrix.framework != ''
+      # The tests must import the installed release and the HEAD wheel. The
+      # tag's own source trees would shadow both wherever a pythonpath entry
+      # reached them; its test helpers (packages/*/tests) stay.
+      run: rm -rf "$RELEASE_DIR/src" "$RELEASE_DIR"/packages/*/src
+
+    - name: Install the release from PyPI with the HEAD connectors
+      if: matrix.framework != ''
+      # The release's `dev` extra carries its test dependencies. The HEAD
+      # wheel goes in with its dependencies and the result is checked, so a
+      # dependency HEAD changed shows here rather than as a test failure.
+      run: |
+        uv venv "$RELEASE_DIR/.venv" --python 3.11
+        uv pip install --python "$RELEASE_DIR/.venv/bin/python" --prerelease=if-necessary-or-explicit "osprey-framework[dev]==$FRAMEWORK"
+        uv pip install --python "$RELEASE_DIR/.venv/bin/python" --reinstall-package osprey-connectors dist/osprey_connectors-*.whl
+        uv pip check --python "$RELEASE_DIR/.venv/bin/python"
+        "$RELEASE_DIR/.venv/bin/python" -c "import importlib.metadata as m; print('osprey-framework', m.version('osprey-framework'), '/ osprey-connectors', m.version('osprey-connectors'))"
+
+    - name: Run the release's connector-facing suites
+      if: matrix.framework != ''
+      working-directory: release
+      run: >-
+        .venv/bin/python -m pytest tests/connectors tests/registry
+        -m "not pty and not wallclock" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+    - name: Open or update the issue for this release
+      if: failure() && matrix.framework != ''
+      # One open issue per release: a red night comments on it rather than
+      # opening another. The title is the key, matched exactly.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        title="Nightly connectors compatibility: framework $FRAMEWORK fails against connectors HEAD"
+        body="The nightly run of framework $FRAMEWORK's connector-facing tests against the connectors built at ${GITHUB_SHA} failed: $RUN_URL"
+        number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" \
+          --json number,title --jq "map(select(.title == \"$title\")) | first | .number // empty")
+        if [[ -n "$number" ]]; then
+          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+        else
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+        fi

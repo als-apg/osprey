@@ -668,6 +668,182 @@ jobs:
       with:
         name: connectors-standalone
 
+  # The two connectors compatibility lanes and the plan they read.
+  #
+  # osprey-connectors releases on its own tags, and every framework release pins
+  # it with a floor and no ceiling, so a framework rebuilt today resolves the
+  # newest connectors. Lane A (`connectors-compat`) holds HEAD of the connectors
+  # to every supported framework release; Lane B
+  # (`framework-at-connectors-floor`) holds HEAD of the framework to the
+  # connectors release its floor names. scripts/ci/connectors_compat_matrix.py
+  # is the one reader of both declarations, and the nightly
+  # connectors-compat-nightly.yml runs each release's own connector tests
+  # against HEAD the same way.
+  #
+  # TEMPORARY GATING, until the cut-over release. No framework release is
+  # supported yet ([tool.osprey-connectors.compat] frameworks is empty: the
+  # 2026.9.0 betas are superseded, not supported) and the floor still names a
+  # connectors build from before its independent releases. So Lane A runs one
+  # empty cell and Lane B stands down, each saying why in its log and
+  # succeeding. Both gates lift by data, not by an edit here: listing the
+  # cut-over release fills Lane A's matrix, and raising the floor to
+  # FIRST_INDEPENDENT_CONNECTORS arms Lane B. The plan step refuses a raised
+  # floor with nothing listed, and test_ci_workflow_wiring.py holds the same.
+  # Not path-filtered: the workflow's header gives why no lane is.
+  connectors-compat-plan:
+    name: Plan the connectors compatibility lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      floor: ${{ steps.plan.outputs.floor }}
+      floor-applicable: ${{ steps.plan.outputs.floor-applicable }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Read the supported releases and the connectors floor
+      id: plan
+      # The runner's python3: the script is stdlib-only, and the plan must not
+      # wait on a dependency install.
+      run: python3 scripts/ci/connectors_compat_matrix.py github-output
+
+  connectors-compat:
+    name: Connectors HEAD under framework ${{ matrix.framework || '(none listed)' }}
+    needs: connectors-compat-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # One cell per supported framework release: that release from PyPI with
+    # the connectors wheel built here in place of the one it resolved. What a
+    # cell proves is what an operator's rebuild of that release would meet.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.connectors-compat-plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # Outside the checkout, so nothing of this tree is importable from it.
+      COMPAT_VENV: /tmp/connectors-compat
+      COMPAT_PY: /tmp/connectors-compat/bin/python
+      COMPAT: packages/osprey-connectors/tests/osprey_connectors_tests/compat
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      run: |
+        echo "no supported framework release listed yet:"
+        echo "[tool.osprey-connectors.compat] frameworks in packages/osprey-connectors/pyproject.toml is empty"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@v7
+      # Full history + tags: the wheel's version is derived from the git tag.
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: matrix.framework != ''
+      run: uv python install 3.11
+
+    - name: Build the connectors wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-connectors --wheel --out-dir dist/
+
+    - name: Install the framework release from PyPI
+      if: matrix.framework != ''
+      # `if-necessary-or-explicit` takes a pre-release only where the pin
+      # names one or nothing else satisfies a dependency.
+      run: |
+        uv venv "$COMPAT_VENV" --python 3.11
+        uv pip install --python "$COMPAT_PY" --prerelease=if-necessary-or-explicit "osprey-framework==$FRAMEWORK"
+
+    - name: Replace its connectors with the HEAD wheel
+      if: matrix.framework != ''
+      # With dependencies, then checked: a dependency HEAD added must be
+      # installed, and one the release pins differently must show here rather
+      # than as a quiet downgrade.
+      run: |
+        uv pip install --python "$COMPAT_PY" --reinstall-package osprey-connectors dist/osprey_connectors-*.whl
+        uv pip check --python "$COMPAT_PY"
+        "$COMPAT_PY" -c "import importlib.metadata as m; print('osprey-framework', m.version('osprey-framework'), '/ osprey-connectors', m.version('osprey-connectors'))"
+
+    - name: Scan the release for connectors names that no longer resolve
+      if: matrix.framework != ''
+      run: '"$COMPAT_PY" -I "$COMPAT/scan_framework_imports.py" --package osprey'
+
+    - name: Import every module of the release
+      if: matrix.framework != ''
+      run: '"$COMPAT_PY" -I "$COMPAT/import_walk.py" --package osprey'
+
+    - name: Check the file contracts the release shares with the connectors
+      if: matrix.framework != ''
+      # Renders a deployment with the release's own CLI and opens its
+      # simulator view with HEAD; reads the control-context record across the
+      # release's hook and the golden files (see contracts.py).
+      run: '"$COMPAT_PY" -I "$COMPAT/contracts.py" all --workdir "$RUNNER_TEMP/contracts"'
+
+  framework-at-connectors-floor:
+    name: Framework HEAD at its declared connectors floor
+    needs: connectors-compat-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The framework declares `osprey-connectors>=FLOOR`, and every other lane
+    # pairs it with the workspace's own connectors, so nothing else ever ran the
+    # floor. This installs the framework as published metadata states it
+    # (`--no-sources`: the floor release from PyPI, not the workspace member)
+    # and runs the framework suites that drive the connectors against it.
+    # Stands down until the floor is an independent release (see the plan job).
+    env:
+      FLOOR: ${{ needs.connectors-compat-plan.outputs.floor }}
+    steps:
+    - name: Stand down while the floor predates the independent releases
+      if: needs.connectors-compat-plan.outputs.floor-applicable != 'true'
+      run: |
+        echo "not applicable yet: the connectors floor $FLOOR predates the first independent"
+        echo "osprey-connectors release (FIRST_INDEPENDENT_CONNECTORS in scripts/ci/connectors_compat_matrix.py)"
+
+    - name: Checkout repository
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: uv python install 3.11
+
+    - name: Install the framework with the floor connectors
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      # Into the project's own .venv, so the `uv run --no-sync` below reads it.
+      run: |
+        uv venv --python 3.11
+        uv pip install --no-sources -e ".[dev]" "osprey-connectors==$FLOOR"
+        uv run --no-sync python -c "import importlib.metadata as m; print('osprey-connectors', m.version('osprey-connectors'))"
+
+    - name: Scan the framework for connectors names the floor lacks
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        uv run --no-sync python -I
+        packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
+        src/osprey
+
+    - name: Run the connector-facing framework suites at the floor
+      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        uv run --no-sync pytest tests/connectors tests/registry
+        -m "not pty and not wallclock" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
   lint:
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest
@@ -6199,7 +6375,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, connectors-standalone, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
+    needs: [test, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The gate runs whenever the run was not cancelled, so a failed, cancelled
@@ -6251,6 +6427,18 @@ jobs:
         fi
         if [[ "${{ needs.connectors-standalone.result }}" != "success" ]]; then
           echo "❌ Connectors suite failed without the framework installed"
+          exit 1
+        fi
+        if [[ "${{ needs.connectors-compat-plan.result }}" != "success" ]]; then
+          echo "❌ Connectors compatibility plan failed (supported releases or connectors floor)"
+          exit 1
+        fi
+        if [[ "${{ needs.connectors-compat.result }}" != "success" ]]; then
+          echo "❌ Connectors HEAD broke a supported framework release"
+          exit 1
+        fi
+        if [[ "${{ needs.framework-at-connectors-floor.result }}" != "success" ]]; then
+          echo "❌ Framework HEAD failed at its declared connectors floor"
           exit 1
         fi
         if [[ "${{ needs.lint.result }}" != "success" ]]; then
