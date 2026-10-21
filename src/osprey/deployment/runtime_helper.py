@@ -1296,11 +1296,13 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
     without it a build falls back to the legacy builder, which stops partway
     through on an error that names neither BuildKit nor the plugin.
 
-    ``DOCKER_BUILDKIT`` is read first because it settles the question without
-    asking the host: ``0`` forces the legacy builder whatever is installed, and
-    ``1`` is the operator stating that this host builds with BuildKit -- which a
-    Compose release that links BuildKit in, rather than calling the plugin, does
-    with no buildx present.
+    ``DOCKER_BUILDKIT`` is read first, exactly as Docker reads it (Go's boolean
+    words; empty is unset), because it settles the question without asking the
+    host: a false value forces the legacy builder whatever is installed, and a
+    true value is the operator stating that this host builds with BuildKit --
+    which a Compose release that links BuildKit in, rather than calling the
+    plugin, does with no buildx present. A value Docker would refuse is refused
+    here by its spelling.
 
     Total: a probe that cannot run or does not answer reports nothing. A host
     whose runtime is not answering is :func:`verify_runtime_is_running`'s to
@@ -1314,15 +1316,23 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
     if runtime != "docker":
         return None
 
-    switch = env.get("DOCKER_BUILDKIT")
-    if switch == "0":
+    raw = env.get("DOCKER_BUILDKIT")
+    try:
+        switch = _buildkit_switch(raw)
+    except ValueError:
+        return (
+            f"DOCKER_BUILDKIT={raw} is not a value Docker accepts: it takes only a boolean "
+            "(1, t, T, TRUE, true, True / 0, f, F, FALSE, false, False) and refuses any "
+            "other value. Set DOCKER_BUILDKIT to 1 or 0, or unset it, and run it again."
+        )
+    if switch is False:
         return (
             "OSPREY's images use BuildKit-only Containerfile features "
-            "(RUN --mount=type=cache, FROM --platform), and DOCKER_BUILDKIT=0 forces "
+            f"(RUN --mount=type=cache, FROM --platform), and DOCKER_BUILDKIT={raw} forces "
             "Docker's legacy builder, which cannot build them. Unset DOCKER_BUILDKIT and "
             "run it again."
         )
-    if switch == "1":
+    if switch is True:
         return None
 
     try:
