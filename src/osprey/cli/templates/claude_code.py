@@ -1205,6 +1205,29 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
 
 
+def _installed_hooks(selected: list[str]) -> list[str]:
+    """The hooks a render installs: the selection, then what its closure ships.
+
+    A selected hook ships with every ``hooks/`` row it requires, transitively
+    (the build catalog's closure). The short names of the rows that closure adds
+    follow the selection, sorted. Invariant: a hook that ships is wired, and one
+    that does not ship is not.
+
+    Args:
+        selected: The profile's ``hooks:`` selection, in short-name form.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
+    prefix = "hooks/"
+    closure = BuildArtifactCatalog.default().closure(prefix + name for name in selected)
+    added = sorted(
+        name[len(prefix) :]
+        for name in closure
+        if name.startswith(prefix) and name[len(prefix) :] not in selected
+    )
+    return [*selected, *added]
+
+
 def _build_framework_hook_rules(
     selected_hooks: list[str],
 ) -> tuple[list[dict], list[dict]]:
@@ -2179,8 +2202,9 @@ def create_claude_code_integration(
     # root is guaranteed present regardless of which one called.
     apply_agent_data_root(ctx, project_dir)
 
-    # Build framework hook rules from selected hooks' frontmatter
-    fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
+    # Build framework hook rules from the frontmatter of every hook the render
+    # installs: the selection and the hooks its closure ships with it.
+    fw_pre, fw_post = _build_framework_hook_rules(_installed_hooks(ctx.get("selected_hooks", [])))
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post
 
