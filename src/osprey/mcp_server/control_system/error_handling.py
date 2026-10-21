@@ -8,7 +8,7 @@ channel_read, channel_write, and archiver_read.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
 from fastmcp.exceptions import ToolError
@@ -307,6 +307,10 @@ async def connector_error_handler(
         error_type, message, suggestions, details = await _envelope(
             exc.cause, tool_name, connector_name
         )
+        if error_type == "write_refused" and exc.results:
+            # A refused batch suggests the remedy of every reason its rows
+            # name, not only the remedy of the row that stands for the batch.
+            suggestions = _refusal_suggestions(row.get("refusal_reason") for row in exc.results)
         details = {
             **(details or {}),
             **answer_map(tool_name, missing=exc.missing, results=exc.results),
@@ -315,6 +319,19 @@ async def connector_error_handler(
     except Exception as exc:
         error_type, message, suggestions, details = await _envelope(exc, tool_name, connector_name)
         make_error(error_type, message, suggestions, details=details)
+
+
+def _refusal_suggestions(reasons: Iterable[str | None]) -> list[str]:
+    """Suggest the remedy of each refusal reason, in order and each sentence once.
+
+    The list always ends with the one sentence every refusal carries; a reason
+    with no remedy of its own, or none at all, contributes nothing before it.
+    """
+    remedies = (ChannelWriteBlockedError.remedy(reason) for reason in reasons)
+    return [
+        *dict.fromkeys(sentence for remedy in remedies for sentence in remedy),
+        "Do NOT attempt to work around the refusal.",
+    ]
 
 
 async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envelope:
@@ -415,10 +432,7 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
         # that denied it.
         identity = describe_active_target() if connector_name == "control_system" else None
         refuser = ChannelWriteBlockedError.refuser(exc.reason)
-        suggestions = [
-            *ChannelWriteBlockedError.remedy(exc.reason),
-            "Do NOT attempt to work around the refusal.",
-        ]
+        suggestions = _refusal_suggestions([exc.reason])
         where = ""
         if exc.reason == RefusalReason.CONTROL_SYSTEM_REFUSED:
             where = _target_clause(identity)

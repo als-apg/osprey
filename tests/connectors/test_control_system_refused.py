@@ -398,6 +398,23 @@ class TestAllBlockedBatchAttribution:
             "All 2 write(s) refused — by the control system: PV:A; "
             "by the reference monitor: PV:B" in envelope["error_message"]
         )
+        assert envelope["suggestions"] == [
+            *RefusalReason.CONTROL_SYSTEM_REFUSED.remedy,
+            *RefusalReason.LIMITS.remedy,
+            "Do NOT attempt to work around the refusal.",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_remedy_two_reasons_share_is_suggested_once(self, tmp_path, monkeypatch):
+        envelope, _ = await _run_all_blocked_batch(
+            tmp_path, monkeypatch, "WRITES_DISABLED", "LIMITS"
+        )
+
+        assert RefusalReason.WRITES_DISABLED.remedy == RefusalReason.LIMITS.remedy
+        assert envelope["suggestions"] == [
+            *RefusalReason.LIMITS.remedy,
+            "Do NOT attempt to work around the refusal.",
+        ]
 
     @pytest.mark.asyncio
     async def test_unknown_address_first_does_not_hide_a_limits_refusal(
