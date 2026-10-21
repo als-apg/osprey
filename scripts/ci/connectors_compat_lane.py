@@ -179,9 +179,11 @@ def install(venv: Path, framework: str, connectors: str, extra: str | None) -> N
     target, expected = connectors_target(connectors)
     python = venv_python(venv)
     spec = f"osprey-framework{f'[{extra}]' if extra else ''}=={framework}"
-    # `if-necessary-or-explicit` takes a pre-release only where the pin names
-    # one or nothing else satisfies a dependency.
-    prerelease = "--prerelease=if-necessary-or-explicit"
+    # `if-necessary` takes a pre-release only where nothing stable satisfies a
+    # requirement — a pin that names one included, since no stable satisfies
+    # `==X.YbN`. That is its meaning since uv 0.12, which made the older
+    # `if-necessary-or-explicit` a deprecated alias of it (and warns on it).
+    prerelease = "--prerelease=if-necessary"
     _must(["uv", "venv", "--clear", venv, "--python", PYTHON_VERSION])
     _must(["uv", "pip", "install", "--python", python, prerelease, spec])
     # With dependencies, then checked: a dependency the connectors added must
