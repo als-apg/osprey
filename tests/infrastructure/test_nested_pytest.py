@@ -39,12 +39,13 @@ def test_a_finished_run_reports_its_silence_before_exit():
 
 
 def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():
-    with pytest.raises(pytest.fail.Exception, match="no new output for 1.0 s") as stopped:
+    # Wider than the poll by far: a python start on a saturated host must never be read as the stall.
+    with pytest.raises(pytest.fail.Exception, match="no new output for 5.0 s") as stopped:
         run_nested_pytest(
             [sys.executable, "-c", "print('started', flush=True)\nimport time\ntime.sleep(60)"],
             cwd=None,
             env=None,
-            stall_seconds=1.0,
+            stall_seconds=5.0,
         )
     report = str(stopped.value)
     assert "started" in report
