@@ -20,10 +20,21 @@ from these records: something enqueued out-of-band (a ``qserver`` CLI, another
 client) has no id for ``GET /runs/{id}`` to answer on, and inventing one would
 make two id spaces look like one. ``GET /queue`` is the complete view of what
 the manager is holding, and shows those items unfiltered.
+
+Run timing is read from the manager's own stamps, never kept bridge-side, so it
+survives a bridge restart: the start is ``properties.time_start``, which the
+manager sets on the item it hands to the worker, else ``result.time_start``,
+which it records on every history entry and every requeued interrupted copy;
+the stop is ``result.time_stop``. A stamp that is not a number is not known,
+and the record then omits the key it would feed. The rate inside ``progress``
+is measured from the manager's start, so it includes the plan's set-up before
+its first point.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from time import time as _wall_clock
 from typing import Any
 
 from . import document_plane
@@ -145,7 +156,67 @@ def _error_text(item: dict[str, Any]) -> str:
     return "plan did not complete and the manager recorded no reason"
 
 
-def record_from_item(item: dict[str, Any], status: str) -> dict[str, Any]:
+_FINAL_STATUSES = frozenset({STATUS_COMPLETED, STATUS_STOPPED, STATUS_ERROR})
+
+
+def _stamp(block: Any, key: str) -> float | None:
+    """A manager time stamp, in epoch seconds, or ``None`` if it is not a number."""
+    if not isinstance(block, dict):
+        return None
+    value = block.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def _iso(seconds: float) -> str:
+    return datetime.fromtimestamp(seconds, UTC).isoformat()
+
+
+def _timing(item: dict[str, Any], status: str, now: float) -> dict[str, Any]:
+    """``started_at`` / ``finished_at`` / ``elapsed_s`` for one item.
+
+    Each key is present only when the stamps it is computed from are known:
+    a pending item has none, a running one has no stop, and a final status
+    without a stop stamp has no duration. ``elapsed_s`` never reads negative
+    when the manager's clock runs ahead of this one.
+    """
+    start = _stamp(item.get("properties"), "time_start")
+    if start is None:
+        start = _stamp(item.get("result"), "time_start")
+    if start is None:
+        return {}
+    timing: dict[str, Any] = {"started_at": _iso(start)}
+    stop = _stamp(item.get("result"), "time_stop") if status in _FINAL_STATUSES else None
+    if stop is not None:
+        timing["finished_at"] = _iso(stop)
+        timing["elapsed_s"] = max(0.0, stop - start)
+    elif status == STATUS_RUNNING:
+        timing["elapsed_s"] = max(0.0, now - start)
+    return timing
+
+
+def _with_rate(progress: dict[str, Any], elapsed_s: float | None) -> dict[str, Any]:
+    """``progress`` plus ``points_per_s`` and ``remaining_s`` where they are known.
+
+    The rate needs points seen and time elapsed; the remaining time also needs
+    a declared point count and a run that has not completed. Neither key is
+    ever a placeholder.
+    """
+    rows_seen = progress.get("rows_seen")
+    if not elapsed_s or not isinstance(rows_seen, int) or rows_seen <= 0:
+        return progress
+    rate = rows_seen / elapsed_s
+    progress = {**progress, "points_per_s": rate}
+    expected = progress.get("expected_points")
+    if isinstance(expected, int) and not progress.get("complete"):
+        progress["remaining_s"] = max(0, expected - rows_seen) / rate
+    return progress
+
+
+def record_from_item(
+    item: dict[str, Any], status: str, *, now: float | None = None
+) -> dict[str, Any]:
     """One manager item, as the run record the HTTP surface publishes.
 
     ``run_uid`` is the RunEngine's own uid, which only exists once the worker
@@ -162,7 +233,14 @@ def record_from_item(item: dict[str, Any], status: str) -> dict[str, Any]:
     /queue`` applies through ``_public_item``, which these records never pass
     through. It is omitted when the item names nobody, so a consumer can tell
     an unattributed run from one attributed to an empty name.
+
+    ``started_at``, ``finished_at`` and ``elapsed_s`` come from the manager's
+    stamps (see the module docstring); ``now`` is the clock a running item's
+    ``elapsed_s`` is measured against, read once by the caller so every record
+    of one listing agrees.
     """
+    if now is None:
+        now = _wall_clock()
     item, owner = split_owner(item)
     run_id = run_id_of(item)
     record: dict[str, Any] = {
@@ -187,10 +265,12 @@ def record_from_item(item: dict[str, Any], status: str) -> dict[str, Any]:
     if status == STATUS_ERROR:
         record["error"] = _error_text(item)
 
+    record.update(_timing(item, status, now))
+
     if run_id is not None:
         progress = document_plane.progress(run_id)
         if progress is not None:
-            record["progress"] = progress
+            record["progress"] = _with_rate(progress, record.get("elapsed_s"))
 
     return record
 
@@ -222,6 +302,7 @@ def _ordered_records(
     """
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+    now = _wall_clock()
 
     def _append(item: Any, status: str) -> None:
         if not isinstance(item, dict) or not item:
@@ -230,7 +311,7 @@ def _ordered_records(
         if run_id is None or run_id in seen:
             return
         seen.add(run_id)
-        records.append(record_from_item(item, status))
+        records.append(record_from_item(item, status, now=now))
 
     _append(running_item, STATUS_RUNNING)
     for item in queue_items or []:
