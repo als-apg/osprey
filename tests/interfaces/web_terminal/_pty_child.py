@@ -224,26 +224,6 @@ def wait_for_pids(session: PtySession, path: Path, count: int) -> list[int]:
         time.sleep(0.05)
 
 
-def pid_gone(pid: int, within: float = 5.0) -> bool:
-    """Return whether *pid* is gone, or a zombie nobody has reaped yet, within *within* s."""
-    deadline = time.monotonic() + within
-    while True:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            pass
-        state = subprocess.run(
-            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-        ).stdout.strip()
-        if not state or state.startswith("Z"):
-            return True
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.05)
-
-
 def _running_state(pid: int) -> str | None:
     """Return the ``ps`` state of *pid* while it runs, ``None`` once it is gone or a zombie.
 
@@ -270,7 +250,8 @@ async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
     ``ps`` off it, so whatever the loop still has to finish is not held up by
     the waiting. All of *pids* share one deadline of *within* seconds. A pid
     still running at the deadline fails the wait by name, with the state
-    ``ps`` last reported for it.
+    ``ps`` last reported for it. It reads ``ps``, not the product's process
+    table, so it stays a fair witness in a test that faults that table.
     """
     started = time.monotonic()
     running = list(pids)

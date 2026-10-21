@@ -11,6 +11,7 @@ import psutil
 import pytest
 
 from osprey.deployment import process_table
+from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtySession
@@ -19,7 +20,6 @@ from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     detaching_child_script,
     kill_quietly,
-    pid_gone,
     sleeper_script,
     wait_for_pids,
 )
@@ -238,14 +238,16 @@ def test_still_running_drops_a_group_whose_members_ended():
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )
     try:
-        row = process_table.snapshot()[proc.pid]
+        row = process_table.snapshot_within(5.0)[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "sleep", row.command)
-        assert process_tree.still_running([group]) == [group]
+        rows = process_table.snapshot_within(5.0)
+        assert process_tree.still_running([group], rows) == [group], rows.get(row.pid)
     finally:
         proc.kill()
         proc.wait()
-    assert pid_gone(proc.pid)
-    assert process_tree.still_running([group]) == []
+    assert group_is_gone(row.pgid, within=5.0), row
+    rows = process_table.snapshot_within(5.0)
+    assert process_tree.still_running([group], rows) == [], rows.get(row.pid)
 
 
 def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():

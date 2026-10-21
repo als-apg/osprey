@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.deployment import process_table
+from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal.pty_manager import PtySession
 from osprey.interfaces.web_terminal.session_handoff import (
     ERROR_HANDOFF_STARTED_COMMANDS,
@@ -40,7 +41,6 @@ from tests.interfaces.web_terminal._handoff_harness import (
 from tests.interfaces.web_terminal._pty_child import (
     detaching_child_script,
     kill_quietly,
-    pid_gone,
     sleeper_script,
     wait_for_pids,
     wait_gone,
@@ -84,7 +84,7 @@ async def test_stop_and_switch_asks_before_a_started_command_is_ended(tmp_path):
         assert registry(app).get_session(KEY) is session
         assert session.is_alive
         assert input_file.read_bytes() == b""
-        assert not pid_gone(grandchild, within=0.0)
+        assert not group_is_gone(grandchild)
         assert KEY not in chats(app).sessions
         assert_released(app)
     finally:
@@ -134,7 +134,7 @@ async def test_a_plain_flip_that_finds_the_agent_idle_asks_too(tmp_path):
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         assert registry(app).get_session(KEY) is session
         assert session.is_alive
-        assert not pid_gone(pids[0], within=0.0)
+        assert not group_is_gone(pids[0])
         assert KEY not in chats(app).sessions
         assert_released(app)
     finally:
@@ -187,9 +187,10 @@ async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_co
         assert registry(app).get_session(KEY) is session
         assert session.is_alive
         assert input_file.read_bytes() == b""
-        assert not pid_gone(pids[0], within=0.0)
         assert KEY not in chats(app).sessions
         assert_released(app)
+        monkeypatch.undo()
+        assert not group_is_gone(pids[0])
     finally:
         monkeypatch.undo()
         registry(app).cleanup_all()
