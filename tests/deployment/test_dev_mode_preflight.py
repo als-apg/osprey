@@ -286,11 +286,17 @@ class TestMemberWheelsSatisfyTheFramework:
         for member in WORKSPACE_MEMBERS:
             root = checkout / "packages" / member
             root.mkdir(parents=True)
-            glob = cls.CONNECTORS_GLOB if member == "osprey-connectors" else "v[0-9]*"
+            # The same shapes the real members use: connectors' describe command
+            # sits in setuptools-scm's `scm.git` table, the others' in the flat key.
+            if member == "osprey-connectors":
+                options = (
+                    "{ scm = { git = { describe_command = "
+                    f'"git describe --match {cls.CONNECTORS_GLOB}" }} }} }}'
+                )
+            else:
+                options = '{ git_describe_command = "git describe --match v[0-9]*" }'
             (root / "pyproject.toml").write_text(
-                f"[project]\nname='{member}'\n"
-                "[tool.hatch.version]\n"
-                f'raw-options = {{ git_describe_command = "git describe --match {glob}" }}\n'
+                f"[project]\nname='{member}'\n[tool.hatch.version]\nraw-options = {options}\n"
             )
 
     @staticmethod
@@ -348,6 +354,18 @@ class TestMemberWheelsSatisfyTheFramework:
 
         assert _copy_local_framework_for_override(str(ctx)) is True
         assert len(list(ctx.glob("*.whl"))) == 1 + len(WORKSPACE_MEMBERS)
+
+
+def test_the_refusal_names_each_real_members_describe_glob():
+    """The remedy names the glob from the member's real pyproject, whichever key holds it."""
+    from osprey.deployment.wheel_build import _describe_glob
+
+    repo = Path(__file__).resolve().parents[2]
+    assert (
+        _describe_glob(repo / "packages" / "osprey-connectors")
+        == TestMemberWheelsSatisfyTheFramework.CONNECTORS_GLOB
+    )
+    assert _describe_glob(repo / "packages" / "pyaml-cs-osprey") == "v[0-9]*"
 
 
 class TestPrepareComposeFilesPreflight:
