@@ -290,6 +290,10 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "uploaded" in skill_text
         assert "content_hash" in skill_text
 
+    def test_a_channel_without_a_limits_record_is_normal(self, skill_text):
+        """A plan's default excursion never waits on a limits record."""
+        assert "many channels have no record, which is normal" in _prose(skill_text)
+
     def test_documents_revalidation_on_edit(self, skill_text):
         """The validation record is content-hash keyed, and the hash is
         re-checked at enqueue AND at queue start."""

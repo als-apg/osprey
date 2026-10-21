@@ -123,7 +123,10 @@ descriptions, and do not give them a magnitude ceiling of your own: what a
 device tolerates is the records of `data/facility/limits.yaml`, which
 `osprey build` renders into `build/data/channel_limits.json`, the file the
 connector's reference monitor and the runtime's limits check enforce on every
-write.
+write. Many channels have no record, which is normal: the deployment's limits
+mode decides whether such a write runs, so a plan's default excursion stays
+small around the working point it reads, and the operator's span is what
+widens it.
 
 `grid_scan` is the deliberate exception: a grid's whole purpose is to visit
 declared absolute coordinates, so it neither reads nor restores. If your
