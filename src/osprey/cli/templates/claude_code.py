@@ -359,6 +359,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # Every tool plan mode refuses, fully qualified. Derived from resolved
+        # servers by build_claude_code_context below; this empty default only
+        # guarantees the key is never absent, for the reason given above.
+        "plan_mode_denied_tools": [],
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
@@ -799,7 +803,12 @@ def build_claude_code_context(
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})
 
-    from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+    from osprey.registry.mcp import (
+        mixed_read_write_tools,
+        plan_mode_denied_tools,
+        resolve_agents,
+        resolve_servers,
+    )
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
@@ -817,6 +826,11 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The tools plan mode refuses, from the same resolved servers and for the
+    # same reason; unconditional as well, since plan mode is not a posture.
+    ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+        ctx["servers"], ctx.get("control_system_write_tools") or []
+    )
 
     # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
     #

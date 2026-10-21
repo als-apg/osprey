@@ -100,6 +100,12 @@ class ServerDefinition:
     # hook rule render whatever the key says, so the write floor, the deny list
     # and the approval set never depend on it.
     optional_tools: dict[str, str] = field(default_factory=dict)
+    # Tools that stay callable while the session is in plan mode, by short tool
+    # name. Every other tool the side-effect classifier marks
+    # (:func:`server_side_effect_tools`) is refused in plan mode, and a tool
+    # listed here must be one the classifier marks: exempting a read is a no-op
+    # and a stale name is a test failure.
+    plan_mode_allowed: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +619,15 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
         hooks_post=[_post_error("mcp__bluesky__.*")],
+        plan_mode_allowed=[
+            # Halting the queue, aborting the run in motion and dropping a
+            # pending item are the safe direction: they stop motion, never start it.
+            bsky.QUEUE_STOP,
+            bsky.STOP_RUN,
+            bsky.QUEUE_REMOVE,
+            # A dry run against mock devices only; it reaches no hardware.
+            bsky.VALIDATE_PLAN,
+        ],
     ),
     "health": ServerDefinition(
         name="health",
@@ -635,6 +650,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=["health_check"],
         permissions_ask=["health_check_full"],
         hooks_post=[_post_error("mcp__health__.*")],
+        # The full check runs only the read-only probes the config declares.
+        plan_mode_allowed=["health_check_full"],
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
@@ -1001,6 +1018,48 @@ def server_side_effect_tools(sdef: ServerDefinition) -> list[str]:
         if _WRITES_CHECK in rule.hooks:
             out.append(rule.matcher)
     return out
+
+
+def _server_plan_mode_denied(sdef: ServerDefinition) -> list[str]:
+    """The side-effecting tools of *sdef* minus its ``plan_mode_allowed``, deduplicated."""
+    allowed = {f"mcp__{sdef.name}__{tool}" for tool in sdef.plan_mode_allowed}
+    out: list[str] = []
+    for name in server_side_effect_tools(sdef):
+        if name not in allowed and name not in out:
+            out.append(name)
+    return out
+
+
+def plan_mode_denied_tools(servers: list[dict], extra_write_tools: list[str]) -> list[str]:
+    """Every tool of one render that plan mode refuses, fully qualified.
+
+    Computed at render time from resolved servers because only there are
+    ``extends`` clones renamed and custom servers resolved. The result is the
+    ``plan_mode_denied`` list of each enabled server, in resolved order, then
+    each of *extra_write_tools* (the project's ``control_system.write_tools``)
+    not already present. A custom server's tool is in it when the server lists
+    it under ``permissions.ask`` or gates itself with ``writes_check``; a tool
+    in neither ``allow`` nor ``ask`` is not.
+
+    Args:
+        servers: Output of :func:`resolve_servers`.
+        extra_write_tools: The project's declared write tools.
+
+    Returns:
+        Deduplicated, in a stable order, so a rebuilt project's hook config
+        does not change.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled"):
+            continue
+        for name in server.get("plan_mode_denied") or []:
+            if name not in tools:
+                tools.append(name)
+    for name in extra_write_tools:
+        if name not in tools:
+            tools.append(name)
+    return tools
 
 
 # ---------------------------------------------------------------------------
@@ -1964,6 +2023,9 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         "hooks_post": hooks_post,
         "is_custom": sdef.is_external and sdef.name not in FRAMEWORK_SERVERS,
         "extends_of": sdef.extends_of,
+        # The tools plan mode refuses on this server; read by
+        # :func:`plan_mode_denied_tools`.
+        "plan_mode_denied": _server_plan_mode_denied(sdef),
     }
 
 

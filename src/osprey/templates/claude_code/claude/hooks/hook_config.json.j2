@@ -24,6 +24,11 @@
   `measurement` is each pyAML view's block, `{kinds, groups, rf, view_sha256}`
   per model, as the build read it from the view; `kinds` maps each listed kind
   to the view name of each setpoint role it steps; `{}` when the render has none.
+
+  `plan_mode_denied_tools` is every tool this render refuses while the session
+  is in plan mode, derived from the registry's side-effect classification.
+  osprey_plan_mode.py reads it, and the approval hook through it; an empty list
+  means plan mode changes nothing.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
@@ -55,5 +60,6 @@
   "control_system_write_tools": {{ appended_extras | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
-  "measurement": {{ measurement | default({}, true) | tojson }}
+  "measurement": {{ measurement | default({}, true) | tojson }},
+  "plan_mode_denied_tools": {{ plan_mode_denied_tools | default([], true) | tojson }}
 }
