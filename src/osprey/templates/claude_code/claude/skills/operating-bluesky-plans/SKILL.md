@@ -383,15 +383,26 @@ Never re-pin a stale revision hoping it takes — always add a revision that
 
 ## Watch the run
 
-A running queue is live hardware — never fire-and-forget. Watch it:
+A running queue is live hardware. A run you launched is watched until it
+reaches a final state (`completed`, `stopped` or `error`) before you report on
+it:
 
 - **`queue_list()`** — the queue's own progress: what is pending, what is
   running, what the manager is doing.
-- **`get_run(run_id)`** — one run's lifecycle: `pending`, `running`,
-  `completed`, `stopped`, or `error`. `run_uid` is absent while pending or
-  running (it does not exist until the worker starts the plan — read that as
-  "not yet", never "unknown"), and `progress` is absent until the run starts.
-  `"stopped"` means a human stopped it, by any route.
+- **`get_run(run_id, wait_s=...)`** — one run's lifecycle: `pending`,
+  `running`, `completed`, `stopped`, or `error`. With `wait_s` it waits for you
+  and answers as soon as the status changes; waiting this way costs one call,
+  so repeat it rather than polling with no wait. `run_uid` is absent while
+  pending or running (it does not exist until the worker starts the plan —
+  read that as "not yet", never "unknown"), and `progress` is absent until the
+  run starts. `"stopped"` means a human stopped it, by any route.
+  - From the first progress reading, work out how long the run needs
+    (`progress.remaining_s`, or the points left divided by `points_per_s`) and
+    say so to the operator.
+  - When the run will outlast what this session can wait, say that plainly:
+    where it stands (points so far of the total), how long it still needs, its
+    run id, and that `get_run_data` reads it back once it ends. Never present
+    a run still in progress as the measurement.
 - **`get_run_data(run_id, max_rows=..., tail=...)`** — a bounded window of the
   run's rows; `partial: true` means the run is still producing data. Never
   returns an unbounded table. A run rotated out of the manager's history still
@@ -566,8 +577,8 @@ know why it was requested.
   repeat run.
 - **Never** call `queue_start` without reading `queue_list` first — start
   drains the whole queue, including items you did not add.
-- **Never** treat a started queue as fire-and-forget — it drives real
-  hardware; watch it with `queue_list`/`get_run`/`get_run_data`/`get_run_figure`.
+- **Never** report on a launched run before it reaches a final state, and
+  never leave a still-running run without saying how long it still needs.
 - **Never** analyse or report on a run you launched without first reading its
   rows with `get_run_data` — `get_run`'s status and a figure's points are not
   the measurement.

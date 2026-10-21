@@ -457,3 +457,19 @@ class TestOperatingBlueskyPlansInstall:
         mf = {"artifacts": {"skills": ["operating-bluesky-plans"]}}
         outputs = manifest.resolve_manifest_outputs(mf)
         assert OUTPUT_REL in outputs
+
+
+class TestOperatingBlueskyPlansWatchToTheEnd:
+    """A launched run is watched to a final state, and a run that outlasts the
+    session is reported with how long it still needs, never as the measurement."""
+
+    @pytest.fixture()
+    def skill_text(self):
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
+        return path.read_text(encoding="utf-8")
+
+    def test_a_launched_run_is_watched_to_its_end(self, skill_text):
+        prose = _prose(skill_text)
+        assert "watched until it reaches a final state" in prose
+        assert "wait_s" in prose
+        assert "how long it still needs" in prose
