@@ -269,6 +269,7 @@ def test_matched_but_empty_tiled_run_returns_200_not_404(
         "rows": [],
         "row_count": 0,
         "truncated": False,
+        "units": {},
         "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: empty_but_real)
@@ -314,6 +315,7 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
+        "units": {},
         "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: tiled_body_payload)
@@ -326,6 +328,7 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
         "rows",
         "row_count",
         "truncated",
+        "units",
         "analysis",
     }
     # Parity goes one level deeper for `analysis`: a stored run's statistics

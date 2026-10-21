@@ -492,6 +492,47 @@ def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
     }
 
 
+def test_the_data_body_carries_the_declared_units_of_its_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``units`` maps each served column to the unit the run declared for it,
+    whatever window of rows the read asked for."""
+    declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
+    rows = [{"motor": float(i), "det": i} for i in range(5)]
+    run_node = _run_node_with_events(
+        "bluesky-uid-b", "run-b", rows, descriptors=[_descriptor(declared)]
+    )
+    _configured(monkeypatch, "run-b", run_node)
+
+    whole = app_module._from_tiled("run-b", max_rows=100, offset=None, tail=False)
+    page = app_module._from_tiled("run-b", max_rows=1, offset=2, tail=False)
+
+    expected = {key: entry["units"] for key, entry in declared.items() if "units" in entry}
+    assert whole["units"] == page["units"] == expected
+
+
+def test_the_live_data_body_carries_the_declared_units_of_its_columns() -> None:
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge import live_rows
+    from osprey.services.bluesky_bridge.app import app
+    from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+
+    declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
+    live_rows._clear()
+    try:
+        recorder = LiveRowRecorder(key="run-live-units")
+        recorder("start", {"uid": "uid"})
+        recorder("descriptor", _descriptor(declared))
+        recorder("event", {"data": {"motor": 1.0, "det": 2}})
+
+        body = TestClient(app).get("/runs/run-live-units/data").json()
+    finally:
+        live_rows._clear()
+
+    assert body["units"] == {key: e["units"] for key, e in declared.items() if "units" in e}
+
+
 def test_a_run_with_no_primary_stream_declares_no_units(monkeypatch: pytest.MonkeyPatch) -> None:
     run_node = _FakeRunNode(
         metadata={"start": {"uid": "bluesky-uid-n", "osprey_run_id": "run-n"}}, streams={}
@@ -548,6 +589,7 @@ def test_matching_run_with_no_primary_stream_reports_empty_shape(
         "rows": [],
         "row_count": 0,
         "truncated": False,
+        "units": {},
         # Settled, but stamped with no plan: nothing declares what this run's
         # columns would have meant, so its statistics are absent with that
         # reason rather than missing from the shape.
@@ -812,6 +854,7 @@ def test_primary_stream_with_no_table_part_reads_empty_rather_than_500(
         "rows": [],
         "row_count": 0,
         "truncated": False,
+        "units": {},
         "partial": True,  # no stop document landed
         # Statistics are computed once a run settles; this one has not.
         "analysis": analysis.absent(analysis.REASON_RUN_IN_PROGRESS),
