@@ -2239,6 +2239,152 @@ class TestMain:
         assert "- A bug. (#745)" in changelog.read_text(encoding="utf-8")
 
 
+CONNECTORS = "packages/osprey-connectors"
+
+
+class TestTrees:
+    """Two changelogs, one per tag stream: each tree's rules over its own paths."""
+
+    def test_the_framework_tree_does_not_reach_into_the_connectors_package(self):
+        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py", "packages/x/c.py"]
+        assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/c.py"]
+
+    def test_the_connectors_tree_sees_its_paths_relative_to_its_root(self):
+        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py"]
+        assert cf.tree_paths(cf.CONNECTORS_TREE, paths) == ["src/osprey_connectors/b.py"]
+
+    def test_the_connectors_tree_gates_what_ships_and_not_its_tests(self):
+        gated = cf.CONNECTORS_TREE.gated
+        assert cf.needs_fragment(["src/osprey_connectors/b.py"], gated)
+        assert cf.needs_fragment(["pyproject.toml"], gated)
+        assert not cf.needs_fragment(["tests/osprey_connectors_tests/test_x.py"], gated)
+        assert not cf.needs_fragment(["CHANGELOG.md", "changelog.d/x.fixed.md"], gated)
+
+    def test_the_trees_are_the_two_release_streams(self):
+        assert [(t.root, t.tag_prefix) for t in cf.TREES] == [
+            ("", "v"),
+            (CONNECTORS, "osprey-connectors-v"),
+        ]
+
+    def test_the_connectors_tag_probe_asks_for_the_connectors_tag(self):
+        git = FakeGit({})
+        with pytest.raises(cf.ProbeError, match="refs/tags/osprey-connectors-v2026.10.0"):
+            cf.tag_probe(git, cf.CONNECTORS_TREE.tag_prefix)("2026.10.0")
+
+    # ---- check over both trees, from a repository laid out in tmp_path -----
+
+    @staticmethod
+    def repo(tmp_path: Path, monkeypatch) -> Path:
+        for root in ("", CONNECTORS):
+            base = tmp_path / root
+            write(base / "changelog.d", "README.md", "how to write one\n")
+            (base / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+        monkeypatch.setattr(cf, "REPO_ROOT", tmp_path)
+        return tmp_path
+
+    @staticmethod
+    def table(diff: str, **shows: str) -> dict:
+        table = git_table(diff=diff)
+        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(
+            shows.get("connectors", CHANGELOG)
+        )
+        return table
+
+    def test_a_connectors_change_needs_a_connectors_fragment(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / "changelog.d", "745.fixed.md", "a framework fix.\n")
+        diff = diff_z(
+            ("M", f"{CONNECTORS}/src/osprey_connectors/b.py"), ("A", "changelog.d/745.fixed.md")
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 1
+        out = capsys.readouterr().out
+        assert f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):" in out
+        assert "✗ no changelog fragment for 1 changed file(s) under src/, pyproject.toml" in out
+
+    def test_a_connectors_fragment_satisfies_a_connectors_change(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(
+            ("M", f"{CONNECTORS}/src/osprey_connectors/b.py"),
+            ("A", f"{CONNECTORS}/changelog.d/745.fixed.md"),
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 0
+        assert capsys.readouterr().out.splitlines() == [
+            "✓ changelog.d: 0 fragment(s) valid",
+            f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid",
+            "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
+            "✓ [Unreleased]: untouched",
+            f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):",
+            "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s) "
+            "under src/, pyproject.toml, README.md",
+            "✓ [Unreleased]: untouched",
+        ]
+
+    def test_a_connectors_fragment_does_not_cover_a_framework_change(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(("M", "src/osprey/a.py"), ("A", f"{CONNECTORS}/changelog.d/745.fixed.md"))
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 1
+        assert "✗ no changelog fragment for 1 changed file(s) under src/" in capsys.readouterr().out
+
+    def test_an_untouched_connectors_tree_is_validated_but_not_diffed(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "- a bullet already\n")
+        git = FakeGit(git_table(diff=diff_z(("M", "docs/source/index.rst"))))
+        assert cf.main(["check"], git) == 1
+        assert "✗ 745.fixed.md: a fragment must open with prose" in capsys.readouterr().out
+        assert not any(f"{CONNECTORS}/CHANGELOG.md" in " ".join(call) for call in git.calls)
+
+    def test_the_pull_request_creating_a_changelog_needs_no_base_copy(self, tmp_path, monkeypatch):
+        root = self.repo(tmp_path, monkeypatch)
+        empty = "# Changelog\n\n## [Unreleased]\n"
+        (root / CONNECTORS / "CHANGELOG.md").write_text(empty, encoding="utf-8")
+        diff = diff_z(
+            ("A", f"{CONNECTORS}/CHANGELOG.md"), ("A", f"{CONNECTORS}/changelog.d/README.md")
+        )
+        git = FakeGit(git_table(diff=diff))
+        assert cf.main(["check"], git) == 0
+        assert not any(f"{CONNECTORS}/CHANGELOG.md" in " ".join(call) for call in git.calls)
+
+    def test_check_with_a_root_gates_that_tree_alone(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(
+            ("M", f"{CONNECTORS}/src/osprey_connectors/b.py"),
+            ("A", f"{CONNECTORS}/changelog.d/745.fixed.md"),
+        )
+        git = FakeGit(self.table(diff))
+        assert cf.main(["check", "--root", CONNECTORS], git) == 0
+        out = capsys.readouterr().out.splitlines()
+        assert out[0] == f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid"
+        assert not any(line.startswith("✓ changelog.d:") for line in out)
+
+    def test_apply_with_a_root_folds_that_tree_and_names_its_paths(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        assert cf.main(["apply", "--root", CONNECTORS]) == 0
+        text = (root / CONNECTORS / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert "- a connectors fix. (#745)" in text
+        assert "a connectors fix" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert not (root / CONNECTORS / "changelog.d" / "745.fixed.md").exists()
+        out = capsys.readouterr().out
+        assert f"stage with: git add -A {CONNECTORS}/changelog.d/ {CONNECTORS}/CHANGELOG.md" in out
+
+    def test_apply_without_a_root_stages_the_framework_paths(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / "changelog.d", "745.fixed.md", "a framework fix.\n")
+        assert cf.main(["apply"]) == 0
+        assert "stage with: git add -A changelog.d/ CHANGELOG.md" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # The live tree. Everything below reads the real repository and writes nothing.
 # ---------------------------------------------------------------------------
