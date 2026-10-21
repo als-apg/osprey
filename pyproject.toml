@@ -216,10 +216,12 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
-    # The connectors package versions with this repo's own calendar stream
-    # (same v-tags, same describe — see its pyproject.toml), so the two wheels
-    # built from one checkout always agree; the floor below is the last stable
-    # release tag, which any same-checkout build satisfies. The floor admits no
+    # The connectors package has its own calendar stream, on its own
+    # osprey-connectors-v* tags (see its pyproject.toml), and stays
+    # backward-compatible with every supported framework release, so this is a
+    # floor and never a pin: the oldest connectors release carrying what the
+    # framework needs. A same-checkout build describes from the newest
+    # connectors tag, which satisfies it. The floor admits no
     # pre-release by itself; a pre-release framework pairs with the connectors
     # beside it because the install admits pre-releases. Every install OSPREY
     # drives from a pre-release pin does so for the whole resolve (`--pre` for
@@ -233,7 +235,8 @@ dependencies = [
     # pairs the old stable.
     "osprey-connectors>=2026.6.2",
     # pyAML control-system backend over the connector; versions with this repo's
-    # calendar stream exactly as osprey-connectors does, hence the same specifier.
+    # own calendar stream (same v-tags, same describe), so the floor is the last
+    # stable framework release tag, which any same-checkout build satisfies.
     "pyaml-cs-osprey>=2026.6.2",
     # pyAML itself, installed from accelerator-middle-layer-apg: the ALS-APG
     # staging distribution of pyAML, which carries upstream commits only and

@@ -18,7 +18,7 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 - Branch your work off ``main``, and open your PR against ``main``.
 - ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
 - Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
-- The ``osprey-connectors`` workspace package versions with the framework's calendar stream and releases from the **same** ``v*.*.*`` tag: one tag publishes both wheels, always carrying the same number. (Its old independent ``osprey-connectors-v*`` line is retired.)
+- The ``osprey-connectors`` workspace package has its **own** CalVer stream, on its own ``osprey-connectors-vYYYY.M.P`` tags (``bN`` / ``rcN`` for pre-releases), cut when the package changes. Each release stays backward-compatible with every supported framework release, enforced in CI, so the framework declares only a floor on it, never a pin. (The ``osprey-connectors-v0.1.0`` tag predates the scheme and is retired; the describe glob skips it.)
 - Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
 - Documentation publishes on the same tags: the site root is always the newest release; every push to ``main`` rebuilds ``/latest/``, shown with a development banner.
 
