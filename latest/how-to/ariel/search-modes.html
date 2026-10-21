@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -699,7 +698,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
 </ol>
-<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself. A web-terminal persona deploys no sidecar of its own and reaches the hosting deployment’s through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead — a key the build copies from the hosting deployment’s render into every persona, so nothing pins it by hand — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a persona that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own and reaches the hosting deployment’s through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead — a key the build copies from the hosting deployment’s render into every tier and app, so nothing pins it by hand — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a render that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
@@ -1218,6 +1217,42 @@ mode.</p>
 synthesis, custom prompting? That lives in the OSPREY agent layer; see
 <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a> under “Extending the integration.”</p>
 </section>
+<section id="read-only-role-for-the-sql-tool">
+<span id="ariel-sql-readonly-role"></span><h3>Read-only role for the SQL tool<a class="headerlink" href="#read-only-role-for-the-sql-tool" title="Link to this heading">#</a></h3>
+<p>The agent can run raw SQL against the logbook database. That query path
+connects as its own Postgres role — <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>, derived from
+<code class="docutils literal notranslate"><span class="pre">services.postgresql.username</span></code> — which can log in, read the tables in the
+<code class="docutils literal notranslate"><span class="pre">public</span></code> schema, and do nothing else. It is not the role ingestion writes
+with, and it is not a superuser, so a query naming a server-side function such
+as <code class="docutils literal notranslate"><span class="pre">pg_read_file()</span></code> is refused by Postgres rather than by a pattern match over
+the query text. Only the agent’s ARIEL server opens that role; ingestion and the
+other <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span></code> commands connect as the owner role alone.</p>
+<p>The role is created by an init script the Postgres entrypoint runs <strong>once,
+while it initializes a fresh data volume</strong>, the same window
+<code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code> is read in. Its password is <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_READONLY_PASSWORD</span></code>
+in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, minted by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> beside
+<code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>. A new deployment gets all of this with no action from
+you.</p>
+<p>Tables created later are covered: the script grants <code class="docutils literal notranslate"><span class="pre">SELECT</span></code> on the schema’s
+tables and sets default privileges for the owner, so the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code>
+table the migrations create and the per-model <code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables an
+enhancement module adds are readable without a second grant.</p>
+<section id="adopting-the-role-on-an-existing-database">
+<h4>Adopting the role on an existing database<a class="headerlink" href="#adopting-the-role-on-an-existing-database" title="Link to this heading">#</a></h4>
+<p>A data volume created before the role existed never runs the init script, so it
+has no <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>. Nothing breaks: the agent notices at start-up, logs
+one warning, and runs the SQL tool on the ingestion connection as it did
+before. To adopt the role without recreating the volume, run the same script by
+hand once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">ARIEL_DB_READONLY_PASSWORD</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>grep<span class="w"> </span><span class="s1">&#39;^ARIEL_DB_READONLY_PASSWORD=&#39;</span><span class="w"> </span>.env<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="o">=</span><span class="w"> </span>-f2-<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>&lt;project&gt;-ariel-postgres<span class="w"> </span>bash<span class="w"> </span>/docker-entrypoint-initdb.d/10-readonly-role.sh
+</pre></div>
+</div>
+<p>Restart the agent afterwards so it picks up the role, and the warning stops.
+The script is idempotent — running it again is how you roll the role’s password
+after changing it in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+</section>
+</section>
 <section id="see-also">
 <h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
 <dl class="simple">
@@ -1296,6 +1331,10 @@ need an embedding provider reachable at query time</p>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-between-semantic-and-hybrid">Choosing Between Semantic and Hybrid</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-role-for-the-sql-tool">Read-only role for the SQL tool</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#adopting-the-role-on-an-existing-database">Adopting the role on an existing database</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
 </li>

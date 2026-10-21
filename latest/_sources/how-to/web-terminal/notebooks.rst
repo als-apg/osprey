@@ -15,10 +15,10 @@ names no kernel gets the OSPREY one, so every cell runs under the gates below.
 Turning the panel on
 --------------------
 
-The panel is a built-in with the id ``jupyter``. Every persona built from the
-``control-assistant`` preset family already selects it, so a standard build
-has the tab. The ``ariel-standalone``, ``channel-finder-standalone`` and
-``hello-world`` presets do not select it.
+The panel is a built-in with the id ``jupyter``. The ``control-assistant``
+preset selects it, so every tier of a standard build has the tab. The
+``hello-world`` preset and the bundled logbook, knowledge and channel-finder
+apps do not select it.
 
 Name it under ``web_panels`` to add it to a build profile of your own:
 

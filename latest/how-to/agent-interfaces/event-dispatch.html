@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -726,10 +725,10 @@ separate browser window. The tab health-gates itself: while the dispatcher is
 down the tab is disabled with an offline indicator rather than showing a broken
 frame, and it turns live once the dispatcher answers <code class="docutils literal notranslate"><span class="pre">/health</span></code>.</p>
 <p>The panel points at <code class="docutils literal notranslate"><span class="pre">http://localhost:&lt;dispatcher_port&gt;</span></code>, which works out of
-the box for the host-run flow in <em>Bring It Up</em> and for every persona built
+the box for the host-run flow in <em>Bring It Up</em> and for every tier built
 beside the deployment: per-user containers share the host’s network, so the
 dispatcher answers on their loopback too, and the build copies this entry from
-the deployment’s render into each persona (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+the deployment’s render into each tier (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <section id="auto-derived-url">
 <h3>Auto-derived URL<a class="headerlink" href="#auto-derived-url" title="Link to this heading">#</a></h3>
 <p>You do not have to set <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> by hand. Whenever a profile
@@ -747,7 +746,7 @@ baking <code class="docutils literal notranslate"><span class="pre">/dashboard</
 split. Any of these keys a profile already pins the build leaves untouched, and
 an explicit <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> always wins — pin it on the <strong>hosting</strong>
 profile when the web terminals cannot reach the dispatcher on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>;
-every persona follows it, and a persona that pins a different one is refused.</p>
+every tier follows it, and a tier that pins a different one is refused.</p>
 </section>
 </section>
 <section id="firing-a-trigger-from-a-session">
@@ -809,8 +808,8 @@ elsewhere receives neither the bearer nor your name.</p>
 </section>
 <section id="a-shell-reaches-the-same-route">
 <h3>A shell reaches the same route<a class="headerlink" href="#a-shell-reaches-the-same-route" title="Link to this heading">#</a></h3>
-<p>The panel token sits in the agent process’s environment, so a persona whose
-profile lifts the <code class="docutils literal notranslate"><span class="pre">Bash</span></code> deny — a build failure unless that profile also
+<p>The panel token sits in the agent process’s environment, so a tier whose
+file lifts the <code class="docutils literal notranslate"><span class="pre">Bash</span></code> deny — a build failure unless that file also
 declares its own <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> gate covering the shell — can post to the proxy
 route from a shell command and fire a job with no approval prompt. What that
 skips is the prompt, not the rest: such a job still carries your name from the

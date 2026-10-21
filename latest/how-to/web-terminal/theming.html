@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -606,10 +605,9 @@ colors of OSPREY’s plain terminal output). They never affect each other.</p>
 <p>In a multi-user deployment every user gets their own terminal, but they all run
 the same image — so they all read the same <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. To start a particular
 user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list. The snippet
-shows only the keys this section is about; the deployment also carries the
-<code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog and <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> from the multi-user page (see the
-worked example in <a class="reference internal" href="multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">persona:</span>
-<span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code> name entries of that catalog.</p>
+shows only the keys this section is about; the deployment also carries
+<code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and each user’s <code class="docutils literal notranslate"><span class="pre">tier</span></code> from the multi-user page (see the
+worked example in <a class="reference internal" href="multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>

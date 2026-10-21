@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Standalone Deployment" href="standalone-deployment.html" />
+    <link rel="next" title="Bluesky Plans" href="../bluesky/index.html" />
     <link rel="prev" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -575,7 +574,7 @@ logbook plot from its caption.</p></li>
 </section>
 <section id="on-by-default-skipped-when-unavailable">
 <h2>On by default, skipped when unavailable<a class="headerlink" href="#on-by-default-skipped-when-unavailable" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> presets turn captions,
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset and its logbook app turn captions,
 picture search and the view tool on, and they choose a service and model for
 each: Ollama with <code class="docutils literal notranslate"><span class="pre">qwen3-vl:4b</span></code> for captions, and a site-run llama-server
 with <code class="docutils literal notranslate"><span class="pre">qwen3-vl-embedding-2b</span></code> for picture search. These are preset defaults,
@@ -1042,8 +1041,8 @@ honoured</p></td>
 <span id="ariel-picture-search-upgrade"></span><h2>Upgrade notes<a class="headerlink" href="#upgrade-notes" title="Link to this heading">#</a></h2>
 <p><strong>Profile keys.</strong> An existing deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is explicit and does
 not gain the new keys; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> lists them as drift. Add the lines
-shown below, or run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code> (it writes every lacking leaf, with
-the same side-effect caveat as <code class="docutils literal notranslate"><span class="pre">--providers</span></code> below); until then
+shown below, or run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> (it writes every lacking leaf,
+with the side effects named below); until then
 <code class="docutils literal notranslate"><span class="pre">image_caption</span></code> and <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> keep their code defaults (off) and the
 view tool its default (on).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -1071,10 +1070,9 @@ packaged entry:</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl-embedding-2b</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span> <span class="pre">--providers</span></code> also writes it, with side effects: it fills
-in every key the profile leaves to its preset and stamps provenance, which turns
-on the strict preset-drift check (see
-<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> also writes it, with side effects: it fills in every
+key the profile leaves to its preset and stamps provenance, which turns on the
+strict preset-drift check (see <a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>).</p>
 <p><strong>Search indexes.</strong> The upgrade builds a v2 full-text index and a trigram index
 over attachment text, and keeps the v1 indexes (the full-text index and, with
 the semantic processor on, its search index); a later release drops them. The
@@ -1127,11 +1125,11 @@ re-embeds text too).</p>
       </div>
     </a>
     <a class="right-next"
-       href="standalone-deployment.html"
+       href="../bluesky/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Standalone Deployment</p>
+        <p class="prev-next-title">Bluesky Plans</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -537,8 +537,8 @@ forge is filled in.</p>
 <p>The directory’s name is proposed as the deployment’s name: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
 normalizes it to a valid compose project name and records it in
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, beside the display <code class="docutils literal notranslate"><span class="pre">name:</span></code>. That
-tracked value names the compose project, volumes, images and persona renders on
-every host from then on; the folder a later clone sits in plays no part. Change
+tracked value names the compose project, volumes, images and tier and app renders
+on every host from then on; the folder a later clone sits in plays no part. Change
 it in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">project_name=NAME</span></code>, before the
 first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> if the folder name is not the name you want
 (<a class="reference internal" href="configuration/profile.html#reference-profile"><span class="std std-ref">Build Profile — profile.yml</span></a>).</p>
@@ -547,7 +547,7 @@ output, and durable state:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>DIRECTORY/
   profile.yml                    the manifest; everything the preset configures
   providers.yml                  the model-provider catalog `provider:` picks from
-  data/ personas/ triggers.yml   the material it names — yours to edit
+  data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
   .env                           provider keys, seeded from your shell
   build/                         rendered by `osprey build`; gitignored
   var/                           agent memory and audit log; gitignored
@@ -566,18 +566,29 @@ shorthands: <code class="docutils literal notranslate"><span class="pre">provide
 deployment onto another thousand-port block, e.g. <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">port_base=42000</span></code> —
 handy for a second stack beside one already on the default 10000 block).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Re-materialize the source zone of an existing deployment
-repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. In
+repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. In
 <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> the entries OSPREY ships are reset to the packaged values and
 the ones you added are kept. Never touches <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>, <code class="docutils literal notranslate"><span class="pre">README.md</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, the CI file,
 <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>, or <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--no-git</span></code> — Skip <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and the initial commit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--revalidate</span> <span class="pre">[--preset</span> <span class="pre">NAME]</span></code> — Bring an existing deployment repository to
+this OSPREY in place: the current profile vocabulary, every config key the
+profile leaves to its preset (from <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code>, or the preset the profile
+records), and the provider entries OSPREY ships, keeping the ones you added.
+Your deployment’s own selections — the roster, the shared apps, the default
+tier, role tiers, the landing groups — are left for you and named in the
+output. Prints a diff to review and commit.</p>
+<p>The step is one-way: an older OSPREY refuses the revalidated repository. To go
+back, check out the repository as it was before the commit and install the
+previous release.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--up</span></code> / <code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detach</span></code> / <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Build and start the deployment right
 away, optionally in the background or in development mode.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
 osprey<span class="w"> </span>init<span class="w"> </span>als-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 osprey<span class="w"> </span>init<span class="w"> </span>demo<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--up<span class="w"> </span>-d<span class="w"> </span>--dev
+osprey<span class="w"> </span>init<span class="w"> </span>als-assistant<span class="w"> </span>--revalidate
 </pre></div>
 </div>
 </section>
@@ -629,19 +640,20 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 </pre></div>
 </div>
 <p>With no argument, validates the deployment repository enclosing the working
-directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a persona
-delta file under <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, or a directory holding a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
+directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a tier
+file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, an app file under <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, or a directory holding a
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
 <p>Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and runs the full consistency check — convention
 directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars —
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
 <p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote is also compared with the preset it came from,
-persona deltas included, and the two kinds of difference are treated
+tier and app files included, and the two kinds of difference are treated
 differently.</p>
 <p><strong>Structural</strong> differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or a
-persona <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> of something the preset keeps. Each is reported with both
+the profile lacks, one the profile adds that the preset does not know, or an
+<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> of something the preset keeps. Each is reported with both
 <code class="docutils literal notranslate"><span class="pre">file:line</span></code> references unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment within three
 lines above the profile line claims it (for a missing line, a comment anywhere
 naming the key or member). The tag is set by <code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>; a
@@ -656,7 +668,7 @@ preset’s hash differs from the recorded one, a one-line note that the preset
 has moved on. A <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> that no longer matches the packaged catalog
 is reported the same way — as a note, never a refusal.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
-osprey<span class="w"> </span>validate<span class="w"> </span>personas/reader.yml
+osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/als-assistant
 </pre></div>
 </div>
@@ -725,7 +737,6 @@ osprey<span class="w"> </span>config<span class="w"> </span>--defaults<span clas
 <p>Validate and inspect build profiles. The profile is the durable, facility-owned
 source a deployment is built from — see <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>TARGET
-osprey<span class="w"> </span>profile<span class="w"> </span>expand
 osprey<span class="w"> </span>profile<span class="w"> </span>presets
 osprey<span class="w"> </span>profile<span class="w"> </span>artifacts
 osprey<span class="w"> </span>profile<span class="w"> </span>card
@@ -742,41 +753,6 @@ with the accumulated errors when not. Inside a deployment repository, plain
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code></dt><dd><p>List bundled preset names, one per line. Every name printed is usable as
 <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.</p>
 </dd>
-</dl>
-<dl id="cli-profile-expand">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span> <span class="pre">[--from</span> <span class="pre">PRESET]</span> <span class="pre">[--providers]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Fill in every config key this profile leaves to its preset.</p>
-<p>A profile written before the app template retired spells only what its
-facility changed; the rest came from a packaged template the operator never
-saw. <code class="docutils literal notranslate"><span class="pre">expand</span></code> writes those keys into the profile itself, each under the
-comment the preset documents it with, and drops the retired top-level key
-that named the template. Nothing already in the file is changed — expansion
-only adds — so running it twice leaves the profile exactly as the first run
-left it.</p>
-<p>Which preset it expands from is decided in this order: <code class="docutils literal notranslate"><span class="pre">--from</span></code> if given,
-otherwise <code class="docutils literal notranslate"><span class="pre">provenance.preset</span></code>, otherwise the app template the profile
-still names. So a profile with no <code class="docutils literal notranslate"><span class="pre">provenance:</span></code> block expands fine, and
-<code class="docutils literal notranslate"><span class="pre">--from</span></code> overrides a stamp that names the wrong preset.</p>
-<p>Two kinds of lacking key are deliberately left out, and both are listed in
-the output with the reason:</p>
-<ul class="simple">
-<li><p>a key another block of the profile already owns — <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> is the home
-of <code class="docutils literal notranslate"><span class="pre">image_source</span></code>, and the build writes it into the config for you;</p></li>
-<li><p>anything below a catalog whose entries are the deployment’s own data: the
-persona catalog, the provider table, named panel layouts.</p></li>
-</ul>
-<p><code class="docutils literal notranslate"><span class="pre">--providers</span></code> refreshes <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> in the same pass, resetting the
-entries OSPREY ships to the packaged values and keeping the ones you added.</p>
-<p>Expanding also stamps <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>, which turns the preset-drift check
-on. From then on <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses every unclaimed structural
-difference from that preset. A profile that had no stamp before will have
-differences the first time, so the verb counts them and prints the
-<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> hint alongside the count.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>expand
-osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--from<span class="w"> </span>control-assistant
-osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--providers
-</pre></div>
-</div>
-</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">artifacts</span></code></dt><dd><p>List every artifact the six profile lists can name — hooks, rules, skills,
 agents, output styles, and web panels — with a one-line description of
 each. The same menu appears as commented entries in an emitted profile.</p>
@@ -784,7 +760,7 @@ each. The same menu appears as commented entries in an emitted profile.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">card</span> <span class="pre">[--json]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print the composition card <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> prints, for a repo that already
 exists: who can sign in and with what rights, what the agent runs on, what
 machine it talks to, and what runs beside it. It reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and
-the persona files beside it; nothing is built, started or probed.
+the tier and app files beside it; nothing is built, started or probed.
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the rows as one JSON array of <code class="docutils literal notranslate"><span class="pre">{group,</span> <span class="pre">label,</span> <span class="pre">value}</span></code>
 objects on stdout and every warning on stderr.</p>
 </dd>
@@ -842,7 +818,7 @@ on disk. It reads <code class="docutils literal notranslate"><span class="pre">p
 has changed since the build, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and says what moved, because
 starting would deploy something other than what the profile now describes.</p>
 <p>One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any persona
+at every start — its compose file, nginx config, landing page, and any tier or app
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.</p>
 <p>Before it touches a container, <code class="docutils literal notranslate"><span class="pre">up</span></code> checks who created the ones already
@@ -925,7 +901,7 @@ out of <code class="docutils literal notranslate"><span class="pre">.env</span><
 <p>Two things survive, and the plan says so before you confirm: <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, the
 safety audit log, and everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your
 provider keys. The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">personas/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
 <p>What belongs to this deployment is decided two ways. A container records the
 checkout that created it in a label, and reset refuses outright — removing
 nothing — when containers under this <code class="docutils literal notranslate"><span class="pre">project_name</span></code> were created from a
@@ -1353,7 +1329,7 @@ prints the identity, the record count per kind (places, devices, channels,
 groups) and the wiring record count per model, each model with its engine,
 whether the main render serves it and its solve setting, and each view with
 its path under the render and whether it is written. The views are those of
-the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a persona’s selection does not change
+the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a tier’s or app’s selection does not change
 them. A view that is not written names the config key or model fact that
 left it out. With <code class="docutils literal notranslate"><span class="pre">ID</span></code> it prints the place, device, channel, group or
 model of that id with its provenance (the layer and file each field came
@@ -1485,8 +1461,8 @@ osprey<span class="w"> </span>sim<span class="w"> </span>status
 repo: the commands read its <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code></dt><dd><p>Full setup: migrate, then ingest <code class="docutils literal notranslate"><span class="pre">--source</span></code> or the configured ingestion
-source; with neither, seed <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> into an empty logbook
-and run the enhancement modules over it.</p>
+source; with neither, enhance what the logbook already holds (a deploy
+seeds it from the active scenarios).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span> <span class="pre">[--json]</span></code></dt><dd><p>Show the database connection, embedding tables and enhancement counts.
 Includes the vocabulary line (with the <code class="docutils literal notranslate"><span class="pre">e1:…</span></code> vocabulary key when entries
@@ -1716,13 +1692,17 @@ after a systemd-managed mount, and shows the two crontab lines that run the
 boot hook at boot — the route for a daemon-managed autofs home, and the
 no-root fallback elsewhere.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">personas</span> <span class="pre">[--from</span> <span class="pre">PRESET]</span> <span class="pre">[--force]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write <code class="docutils literal notranslate"><span class="pre">personas/&lt;name&gt;.yml</span></code> for every entry in the profile’s
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.personas</span></code> catalog, then point each entry at its
-file, so the catalog no longer resolves to the preset it was copied from.
-Each file holds only what the persona changes. <code class="docutils literal notranslate"><span class="pre">--from</span></code> names the preset
-whose catalog to emit (default: the preset this repo was created from). A
-file that already exists is reported and left alone unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is
-given.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">tiers</span> <span class="pre">[--from</span> <span class="pre">PRESET]</span> <span class="pre">[--force]</span></code></dt><dd><p>Write <code class="docutils literal notranslate"><span class="pre">tiers/&lt;name&gt;.yml</span></code> for every tier the preset’s web-terminal roster
+names, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> does. A file that already matches is left
+untouched; one that differs is reported and left alone unless <code class="docutils literal notranslate"><span class="pre">--force</span></code>
+is given. <code class="docutils literal notranslate"><span class="pre">--from</span></code> names the preset (default: the preset this repo was
+created from).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">apps</span> <span class="pre">[--from</span> <span class="pre">PRESET]</span> <span class="pre">[--force]</span></code></dt><dd><p>Write <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;.yml</span></code> for every app the preset’s roster shares, as
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> does. A file that already matches is left untouched; one
+that differs is reported and left alone unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.
+<code class="docutils literal notranslate"><span class="pre">--from</span></code> names the preset (default: the preset this repo was created
+from).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">pull</span> <span class="pre">PRESET[:PATH]</span> <span class="pre">[--list]</span> <span class="pre">[--force]</span> <span class="pre">[--with-content]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Copy a preset’s packaged content into this repo, each file at the same path,
 for you to edit and commit: <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> copies the whole app
@@ -1763,7 +1743,7 @@ directory.</p>
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Validate the deployment’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza (port-family
-allocation, reserved service names, duplicate users, persona references).
+allocation, reserved service names, duplicate users, tier and app references).
 Exits non-zero on error-severity findings; warnings do not fail the check,
 so it is safe to wire into a CI gate.</p>
 </dd>
@@ -1775,7 +1755,8 @@ default and aborts on errors; <code class="docutils literal notranslate"><span c
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">                             </span><span class="c1"># Re-emit the CI files</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd<span class="w">                        </span><span class="c1"># Write the boot unit</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>personas<span class="w">                       </span><span class="c1"># Emit the persona files</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>tiers<span class="w">                          </span><span class="c1"># Write the tier files</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>apps<span class="w">                           </span><span class="c1"># Write the app files</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>pull<span class="w"> </span>control-assistant<span class="w"> </span>--list<span class="w">  </span><span class="c1"># Show what a preset offers</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>

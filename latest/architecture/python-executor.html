@@ -888,7 +888,7 @@ run reads its own permissions from. A write here is either lost at the next
 build or, worse, survives as a rendered setting nobody wrote.</p></li>
 <li><p><strong>The profile sources</strong> — what the build reads to produce that render:
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (with <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it), the <code class="docutils literal notranslate"><span class="pre">personas/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it), the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">scripts/</span></code> directories, the convention
 directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>, <code class="docutils literal notranslate"><span class="pre">commands/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>,
@@ -897,7 +897,7 @@ directories (<code class="docutils literal notranslate"><span class="pre">rules/
 run that could rewrite it could erase the evidence of its own refusal.</p></li>
 </ul>
 <p>A protected entry that does not exist yet is protected all the same: in a repo
-with no <code class="docutils literal notranslate"><span class="pre">personas/</span></code> directory, creating one is exactly the write to refuse.</p>
+with no <code class="docutils literal notranslate"><span class="pre">apps/</span></code> directory, creating one is exactly the write to refuse.</p>
 <p>This boundary is about <em>zones</em> — whole trees, wherever inside them a path lands.
 A companion boundary, <a class="reference internal" href="../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>, closes
 named files and config keys to every agent-side writer (the settings panels,

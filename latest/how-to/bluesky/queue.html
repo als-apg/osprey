@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -749,9 +748,9 @@ is denied up front on such a deployment — the deny list is written once,
 before a session picks a target — and <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
 refuse per call instead, with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code>, naming the lane’s machine.</p>
 <p class="sd-card-text">In a deployed control room the agent holds the launch token only where the
-deployment grants it, and it is granted <strong>per lane</strong>: to a persona whose
+deployment grants it, and it is granted <strong>per lane</strong>: to a tier whose
 config arms writes for the machine that lane drives and that also runs the
-bluesky MCP server. A persona can hold the simulator lane’s token and none
+bluesky MCP server. A tier can hold the simulator lane’s token and none
 for the live one. Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with

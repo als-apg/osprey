@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -536,7 +535,7 @@ and safe to delete and rebuild at any time.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">Creating a deployment repository and rendering its <code class="docutils literal notranslate"><span class="pre">build/</span></code> zone</p></li>
-<li><p class="sd-card-text">What lives in a profile: the convention directories, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, secrets, personas</p></li>
+<li><p class="sd-card-text">What lives in a profile: the convention directories, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, secrets, tiers and apps</p></li>
 <li><p class="sd-card-text">Moving an artifact you want to own out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the profile</p></li>
 <li><p class="sd-card-text">Shipping and wiring your own hook scripts</p></li>
 <li><p class="sd-card-text">Keeping a profile and its build in step</p></li>
@@ -585,8 +584,8 @@ and safe to delete and rebuild at any time.</p>
 </div>
 <ul class="simple">
 <li><p><strong>Preset</strong> — a bundled starting point, shipped inside OSPREY
-(<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>). Examples: <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>,
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code>.
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>). The two presets are <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>.
 Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code> to list them.</p></li>
 <li><p><strong>Profile</strong> — the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the root of your deployment repository,
 with the material it names beside it. Created once from a preset, then edited
@@ -634,7 +633,8 @@ preset does not reach an existing deployment.</p>
   .env            your values and secrets (only when your shell had keys to seed)
   README.md       explains the layout, for whoever opens the repository next
   triggers.yml    the events the agent runs on (dispatch profiles only)
-  personas/       one delta per web-terminal persona (persona presets only)
+  tiers/          one delta per web-terminal access level (multi-user presets only)
+  apps/           one complete agent per shared card (multi-user presets only)
   web-terminal-context/  the shared base.md baseline, plus one seeded
                   directory per operator on the roster
   ci-extra.yml    the facility&#39;s own CI jobs; never regenerated
@@ -643,7 +643,7 @@ preset does not reach an existing deployment.</p>
   var/            agent memory and audit log; durable
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> appear only when
+<p><code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code> and <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> appear only when
 the preset calls for them — a <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> deployment has none of them.</p>
 <p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
@@ -744,7 +744,7 @@ and a build replaces it wholesale.</p>
 re-renders never overwrite it, and cleanup never removes it. Name a file after
 something the framework also renders (<code class="docutils literal notranslate"><span class="pre">rules/safety.md</span></code>) and yours wins.</p>
 <p>Ownership is <em>derived</em> from what the build actually copied, after exclusions
-are applied — there is no list to maintain. An artifact a persona delta
+are applied — there is no list to maintain. An artifact the profile
 excludes is not copied and therefore not owned, so the framework’s own version
 renders in its place.</p>
 <div class="important admonition">
@@ -831,26 +831,23 @@ edit it.</p></li>
 becomes their <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>.</p></li>
 </ul>
 <p>Unlike the per-operator directories, the baseline is <strong>not</strong> roster-derived. It
-is copied on every build, including a persona render that has no roster at all,
+is copied on every build, including a tier or app render that has no roster at all,
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it whenever the profile stands up web terminals
 (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.enabled</span></code>) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
 profile with no web-terminal module gets no <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>.</p>
-<p>A persona drops it with the ordinary convention vocabulary, qualified like any
+<p>The profile drops it with the ordinary convention vocabulary, qualified like any
 other profile-shipped file:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">exclude</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web-terminal-context</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">web-terminal-context/base.md</span><span class="w">   </span><span class="c1"># the framework fallback renders instead</span>
 </pre></div>
 </div>
-<p>The baseline is the only part of this tree a persona has to exclude. A persona
-delta switches the web-terminal module off, so its render resolves an empty
-roster and copies no operator directories in the first place — naming one here
-matches nothing and is silently ignored.</p>
-<p>To keep the baseline in the deployment but leave it out of one persona’s
-terminals, set <code class="docutils literal notranslate"><span class="pre">seed_base:</span> <span class="pre">false</span></code> on that persona’s catalog entry
-(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.personas.&lt;name&gt;</span></code>): its users are seeded from their
-own <code class="docutils literal notranslate"><span class="pre">extra.md</span></code> alone.</p>
+<p>A tier or app render has no web terminals of its own, so it resolves an empty
+roster and copies no operator directories.</p>
+<p>To keep the baseline in the deployment but leave it out of one tier’s or app’s
+terminals, set <code class="docutils literal notranslate"><span class="pre">seed_base:</span> <span class="pre">false</span></code> at the top of that file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> or
+<code class="docutils literal notranslate"><span class="pre">apps/</span></code>: its users are seeded from their own <code class="docutils literal notranslate"><span class="pre">extra.md</span></code> alone.</p>
 <div class="important admonition">
 <p class="admonition-title"><code class="docutils literal notranslate"><span class="pre">base.md</span></code> is the only loose file</p>
 <p>Any other file directly in <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> is refused at build
@@ -868,7 +865,7 @@ operator who has left — and nothing in it would ever be read.</p>
 what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.</p>
 <p>That includes its name. The compose project, the volumes, the images and the
-persona renders are all named from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field, never
+tier and app renders are all named from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field, never
 from the folder the clone sits in, so a clone under any folder name renders and
 deploys the same deployment. The flip side is that two clones on one host are
 the same deployment until one of them says otherwise. A second clone that runs
@@ -991,9 +988,9 @@ already owns, or anything outside <code class="docutils literal notranslate"><sp
 in <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>. A facility hook that wants a helper ships its own copy under
 <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, or claims the rendered one with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span>
 <span class="pre">hooks/hook-log</span></code> after a build that rendered it.</p>
-<section id="unwiring-a-hook-in-a-persona">
-<span id="profile-unwire-hook"></span><h3>Unwiring a hook in a persona<a class="headerlink" href="#unwiring-a-hook-in-a-persona" title="Link to this heading">#</a></h3>
-<p>The wiring is a <code class="docutils literal notranslate"><span class="pre">config:</span></code> key, so a persona delta overrides it — but you have
+<section id="unwiring-a-hook-in-a-tier">
+<span id="profile-unwire-hook"></span><h3>Unwiring a hook in a tier<a class="headerlink" href="#unwiring-a-hook-in-a-tier" title="Link to this heading">#</a></h3>
+<p>The wiring is a <code class="docutils literal notranslate"><span class="pre">config:</span></code> key, so a tier overrides it — but you have
 to use the right spelling:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.hooks.PreToolUse</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">   </span><span class="c1"># this event now wires nothing</span>
@@ -1003,14 +1000,15 @@ to use the right spelling:</p>
 <p>Either form leaves the script itself in place: unwired, not unshipped.</p>
 <div class="important admonition">
 <p class="admonition-title">An empty list does nothing</p>
-<p>Persona lists merge <strong>additively</strong> with the profile’s, so
+<p>A tier’s lists merge <strong>additively</strong> with the profile’s, so
 <code class="docutils literal notranslate"><span class="pre">claude_code.hooks.PreToolUse:</span> <span class="pre">[]</span></code> adds no entries and leaves the hook
 wired — silently. <code class="docutils literal notranslate"><span class="pre">null</span></code> is the spelling that works.</p>
-<p>This matters because a persona that <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>s a shipped hook <strong>must</strong>
-unwire it in the same delta: the build refuses a declaration pointing at a
-hook the persona dropped. That refusal prints the exact <code class="docutils literal notranslate"><span class="pre">null</span></code> line to
-paste, so if you reach for <code class="docutils literal notranslate"><span class="pre">[]</span></code> on an excluded hook the build hands you the
-correction rather than letting it pass.</p>
+<p>The same holds for a profile or variant overlay that <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>s a
+shipped hook: it <strong>must</strong> unwire it in the same file, because the build
+refuses a declaration pointing at a hook that was dropped. That refusal
+prints the exact <code class="docutils literal notranslate"><span class="pre">null</span></code> line to paste, so if you reach for <code class="docutils literal notranslate"><span class="pre">[]</span></code> on an
+excluded hook the build hands you the correction rather than letting it
+pass.</p>
 </div>
 </section>
 <section id="replacing-a-built-in-hook">
@@ -1026,46 +1024,48 @@ twice. Select or unselect a built-in through <code class="docutils literal notra
 <code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code>.</p>
 </section>
 </section>
-<section id="personas">
-<h2>Personas<a class="headerlink" href="#personas" title="Link to this heading">#</a></h2>
-<p>Some presets give each operator their own web terminal, and each terminal runs
-with a persona — usually a capability posture, such as read-only versus
-write-capable, though a persona can just as well be a different product
-sharing the deployment. For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>),
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one file per persona:</p>
+<section id="tiers-and-apps">
+<h2>Tiers and Apps<a class="headerlink" href="#tiers-and-apps" title="Link to this heading">#</a></h2>
+<p>Some presets give each operator their own web terminal. Each operator’s
+terminal runs the deployment’s agent at a <strong>tier</strong> — an access level such as
+read-only, write-capable or admin. Cards everyone on the roster can open run an
+<strong>app</strong> — a second, complete agent, such as the logbook research assistant.
+For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one file per
+tier and per app:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   profile.yml
   data/
-  personas/
+  tiers/
     readonly.yml       # a read-only terminal
     readwrite.yml      # a write-capable terminal
     admin.yml          # the one terminal that may edit the deployment
-    ariel.yml          # the standalone ARIEL logbook terminal
+  apps/
+    logbook.yml        # logbook research
+    knowledge.yml      # facility knowledge
+    channel-finder.yml # channel search
 </pre></div>
 </div>
-<p>Each file holds only that persona’s <strong>differences</strong> — for the read-only persona,
-chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code>; for the admin one, the
-privileges the profile below it deliberately withholds. Sitting in <code class="docutils literal notranslate"><span class="pre">personas/</span></code> beside
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is what makes it a persona: the build merges it over that profile
-automatically. There is no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> line to maintain, and no second data tree
-or set of convention directories — everything else comes from the profile above
-and stays in one place.</p>
-<p>Edit a delta to change what that persona’s terminal can do, and see the merged
+<p>A tier holds only its <strong>differences</strong> from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — for <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
+chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code>; for <code class="docutils literal notranslate"><span class="pre">admin</span></code>, the
+privileges the profile deliberately withholds. The build lays it over the
+profile: lists are added by name, <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win. A tier never subtracts
+and never carries a deployment fact, so it has no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>, <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>,
+<code class="docutils literal notranslate"><span class="pre">data:</span></code> or <code class="docutils literal notranslate"><span class="pre">services:</span></code>.</p>
+<p>An app is a whole agent definition — its own skills, rules, brief and tool
+servers — composed over the deployment’s services, data and provider. Every app
+render is read-only on the machine.</p>
+<p>Both kinds may set <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> and <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of
+the file. Edit a file to change what its terminals can do, and see the merged
 result with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span>personas/readonly.yml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> points at these files by path — its web-terminal catalog carries
-<code class="docutils literal notranslate"><span class="pre">build_profile:</span> <span class="pre">personas/&lt;name&gt;.yml</span></code> for each one — so keep the names in step
-if you rename one. That line is the whole entry. The build derives where each
-persona renders, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code>, and writes that into
-<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> itself; a <code class="docutils literal notranslate"><span class="pre">project:</span></code> or <code class="docutils literal notranslate"><span class="pre">project_path:</span></code> line beside a
-<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> would be a second copy of that fact, and the build refuses it
-with “delete these lines” as the remedy. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads the same catalog but renders nothing: a
-persona project missing from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> as the remedy. A bundled preset
-name in that field is rejected, because a persona built from a preset of its own
-would not share this profile’s data tree, secrets or artifacts.</p>
+<p>The file name is the name: <code class="docutils literal notranslate"><span class="pre">users[].tier</span></code> and <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> pick a file in
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">shared:</span></code> picks one in <code class="docutils literal notranslate"><span class="pre">apps/</span></code>. Each renders to
+<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> renders nothing: a tier or app
+missing from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">tiers</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">apps</span></code> write the preset’s
+files again, leaving any you edited alone.</p>
 <section id="removing-something-a-profile-brings">
 <span id="profile-exclude"></span><h3>Removing something a profile brings<a class="headerlink" href="#removing-something-a-profile-brings" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> subtracts entries, and the spelling decides what it removes:</p>
@@ -1078,7 +1078,7 @@ would not share this profile’s data tree, secrets or artifacts.</p>
 </div>
 <p>A <strong>bare</strong> name unselects a built-in artifact, so it is no longer installed. A
 <strong>qualified</strong> name (<code class="docutils literal notranslate"><span class="pre">&lt;directory&gt;/&lt;name&gt;</span></code>) omits the profile’s own file for that
-name — which is how a persona that wants the stock version back gets it: drop
+name — which is how a profile that wants the stock version back gets it: drop
 your shadowing copy, and the still-selected built-in renders again.</p>
 <p>Bare exclusion accepts <code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">rules</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks</span></code>, <code class="docutils literal notranslate"><span class="pre">agents</span></code>,
 <code class="docutils literal notranslate"><span class="pre">output_styles</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>; qualified exclusion
@@ -1093,25 +1093,27 @@ spelling and lists what to take out of it:</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb</span><span class="w">                    </span><span class="c1"># this layer deploys everything else</span>
 </pre></div>
 </div>
-<p>This is how a layer deploys fewer services than the profile it sits on. Lists
+<p>This is how a profile deploys fewer services than the one it extends. Lists
 under <code class="docutils literal notranslate"><span class="pre">config:</span></code> union across <code class="docutils literal notranslate"><span class="pre">extends</span></code> and across a host-variant overlay,
-so a layer cannot state a shorter list; it names the entries it drops instead.
+so an overlay cannot state a shorter list; it names the entries it drops instead.
+<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> belongs to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and its variant overlays; a tier or app
+that spells it is refused.
 A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.</p>
-<p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the persona still
+<p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the render still
 inherits about that panel under <code class="docutils literal notranslate"><span class="pre">config:</span></code>. <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> takes entries out of
 lists, never scalars — a <code class="docutils literal notranslate"><span class="pre">web.panels.lattice.label</span></code> or a custom panel’s
-<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> the base profile set is still in the persona’s render —
+<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> the base profile set is still in the render —
 but <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> is what shows a tab: the build writes <code class="docutils literal notranslate"><span class="pre">enabled</span></code> onto every
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block a render carries, <code class="docutils literal notranslate"><span class="pre">true</span></code> for a selected panel and
 <code class="docutils literal notranslate"><span class="pre">false</span></code> for any other, and the web terminal, the health probe and the
 credential grants all read that one flag. The facts stay so the Reach Contract
-can keep copying a host’s addresses into the personas that <em>do</em> select the tab.
+can keep copying a host’s addresses into the tiers and apps that <em>do</em> select the tab.
 A <code class="docutils literal notranslate"><span class="pre">config:</span></code> line that says <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.enabled</span></code> and contradicts the
 selection is refused at validation, as two spellings of one fact disagreeing.</p>
 <p>Excluding a <strong>declared hook</strong> takes one more line: the same delta has to unwire
 it with <code class="docutils literal notranslate"><span class="pre">claude_code.hooks.&lt;Event&gt;:</span> <span class="pre">null</span></code>, or the build refuses the wiring
-that now points at a file the persona dropped. See <a class="reference internal" href="#profile-unwire-hook"><span class="std std-ref">Unwiring a hook in a persona</span></a>.</p>
+that points at a dropped file. See <a class="reference internal" href="#profile-unwire-hook"><span class="std std-ref">Unwiring a hook in a tier</span></a>.</p>
 <div class="important admonition">
 <p class="admonition-title">The mistake worth knowing about</p>
 <p>Use the <strong>bare</strong> spelling on a name your profile also ships a file for, and
@@ -1125,7 +1127,7 @@ green build as proof the exclusion took.</p>
 <p class="admonition-title">Note</p>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> carves a tier by <em>removing</em> capability. When the boundary you
 want is “may not write,” prefer flipping the enforcement switch instead —
-the bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code> preset differs from its
+the bundled <code class="docutils literal notranslate"><span class="pre">readonly</span></code> tier differs from its
 write-capable sibling only on write posture, leaving the tool surface
 identical (see <a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>). Write posture is per
 control target, so that tier pins the deployment-wide
@@ -1173,7 +1175,7 @@ uses:</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges that overlay over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before it renders
-anything, and says which variant it used in its output. Personas are rendered
+anything, and says which variant it used in its output. Tiers and apps are rendered
 for the same host, so a stack cannot come up half-configured for another one.</p>
 <p>The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> is covered by
@@ -1341,7 +1343,7 @@ osprey<span class="w"> </span>build<span class="w"> </span>--repo<span class="w"
 <section id="checking-a-profile-without-building">
 <h3>Checking a profile without building<a class="headerlink" href="#checking-a-profile-without-building" title="Link to this heading">#</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
-osprey<span class="w"> </span>validate<span class="w"> </span>personas/readonly.yml
+osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 </pre></div>
 </div>
 <p>Resolves the profile and runs the full consistency check — convention
@@ -1372,7 +1374,7 @@ build that was fine yesterday.</p>
 <ol class="arabic simple">
 <li><p>Settle the profile (materialize from a preset on first use, or read the one
 you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> into it.</p></li>
-<li><p>Resolve and validate the profile, including any persona delta merged over it.</p></li>
+<li><p>Resolve and validate the profile, including any tier merged over it.</p></li>
 <li><p>Check <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code>; abort if unsatisfied.</p></li>
 <li><p>Clear the previous render. <code class="docutils literal notranslate"><span class="pre">build/</span></code> is wiped whole and re-made; nothing
 durable lives inside it to step around.</p></li>
@@ -1448,7 +1450,7 @@ source zone over one that is already there. To re-render the project, run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> in the repo: it wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> in place and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> — which rewrites <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> and
 <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, losing any edit to them.</p>
 <p><strong>“already exists, is not empty, and is not an OSPREY deployment repo”</strong> — a
 deployment repo is one directory that holds nothing else, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
@@ -1534,11 +1536,11 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-ownership-of-a-framework-artifact">Taking ownership of a framework artifact</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-hooks">Custom hooks</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unwiring-a-hook-in-a-persona">Unwiring a hook in a persona</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unwiring-a-hook-in-a-tier">Unwiring a hook in a tier</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#replacing-a-built-in-hook">Replacing a built-in hook</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#personas">Personas</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tiers-and-apps">Tiers and Apps</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-something-a-profile-brings">Removing something a profile brings</a></li>
 </ul>
 </li>

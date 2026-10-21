@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -618,7 +617,7 @@ passed at runtime via <code class="docutils literal notranslate"><span class="pr
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> passes these from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key
 and the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
 / <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> block, resolved once and handed to the three
-images built from these recipes — the project image, each web-terminal persona
+images built from these recipes — the project image, each web-terminal
 image and the login sidecar. Set them there and a site network is configured in
 one place.
 The build arguments below are the same settings under the names a hand-run
@@ -1101,7 +1100,7 @@ starts as <code class="docutils literal notranslate"><span class="pre">root</spa
 </section>
 <section id="one-tier-gets-one-more-file">
 <h3>One tier gets one more file<a class="headerlink" href="#one-tier-gets-one-more-file" title="Link to this heading">#</a></h3>
-<p>A deployment can grant a single persona the ability to edit its own
+<p>A deployment can grant a single tier the ability to edit its own
 configuration — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool and the browser’s Config
 panel. The image reads that grant off the render’s own permissions: where the
 setup tool is left out of the deny list, and only there, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>
@@ -1109,7 +1108,7 @@ is handed to the <code class="docutils literal notranslate"><span class="pre">os
 write land. Every other render leaves the file root-owned, which is what makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
-tiers do — a persona handed the panel alone would find the file it has to
+tiers do — a tier handed the panel alone would find the file it has to
 write still owned by root. See <a class="reference internal" href="../web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a> for the tiers this exists
 for.</p>
 </section>
@@ -1251,7 +1250,7 @@ away</p></td>
 </tr>
 <tr class="row-odd"><td><p>Hand over <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> for one tier only</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">chown</span> <span class="pre">osprey:osprey</span> <span class="pre">.../build/config.yml</span></code>, and only in the image
-for a persona allowed to edit the deployment. Every other image
+for a tier allowed to edit the deployment. Every other image
 leaves it root-owned</p></td>
 </tr>
 <tr class="row-even"><td><p>Remove <code class="docutils literal notranslate"><span class="pre">USER</span> <span class="pre">osprey</span></code></p></td>

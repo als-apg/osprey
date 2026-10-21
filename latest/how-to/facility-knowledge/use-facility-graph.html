@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -696,13 +695,12 @@ file reaches the graph with:</p>
 </pre></div>
 </div>
 </section>
-<section id="what-the-presets-seed">
-<h2>What the Presets Seed<a class="headerlink" href="#what-the-presets-seed" title="Link to this heading">#</a></h2>
-<p>Both presets seed the graph view <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from their facility
-file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render. No hand-written corpus
-ships. The ARIEL standalone preset’s facility file describes the same machine
-as the control-assistant preset’s, so every OSPREY demo describes one
-facility. Point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at a corpus of your own to seed that instead.</p>
+<section id="what-the-preset-seeds">
+<h2>What the Preset Seeds<a class="headerlink" href="#what-the-preset-seeds" title="Link to this heading">#</a></h2>
+<p>The control-assistant preset seeds the graph view <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from
+its facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render. No
+hand-written corpus ships. Point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at a corpus of your own to seed
+that instead.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>A build profile that ships its own <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree replaces the bundle’s
@@ -735,7 +733,7 @@ materialized from, so <code class="docutils literal notranslate"><span class="pr
 in that block are doing. A dropped list member needs its own marker: one
 comment does not cover the key beside it.</p>
 <p>Which differences are refused and which are only reported is set out under
-<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a> in the
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift</span></a> in the
 profile reference.</p>
 <p>If the corpus lives in a database other than <code class="docutils literal notranslate"><span class="pre">neo4j</span></code> on that store, name it
 with <code class="docutils literal notranslate"><span class="pre">services.graphdb.database</span></code>. The store this deployment runs is a
@@ -872,7 +870,7 @@ together:</p>
 <p>A channel finder already running on the host keeps the index it opened, so
 restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
 writes the index into the image it starts from — one per render, so each
-per-user persona image carries an index derived from the corpus that render
+per-user tier image carries an index derived from the corpus that render
 stages, not a copy borrowed from the deployment’s.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports both halves under the channel finder category:</p>
 <ul class="simple">
@@ -888,7 +886,7 @@ seed and an index that have drifted apart.</p></li>
 <section id="multi-user-operator-terminals">
 <h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control-assistant-admin</span></code> personas (<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)
+<code class="docutils literal notranslate"><span class="pre">control-assistant-admin</span></code> tier renders (<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)
 get the same facility-knowledge-graph agent and its tools, reading the hosting
 deployment’s store, and — the preset runs <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> — a
 channel finder that answers from it too. They are attached renders — they
@@ -896,32 +894,32 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment
 host, and the build copies the bolt port from the hosting deployment’s own
-render into each persona. The corpus is the one thing about the store a
-persona is <em>not</em> told: <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names the graph view
-every render writes for itself, so each persona keeps the key as its own and
-the build derives that persona’s search index from it.</p>
+render into each tier and app. The corpus is the one thing about the store a
+render is <em>not</em> told: <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names the graph view
+every render writes for itself, so each render keeps the key as its own and
+the build derives that render’s search index from it.</p>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
-<li><p><strong>Move the port on the hosting deployment and every persona follows.</strong> A
-persona built beside its deployment is told the store’s bolt port from the
+<li><p><strong>Move the port on the hosting deployment and every render follows.</strong> A
+tier or app built beside its deployment is told the store’s bolt port from the
 deployment’s own render — the same way it is told the qmd sidecar’s port,
 the Postgres the logbook lives in and the rest (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>) — so
-nothing in a persona preset restates it, and a persona that restates it
+nothing in a tier or app file restates it, and one that restates it
 with a different number is refused at build time.</p></li>
 <li><p>A <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> pinned to a specific non-loopback interface
-publishes the store there and not on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, so the personas would no
+publishes the store there and not on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, so the renders would no
 longer reach it. URL-backed panels have the same shape — they name
 <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:&lt;port&gt;</span></code> outright (<a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>) — so a
 deployment that moves off loopback has to revisit both.</p></li>
 </ul>
-<p>The read-only persona receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> as well. The store has a
+<p>The read-only tier receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server’s read transaction rather than by the credential — the same posture the
 ARIEL database credential already takes. <code class="docutils literal notranslate"><span class="pre">control-assistant-logbook</span></code> has no
 control surface and no graph tools by design. <code class="docutils literal notranslate"><span class="pre">control-assistant-knowledge</span></code>
-is the persona built around the graph: it keeps the facility-knowledge-graph
+is the app built around the graph: it keeps the facility-knowledge-graph
 agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
-that reads or writes the machine — the standalone card for “how is the
+that reads or writes the machine — the shared card for “how is the
 machine put together” questions.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
@@ -996,7 +994,7 @@ graph view.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-graph-cannot-answer">When the Graph Cannot Answer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leaving-the-graph-tools-out">Leaving the Graph Tools Out</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-graph-comes-from">Where the Graph Comes From</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-presets-seed">What the Presets Seed</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-preset-seeds">What the Preset Seeds</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-index">The search index</a></li>

@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -658,13 +657,13 @@ repo, not the <code class="docutils literal notranslate"><span class="pre">build
 re-creates. For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example bundle is
 scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge/</span></code> automatically.</p>
 <p id="shared-bundle-multi-user"><strong>One bundle, many terminals.</strong> In a multi-user deployment every web
-terminal whose persona configures <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> gets
+terminal whose tier or app configures <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> gets
 the <em>deployment’s</em> bundle bind-mounted, read-write. There is one directory,
 not a copy per user: a concept drafted in one terminal is the same file the
 next terminal opens, and the same file the search sidecar indexes.</p>
 <p>Two consequences are worth knowing before you debug either of them.</p>
 <p><em>The mounted bundle hides the one baked into the image.</em> Each build copies
-the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree into the persona image, so the image ships a
+the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree into the terminal image, so the image ships a
 bundle of its own — and the mount covers it. That is intended: the bundle is
 operational knowledge that changes between image builds. Edit the
 deployment’s bundle to change what a running terminal sees; edit the

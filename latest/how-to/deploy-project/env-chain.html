@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -711,7 +710,7 @@ fresh-volume caveat: it is the login secret of the SELECT-only role the
 agent’s SQL tool queries through, created by an init script the same
 volume initialization runs. A volume that predates the role simply does not
 have it, and the agent says so once at start-up rather than failing. See
-<a class="reference internal" href="../ariel/standalone-deployment.html"><span class="doc">Standalone Deployment</span></a> for adopting the role on an existing
+<a class="reference internal" href="../ariel/search-modes.html#ariel-sql-readonly-role"><span class="std std-ref">Read-only role for the SQL tool</span></a> for adopting the role on an existing
 database.</p>
 </div>
 </section>
@@ -754,7 +753,7 @@ certificate inside the container, and the chain is the wrong place to put it: a
 <code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> naming a path the image does not carry stops httpx from
 constructing a client at all. Set <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> instead
 and rebuild — the CA is installed into the project image, each web-terminal
-persona image and the login sidecar, and each of the three points its own tools
+image and the login sidecar, and each of the three points its own tools
 at the merged bundle. The
 site-CA block <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes into <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is for the
 <em>containers</em> that read the whole chain, not for this.</p>

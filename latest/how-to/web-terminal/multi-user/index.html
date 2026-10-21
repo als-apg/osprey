@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -540,11 +539,10 @@ host, brought up with a single <code class="docutils literal notranslate"><span 
 <li><p class="sd-card-text">How it sits beside the single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> workflow, and when each
 mode is the right tool</p></li>
 <li><p class="sd-card-text">The three ideas behind the multi-user stack: one container per user,
-personas as capability tiers, and one nginx front door</p></li>
+tiers and apps, and one nginx front door</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> config block that switches it on</p></li>
 <li><p class="sd-card-text">Standing the preset’s full stack up — its read-only, read-write and admin
-logins plus two standalone terminals, logbook research and facility
-knowledge</p></li>
+logins plus the logbook, knowledge and channel-finder apps</p></li>
 <li><p class="sd-card-text">Day-to-day operations: adding, reseeding, and removing users</p></li>
 <li><p class="sd-card-text">What each terminal records, and who can read it</p></li>
 </ul>
@@ -607,7 +605,7 @@ for everything else.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
   <title id="multi-user-title">Multi-user landing page</title>
-  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the standalone ARIEL logbook — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
   <defs>
     <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -631,7 +629,7 @@ for everything else.</p>
   <rect class="mask" x="504" y="136" width="48" height="12" rx="2"/>
   <text class="ta" x="528" y="145" text-anchor="middle">/u/bob/</text>
   <rect class="mask" x="452" y="196" width="56" height="12" rx="2"/>
-  <text class="ta" x="480" y="205" text-anchor="middle">/u/ariel/</text>
+  <text class="ta" x="480" y="205" text-anchor="middle">/u/logbook/</text>
   <rect class="mask" x="296" y="196" width="44" height="12" rx="2"/>
   <text class="ta ta-warn" x="318" y="205" text-anchor="middle">CHECK</text>
   <rect class="mask" x="376" y="196" width="44" height="12" rx="2"/>
@@ -655,8 +653,8 @@ for everything else.</p>
   <text class="ts" x="660" y="168" text-anchor="middle">own container + volumes</text>
   <rect class="mask" x="560" y="208" width="200" height="48" rx="6"/>
   <rect class="nb" x="560" y="208" width="200" height="48" rx="6"/>
-  <text class="tn" x="660" y="228" text-anchor="middle">ariel — logbook</text>
-  <text class="ts" x="660" y="244" text-anchor="middle">a different product</text>
+  <text class="tn" x="660" y="228" text-anchor="middle">logbook — app</text>
+  <text class="ts" x="660" y="244" text-anchor="middle">a second agent, shared</text>
   <rect class="mask" x="272" y="224" width="176" height="48" rx="6"/>
   <rect class="nb-bnd" x="272" y="224" width="176" height="48" rx="6"/>
   <text class="tn" x="360" y="244" text-anchor="middle">auth service</text>
@@ -677,31 +675,27 @@ agent-configuration volume. Upgrading or rebuilding an image replaces the
 container but never touches those volumes, so a user’s files and settings
 survive every redeploy. On first start, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds each user’s
 configuration volume automatically — no per-user setup steps.</p>
-<p><strong>A persona is a capability tier — and a whole project.</strong> Users map to
-<em>personas</em>, and each persona is its own rendered OSPREY project with its own
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, permissions, skills, and tool servers. Because permissions are
-a property of a project, the tiers are genuinely different agents — not one
-agent with a UI toggle. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships three of them:
-a <em>read-only</em> and a <em>read-write</em> tier, separated by whether the session may
-move the simulator, and an <em>admin</em> tier, separated by whether it may change the
+<p><strong>A tier is an access level of the deployment’s own agent.</strong> Each user is
+assigned a tier, and each tier is its own rendered OSPREY project with its own
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, permissions, skills and tool servers, built from one small file
+in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> laid over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. A tier only adds; it never removes
+anything from the profile. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships three: a
+<em>read-only</em> and a <em>read-write</em> tier, separated by whether the session may move
+the simulator, and an <em>admin</em> tier, separated by whether it may change the
 deployment it runs in. <a class="reference internal" href="tiers.html"><span class="doc">Privilege Tiers</span></a> lays out what each one
 carries and what makes the boundary hold.</p>
-<p>It also ships two personas that are not tiers of that agent at all.
-<code class="docutils literal notranslate"><span class="pre">logbook</span></code> is the standalone logbook research assistant: no control-system
-tool servers, no Python executor, no plan queue — a different product,
-reached from its own card. It shares this deployment’s PostgreSQL and logbook,
-so the operators and the research terminal read one logbook together.
-<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> is the deployment’s knowledge layer: the facility knowledge
-graph, the graph-backed channel finder and the facility knowledge bundle,
-read-only, with nothing that touches the machine. It reads the same graph
-store the operator terminals do. Nothing special makes either possible. A
-persona is already a whole project, so it can differ in what it <em>is</em> as
-easily as in what it may write. Both cards are shared — any roster login
-opens them with their own password (<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>. In the
-preset’s local mode, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so
-no registry or CI is involved. A deployment can pull them from a registry
-instead; see <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p>
+<p><strong>An app is a second agent on the same services.</strong> Each file in <code class="docutils literal notranslate"><span class="pre">apps/</span></code> is a
+complete agent definition, opened from a shared card by everyone on the roster
+and read-only on the machine. The preset lists three under <code class="docutils literal notranslate"><span class="pre">shared:</span></code>:
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code> searches and synthesises the logbook from the same PostgreSQL the
+operators write to; <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> answers how the machine is built from the
+facility knowledge graph, the channel finder and the knowledge bundle;
+<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> returns channel addresses from the hierarchy. See
+<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one project per file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and <code class="docutils literal notranslate"><span class="pre">apps/</span></code>. In
+the preset’s local mode, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image
+locally, so no registry or CI is involved. A deployment can pull them from a
+registry instead; see <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p>
 <p><strong>One front door.</strong> An nginx reverse proxy serves the landing page and proxies
 <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> to that user’s container. The per-user containers are pinned to
 the loopback interface, so nginx is the only network path in. The landing page
@@ -723,76 +717,50 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds persona images itself</span>
-<span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds the images itself</span>
+<span class="w">    </span><span class="nt">default_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
 <span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Users</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">apps</span>
+<span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Apps</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">      </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
 <span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Control</span><span class="nv"> </span><span class="s">Room</span><span class="nv"> </span><span class="s">(Alice)&quot;</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Read-Only</span><span class="nv"> </span><span class="s">View</span><span class="nv"> </span><span class="s">(Bob)&quot;</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span>
-<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span>
-<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">Research&quot;</span>
-<span class="w">      </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">knowledge</span>
-<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">knowledge</span>
-<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Facility</span><span class="nv"> </span><span class="s">Knowledge&quot;</span>
-<span class="w">      </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
-<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">      </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
 <span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Deployment</span><span class="nv"> </span><span class="s">Admin</span><span class="nv"> </span><span class="s">(Carol)&quot;</span>
-<span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
-<span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
-<span class="w">      </span><span class="nt">admin</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/admin.yml</span>
-<span class="w">      </span><span class="nt">logbook</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/logbook.yml</span>
-<span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
-<span class="w">      </span><span class="nt">knowledge</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/knowledge.yml</span>
-<span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
+<span class="w">    </span><span class="nt">shared</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">knowledge</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel-finder</span>
 </pre></div>
 </div>
-<p class="sd-card-text">Each <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> names that persona’s <strong>delta</strong> in the deployment
-repository — the file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and
-points the catalog at. The delta merges over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so every
-persona shares one data
-tree, one set of secrets, and one set of your own artifacts. Where the
-persona renders is not stated here: the build derives
-<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code> from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>
-and writes it into <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as the persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> and
-<code class="docutils literal notranslate"><span class="pre">project_path</span></code>. Spelling either key beside a <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> is
-refused. An entry with no <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> — a persona rendered
-somewhere else — still names its <code class="docutils literal notranslate"><span class="pre">project</span></code> and <code class="docutils literal notranslate"><span class="pre">project_path</span></code> itself, and proves
-its tier by that render: the build reads the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> there, the
-same file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads, so such a persona may be the
-<code class="docutils literal notranslate"><span class="pre">default_persona</span></code> or sit on a shared card like any other. A bundled
-preset name, an absolute path, or a path outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code> is
-rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
+<p class="sd-card-text">Each <code class="docutils literal notranslate"><span class="pre">tier</span></code> names a file in the repository’s <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and each
+<code class="docutils literal notranslate"><span class="pre">shared:</span></code> entry a file in <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, both written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.
+Every render shares one data tree, one set of secrets and one set of
+your own artifacts. The build renders each into
+<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;tier|app&gt;</span></code> and records it in
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; nothing here names a path. An unknown tier or
+app is rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">users</span></code> list is the roster — the single source of truth for who
 exists. A name becomes a URL path segment and an environment-variable
 suffix, so it has to match <code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>; that is checked in
 every auth mode, not only behind a login wall. A bare name (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">dave</span></code>)
-resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
+resolves to <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> —
 read-only, so a hastily added user lands on the safe side; an entry with
-an explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier, and an optional <code class="docutils literal notranslate"><span class="pre">display_name</span></code>
+an explicit <code class="docutils literal notranslate"><span class="pre">tier</span></code> picks it, and an optional <code class="docutils literal notranslate"><span class="pre">display_name</span></code>
 becomes that user’s browser tab title. An entry may name a <strong>role</strong>
-instead of a persona — one mapping written once rather than a persona
+instead of a tier — one mapping written once rather than a tier
 pinned per user, and the half a single sign-on provider’s groups can
 decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Behind a login wall an
 entry may also set <code class="docutils literal notranslate"><span class="pre">access:</span></code>, the set of principals allowed to open
@@ -805,9 +773,11 @@ hundred-port family per companion panel (artifact gallery, ARIEL,
 channel finder, lattice dashboard, …) plus the terminal itself, and
 each user takes the family’s first port plus their index. At the
 default <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> that puts alice (index 0) on
-<code class="docutils literal notranslate"><span class="pre">10100</span></code>, bob (index 1) on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, logbook (index 2) on
-<code class="docutils literal notranslate"><span class="pre">10102</span></code>, carol (index 3) on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and knowledge (index 4) on
-<code class="docutils literal notranslate"><span class="pre">10104</span></code>, with their artifact galleries on <code class="docutils literal notranslate"><span class="pre">10200</span></code>–<code class="docutils literal notranslate"><span class="pre">10204</span></code>. <a class="reference internal" href="../../../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a> lists every family;
+<code class="docutils literal notranslate"><span class="pre">10100</span></code>, bob (index 1) on <code class="docutils literal notranslate"><span class="pre">10101</span></code> and carol (index 2) on
+<code class="docutils literal notranslate"><span class="pre">10102</span></code>, with their artifact galleries on <code class="docutils literal notranslate"><span class="pre">10200</span></code>–<code class="docutils literal notranslate"><span class="pre">10202</span></code>. Apps
+take slots counted down from the top of the block, in <code class="docutils literal notranslate"><span class="pre">shared:</span></code>
+order: logbook on <code class="docutils literal notranslate"><span class="pre">10199</span></code>, knowledge on <code class="docutils literal notranslate"><span class="pre">10198</span></code>, channel-finder
+on <code class="docutils literal notranslate"><span class="pre">10197</span></code>. <a class="reference internal" href="../../../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a> lists every family;
 move the whole deployment with <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> rather than a
 family at a time. A facility that must pin one family on its own can
 still set that family’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.&lt;family&gt;_base_port</span></code>
@@ -824,12 +794,11 @@ under any other name, whether another DNS name, the bare IP or
 <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, is redirected to the same path there, so put the name
 browsers should open in <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> or <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>. See
 <a class="reference internal" href="login.html#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>.</p>
-<p class="sd-card-text">A persona may also name a landing-page section with <code class="docutils literal notranslate"><span class="pre">landing_group</span></code>.
-Its users are lifted out of the roster’s default section into one of
-that name, drawn as a panel — which is how the page shows a standalone
-service as something other than another login. The <code class="docutils literal notranslate"><span class="pre">users</span></code> group takes
-a <code class="docutils literal notranslate"><span class="pre">label</span></code> for the same reason: so both halves can be named. Neither
-changes anything about a container.</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">landing.groups</span></code> lists the page’s sections in order: <code class="docutils literal notranslate"><span class="pre">users</span></code> (the
+people), <code class="docutils literal notranslate"><span class="pre">apps</span></code> (one card per <code class="docutils literal notranslate"><span class="pre">shared:</span></code> app, drawn as a panel and
+titled by the app’s <code class="docutils literal notranslate"><span class="pre">name:</span></code>) and <code class="docutils literal notranslate"><span class="pre">links</span></code>. Left out, the page shows
+people, then apps. Each group takes a <code class="docutils literal notranslate"><span class="pre">label</span></code>; the apps panel is
+headed “Apps” by default. Neither changes anything about a container.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p class="sd-card-text">Give every roster entry an explicit <code class="docutils literal notranslate"><span class="pre">index</span></code> before you ever
@@ -926,15 +895,15 @@ above, so no extra flags or configuration are needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and telemetry containers — so the control-room terminals open onto a
-working machine, the logbook terminal onto a live logbook and the knowledge
-terminal onto a seeded facility graph, not an empty shell.</p>
+working machine, the logbook app onto a live logbook and the knowledge
+app onto a seeded facility graph, not an empty shell.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The personas’ agent needs your provider credentials at run time. Add them
+<p>Every terminal’s agent needs your provider credentials at run time. Add them
 to the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> (the preset defaults
 to Anthropic — set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>). If you chose a different provider
 (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">provider=...</span></code>), that choice is recorded in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and
-carried into every persona project the build renders.</p>
+carried into every tier and app the build renders.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -947,31 +916,30 @@ instead.</p>
 <section id="what-osprey-build-and-osprey-up-do-for-the-web-tier">
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier<a class="headerlink" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier" title="Link to this heading">#</a></h3>
 <ol class="arabic">
-<li><p><strong>The build renders the persona projects.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
-project per <strong>delta</strong> in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, into the build zone beside the main
-render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code>,
+<li><p><strong>The build renders every tier and app.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
+project per file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, into the build zone beside the
+main render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code>,
 <code class="docutils literal notranslate"><span class="pre">build/control-assistant-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-admin</span></code>,
-<code class="docutils literal notranslate"><span class="pre">build/control-assistant-logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">build/control-assistant-knowledge</span></code>).
-Because each delta merges over
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, every persona shares its data tree, secrets and artifacts,
-and inherits the choices recorded there (provider, model): edit the profile
-once and every terminal picks the change up from the file rather than from a
-replayed command line. A start renders none of this — <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the
-whole account of what will run — so a persona project missing at start time
-is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
-<li><p><strong>The start builds each persona’s image.</strong> In the preset’s local mode
-(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each persona’s image
-(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> after the persona’s rendered project, e.g.
-<code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite:local</span></code>) from that rendered project —
-no registry, no CI. Registry mode pulls them instead; see
-<a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">build/control-assistant-logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-knowledge</span></code>
+and <code class="docutils literal notranslate"><span class="pre">build/control-assistant-channel-finder</span></code>). Every render shares the
+profile’s data tree, secrets and artifacts, and inherits the choices
+recorded there (provider, model): edit the profile once and every terminal
+picks the change up. A start renders none of this — <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the
+whole account of what will run — so a render missing at start time is
+reported as a stale or partial build, with a rebuild as the remedy.</p></li>
+<li><p><strong>The start builds each image.</strong> In the preset’s local mode
+(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds one image per render
+(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite:local</span></code>)
+from that rendered project — no registry, no CI. Registry mode pulls them
+instead; see <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container
 <code class="docutils literal notranslate"><span class="pre">control-assistant-nginx</span></code>) serves the landing page on
 <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal container comes up per
 user — <code class="docutils literal notranslate"><span class="pre">control-assistant-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
-<code class="docutils literal notranslate"><span class="pre">control-assistant-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-logbook</span></code>
-on <code class="docutils literal notranslate"><span class="pre">10102</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control-assistant-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10104</span></code> — each reached through the
+<code class="docutils literal notranslate"><span class="pre">control-assistant-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant-web-carol</span></code>
+on <code class="docutils literal notranslate"><span class="pre">10102</span></code>, and one per app — <code class="docutils literal notranslate"><span class="pre">control-assistant-web-logbook</span></code> on
+<code class="docutils literal notranslate"><span class="pre">10199</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10198</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant-web-channel-finder</span></code> on <code class="docutils literal notranslate"><span class="pre">10197</span></code> — each reached through the
 landing page. With login on, the auth sidecar runs as
 <code class="docutils literal notranslate"><span class="pre">control-assistant-auth</span></code>, from a locally built
 <code class="docutils literal notranslate"><span class="pre">control-assistant-auth:local</span></code> image. Every one of these names is
@@ -1009,8 +977,8 @@ this one its own block rather than moving services one by one — for example
 <section id="pull-the-terminal-images-from-a-registry">
 <span id="multi-user-registry-images"></span><h3>Pull the terminal images from a registry<a class="headerlink" href="#pull-the-terminal-images-from-a-registry" title="Link to this heading">#</a></h3>
 <p>With <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> (the value whenever the key is unset),
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds no terminal image. It pulls one image per persona, under
-names it derives itself.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds no terminal image. It pulls one image per render (each
+tier the roster uses and each shared app), under names it derives itself.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Who pulls it</p></th>
@@ -1018,11 +986,11 @@ names it derives itself.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>The <code class="docutils literal notranslate"><span class="pre">default_persona</span></code></p></td>
+<tr class="row-even"><td><p>The <code class="docutils literal notranslate"><span class="pre">default_tier</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal:&lt;tag&gt;</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>Every other persona</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal-&lt;persona&gt;:&lt;tag&gt;</span></code></p></td>
+<tr class="row-odd"><td><p>Every other tier, and every shared app</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal-&lt;render&gt;:&lt;tag&gt;</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p>The auth sidecar, when login is on</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/&lt;project_name&gt;-auth:&lt;tag&gt;</span></code></p></td>
@@ -1030,11 +998,12 @@ names it derives itself.</p>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">&lt;persona&gt;</span></code> is the persona’s key in the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog, not its
-<code class="docutils literal notranslate"><span class="pre">project</span></code>. The <code class="docutils literal notranslate"><span class="pre">project</span></code> is <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;</span></code>, which the build
-derives from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>.
-A persona whose image is built elsewhere states its <code class="docutils literal notranslate"><span class="pre">project</span></code>, the project
-the image was built from, and its terminal runs in <code class="docutils literal notranslate"><span class="pre">/app/&lt;project&gt;</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;render&gt;</span></code> is the tier’s or app’s file name (<code class="docutils literal notranslate"><span class="pre">tiers/&lt;name&gt;.yml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;.yml</span></code>), not its <code class="docutils literal notranslate"><span class="pre">project</span></code>. The build derives the <code class="docutils literal notranslate"><span class="pre">project</span></code> as
+<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;render&gt;</span></code> from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>.
+A tier or app whose image is built elsewhere states its <code class="docutils literal notranslate"><span class="pre">project</span></code>, the
+project the image was built from, in its own file (and may state its
+<code class="docutils literal notranslate"><span class="pre">image</span></code>); its terminal runs in <code class="docutils literal notranslate"><span class="pre">/app/&lt;project&gt;</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;tag&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">latest</span></code> when unset.
 A <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in it is expanded from the environment of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, and a
 variable that is unset there expands to nothing.
@@ -1043,8 +1012,7 @@ variable that is unset there expands to nothing.
 <p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;</span></code> is the top-level <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, with no
 scheme.
 It is the only namespace: two deployments that share a registry keep their
-images apart by giving <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> different paths.
-There is no per-persona <code class="docutils literal notranslate"><span class="pre">image:</span></code> key.</p>
+images apart by giving <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> different paths.</p>
 <p>When the profile has a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block in registry mode, the build writes
 <code class="docutils literal notranslate"><span class="pre">deploy.registry.url</span></code> into this <code class="docutils literal notranslate"><span class="pre">registry.url</span></code>, so the registry is named once.
 Setting <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
@@ -1054,39 +1022,36 @@ A profile with no <code class="docutils literal notranslate"><span class="pre">d
 <p>The scaffolded pipeline builds only the facility’s own service images, not
 these, so the facility’s pipeline must push them.
 Put that job in <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> (see <a class="reference internal" href="../../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).
-Build each image from that persona’s rendered project,
-<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code>: the same render <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>
-builds as <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;:local</span></code>.</p>
+Build each image from its rendered project, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;render&gt;</span></code>:
+the same render <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> builds as
+<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;render&gt;:local</span></code>.</p>
 <p>The pipeline pushes the auth sidecar under its name too, unless
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> pins a published one; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a registry-mode config with no <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> (code
 <code class="docutils literal notranslate"><span class="pre">web_terminals.registry_mode_missing_url</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to render it.
-They also refuse a config with web terminals enabled and no <code class="docutils literal notranslate"><span class="pre">personas</span></code>
-catalog or no <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, in either image source (code
-<code class="docutils literal notranslate"><span class="pre">web_terminals.requires_catalog</span></code>), and an in-effect persona with neither
-<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> nor <code class="docutils literal notranslate"><span class="pre">project</span></code> (code <code class="docutils literal notranslate"><span class="pre">web_terminals.persona_missing_project</span></code>);
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses both before it mints anything.</p>
-<p>For example, with this config:</p>
+They also refuse a config with web terminals enabled and no tier files (so no
+render catalog) or no <code class="docutils literal notranslate"><span class="pre">default_tier</span></code>, in either image source (code
+<code class="docutils literal notranslate"><span class="pre">web_terminals.requires_catalog</span></code>), and a tier or app whose image is built
+elsewhere and states no <code class="docutils literal notranslate"><span class="pre">project</span></code> (code
+<code class="docutils literal notranslate"><span class="pre">web_terminals.render_missing_project</span></code>); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses both before it
+mints anything.</p>
+<p>For example, with <code class="docutils literal notranslate"><span class="pre">tiers/readonly.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">tiers/readwrite.yml</span></code> in the repo
+and this config:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">registry</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator/demo</span>
 
 <span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.09.1&quot;</span>
-<span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">    </span><span class="nt">default_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">      </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
-<span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> pulls:</p>
@@ -1094,30 +1059,39 @@ catalog or no <code class="docutils literal notranslate"><span class="pre">defau
 bob    registry.example.org/accelerator/demo/web-terminal:2026.09.1
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">bob</span></code> names no persona, so he gets the <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> and the unsuffixed
+<p><code class="docutils literal notranslate"><span class="pre">bob</span></code> names no tier, so <code class="docutils literal notranslate"><span class="pre">bob</span></code> gets the <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and the unsuffixed
 image.</p>
 </section>
 <section id="the-landing-page">
 <h3>The landing page<a class="headerlink" href="#the-landing-page" title="Link to this heading">#</a></h3>
 <p>Open <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>. The landing page groups the users into cards,
-each labelled with the persona it resolves to:</p>
-<figure class="align-center" id="id1">
-<a class="reference internal image-reference" href="../../../_images/multi_user_landing.png"><img alt="The multi-user landing page — alice's, bob's and carol's cards under a Users heading, and the logbook and knowledge terminals in a Standalone deployments panel beneath them" src="../../../_images/multi_user_landing.png" style="width: 100%;" />
+each labelled with the tier it resolves to:</p>
+<figure class="only-light align-default" id="id1">
+<a class="only-light reference internal image-reference" href="../../../_images/multi_user_landing_light.png"><img alt="The multi-user landing page — alice's, bob's and carol's cards under a Users heading, and the Logbook Research, Facility Knowledge and Channel Finder cards in a panel headed Apps beneath them" class="only-light" src="../../../_images/multi_user_landing_light.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">The grouped landing page: alice resolves to the readwrite persona, bob to
-readonly, carol to admin, and the logbook and knowledge cards open the two
-standalone terminals. Click a card to open that session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">The grouped landing page: alice resolves to the readwrite tier, bob to
+readonly, carol to admin, and the app cards open the logbook, knowledge and
+channel-finder apps. Click a card to open that session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
-<p>Each operator card names its persona explicitly — alice the readwrite tier,
-bob the readonly one; the preset’s roster adds carol on the admin tier, last
-so the operator cards keep their ports. (A bare roster entry would fall back to the
-preset’s <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, readonly, so an implicit user always lands on
-the safe side.) The logbook and knowledge cards sit apart, in the
-accent-edged panel their personas’ <code class="docutils literal notranslate"><span class="pre">landing_group</span></code> names — and carry no
-persona badge, because the badge answers <em>which tier is this user on?</em> and
-here the card and its persona are the same word. Both are shared cards: the
+<figure class="only-dark align-default" id="id2">
+<a class="only-dark reference internal image-reference" href="../../../_images/multi_user_landing_dark.png"><img alt="The multi-user landing page — alice's, bob's and carol's cards under a Users heading, and the Logbook Research, Facility Knowledge and Channel Finder cards in a panel headed Apps beneath them" class="only-dark" src="../../../_images/multi_user_landing_dark.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">The grouped landing page: alice resolves to the readwrite tier, bob to
+readonly, carol to admin, and the app cards open the logbook, knowledge and
+channel-finder apps. Click a card to open that session.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Each operator card names its tier explicitly — alice the readwrite tier,
+bob the readonly one; carol is on the admin tier. (A bare roster entry would fall back to the
+preset’s <code class="docutils literal notranslate"><span class="pre">default_tier</span></code>, readonly, so an implicit user always lands on
+the safe side.) The app cards sit apart, in the
+accent-edged Apps panel, each titled by its app’s <code class="docutils literal notranslate"><span class="pre">name:</span></code> — and carry no
+tier badge, because an app is not a person on a tier. An app card can never
+write to the machine or change the deployment, whatever the host sets. Every app
+card is shared: the
 login page asks for a roster name and that person’s password, so nobody needs
 a credential for the card itself. Clicking any card opens that session at
 <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>, proxied by nginx to its own container.</p>
@@ -1207,14 +1181,14 @@ no history page; each terminal still shows its own past sessions.</p>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">,</span><span class="nt"> history</span><span class="p">:</span><span class="w"> </span><span class="nv">all</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">,</span><span class="nt"> history</span><span class="p">:</span><span class="w"> </span><span class="nv">all</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span><span class="w">          </span><span class="c1"># history: own, the default</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span><span class="w">             </span><span class="c1"># history: own, the default</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
-<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
 <span class="w">        </span><span class="nt">history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
 
 <span class="nt">services</span><span class="p">:</span>

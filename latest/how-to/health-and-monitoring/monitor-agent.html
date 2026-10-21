@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -843,7 +842,7 @@ sender runs:</p>
 <li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> on your machine), at the
 address the gateway publishes: <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> (loopback for a
 wildcard bind) and <code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.port</span></code>.</p></li>
-<li><p><strong>Inside a host-networked container</strong> (every web-terminal persona
+<li><p><strong>Inside a host-networked container</strong> (every web-terminal
 container, a dispatch worker on the host network), at that same published
 address. The container’s compose file declares it as
 <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_PORT</span></code>.</p></li>

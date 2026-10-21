@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -560,7 +559,8 @@ scaffolding that goes with it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>demo-facility/
 ├── profile.yml                       the manifest you own — edit this
 ├── data/                             channel databases, knowledge, lattice
-├── personas/                         one delta per web-terminal persona
+├── tiers/                            one delta per access level of the agent
+├── apps/                             one file per app on the shared cards
 ├── services/facility-mcp/            the facility&#39;s own container
 ├── scripts/verify.sh                 the post-deploy health check
 ├── .env                              the deployment&#39;s secrets
@@ -705,8 +705,8 @@ service, and the agent containers have no route to the control system.</p>
 </div>
 <p>The command writes the whole repository, runs <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> at its root, and
 commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the three personas it rendered, the two env files, and the
-README.</p>
+data directory, the three tiers and three apps it wrote, the two env files,
+and the README.</p>
 <p>The folder name is read once, here. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> records it in
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as the deployment’s name on a host:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span><span class="w">          </span><span class="c1"># display text</span>
@@ -733,12 +733,10 @@ deployment, whatever else you write below.</p></li>
 and <code class="docutils literal notranslate"><span class="pre">bluesky-plans</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">agents:</span></code> — <code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code>. Both
 query a logbook database at runtime, and this facility does not deploy one.</p></li>
-<li><p>for the same reason, the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> entries under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
-in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the roster entry (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">name:</span> <span class="pre">logbook</span></code>) and the <code class="docutils literal notranslate"><span class="pre">logbook:</span></code>
-persona — plus the <code class="docutils literal notranslate"><span class="pre">personas/logbook.yml</span></code> delta they point at. That card
-is the standalone ARIEL logbook terminal, and it needs the logbook database
-this facility does not run. The <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> card stays: it reads the graph
-store this facility keeps.</p></li>
+<li><p>for the same reason, the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> line under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.shared</span></code>
+in <code class="docutils literal notranslate"><span class="pre">config:</span></code>, plus <code class="docutils literal notranslate"><span class="pre">apps/logbook.yml</span></code>. That card is the logbook app, and
+it needs the logbook database this facility does not run. The <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>
+app stays: it reads the graph store this facility keeps.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> — <code class="docutils literal notranslate"><span class="pre">ariel</span></code>, <code class="docutils literal notranslate"><span class="pre">events</span></code> and <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the <code class="docutils literal notranslate"><span class="pre">claude_code.servers.bluesky.enabled</span></code> line and every
 <code class="docutils literal notranslate"><span class="pre">web.panels.events.*</span></code> and <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code> override. The panels they
@@ -812,23 +810,11 @@ names a real host while any of these passwords is still set. For a facility
 host, set real passwords in <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or rotate with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>)
 and serve TLS — <a class="reference internal" href="web-terminal/multi-user/login.html"><span class="doc">Require a Login</span></a> walks through both, and through single
 sign-on if your site runs one.</p>
-<p>Then confirm the persona catalog, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
-under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. After Step 2’s trim the block reads:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">personas</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
-<span class="w">  </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
-</pre></div>
-</div>
-<p>Nothing to edit. Each entry names only the delta the persona is built from.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives where it renders, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code>
-(here <code class="docutils literal notranslate"><span class="pre">build/demo-facility-readonly</span></code>), and writes that into
-<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>, which is where the web tier reads it. Renaming the
-deployment therefore moves every persona render with it, and there is no
-second copy of the name to keep in step. A <code class="docutils literal notranslate"><span class="pre">project:</span></code> or <code class="docutils literal notranslate"><span class="pre">project_path:</span></code>
-line beside a <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> is refused by the build, which says to delete
-it.</p>
+<p>Nothing else in the block needs editing. Each tier a user names is a file in
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, each name under <code class="docutils literal notranslate"><span class="pre">shared:</span></code> a file in <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+renders every one to <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code> (here
+<code class="docutils literal notranslate"><span class="pre">build/demo-facility-readonly</span></code>). Renaming the deployment moves every render
+with it, and there is no second copy of the name to keep in step.</p>
 </section>
 <section id="step-4-add-the-facility-s-own-container">
 <span id="deploy-a-facility-own-service"></span><h2>Step 4 — Add the facility’s own container<a class="headerlink" href="#step-4-add-the-facility-s-own-container" title="Link to this heading">#</a></h2>
@@ -1012,7 +998,7 @@ in — Python, Docker and Alpine — so a runner with no route to Docker Hub tak
 them from a mirror instead; leave the key out and the pipeline names the public
 images, which is what a runner with internet access wants.</p>
 <p><code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> says the deploy host builds the web-terminal images
-itself from the rendered persona projects, rather than pulling them from a
+itself from the rendered tier and app projects, rather than pulling them from a
 registry.</p>
 <p>With <code class="docutils literal notranslate"><span class="pre">registry</span></code>, the host pulls them under names derived from this block’s
 <code class="docutils literal notranslate"><span class="pre">registry.url</span></code>, which the build writes into the rendered config. A
@@ -1225,7 +1211,7 @@ so the pipeline and health check match the new coordinates.</p>
 the folder the repository sits in. Moving or renaming the folder changes
 nothing. Changing <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> renames the deployment, and everything
 named from it follows: the compose project, the volumes, the images, the web
-containers and the persona renders. Stop the stack under its old name first,
+containers and the tier and app renders. Stop the stack under its old name first,
 because <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> addresses the name the current <code class="docutils literal notranslate"><span class="pre">build/</span></code> was rendered
 with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>down

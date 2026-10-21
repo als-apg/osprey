@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -619,10 +618,10 @@ can reach the page is trusted.</p></td>
 ask the authentication service. The terminal behind it always checks a
 credential of its own; the postures differ only in who supplies it.</p>
 <p>The snippets on this page show only the keys their section is about; the
-deployment also carries the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog and <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> from
-the multi-user page (see the worked example in
-<a class="reference internal" href="index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">persona:</span> <span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code>
-name entries of that catalog.</p>
+deployment also carries <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and the rest of the roster from the
+multi-user page (see the worked example in
+<a class="reference internal" href="index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">tier:</span> <span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code>
+name files under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>.</p>
 <section id="choose-a-method">
 <h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
 <p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every
@@ -649,7 +648,7 @@ inside the deployment can reach nginx back:</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 276" role="img" aria-labelledby="open-mode-egress-title open-mode-egress-desc">
   <title id="open-mode-egress-title">Why the open posture has conditions</title>
-  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, Monitor, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
+  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every render's deny defaults on Bash, Monitor, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
   <defs>
     <marker id="open-mode-egress-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -694,7 +693,7 @@ inside the deployment can reach nginx back:</p>
   <rect class="mask" x="480" y="56" width="190" height="56" rx="6"/>
   <rect class="nb-foc" x="480" y="56" width="190" height="56" rx="6"/>
   <text class="tn" x="575" y="80" text-anchor="middle">deny defaults</text>
-  <text class="ts" x="575" y="96" text-anchor="middle">every persona · else up refuses</text>
+  <text class="ts" x="575" y="96" text-anchor="middle">every render · else up refuses</text>
 
   <rect class="mask" x="480" y="156" width="190" height="56" rx="6"/>
   <rect class="nb-bnd" x="480" y="156" width="190" height="56" rx="6"/>
@@ -724,12 +723,12 @@ inside the deployment can reach nginx back:</p>
   <text class="ta" x="648" y="262">what the gate refuses</text>
 </svg>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start an open deployment unless every persona’s
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start an open deployment unless every render’s
 <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> denies <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>,
 <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code> and <code class="docutils literal notranslate"><span class="pre">mcp__plugin_*</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span>
 <span class="pre">lint</span></code> reports the same, as <code class="docutils literal notranslate"><span class="pre">web_terminals.open_mode_egress</span></code>). All of them
-are in OSPREY’s deny defaults, so a refusal means a persona lifted one — put it
-back in that persona’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block and rebuild. The python executor’s
+are in OSPREY’s deny defaults, so a refusal means a tier or app lifted one —
+put it back in that file’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block and rebuild. The python executor’s
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: <code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where the agents are trusted too.</p>
 <p><strong>Passwords</strong>, managed by OSPREY:</p>
@@ -864,14 +863,14 @@ broker keeps the proof in a signed token that the login service checks itself.</
 </section>
 <section id="let-single-sign-on-pick-the-tier">
 <span id="multi-user-role-from-sso"></span><h2>Let single sign-on pick the tier<a class="headerlink" href="#let-single-sign-on-pick-the-tier" title="Link to this heading">#</a></h2>
-<p>Instead of pinning a persona on every roster entry, name roles once and let
+<p>Instead of pinning a tier on every roster entry, name roles once and let
 the provider’s groups choose:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">}</span>
-<span class="w">        </span><span class="nt">viewer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readonly</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">viewer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="nv">readonly</span><span class="p p-Indicator">}</span>
 <span class="w">      </span><span class="nt">claims</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">groups</span><span class="w">          </span><span class="c1"># the ID-token claim holding group membership</span>
 <span class="w">        </span><span class="nt">map</span><span class="p">:</span>
@@ -880,11 +879,11 @@ the provider’s groups choose:</p>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">         </span><span class="c1"># in place of `persona: readwrite`</span>
+<span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">         </span><span class="c1"># in place of `tier: readwrite`</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
 </pre></div>
 </div>
-<p>A roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> or <code class="docutils literal notranslate"><span class="pre">persona:</span></code>, never both. The rules:</p>
+<p>A roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> or <code class="docutils literal notranslate"><span class="pre">tier:</span></code>, never both. The rules:</p>
 <ul class="simple">
 <li><p>Every value of the claim is matched, in any order. No mapped role → refused
 (<code class="docutils literal notranslate"><span class="pre">unmapped_role_claim</span></code>).</p></li>
@@ -894,7 +893,7 @@ must be one of the roles the token maps to; otherwise it is refused
 for any one of them, and the login record lists the mapped roles in
 <code class="docutils literal notranslate"><span class="pre">detail</span></code> (<code class="docutils literal notranslate"><span class="pre">mapped_roles=…</span></code>). Fix whichever of roster or provider has
 drifted.</p></li>
-<li><p>On a card whose entry names a <code class="docutils literal notranslate"><span class="pre">persona:</span></code> instead, the token’s role is
+<li><p>On a card whose entry names a <code class="docutils literal notranslate"><span class="pre">tier:</span></code> instead, the token’s role is
 carried, so it must map to exactly one role; several → refused
 (<code class="docutils literal notranslate"><span class="pre">ambiguous_role_claim</span></code>).</p></li>
 <li><p>A role is resolved at login and travels inside the session — together with
@@ -1032,7 +1031,7 @@ set, spelled shorter.</p></td>
 </table>
 </div>
 <p>A card whose set is anything but <code class="docutils literal notranslate"><span class="pre">[self]</span></code> is a <strong>shared card</strong>: one
-terminal, one persona, one audit directory, opened by more than one person.
+terminal, one tier, one audit directory, opened by more than one person.
 Here is one shared with the whole roster:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
@@ -1051,15 +1050,15 @@ Here is one shared with the whole roster:</p>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;41ab97d0-...&quot;</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span><span class="w">                </span><span class="c1"># any roster login opens this card</span>
 </pre></div>
 </div>
@@ -1077,18 +1076,18 @@ with a whole single sign-on domain, one with two named people:</p>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">domain</span><span class="p p-Indicator">:</span><span class="nv">example.org</span><span class="p p-Indicator">]</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
 <span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">ada@example.org</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">user</span><span class="p p-Indicator">:</span><span class="nv">bo@example.org</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships its two standalone cards this way —
-<code class="docutils literal notranslate"><span class="pre">logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, each <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> under <code class="docutils literal notranslate"><span class="pre">password</span></code> — so
-the logbook research and facility knowledge terminals are opened with any
-roster login’s own password and carry no credential of their own.</p>
+<p>The apps are shared cards by construction. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
+lists three under <code class="docutils literal notranslate"><span class="pre">shared:</span></code> — <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> — and any roster login opens them with its own password;
+they carry no credential of their own.</p>
 <p>Who can open it is answered one principal at a time. <code class="docutils literal notranslate"><span class="pre">roster</span></code> admits
 anyone this deployment can authenticate: under <code class="docutils literal notranslate"><span class="pre">password</span></code> that is every roster entry
 with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every entry that carries an
@@ -1156,7 +1155,7 @@ is your membership gate, do not share a card.</p>
 build verbs that run it:</p>
 <ul class="simple">
 <li><p><strong>A deployment-editing card cannot be shared</strong>
-(<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_privileged</span></code>). A persona holding the setup
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_privileged</span></code>). A tier holding the setup
 tool or the Config panel was lifted for named people behind their own
 cards; any set wider than <code class="docutils literal notranslate"><span class="pre">[self]</span></code> would hand it to people it was never
 lifted for.</p></li>
@@ -1317,7 +1316,7 @@ entry’s roster name or to the mailbox part of another entry’s
 show that one person holds them.</p></li>
 <li><p><strong>A live writer without a name</strong>
 (<code class="docutils literal notranslate"><span class="pre">web_terminals.live_writer_without_control_identity</span></code>): an owner-only card
-behind a login wall with no <code class="docutils literal notranslate"><span class="pre">control_identity</span></code>, whose persona arms writes
+behind a login wall with no <code class="docutils literal notranslate"><span class="pre">control_identity</span></code>, whose tier arms writes
 on a live control-system target. Its writes would arrive as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.
 Cards writing only to a target other than <code class="docutils literal notranslate"><span class="pre">live</span></code> — the simulator
 (<code class="docutils literal notranslate"><span class="pre">va</span></code>, served from its container or in process) or the stand-in — never

@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -544,8 +543,8 @@ each boundary are one link away wherever they matter.</p>
 <li><p class="sd-card-text">The two questions that decide a tier</p></li>
 <li><p class="sd-card-text">What the three tiers the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships can and
 cannot do, login by login</p></li>
-<li><p class="sd-card-text">That a tier is nothing more than a persona file — and what that means
-when you rename one or add one</p></li>
+<li><p class="sd-card-text">That a tier is nothing more than a small file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> — and
+what that means when you rename one or add one</p></li>
 <li><p class="sd-card-text">Where the boundary is actually enforced, and the two places it is a
 matter of trust rather than enforcement</p></li>
 </ul>
@@ -603,14 +602,14 @@ takes this away from every tier built on it, and hands it back to exactly one.</
 </div>
 <p>The preset ships the three named cells, and no tier armed on the live machine:
 arming one is the facility’s own edit. The empty cells are not forbidden by
-anything in OSPREY — a persona could be written for any of them — the preset
+anything in OSPREY — a tier file could be written for any of them — the preset
 simply does not ship one.</p>
 </section>
 <section id="the-three-tiers-the-preset-ships">
 <span id="multi-user-tiers"></span><h2>The three tiers the preset ships<a class="headerlink" href="#the-three-tiers-the-preset-ships" title="Link to this heading">#</a></h2>
-<p>Each tier is a self-contained OSPREY project with its <strong>own</strong> permissions,
-because permissions are a property of a project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the tiers
-are genuinely different agents, not one agent with a UI toggle.</p>
+<p>Each tier renders a self-contained OSPREY project with its <strong>own</strong>
+permissions, because permissions are a property of a project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+— one agent, built once per access level, not one terminal with a UI toggle.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 16.0%" />
@@ -651,27 +650,21 @@ surfaces</p></td>
 <td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels, plus
 the Config panel</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>ariel</strong></p></td>
-<td><p>No control system behind it at all, so there is no write posture to
-compare</p></td>
-<td><p>No — it inherits the same floor as the operator tiers</p></td>
-<td><p>The standalone logbook terminal, opening on its ARIEL panel</p></td>
-</tr>
 </tbody>
 </table>
 </div>
-<p>Read the write column one row at a time rather than as a single statement
+<p id="multi-user-tiers-posture">Read the write column one row at a time rather than as a single statement
 about the deployment. The posture is a property of the <strong>session</strong>, not of the
 person holding it: which teammates get a write-capable login is your roster’s
 call, and the point is that the framework provisions genuinely different
 postures out of one deployment.</p>
 <p>Only the read-only login is built without the EVENTS and BLUESKY panels. The
 base profile declares neither, and the two write-capable deltas,
-<code class="docutils literal notranslate"><span class="pre">personas/readwrite.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">personas/admin.yml</span></code>, each add both:
+<code class="docutils literal notranslate"><span class="pre">tiers/readwrite.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">tiers/admin.yml</span></code>, each add both:
 queueing a plan and watching its results belong on a card that can arm a
 write. The admin card is the read-write operator desk plus deployment editing.</p>
-<p><strong>The default stays on the safe side.</strong> <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> is <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
-so a roster entry added in a hurry with no <code class="docutils literal notranslate"><span class="pre">persona</span></code> of its own gets the
+<p><strong>The default stays on the safe side.</strong> <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> is <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
+so a roster entry added in a hurry with no <code class="docutils literal notranslate"><span class="pre">tier</span></code> of its own gets the
 read-only tier.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
@@ -775,18 +768,19 @@ hardware-shaped targets, which nothing in the browser lifts</p></td>
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">ariel</span></code> persona is not in the table because it has no control system
-to gate: its deployment-editing floor is the same as the operator tiers’.</p>
+<p class="sd-card-text">The apps — <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> — are not in
+the table: every app render is read-only on the machine and closed to
+deployment editing, whatever the host sets.</p>
 </div>
 </details></section>
-<section id="a-tier-is-a-persona-file">
-<h2>A tier is a persona file<a class="headerlink" href="#a-tier-is-a-persona-file" title="Link to this heading">#</a></h2>
-<p>There is no <code class="docutils literal notranslate"><span class="pre">tier:</span></code> setting anywhere. A tier is what a <strong>persona</strong> turns out
-to be once it is built.</p>
+<section id="a-tier-is-a-file-under-tiers">
+<h2>A tier is a file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code><a class="headerlink" href="#a-tier-is-a-file-under-tiers" title="Link to this heading">#</a></h2>
+<p>A tier is an access level of the deployment’s own agent, written as a small
+file.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
-  <title id="tier-render-title">A tier is a persona file, rendered</title>
-  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off for every target, readwrite arms them on the simulator alone, admin arms the simulator alone and lifts the floor. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <title id="tier-render-title">A tier is a file under tiers/, rendered</title>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each tier file under tiers/ holds only its differences — readonly turns control-system writes off for every target, readwrite arms them on the simulator alone, admin arms the simulator alone and lifts the floor. osprey build merges every delta over the base and renders one project per tier, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
   <defs>
     <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -799,7 +793,7 @@ to be once it is built.</p>
   <line class="e-thin" x1="240" y1="266" x2="324" y2="266"/>
   <line class="e-thin" x1="324" y1="64" x2="324" y2="266"/>
   <line class="e" x1="324" y1="164" x2="392" y2="164" marker-end="url(#tier-render-arr)"/>
-  <!-- output bus: one build, one project per persona -->
+  <!-- output bus: one build, one project per tier -->
   <line class="e" x1="576" y1="164" x2="644" y2="164"/>
   <line class="e-thin" x1="644" y1="112" x2="644" y2="240"/>
   <line class="e" x1="644" y1="112" x2="728" y2="112" marker-end="url(#tier-render-arr)"/>
@@ -819,15 +813,15 @@ to be once it is built.</p>
   <text class="ts" x="132" y="92" text-anchor="middle">gallery read-only</text>
   <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
-  <text class="tn" x="132" y="143" text-anchor="middle">personas/readonly.yml</text>
+  <text class="tn" x="132" y="143" text-anchor="middle">tiers/readonly.yml</text>
   <text class="ts" x="132" y="159" text-anchor="middle">writes_enabled: false · every target</text>
   <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
-  <text class="tn" x="132" y="203" text-anchor="middle">personas/readwrite.yml</text>
+  <text class="tn" x="132" y="203" text-anchor="middle">tiers/readwrite.yml</text>
   <text class="ts" x="132" y="219" text-anchor="middle">writes armed on the simulator only</text>
   <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
-  <text class="tn" x="132" y="263" text-anchor="middle">personas/admin.yml</text>
+  <text class="tn" x="132" y="263" text-anchor="middle">tiers/admin.yml</text>
   <text class="ts" x="132" y="279" text-anchor="middle">simulator writes · lifts the floor</text>
   <!-- the build -->
   <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
@@ -849,42 +843,46 @@ to be once it is built.</p>
   <text class="ts" x="824" y="252" text-anchor="middle">carol's container</text>
 </svg>
 </div>
-<p>Each file under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> holds only that persona’s <strong>differences</strong> from
+<p>Each file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> holds only that tier’s <strong>differences</strong> from
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The base profile carries the floor — the three
-deployment-editing surfaces switched off — and a persona sets what it needs on
+deployment-editing surfaces switched off — and a tier adds what it needs on
 top: <code class="docutils literal notranslate"><span class="pre">readonly.yml</span></code> turns control-system writes off, <code class="docutils literal notranslate"><span class="pre">readwrite.yml</span></code> arms
-them on the simulator alone, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> does the same and lifts the floor. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-merges each delta over the base and renders it into its own project, and
+them on the simulator alone, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> does the same and lifts the floor.
+A tier adds lists by name and its config keys win; it never subtracts and never
+carries a deployment fact such as services, data or ports. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+lays each tier over the base and renders it into its own project, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds one container image from each. Every arrow in the drawing
 is a build step, never a runtime lookup: the web server never asks <em>who is
 this user and what tier are they?</em> Identity lives in the roster and the login
 wall; capability lives in the render.</p>
-<p>So the two words name two things. A <strong>persona</strong> is the mechanism: a named
-configuration any number of roster entries can share, so ten operators who
-need the same setup point at one file. A <strong>tier</strong> is what the preset’s three
-control personas <em>mean</em>. OSPREY itself enforces those two switches with
-some care; the names <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">admin</span></code>, and the fact
-that there are three of them, belong to the preset. Rename a persona and
-nothing in the framework notices; add a fourth and it inherits the floor and
-the read-only default until its file says otherwise. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> covers what a persona file may contain and how the floor
-is written so that a delta can lift it.</p>
-<p>A roster entry can also name a <strong>role</strong> instead of a persona, and let the role
-carry the mapping — <code class="docutils literal notranslate"><span class="pre">operator:</span> <span class="pre">{persona:</span> <span class="pre">readwrite}</span></code> written once, rather than
-a persona pinned on every entry. That changes nothing about that mechanism:
-a role resolves to a persona before anything is built, so which persona a card
-runs and which container it opens are the same either way. What the role adds is that
+<p>Any number of roster entries can share a tier, so ten operators who need the
+same setup point at one file. OSPREY enforces the two switches with some care;
+the names <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">admin</span></code>, and the fact that there
+are three of them, belong to the preset. Rename a tier and nothing in the
+framework notices; add a fourth and it inherits
+the floor until its file says otherwise. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> covers what a tier file may contain and how the floor
+is written so that a tier can lift it.</p>
+<p>An <strong>app</strong> is different: a second, complete agent under <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, opened from
+a shared card by everyone on the roster and read-only on the machine by
+construction. The tiers decide what the deployment’s own agent may do; the
+apps sit beside it.</p>
+<p>A roster entry can also name a <strong>role</strong> instead of a tier, and let the role
+carry the mapping — <code class="docutils literal notranslate"><span class="pre">operator:</span> <span class="pre">{tier:</span> <span class="pre">readwrite}</span></code> written once, rather than
+a tier pinned on every entry. A role resolves to a tier before anything is
+built, so which tier a card runs and which container it opens are the same
+either way. What the role adds is that
 it survives the login: it travels with the session, reaches the terminal as
 identity headers, is shown beside the user’s name in the terminal’s session
 menu — together with where it came from, the roster entry or the identity
 provider’s claim — and is named on the login record in the audit trail. A
-session that signed in before this was added goes on showing the role on its
+session that signed in before its role was set goes on showing the role on its
 own, without its origin, until the person logs in again. Where a facility runs
 single sign-on, the provider’s own groups can be what decides it — see
 <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>.</p>
 </section>
 <section id="what-makes-it-hold">
 <h2>What makes it hold<a class="headerlink" href="#what-makes-it-hold" title="Link to this heading">#</a></h2>
-<p>The persona file is the <em>input</em>. What a session actually meets when it tries
+<p>The tier file is the <em>input</em>. What a session actually meets when it tries
 to do more than its tier allows is three layers, and the one that ultimately
 holds is file ownership, not a permission list.</p>
 <div class="osprey-diagram">
@@ -938,7 +936,7 @@ holds is file ownership, not a permission list.</p>
 <p><strong>Layer 1</strong> is what makes the readonly tier certain. A tier armed on <strong>no</strong>
 target does not merely tell the agent not to write; it renders the framework
 servers’ write-gated tools into a deny list that the agent runtime checks
-before any OSPREY code runs, and no persona setting can subtract from that
+before any OSPREY code runs, and no tier setting can subtract from that
 list. Tools a project adds under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are not in that
 list in any render — they are refused by the writes-check hook, which is
 Layer 2.</p>
@@ -1053,37 +1051,39 @@ that make an edit real.</p>
 is guarded by the commands themselves, not only by the preset’s choices.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a shared card — one
 whose <code class="docutils literal notranslate"><span class="pre">access:</span></code> admits anybody but the card’s own login — that resolves to
-a persona holding either deployment-editing
-surface, and refuse a privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> in a deployment that
+a tier holding any deployment-editing
+surface, and refuse a privileged <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> in a deployment that
 draws a tier split at all; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the same question of the render
-before it starts anything. Each refusal names the user, or the persona, and
+before it starts anything. Each refusal names the user, or the tier, and
 the remedy.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM11.28 6.28l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l.97.97 2.97-2.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text">Exactly what <code class="docutils literal notranslate"><span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">up</span></code> refuse</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse any shared card
-that resolves to a persona holding either deployment-editing surface — the
-agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web Config panel — naming the user.
+that resolves to a tier holding any of the three deployment-editing
+surfaces — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool, the web Config panel or the
+scaffold gallery’s editors — naming the user.
 Shared means the card’s <code class="docutils literal notranslate"><span class="pre">access:</span></code> admits anybody but its own login,
 whether that is <code class="docutils literal notranslate"><span class="pre">any</span></code>, one <code class="docutils literal notranslate"><span class="pre">domain:</span></code> or a single <code class="docutils literal notranslate"><span class="pre">user:</span></code>; the
 question the rule asks is how far the card reaches, not which words say
 so. That refusal does not ask whether your
-profile drew a tier split: a profile that floors neither surface hands both
-of them to every persona it has, so a shared card there is the most exposed
+profile drew a tier split: a profile that floors none of them hands every
+one to every tier it has, so a shared card there is the most exposed
 version of this rather than an exempt one. The remedy is the card’s own
 key — <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">own</span></code>, or dropping the key — or pointing the entry at a
-persona that holds neither surface.</p>
-<p class="sd-card-text">A privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> is refused too, in a deployment that draws
+tier that holds none of them. An app card never reaches this rule: the
+build closes all three surfaces on every app, whatever the host sets.</p>
+<p class="sd-card-text">A privileged <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> is refused too, in a deployment that draws
 a privilege split at all — one whose profile floors those surfaces and lets
-a single persona lift them, which is what this preset ships. On a floorless
+a single tier lift them, which is what this preset ships. On a floorless
 profile that rule has no unprivileged tier to send the default to, so it
 stays quiet there and the entries actually exposed are the ones named. A
-persona named by either check that the command cannot read at all — a
-<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> pointing outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, say, or an entry with no
-<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> whose <code class="docutils literal notranslate"><span class="pre">project_path</span></code> holds no <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — is refused rather
-than taken to hold nothing, naming the persona, the value it was given and
+tier named by either check that the command cannot read at all — a name
+with no file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, say, or a render whose <code class="docutils literal notranslate"><span class="pre">project_path</span></code>
+holds no <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — is refused rather
+than taken to hold nothing, naming the tier, the value it was given and
 the remedy — plus the path it tried, where the value resolved to one; where
-the unreadable persona is a shared card’s, that refusal too stands whatever
+the unreadable tier is a shared card’s, that refusal too stands whatever
 the profile floors, so long as the deployment has a login wall for the card
 to be shared behind.</p>
 <p class="sd-card-text">Where the deployment has no login page at all — <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of
@@ -1097,18 +1097,18 @@ had. Both commands print advisories like this one with a <code class="docutils l
 success line.</p>
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> asks the same questions of what was
 last <em>rendered</em>, and so does the render step itself. A shared privileged
-card is an error there too. A persona whose project has not been rendered
+card is an error there too. A tier whose project has not been rendered
 yet is refused the same way where a shared card resolves to it, with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> as the remedy — or <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">own</span></code> for the card — while
 on an own card it stays the plain warning it always was. A deployment that
-pulls its images from a registry has no persona render to read at all, so
+pulls its images from a registry has no tier render to read at all, so
 there only a shared card is refused;
 its inherited default is judged where the deltas live, by <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. A privileged <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> in a
+<span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. A privileged <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> in a
 render is advisory, because the entries it actually exposes are named by
 the rule that does block.</p>
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the door question once more before it starts anything.
-A stack whose render shares a privileged card, or one whose persona cannot
+A stack whose render shares a privileged card, or one whose tier cannot
 be read there, does not come up — the refusal arrives with
 the other start-time problems, so one attempt reports them all — and the
 two advisories are printed beside it. Nothing else the lint finds stops a
@@ -1133,8 +1133,8 @@ container does with file ownership, and what a bare host does not.</p></li>
 <li><p><a class="reference internal" href="../operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> — how an
 operator takes writes away from one control target for their own session,
 and can never gain more than the tier permits.</p></li>
-<li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — personas: what a delta file may contain, and how
-the floor is written so that one persona can lift it.</p></li>
+<li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — tiers and apps: what a tier file may contain,
+and how the floor is written so that one tier can lift it.</p></li>
 </ul>
 </section>
 </section>
@@ -1188,7 +1188,7 @@ the floor is written so that one persona can lift it.</p></li>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-questions-decide-a-tier">Two questions decide a tier</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-tiers-the-preset-ships">The three tiers the preset ships</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-tier-is-a-persona-file">A tier is a persona file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-tier-is-a-file-under-tiers">A tier is a file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-makes-it-hold">What makes it hold</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#watch-it-act">Watch it act</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-admin-tier-really-buys">What the admin tier really buys</a></li>

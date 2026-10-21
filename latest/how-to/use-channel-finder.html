@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -752,9 +751,9 @@ and <code class="docutils literal notranslate"><span class="pre">username</span>
 <a class="reference internal" href="../reference/configuration/profile.html#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a> for both shapes, and <a class="reference internal" href="deploy-project/index.html"><span class="doc">Container Deployment</span></a> for the
 block itself. A build that enables the channel finder but renders no
 <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block is refused, naming the missing block, rather than
-shipping a pipeline with nothing to read — which is why the
-<code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> preset, which ships no such block, cannot run
-this mode.</p>
+shipping a pipeline with nothing to read. The channel-finder app runs on its
+host deployment’s services, so it reads this mode from the host’s
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> loads the build’s graph view into the store when the deployment
 runs the store; a store the facility hosts holds whatever the facility loaded
 into it. See <a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for what the graph

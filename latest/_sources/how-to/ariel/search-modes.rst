@@ -158,7 +158,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
       1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes.
 
-      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` and ``ariel-standalone`` templates enable both, together with the sidecar itself. A web-terminal persona deploys no sidecar of its own and reaches the hosting deployment's through ``services.qmd.port`` instead — a key the build copies from the hosting deployment's render into every persona, so nothing pins it by hand — and ``osprey build`` refuses a persona that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
+      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own and reaches the hosting deployment's through ``services.qmd.port`` instead — a key the build copies from the hosting deployment's render into every tier and app, so nothing pins it by hand — and ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
 
       ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 
@@ -731,6 +731,52 @@ mode.
 Need behavior beyond these search modules --- multi-step reasoning, answer
 synthesis, custom prompting? That lives in the OSPREY agent layer; see
 :doc:`/reference/contracts/ariel` under "Extending the integration."
+
+
+.. _ariel-sql-readonly-role:
+
+Read-only role for the SQL tool
+===============================
+
+The agent can run raw SQL against the logbook database. That query path
+connects as its own Postgres role — ``<username>_ro``, derived from
+``services.postgresql.username`` — which can log in, read the tables in the
+``public`` schema, and do nothing else. It is not the role ingestion writes
+with, and it is not a superuser, so a query naming a server-side function such
+as ``pg_read_file()`` is refused by Postgres rather than by a pattern match over
+the query text. Only the agent's ARIEL server opens that role; ingestion and the
+other ``osprey ariel`` commands connect as the owner role alone.
+
+The role is created by an init script the Postgres entrypoint runs **once,
+while it initializes a fresh data volume**, the same window
+``POSTGRES_PASSWORD`` is read in. Its password is ``ARIEL_DB_READONLY_PASSWORD``
+in the deployment's ``.env``, minted by ``osprey up`` beside
+``ARIEL_DB_PASSWORD``. A new deployment gets all of this with no action from
+you.
+
+Tables created later are covered: the script grants ``SELECT`` on the schema's
+tables and sets default privileges for the owner, so the ``enhanced_entries``
+table the migrations create and the per-model ``text_embeddings_*`` tables an
+enhancement module adds are readable without a second grant.
+
+Adopting the role on an existing database
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A data volume created before the role existed never runs the init script, so it
+has no ``<username>_ro``. Nothing breaks: the agent notices at start-up, logs
+one warning, and runs the SQL tool on the ingestion connection as it did
+before. To adopt the role without recreating the volume, run the same script by
+hand once:
+
+.. code-block:: bash
+
+   docker exec -e ARIEL_DB_READONLY_PASSWORD="$(grep '^ARIEL_DB_READONLY_PASSWORD=' .env | cut -d= -f2-)" \
+       <project>-ariel-postgres bash /docker-entrypoint-initdb.d/10-readonly-role.sh
+
+Restart the agent afterwards so it picks up the role, and the warning stops.
+The script is idempotent — running it again is how you roll the role's password
+after changing it in ``.env``.
+
 
 
 See Also

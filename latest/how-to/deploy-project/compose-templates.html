@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -711,7 +710,7 @@ not write <code class="docutils literal notranslate"><span class="pre">registry.
 <p>Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source</span></code>
 (<code class="docutils literal notranslate"><span class="pre">registry</span></code>, the default, or <code class="docutils literal notranslate"><span class="pre">local</span></code>). It is unrelated to the axes, and it
-is also the setting that governs the persona and auth-sidecar builds — see
+is also the setting that governs the web-terminal and auth-sidecar builds — see
 below.</p>
 </section>
 <section id="mirroring-every-image-into-one-registry">
@@ -824,7 +823,7 @@ not on the host. The switch passes <code class="docutils literal notranslate"><s
 there instead.</p></li>
 </ul>
 <p><strong>What the switch does not reach.</strong> It governs compose’s implicit builds only.
-The persona images and the auth sidecar are built explicitly, by a different
+The web-terminal images and the auth sidecar are built explicitly, by a different
 mechanism, and stay governed by <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source</span></code>: a host
 that cannot build at all needs <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> <em>as well as</em>
 <code class="docutils literal notranslate"><span class="pre">prebuilt_images</span></code>. Setting only one of the two is the usual way a genuinely

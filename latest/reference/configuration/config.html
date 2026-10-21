@@ -529,10 +529,10 @@ naming the key.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">texture</span></code> is always served, and always last. A name the facility file does
 not hold stops the build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line that lists the valid
 names.</p>
-<p>A persona’s list applies when its simulator is served in process: each
-process holds its own composite. On a persona whose baseline target is a
+<p>A tier’s list applies when its simulator is served in process: each
+process holds its own composite. On a tier whose baseline target is a
 served <code class="docutils literal notranslate"><span class="pre">va</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code> the deployment’s container serves the deployment’s
-list, so a persona delta that sets the key there stops the build with
+list, so a tier that sets the key there stops the build with
 <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">simulation.models</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SR</span><span class="p p-Indicator">]</span>
@@ -767,7 +767,7 @@ category picks one automatically:</p>
 <li><p>A deployment that serves web terminals has the choice made for it. The
 terminals run on the host’s network, where a compose service name does not
 resolve, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes <code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> into each render,
-persona renders included. That is the same address the agent dials. Setting
+tier and app renders included. That is the same address the agent dials. Setting
 the key to anything else in such a profile is refused at build time.</p></li>
 <li><p>Otherwise the framework detects whether the health check is itself running
 inside a container — the runtime’s own marker file, <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> under
@@ -1211,9 +1211,8 @@ per bar is the ceiling, and extras past it are dropped.</p>
 <p>The title bar’s control-target chip names the machine this terminal stands on
 and opens the popover that switches it. The default is <code class="docutils literal notranslate"><span class="pre">true</span></code>. Set it to
 <code class="docutils literal notranslate"><span class="pre">false</span></code> only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The shipped <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and
-<code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> presets and the <code class="docutils literal notranslate"><span class="pre">control-assistant-logbook</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control-assistant-knowledge</span></code> personas do.</p>
+server and no JUPYTER panel. The bundled <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> apps do.</p>
 <p>The setting changes what the page shows, not what the agent may do. With it
 off, the <code class="docutils literal notranslate"><span class="pre">control-target</span></code> item is left out of every arrangement this terminal
 serves and is not offered in Customize. A value that is not a boolean is
@@ -1247,7 +1246,7 @@ watcher that can go blind without saying so.</p>
 </section>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to deploy a persona that is entitled to a Bluesky launch
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to deploy a tier that is entitled to a Bluesky launch
 token while its <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> does not deny <code class="docutils literal notranslate"><span class="pre">Bash</span></code>: a shell could
 read the token out of its own environment and arm a queue with no approval.
 One root-level key waives that refusal, for a development box with a single
@@ -1257,11 +1256,49 @@ trusted operator and no live machine behind it:</p>
 </div>
 <p>It takes the boolean <code class="docutils literal notranslate"><span class="pre">true</span></code> and nothing else — any other value is a config
 error. Absent, the refusal stands exactly as before. When set, every
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a warning naming the personas it waved through, and the
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a warning naming the tiers it waved through, and the
 closing card carries a <code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> row. The key belongs to
 <a class="reference internal" href="#config-protected-set"><span class="std std-ref">the protected set</span></a>, so the running agent cannot
 set it. A build profile sets it from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.</p>
 </section>
+</section>
+<section id="modules-web-terminals-the-landing-page-and-the-render-catalog">
+<span id="config-web-terminals"></span><h2><code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> — the landing page and the render catalog<a class="headerlink" href="#modules-web-terminals-the-landing-page-and-the-render-catalog" title="Link to this heading">#</a></h2>
+<p>The roster itself — <code class="docutils literal notranslate"><span class="pre">users</span></code>, <code class="docutils literal notranslate"><span class="pre">default_tier</span></code>, <code class="docutils literal notranslate"><span class="pre">shared</span></code> and
+<code class="docutils literal notranslate"><span class="pre">authorization.roles</span></code> — is described in <a class="reference internal" href="../../how-to/web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>.
+Two more keys shape what the deployment serves.</p>
+<p><code class="docutils literal notranslate"><span class="pre">landing.groups</span></code> lays out the landing page as sections, in the order listed.
+Each entry has a <code class="docutils literal notranslate"><span class="pre">type</span></code> and an optional <code class="docutils literal notranslate"><span class="pre">label</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">users</span></code> — one card per person on the roster. <code class="docutils literal notranslate"><span class="pre">names:</span> <span class="pre">hidden</span></code> replaces the
+name cards with one sign-in button; it needs <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> <code class="docutils literal notranslate"><span class="pre">password</span></code> or
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>, and only a <code class="docutils literal notranslate"><span class="pre">users</span></code> entry takes it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">apps</span></code> — one card per app in <code class="docutils literal notranslate"><span class="pre">shared</span></code>, titled by the app’s <code class="docutils literal notranslate"><span class="pre">name:</span></code>,
+opened by anyone on the roster (<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">links</span></code> — your own cards, each a <code class="docutils literal notranslate"><span class="pre">label</span></code> and a <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p></li>
+</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
+<span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Users</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">apps</span>
+<span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Apps</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">links</span>
+<span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Facility</span>
+<span class="w">          </span><span class="nt">links</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Elog</span><span class="p p-Indicator">,</span><span class="nt"> url</span><span class="p">:</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//elog.example.org</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Left out, the page shows <code class="docutils literal notranslate"><span class="pre">[{type:</span> <span class="pre">users},</span> <span class="pre">{type:</span> <span class="pre">apps}]</span></code>. A section with no
+cards shows no heading.</p>
+<p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.renders</span></code> is the render catalog: one entry per file in
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, keyed by that file’s name, with its <code class="docutils literal notranslate"><span class="pre">kind</span></code>,
+<code class="docutils literal notranslate"><span class="pre">project</span></code> and <code class="docutils literal notranslate"><span class="pre">project_path</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes it into
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a profile that spells it is refused. Set a render’s
+<code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> or <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of its tier or app file
+instead.</p>
 </section>
 <section id="artifact-server-the-workspace-gallery-s-own-categories">
 <span id="config-artifact-server"></span><h2><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories<a class="headerlink" href="#artifact-server-the-workspace-gallery-s-own-categories" title="Link to this heading">#</a></h2>
@@ -1356,18 +1393,6 @@ that is not a positive integer falls back to the default with a warning.</p>
 and those artifacts hold values: treat them with the access you give the
 control system’s own data. The fields are listed in
 <a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
-</section>
-<section id="ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios">
-<span id="config-ariel-demo-narrative"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook from the facility’s scenarios<a class="headerlink" href="#ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> is <code class="docutils literal notranslate"><span class="pre">all</span></code> or a list of scenario names. The logbook
-entries of those scenarios are read from the built simulator view, with the
-pictures they attach. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds them (<code class="docutils literal notranslate"><span class="pre">nominal</span></code> first, then the
-rest by name) into an empty logbook in place of the active scenarios’ entries,
-and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> does the same and then runs the enhancement
-modules. A logbook that already holds entries is never touched. A name the
-simulator view does not list is refused, and so is a directory. The
-<code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset sets it to <code class="docutils literal notranslate"><span class="pre">all</span></code>. Unset, a deploy seeds the
-active scenarios’ entries.</p>
 </section>
 <section id="ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry">
 <span id="config-ariel-entry-url"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry<a class="headerlink" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry" title="Link to this heading">#</a></h2>
@@ -1880,10 +1905,10 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#modules-web-terminals-the-landing-page-and-the-render-catalog"><code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> — the landing page and the render catalog</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios"><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook from the facility’s scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-signals-which-signals-the-agent-exports"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports</a></li>

@@ -93,10 +93,9 @@ Giving each user their own default
 In a multi-user deployment every user gets their own terminal, but they all run
 the same image — so they all read the same ``web.theme``. To start a particular
 user somewhere else, add ``theme`` to their entry in the user list. The snippet
-shows only the keys this section is about; the deployment also carries the
-``personas`` catalog and ``default_persona`` from the multi-user page (see the
-worked example in :ref:`multi-user-registry-images`), and ``persona:
-readwrite`` / ``readonly`` name entries of that catalog.
+shows only the keys this section is about; the deployment also carries
+``default_tier`` and each user's ``tier`` from the multi-user page (see the
+worked example in :ref:`multi-user-registry-images`).
 
 .. code-block:: yaml
 

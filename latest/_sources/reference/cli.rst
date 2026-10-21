@@ -85,8 +85,8 @@ forge is filled in.
 The directory's name is proposed as the deployment's name: ``osprey init``
 normalizes it to a valid compose project name and records it in
 ``profile.yml`` as ``project_name:``, beside the display ``name:``. That
-tracked value names the compose project, volumes, images and persona renders on
-every host from then on; the folder a later clone sits in plays no part. Change
+tracked value names the compose project, volumes, images and tier and app renders
+on every host from then on; the folder a later clone sits in plays no part. Change
 it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
 first ``osprey up`` if the folder name is not the name you want
 (:ref:`reference-profile`).
@@ -99,7 +99,7 @@ output, and durable state:
    DIRECTORY/
      profile.yml                    the manifest; everything the preset configures
      providers.yml                  the model-provider catalog `provider:` picks from
-     data/ personas/ triggers.yml   the material it names — yours to edit
+     data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
      .env                           provider keys, seeded from your shell
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
@@ -121,14 +121,26 @@ deployment onto another thousand-port block, e.g. ``--set port_base=42000`` —
 handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
-repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
-``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. In
+repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
+``apps/``, ``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. In
 ``providers.yml`` the entries OSPREY ships are reset to the packaged values and
 the ones you added are kept. Never touches ``.env``, ``.git``, ``var/``,
 ``build/``, ``.gitignore``, ``README.md``, ``ci-extra.yml``, the CI file,
 ``scripts/verify.sh``, or ``mcp_servers/``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
+
+``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
+this OSPREY in place: the current profile vocabulary, every config key the
+profile leaves to its preset (from ``--preset NAME``, or the preset the profile
+records), and the provider entries OSPREY ships, keeping the ones you added.
+Your deployment's own selections — the roster, the shared apps, the default
+tier, role tiers, the landing groups — are left for you and named in the
+output. Prints a diff to review and commit.
+
+The step is one-way: an older OSPREY refuses the revalidated repository. To go
+back, check out the repository as it was before the commit and install the
+previous release.
 
 ``--up`` / ``-d, --detach`` / ``--dev`` — Build and start the deployment right
 away, optionally in the background or in development mode.
@@ -138,6 +150,7 @@ away, optionally in the background or in development mode.
    osprey init --list-presets
    osprey init als-assistant --preset control-assistant
    osprey init demo --preset control-assistant --up -d --dev
+   osprey init als-assistant --revalidate
 
 osprey set
 ==========
@@ -197,8 +210,9 @@ Check the deployment profile without building.
    osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
 
 With no argument, validates the deployment repository enclosing the working
-directory. ``TARGET`` names a different profile to check instead — a persona
-delta file under ``personas/``, or a directory holding a ``profile.yml``.
+directory. ``TARGET`` names a different profile to check instead — a tier
+file under ``tiers/``, an app file under ``apps/``, or a directory holding a
+``profile.yml``.
 
 Resolves ``extends:`` chains and runs the full consistency check — convention
 directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
@@ -207,12 +221,12 @@ problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
 A profile ``osprey init`` wrote is also compared with the preset it came from,
-persona deltas included, and the two kinds of difference are treated
+tier and app files included, and the two kinds of difference are treated
 differently.
 
 **Structural** differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or a
-persona ``exclude:`` of something the preset keeps. Each is reported with both
+the profile lacks, one the profile adds that the preset does not know, or an
+``exclude:`` of something the preset keeps. Each is reported with both
 ``file:line`` references unless a ``# DEVIATION: <why>`` comment within three
 lines above the profile line claims it (for a missing line, a comment anywhere
 naming the key or member). The tag is set by ``provenance.deviation_marker``; a
@@ -232,7 +246,7 @@ is reported the same way — as a note, never a refusal.
 .. code-block:: bash
 
    osprey validate
-   osprey validate personas/reader.yml
+   osprey validate tiers/readonly.yml
    osprey validate --repo ~/als-assistant
 
 osprey config
@@ -299,7 +313,6 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 .. code-block:: bash
 
    osprey profile validate TARGET
-   osprey profile expand
    osprey profile presets
    osprey profile artifacts
    osprey profile card
@@ -316,47 +329,6 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    List bundled preset names, one per line. Every name printed is usable as
    ``--preset NAME`` for ``osprey init``.
 
-.. _cli-profile-expand:
-
-``osprey profile expand [--from PRESET] [--providers] [--repo DIRECTORY]``
-   Fill in every config key this profile leaves to its preset.
-
-   A profile written before the app template retired spells only what its
-   facility changed; the rest came from a packaged template the operator never
-   saw. ``expand`` writes those keys into the profile itself, each under the
-   comment the preset documents it with, and drops the retired top-level key
-   that named the template. Nothing already in the file is changed — expansion
-   only adds — so running it twice leaves the profile exactly as the first run
-   left it.
-
-   Which preset it expands from is decided in this order: ``--from`` if given,
-   otherwise ``provenance.preset``, otherwise the app template the profile
-   still names. So a profile with no ``provenance:`` block expands fine, and
-   ``--from`` overrides a stamp that names the wrong preset.
-
-   Two kinds of lacking key are deliberately left out, and both are listed in
-   the output with the reason:
-
-   - a key another block of the profile already owns — ``deploy:`` is the home
-     of ``image_source``, and the build writes it into the config for you;
-   - anything below a catalog whose entries are the deployment's own data: the
-     persona catalog, the provider table, named panel layouts.
-
-   ``--providers`` refreshes ``providers.yml`` in the same pass, resetting the
-   entries OSPREY ships to the packaged values and keeping the ones you added.
-
-   Expanding also stamps ``provenance:``, which turns the preset-drift check
-   on. From then on ``osprey validate`` refuses every unclaimed structural
-   difference from that preset. A profile that had no stamp before will have
-   differences the first time, so the verb counts them and prints the
-   ``--drift=warn`` hint alongside the count.
-
-   .. code-block:: bash
-
-      osprey profile expand
-      osprey profile expand --from control-assistant
-      osprey profile expand --providers
-
 ``osprey profile artifacts``
    List every artifact the six profile lists can name — hooks, rules, skills,
    agents, output styles, and web panels — with a one-line description of
@@ -366,7 +338,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    Print the composition card ``osprey init`` prints, for a repo that already
    exists: who can sign in and with what rights, what the agent runs on, what
    machine it talks to, and what runs beside it. It reads ``profile.yml`` and
-   the persona files beside it; nothing is built, started or probed.
+   the tier and app files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
 
@@ -439,7 +411,7 @@ has changed since the build, ``up`` refuses and says what moved, because
 starting would deploy something other than what the profile now describes.
 
 One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any persona
+at every start — its compose file, nginx config, landing page, and any tier or app
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.
 
@@ -543,7 +515,7 @@ out of ``.env``, and deletes ``build/``.
 Two things survive, and the plan says so before you confirm: ``var/audit/``, the
 safety audit log, and everything in ``.env`` that a deploy did not mint — your
 provider keys. The source zone is never touched: ``profile.yml``, ``data/``,
-``personas/``, ``triggers.yml`` and ``.git`` are exactly what they were.
+``tiers/``, ``apps/``, ``triggers.yml`` and ``.git`` are exactly what they were.
 
 What belongs to this deployment is decided two ways. A container records the
 checkout that created it in a label, and reset refuses outright — removing
@@ -1028,7 +1000,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    groups) and the wiring record count per model, each model with its engine,
    whether the main render serves it and its solve setting, and each view with
    its path under the render and whether it is written. The views are those of
-   the main render, ``build/config.yml``; a persona's selection does not change
+   the main render, ``build/config.yml``; a tier's or app's selection does not change
    them. A view that is not written names the config key or model fact that
    left it out. With ``ID`` it prints the place, device, channel, group or
    model of that id with its provenance (the layer and file each field came
@@ -1169,8 +1141,8 @@ repo: the commands read its ``build/config.yml``.
 
 ``osprey ariel quickstart [--source PATH]``
    Full setup: migrate, then ingest ``--source`` or the configured ingestion
-   source; with neither, seed ``ariel.demo_narrative`` into an empty logbook
-   and run the enhancement modules over it.
+   source; with neither, enhance what the logbook already holds (a deploy
+   seeds it from the active scenarios).
 
 ``osprey ariel status [--json]``
    Show the database connection, embedding tables and enhancement counts.
@@ -1447,14 +1419,19 @@ All subcommands accept a common flag:
    boot hook at boot — the route for a daemon-managed autofs home, and the
    no-root fallback elsewhere.
 
-``osprey scaffold personas [--from PRESET] [--force] [--repo DIRECTORY]``
-   Write ``personas/<name>.yml`` for every entry in the profile's
-   ``modules.web_terminals.personas`` catalog, then point each entry at its
-   file, so the catalog no longer resolves to the preset it was copied from.
-   Each file holds only what the persona changes. ``--from`` names the preset
-   whose catalog to emit (default: the preset this repo was created from). A
-   file that already exists is reported and left alone unless ``--force`` is
-   given.
+``osprey scaffold tiers [--from PRESET] [--force]``
+   Write ``tiers/<name>.yml`` for every tier the preset's web-terminal roster
+   names, as ``osprey init`` does. A file that already matches is left
+   untouched; one that differs is reported and left alone unless ``--force``
+   is given. ``--from`` names the preset (default: the preset this repo was
+   created from).
+
+``osprey scaffold apps [--from PRESET] [--force]``
+   Write ``apps/<name>.yml`` for every app the preset's roster shares, as
+   ``osprey init`` does. A file that already matches is left untouched; one
+   that differs is reported and left alone unless ``--force`` is given.
+   ``--from`` names the preset (default: the preset this repo was created
+   from).
 
 ``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
    Copy a preset's packaged content into this repo, each file at the same path,
@@ -1503,7 +1480,7 @@ All subcommands accept a common flag:
 
 ``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
-   allocation, reserved service names, duplicate users, persona references).
+   allocation, reserved service names, duplicate users, tier and app references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate.
 
@@ -1518,7 +1495,8 @@ All subcommands accept a common flag:
 
    osprey scaffold ci                             # Re-emit the CI files
    osprey scaffold systemd                        # Write the boot unit
-   osprey scaffold personas                       # Emit the persona files
+   osprey scaffold tiers                          # Write the tier files
+   osprey scaffold apps                           # Write the app files
    osprey scaffold pull control-assistant --list  # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing

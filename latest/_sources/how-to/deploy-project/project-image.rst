@@ -102,7 +102,7 @@ Build Arguments
 ``osprey up`` passes these from ``config.yml``: the top-level ``offline`` key
 and the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
 / ``images.pip_extra_index_url`` block, resolved once and handed to the three
-images built from these recipes — the project image, each web-terminal persona
+images built from these recipes — the project image, each web-terminal
 image and the login sidecar. Set them there and a site network is configured in
 one place.
 The build arguments below are the same settings under the names a hand-run
@@ -593,7 +593,7 @@ starts as ``root``, the name its preflight records then carry.
 One tier gets one more file
 ---------------------------
 
-A deployment can grant a single persona the ability to edit its own
+A deployment can grant a single tier the ability to edit its own
 configuration — the agent's ``setup_patch`` tool and the browser's Config
 panel. The image reads that grant off the render's own permissions: where the
 setup tool is left out of the deny list, and only there, ``build/config.yml``
@@ -601,7 +601,7 @@ is handed to the ``osprey`` user, which is also what lets the Config panel's
 write land. Every other render leaves the file root-owned, which is what makes
 the boundary a fact of the filesystem rather than a permission list the agent
 is asked to respect. Grant the two surfaces together, the way the bundled
-tiers do — a persona handed the panel alone would find the file it has to
+tiers do — a tier handed the panel alone would find the file it has to
 write still owned by root. See :doc:`../web-terminal/multi-user/tiers` for the tiers this exists
 for.
 
@@ -742,7 +742,7 @@ The file is yours — common edits:
           away
       * - Hand over ``config.yml`` for one tier only
         - ``chown osprey:osprey .../build/config.yml``, and only in the image
-          for a persona allowed to edit the deployment. Every other image
+          for a tier allowed to edit the deployment. Every other image
           leaves it root-owned
       * - Remove ``USER osprey``
         - The container has to start as root for the entrypoint's two writes;

@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -559,7 +558,7 @@ the configuration below exposes.</span><a class="headerlink" href="#id2" title="
 <p>The greyed <code class="docutils literal notranslate"><span class="pre">hyde</span></code> branch ships in the image but nothing in OSPREY calls it.</p>
 <p>It is entirely self-contained — its language models are baked into the image,
 so unlike the <code class="docutils literal notranslate"><span class="pre">semantic</span></code> search mode it needs no Ollama on the host — and
-the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> templates deploy it <strong>by
+the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template deploys it <strong>by
 default</strong>, together with its two ARIEL consumers (the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code>
 enhancement module and the <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search mode). The OKF bundle needs only
 <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code>, which it already has.</p>
@@ -719,10 +718,10 @@ serve, before anything is built.</p>
 <h2>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h2>
 <p>The OKF bundle is different from the other corpora: web terminals write to it.
 So the <em>deployment’s</em> bundle is bind-mounted <strong>read-write</strong> into every
-<code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service whose persona enables facility knowledge, at a target
-computed from that persona’s own project directory inside its container. There
+<code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service whose tier or app enables facility knowledge, at a target
+computed from that render’s own project directory inside its container. There
 is one directory, not a copy per user — and it deliberately <strong>shadows the
-copy baked into each persona image</strong>, because the bundle is operational
+copy baked into each terminal image</strong>, because the bundle is operational
 knowledge that changes far more often than images are rebuilt.</p>
 <p>Sharing it works through a Unix group, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets both halves up:</p>
 <ul class="simple">

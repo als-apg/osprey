@@ -455,7 +455,6 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -540,10 +539,10 @@ the interpreter’s own <code class="docutils literal notranslate"><span class="
 names no kernel gets the OSPREY one, so every cell runs under the gates below.</p>
 <section id="turning-the-panel-on">
 <h2>Turning the panel on<a class="headerlink" href="#turning-the-panel-on" title="Link to this heading">#</a></h2>
-<p>The panel is a built-in with the id <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>. Every persona built from the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset family already selects it, so a standard build
-has the tab. The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> and
-<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> presets do not select it.</p>
+<p>The panel is a built-in with the id <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+preset selects it, so every tier of a standard build has the tab. The
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset and the bundled logbook, knowledge and channel-finder
+apps do not select it.</p>
 <p>Name it under <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> to add it to a build profile of your own:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span><span class="w">         </span><span class="c1"># JUPYTER tab</span>

@@ -17,7 +17,7 @@ Build & deploy
       :link-type: doc
 
       Build a facility-specific assistant from a profile you own — convention
-      directories, taking ownership of framework artifacts, personas, and secrets.
+      directories, taking ownership of framework artifacts, tiers, apps, and secrets.
 
    .. grid-item-card:: Deploy a Facility
       :link: deploy-a-facility

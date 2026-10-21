@@ -184,7 +184,7 @@ not write ``registry.url`` itself, because the build fills it from
 Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: ``modules.web_terminals.image_source``
 (``registry``, the default, or ``local``). It is unrelated to the axes, and it
-is also the setting that governs the persona and auth-sidecar builds — see
+is also the setting that governs the web-terminal and auth-sidecar builds — see
 below.
 
 .. _deployment-mirror-channel:
@@ -299,7 +299,7 @@ The switch covers both ways a build can start
   there instead.
 
 **What the switch does not reach.** It governs compose's implicit builds only.
-The persona images and the auth sidecar are built explicitly, by a different
+The web-terminal images and the auth sidecar are built explicitly, by a different
 mechanism, and stay governed by ``modules.web_terminals.image_source``: a host
 that cannot build at all needs ``image_source: registry`` *as well as*
 ``prebuilt_images``. Setting only one of the two is the usual way a genuinely

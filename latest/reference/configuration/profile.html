@@ -501,7 +501,7 @@ volume or image is named from it.</p></td>
 <td><p><em>required</em></p></td>
 <td><p>The deployment’s name on a host. It names the compose project, its
 volumes (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>), the <code class="docutils literal notranslate"><span class="pre">:local</span></code> images, the web
-containers and the persona renders (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;</span></code>).
+containers and the tier and app renders (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;name&gt;</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it from the folder name, normalized to a valid
 compose project name; after that it is a tracked value, and the folder
 the repository is checked out into plays no part. It must already be a
@@ -668,7 +668,7 @@ the hash of the <code class="docutils literal notranslate"><span class="pre">pro
 materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the profile with that
 preset and refuses unmarked <em>structural</em> differences, while a key both
 carry with different values is only reported (see
-<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>). The one key you may add is
+<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>). The one key you may add is
 <code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code>, the tag of the <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">&lt;TAG&gt;:</span> <span class="pre">&lt;why&gt;</span></code> comment that
 marks a difference as deliberate (default <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code>).</p></td>
 </tr>
@@ -737,7 +737,7 @@ timezone changed and a per-type limits block added. Pointing the same deployment
 two things the preset ships are scoped to the simulated baseline: the
 <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records a machine the deployment would no longer be
 baselined on, and any profile-level <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled:</span>
-<span class="pre">true</span></code> has to agree with the read-only personas that inherit it. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">true</span></code> has to agree with the read-only tier that inherits it. <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">build</span></code> refuses each in turn rather than rendering it. See
 <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 <div class="admonition note">
@@ -879,8 +879,8 @@ message lists the names it does declare.</p></li>
 <li><p>A catalog that no longer matches the one OSPREY ships is reported as a note,
 never a refusal — the comparison is with the catalog this OSPREY release
 ships, not with the hash recorded under <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span> <span class="pre">--providers</span></code> refreshes the entries OSPREY ships and
-keeps the ones you added.</p></li>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> refreshes the entries OSPREY ships and keeps the
+ones you added.</p></li>
 </ul>
 </section>
 <section id="the-posture-floor">
@@ -889,7 +889,7 @@ keeps the ones you added.</p></li>
 deployment that leaves one of them silent rather than letting a reader’s
 fallback decide. The refusal names the dotted key and <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The gate
 reads the <em>rendered</em> config, so a key a preset’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block spelled, an
-injector wrote, or a persona inherited counts as stated.</p>
+injector wrote, or a tier inherited counts as stated.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 40.0%" />
@@ -926,12 +926,12 @@ what it does with a tool nothing named</p></td>
 </tbody>
 </table>
 </div>
-<p>A standalone that switches the controls server off — the ARIEL and
-channel-finder presets do — is asked for neither control-system key: it has no
+<p>A render that switches the controls server off — every bundled app
+does — is asked for neither control-system key: it has no
 control system to state a type for.</p>
 </section>
-<section id="preset-drift-and-osprey-profile-expand">
-<span id="profile-preset-drift"></span><h2>Preset drift, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code><a class="headerlink" href="#preset-drift-and-osprey-profile-expand" title="Link to this heading">#</a></h2>
+<section id="preset-drift">
+<span id="profile-preset-drift"></span><h2>Preset drift<a class="headerlink" href="#preset-drift" title="Link to this heading">#</a></h2>
 <p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote records the preset it came from under
 <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the two and splits what it finds:</p>
 <ul class="simple">
@@ -952,17 +952,15 @@ nothing.</p>
 <p>A profile written before the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block carried everything spells only
 what its facility changed, and still names a packaged app template at its top
 level. Such a profile is refused, naming that key and the verb that fixes it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w">                          </span><span class="c1"># preset from provenance:</span>
-osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--from<span class="w"> </span>control-assistant<span class="w"> </span><span class="c1"># or name it</span>
-osprey<span class="w"> </span>profile<span class="w"> </span>expand<span class="w"> </span>--providers<span class="w">              </span><span class="c1"># refresh providers.yml too</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w">                            </span><span class="c1"># preset from provenance:</span>
+osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="c1"># or name it</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">expand</span></code> writes every key the preset documents and the profile lacks into the
+<p>It writes every key the preset documents and the profile lacks into the
 profile’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, each under the comment the preset documents it
-with, and drops that retired key. It only adds — nothing
-already in the file is touched — so running it twice leaves the profile exactly
-as the first run left it. See <a class="reference internal" href="../cli.html#cli-profile-expand"><span class="std std-ref">osprey profile expand [--from PRESET] [--providers] [--repo DIRECTORY]</span></a> for the two classes of
-key it deliberately leaves out and for what it prints.</p>
+with, drops that retired key, and refreshes <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>. It only adds —
+nothing already in the file is touched — and your deployment’s own selections
+are left for you and named in the output.</p>
 </section>
 <section id="mcp-server-injection">
 <span id="profile-mcp-servers"></span><h2>MCP server injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
@@ -1173,7 +1171,7 @@ move anything”.</p>
 <p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; taking an entry out is explicit</p>
 <p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their
 <code class="docutils literal notranslate"><span class="pre">remove_*</span></code> companions — <strong>union</strong> with the ones they inherit. A child
-profile or a persona delta can add to an inherited permission list; to
+profile or a tier can add to an inherited permission list; to
 take an entry out it has to say so, with <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> / <code class="docutils literal notranslate"><span class="pre">remove_ask</span></code>
 (which match by substring) or with <code class="docutils literal notranslate"><span class="pre">exclude:</span> <span class="pre">config:</span></code> naming the exact
 entry (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p>
@@ -1187,14 +1185,14 @@ keep the approval prompt, and strip that prompt away. <code class="docutils lite
 subtractable per tier, which is the direction a floor has to work in.</p>
 <p>The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset is built exactly this way: its
 base denies the agent’s own deployment-editing tool, and the <code class="docutils literal notranslate"><span class="pre">admin</span></code>
-persona is the single delta that removes that deny. Writing the floor is
-not only a convention. A web terminal served without a login by a persona
+tier is the single delta that removes that deny. Writing the floor is
+not only a convention. A web terminal served without a login by a tier
 that can edit the deployment is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> alike, wherever the deployment has a login page
 at all — with <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> at <code class="docutils literal notranslate"><span class="pre">token</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">none</span></code> there
 is no wall to be exempt from, and the same exposure is reported as an
 advisory instead. On a profile that
-wrote no floor at all, where every persona holds everything, the only
+wrote no floor at all, where every tier holds everything, the only
 remedy that refusal can offer is to write one. See
 <a class="reference internal" href="../../how-to/web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>.</p>
 </div>
@@ -1357,6 +1355,13 @@ that renders an interval or a bare name has nothing to trim.</p></td>
 <td><p>Host environment variable names passed through to both halves, in the
 order you write them. Names only, never values.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
+<td><p><em>(unset)</em></p></td>
+<td><p>The tier the dispatch workers run at: a file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. Unset runs
+the deployment’s own render. A tier that lifts a base deny or turns on
+an approval surface is refused, since a dispatched run has no approver,
+so the bundled <code class="docutils literal notranslate"><span class="pre">admin</span></code> tier is refused.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -1402,7 +1407,7 @@ taking away:</p>
 </div>
 <p>Those are structural differences from the preset — two added keys and a dropped
 list member — which is why the marker comments are there. Without them
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses the profile (<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>).</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses the profile (<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>).</p>
 <p>The procedure that goes with those keys — the password to place, what is minted
 and seeded on each path, and how to load a corpus into a store OSPREY does not
 run — is in
@@ -1414,8 +1419,7 @@ to is not.</p>
 is refused by name: an empty block reads as “a store at the defaults” wherever
 the block is resolved, and a null one is what every resolver downstream trips
 over. Neither removes anything, because nothing injects a store to subtract.</p>
-<p>A profile that renders no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all — the
-channel-finder-standalone preset ships none — is refused at build time, naming
+<p>A profile that renders no <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block at all is refused at build time, naming
 the missing block, rather than rendering a channel finder with nothing to read.
 An attached project (<code class="docutils literal notranslate"><span class="pre">deploy_services:</span> <span class="pre">false</span></code>) is refused the same way unless
 it names an external store, because it renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> whatever its
@@ -1423,8 +1427,8 @@ own <code class="docutils literal notranslate"><span class="pre">config:</span><
 answers, see <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; for the corpus behind them,
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p>The qmd sidecar behind hybrid logbook search is guarded the same way. The
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> presets switch
-<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploy the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset switches
+<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> on and deploys the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar that
 answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
 with <em>no qmd sidecar is configured</em>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses that instead of
@@ -1438,27 +1442,17 @@ DSN).</p>
 where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
 the graph store’s bolt port, the Postgres the logbook lives in, the telemetry
 store’s port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment’s own render into each persona built beside it, so
-a service moved on the hosting profile moves every persona with it, and the
-shipped <code class="docutils literal notranslate"><span class="pre">control-assistant-*</span></code> presets pin none of them. A persona profile
-that spells one of these keys with a <em>different</em> value is refused — the two
-copies would dial different places, and the build names both. (A persona
-inherits the hosting profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is
-spelled in every persona as the host’s own value, and agrees.) The rest of a
-deployed service’s block — its image, its JVM sizing, the directory its
-compose fragment lives in — is dropped from the persona, with one exception:
-a key that names a file in the render’s own <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree, such as the graph
-store’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>, stays, because the persona stages that tree too and its
-build derives the search index from it. A persona
-built <em>alone</em> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant-logbook</span></code> in a
-repo with no hosting deployment) is told what its own preset deploys at the
-shipped defaults instead, and there its <code class="docutils literal notranslate"><span class="pre">config:</span></code> is where a host that
-differs is named:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">services.qmd.port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9180</span><span class="w">        </span><span class="c1"># the sidecar of the deployment this build shares a host with</span>
-<span class="w">  </span><span class="c1"># or: ariel.search_modules.hybrid.enabled: false</span>
-</pre></div>
-</div>
+from the hosting deployment’s own render into each tier and app built beside
+it, so a service moved on the hosting profile moves every render with it, and
+the bundled tier and app files pin none of them. A tier or app that spells one
+of these keys with a <em>different</em> value is refused — the two copies would dial
+different places, and the build names both. (A tier inherits the hosting
+profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is spelled in every tier as
+the host’s own value, and agrees.) The rest of a deployed service’s block — its
+image, its JVM sizing, the directory its compose fragment lives in — is dropped
+from the render, with one exception: a key that names a file in the render’s
+own <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree, such as the graph store’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>, stays, because the
+render stages that tree too and its build derives the search index from it.</p>
 <p>The same facts are checked again at run time: the <code class="docutils literal notranslate"><span class="pre">reach</span></code> category of
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> (and of the system-health tab, inside each user’s container)
 resolves every live client’s endpoint the way the client does and knocks on it
@@ -1580,7 +1574,7 @@ none gets none here either.</p></li>
 name at build time rather than silently having the derived copy win: two homes
 for one fact are free to disagree, and an address left in <code class="docutils literal notranslate"><span class="pre">config:</span></code> reads as
 the endpoint the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target dials while every session on it is somewhere
-else. The refusal is scoped to those leaves — a persona’s own
+else. The refusal is scoped to those leaves — a tier’s own
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin.writes_enabled</span></code> says something the build
 has no opinion about, and is yours to write.</p>
 <p><strong>What the block does not decide.</strong> Write posture, limits checking and the
@@ -2046,7 +2040,7 @@ what the stack looks like when it is up.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys-the-build-renders">Keys the build renders</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-provider-catalog-providers-yml">The provider catalog — providers.yml</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-posture-floor">The posture floor</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-drift-and-osprey-profile-expand">Preset drift, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-drift">Preset drift</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP server injection</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>
 </ul>
