@@ -64,25 +64,28 @@ differences, each load-bearing:
   resolving to the last stable release; the beta is reached only by
   `--pre` or an exact `==` pin. That opt-in IS the beta channel — nothing
   else has to be built for it.
-- **The connectors floor stays on the last stable release — never a
-  pre-release floor.** A plain `>=YYYY.M.PbN` floor refuses every
-  same-checkout dev wheel (`<last-stable>.postN` sorts *below* the beta), so
-  `osprey up --dev` and every image-building CI lane breaks until the tag
-  exists (found live on the v2026.9.0b1 release PR). No clause added to the
-  stable floor makes it admit pre-releases either: an `!=` exclusion never
-  does. A beta framework pairs with the beta connectors through the install:
-  `pip install --pre` admits pre-releases for the whole resolve, and pip also
-  takes a pre-release when no stable release satisfies the floor. uv admits
-  transitive pre-releases only with `--prerelease allow`: even an exact `==`
-  pin on the framework fails without it, with a hint that names the flag.
-  The installation page carries the command under *Pre-releases*; repeat the
-  exact command at the top of the GitHub Release body, because a reader who
-  follows the stable instructions from the pre-release's own docs directory
-  gets the last stable release and not the beta. The floor names a
-  connectors release (its own `osprey-connectors-v*` stream, below), never a
-  framework version: raise it only when the framework starts needing
-  something a newer stable connectors release carries, and run
-  `uv lock --check` after that edit.
+- **The connectors floor names a stable osprey-connectors release that is on
+  PyPI and whose tag is reachable from `main`.** `osprey-connectors` has its
+  own calendar stream (`osprey-connectors-vYYYY.M.P`, `release-connectors.yml`,
+  PyPI environment `pypi-connectors`); the framework declares only
+  `osprey-connectors>=FLOOR` and never a ceiling. A floor above the last
+  reachable connectors tag breaks every paired wheel install and
+  `osprey up --dev` (dev wheels build as `<last tag>.postN`), and a floor
+  nothing stable satisfies makes pip *and* uv (default policy) silently take a
+  pre-release — so the order is always: connectors release first, floor raise
+  in a following PR. `connectors_compat_matrix.py` refuses a floor whose tag is
+  not reachable. A beta framework needs no connectors beta: `OSPREY_PIP_PRE`
+  resolves the whole deps layer with `--prerelease=allow`, which takes the
+  newest connectors — so publish a connectors pre-release only when every beta
+  deployment should absorb it. Raise the floor only when the framework starts
+  needing something a newer stable connectors release carries, and run
+  `uv lock --check` after that edit (see "Releasing osprey-connectors" below).
+- **The install command goes in the release body.** The installation page
+  carries it under *Pre-releases* (`uv tool install --prerelease allow
+  "osprey-framework==YYYY.M.PbN"`); repeat the exact command at the top of the
+  GitHub Release body, because a reader who follows the stable instructions
+  from the pre-release's own docs directory gets the last stable release and
+  not the beta.
 - **The GitHub Release is marked pre-release automatically.** `release.yml`
   classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
   and sets the flag, so the beta never shows as "Latest".
@@ -501,6 +504,10 @@ without the publisher PyPI refuses that wheel and the tag lands half-published.
 `osprey-connectors` is not one: a framework tag never builds it (see
 "Releasing osprey-connectors" below).
 
+Run `python3 scripts/ci/connectors_compat_matrix.py check --before-tagging vYYYY.M.P`:
+every earlier split-era framework release must already be listed (or retired)
+in `[tool.osprey-connectors.compat]`, or the next PR after the tag goes red.
+
 Tags can be pushed directly; branch protection covers branches, not tags:
 
 ```bash
@@ -568,6 +575,11 @@ green.
 
 ## After the release
 
+- Once `https://pypi.org/project/osprey-framework/YYYY.M.P/` exists, open the
+  listing PR: add the version to `[tool.osprey-connectors.compat] frameworks`
+  in `packages/osprey-connectors/pyproject.toml` (move the beta it supersedes
+  to `retired`). This is what makes the connectors compatibility lane and its
+  nightly run hold connectors HEAD to the release.
 - Update any installed copy of the plugin: `claude plugin marketplace update
   osprey && claude plugin update osprey@osprey` (add `--scope project` inside a
   deployment repository).
@@ -598,8 +610,9 @@ beta on PyPI.
 - The tagged commit is on `main` and its `ci.yml` run is green in every lane
   the `verify-ci` job's `REQUIRED_LANES` names: `test`, `lint`, `package`,
   `connectors-standalone`, plus the backward-compatibility lanes
-  (`connectors-compat`, `framework-at-connectors-floor`) once ci.yml carries
-  them. These are always-on lanes — no `full-ci` label is involved — but a
+  `connectors-compat` and `framework-at-connectors-floor` (a lane that stands
+  down — no framework listed yet, a floor that predates the independent
+  releases — concludes success). These are always-on lanes — no `full-ci` label is involved — but a
   `main` run superseded by a later merge is `cancelled`, not green; then
   `gh workflow run ci.yml --ref osprey-connectors-vYYYY.M.P` and re-push the tag.
 - The package's changelog is folded and rotated on `main`: run
@@ -635,6 +648,34 @@ PyPI, and only when the framework starts needing what it carries:
 3. Land it in a normal PR (with a root `changelog.d/` fragment). The next
    framework tag's `verify-pypi-resolvable` resolves the floor from PyPI and
    fails if it is not there, so the order cannot be inverted silently.
+
+> **Cut-over (October 2026) — one time.** The order in which the split lands:
+>
+> 0. Maintainer, before PR B (the version stream) merges: register the PyPI
+>    trusted publisher on `osprey-connectors` (owner `als-apg`, repo `osprey`,
+>    workflow `release-connectors.yml`, environment `pypi-connectors`), create
+>    the GitHub environment `pypi-connectors`, and push the bootstrap tag
+>    `osprey-connectors-v2026.9.0b3` on `0584524d4` (it fires nothing).
+> 1. Merge #1810 (the connectors public API) before the first independent
+>    connectors tag.
+> 2. Merge the own-suite PR.
+> 3. Merge the version-stream PR.
+> 4. Merge the release-workflows PR.
+> 5. Merge the compatibility-lanes PR, then remove `release.yml`'s publisher
+>    from the `osprey-connectors` PyPI project.
+> 6. Connectors notes PR (`uv run python scripts/changelog_fragments.py apply
+>    --root packages/osprey-connectors`, rotate `## [2026.10.0]`), tag
+>    `osprey-connectors-v2026.10.0`, confirm it on PyPI.
+> 7. Floor-raise PR: `osprey-connectors>=2026.10.0` (+ `uv lock`, and
+>    pyaml-cs-osprey's floor too) — only after PyPI shows the release. This
+>    arms `framework-at-connectors-floor`.
+> 8. Framework notes PR for 2026.10.0b1 (`full-ci`), run the before-tagging
+>    check, tag `v2026.10.0b1`.
+> 9. Listing PR: `frameworks = ["2026.10.0b1"]`.
+>
+> Framework 2026.9.0b1–b3 are superseded: they are never listed, `main`'s
+> connectors already break them, and rebuilding such an image needs
+> `osprey-connectors==2026.9.0b3` pinned.
 
 ## Manual Publish Fallback (only if Actions is broken)
 
