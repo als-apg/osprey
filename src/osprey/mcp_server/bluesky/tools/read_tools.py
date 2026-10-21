@@ -60,23 +60,52 @@ from osprey.services.bluesky_bridge.figure import (
     decimate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Tool 1: get run
 # ---------------------------------------------------------------------------
+
+# The longest one get_run call holds the agent before it answers.
+RUN_WAIT_MAX_S = 300
+# How often a waiting get_run re-reads the run.
+RUN_WAIT_POLL_S = 2.0
+
+# The run states that do not change again; a wait ends on reaching one.
+_FINAL_RUN_STATUSES = frozenset({"completed", "stopped", "error"})
+
+
+def _read_run(run_id: str) -> tuple[Any, str | None]:
+    """One ``GET /runs/{id}`` read: the record, or the tool's error result."""
+    status, body = _http_get_json(f"/runs/{run_id}")
+    if status == 404:
+        return None, make_error(
+            "unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS
+        )
+    if status != 200:
+        return None, make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    return body, None
+
+
 @mcp.tool()
-async def get_run(run_id: str) -> str:
-    """Get one run's current lifecycle status.
+async def get_run(run_id: str, wait_s: float = 0) -> str:
+    """Get one run's current lifecycle status, optionally waiting for it to change.
 
     A run is a queued item seen from the run side: the manager's queue,
     running item and history, keyed by the OSPREY run id. Its lifecycle runs
-    ``pending`` -> ``running`` -> ``completed`` | ``stopped`` | ``error``.
+    ``pending`` -> ``running`` -> ``completed`` | ``stopped`` | ``error``; the
+    last three are final.
 
     The record carries no measured values; a run's rows are read with
     get_run_data.
 
     Args:
         run_id: Run id returned by queue_add or list_runs.
+        wait_s: Seconds to wait for the run to change before answering; 0
+            (the default) answers at once. One call waits at most 300
+            seconds; a longer wait is cut to that.
+            The wait answers as soon as the status differs from what it was
+            when the call began, or is final, so a run that starts, ends or
+            fails hands control back at once. A run already in a final state
+            is answered without waiting.
 
     Returns:
         JSON run record. Four keys are always present: ``"id"`` (this run id),
@@ -98,6 +127,17 @@ async def get_run(run_id: str) -> str:
         whenever the run declared no point count, so report it as "N points so
         far" rather than a percentage).
 
+        Timing, from the queue manager's own clock: ``"started_at"`` (ISO-8601
+        UTC, ABSENT while the run is still pending), ``"finished_at"`` (ISO-8601
+        UTC, present only on a final status), and ``"elapsed_s"`` (seconds the
+        run has run so far, or ran in all once final; ABSENT when the start is
+        not known). Inside ``"progress"``: ``"points_per_s"`` (points so far
+        over ``"elapsed_s"``, ABSENT before the first point or without a start)
+        and ``"remaining_s"`` (the points left over that rate, ABSENT when no
+        point count was declared, the run is complete, or there is no rate).
+        ``"remaining_s"`` is an estimate from the rate so far, which counts
+        the plan's set-up before its first point.
+
         "stopped" means a human stopped it, by any route. An item that left the
         queue without a cleanly recorded finish reads as "error" by design, so
         an unrecognized ending is never mistaken for a successful run.
@@ -108,12 +148,23 @@ async def get_run(run_id: str) -> str:
           NOT mean the run's data is gone: get_run_data can still serve that
           same id from durable storage, so never infer "no data" from this.
     """
-    status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}")
-    if status == 404:
-        return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
-    if status != 200:
-        return make_error("bluesky_bridge_error", bridge_error_message(body, status))
-    return json.dumps(body)
+    record, error = await anyio.to_thread.run_sync(_read_run, run_id)
+    if error is not None:
+        return error
+    window = min(wait_s, RUN_WAIT_MAX_S) if wait_s > 0 else 0.0
+    first_status = record.get("status") if isinstance(record, dict) else None
+    waited = 0.0
+    while waited < window and first_status not in _FINAL_RUN_STATUSES:
+        pause = min(RUN_WAIT_POLL_S, window - waited)
+        await anyio.sleep(pause)
+        waited += pause
+        record, error = await anyio.to_thread.run_sync(_read_run, run_id)
+        if error is not None:
+            return error
+        status = record.get("status") if isinstance(record, dict) else None
+        if status != first_status or status in _FINAL_RUN_STATUSES:
+            break
+    return json.dumps(record)
 
 
 # ---------------------------------------------------------------------------

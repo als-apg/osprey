@@ -123,9 +123,17 @@ def test_get_run_docstring_names_every_key_the_run_record_can_emit(monkeypatch):
         "kwargs": {"num_points": 5},
         "meta": {"osprey_run_id": "r1"},
     }
+    # The manager's own stamps: `properties.time_start` on the running item,
+    # `result.time_start`/`time_stop` on a finished one.
+    running = {**pending, "properties": {"time_start": 1_000.0}}
     finished = {
         **pending,
-        "result": {"run_uids": ["abc-123"], "exit_status": "completed"},
+        "result": {
+            "run_uids": ["abc-123"],
+            "exit_status": "completed",
+            "time_start": 1_000.0,
+            "time_stop": 1_060.0,
+        },
     }
     failed = {**finished, "result": {"exit_status": "failed", "msg": "device timeout"}}
     # An item enqueued out of band: no osprey_run_id, so no progress lookup —
@@ -135,7 +143,7 @@ def test_get_run_docstring_names_every_key_the_run_record_can_emit(monkeypatch):
     all_keys: set[str] = set()
     for item, status in (
         (pending, runs.STATUS_PENDING),
-        (pending, runs.STATUS_RUNNING),
+        (running, runs.STATUS_RUNNING),
         (finished, runs.STATUS_COMPLETED),
         (finished, runs.STATUS_STOPPED),
         (failed, runs.STATUS_ERROR),
@@ -147,9 +155,16 @@ def test_get_run_docstring_names_every_key_the_run_record_can_emit(monkeypatch):
     # carrying its optional keys: every documented key must actually appear.
     assert {"id", "status", "plan_name", "plan_args"} <= all_keys
     assert {"item_uid", "run_uid", "error", "progress"} <= all_keys
+    assert {"started_at", "finished_at", "elapsed_s"} <= all_keys
+
+    # `progress` gains its rate keys from the record, once the run has a start.
+    progress_keys = set(
+        runs.record_from_item(running, runs.STATUS_RUNNING, now=1_020.0)["progress"]
+    )
+    assert {"points_per_s", "remaining_s"} <= progress_keys
 
     doc = read_tools.get_run.__doc__ or ""
-    missing = {key for key in all_keys if f'"{key}"' not in doc}
+    missing = {key for key in all_keys | progress_keys if f'"{key}"' not in doc}
     assert not missing, f"get_run docstring is missing keys the run record emits: {missing}"
 
 
@@ -173,6 +188,103 @@ def test_get_run_docstring_points_at_get_run_data_for_rows():
     doc = " ".join((read_tools.get_run.__doc__ or "").split())
     assert "carries no measured values" in doc
     assert "get_run_data" in doc
+
+
+# ---------------------------------------------------------------------------
+# get_run(wait_s=...) — a bounded wait over GET /runs/{id}
+# ---------------------------------------------------------------------------
+
+
+def _scripted_reads(monkeypatch, answers):
+    """Script `_http_get_json` to answer each read in turn (the last repeats),
+    and make `anyio.sleep` instant while recording every pause it was asked for."""
+    reads: list[str] = []
+    sleeps: list[float] = []
+
+    def fake_get(path, **_kwargs):
+        reads.append(path)
+        return answers[min(len(reads), len(answers)) - 1]
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
+    monkeypatch.setattr(f"{_MOD}.anyio.sleep", fake_sleep)
+    return reads, sleeps
+
+
+def _run(status, **extra):
+    return 200, {"id": "run-1", "status": status, "plan_name": "orm", "plan_args": {}, **extra}
+
+
+async def test_get_run_without_a_wait_makes_one_request(monkeypatch):
+    reads, sleeps = _scripted_reads(monkeypatch, [_run("running")])
+    result = await _fn("get_run")(run_id="run-1", wait_s=0)
+    assert reads == ["/runs/run-1"]
+    assert sleeps == []
+    assert extract_response_dict(result)["status"] == "running"
+
+
+async def test_get_run_wait_returns_the_record_that_reached_a_final_state(monkeypatch):
+    reads, _ = _scripted_reads(
+        monkeypatch, [_run("running"), _run("running"), _run("completed", run_uid="re-1")]
+    )
+    result = await _fn("get_run")(run_id="run-1", wait_s=60)
+    assert len(reads) == 3
+    assert extract_response_dict(result)["status"] == "completed"
+
+
+async def test_get_run_wait_returns_early_on_any_status_change(monkeypatch):
+    reads, _ = _scripted_reads(monkeypatch, [_run("pending"), _run("running")])
+    result = await _fn("get_run")(run_id="run-1", wait_s=60)
+    assert len(reads) == 2
+    assert extract_response_dict(result)["status"] == "running"
+
+
+async def test_get_run_wait_on_a_final_run_answers_at_once(monkeypatch):
+    reads, sleeps = _scripted_reads(monkeypatch, [_run("stopped")])
+    await _fn("get_run")(run_id="run-1", wait_s=60)
+    assert len(reads) == 1
+    assert sleeps == []
+
+
+async def test_get_run_wait_stops_at_the_requested_window(monkeypatch):
+    reads, sleeps = _scripted_reads(monkeypatch, [_run("running", progress={"rows_seen": 1})])
+    window = 3 * read_tools.RUN_WAIT_POLL_S
+    result = await _fn("get_run")(run_id="run-1", wait_s=window)
+    assert sum(sleeps) == pytest.approx(window)
+    assert len(reads) == window / read_tools.RUN_WAIT_POLL_S + 1
+    assert extract_response_dict(result)["status"] == "running"
+
+
+async def test_get_run_wait_is_clamped_to_the_cap(monkeypatch):
+    reads, sleeps = _scripted_reads(monkeypatch, [_run("running")])
+    await _fn("get_run")(run_id="run-1", wait_s=read_tools.RUN_WAIT_MAX_S * 10)
+    assert sum(sleeps) == pytest.approx(read_tools.RUN_WAIT_MAX_S)
+    assert len(reads) == read_tools.RUN_WAIT_MAX_S / read_tools.RUN_WAIT_POLL_S + 1
+
+
+async def test_get_run_wait_returns_unknown_run_on_a_404_mid_wait(monkeypatch):
+    reads, _ = _scripted_reads(
+        monkeypatch, [_run("running"), (404, {"detail": "no run with id 'run-1'"})]
+    )
+    with assert_raises_error(error_type="unknown_run"):
+        await _fn("get_run")(run_id="run-1", wait_s=60)
+    assert len(reads) == 2
+
+
+async def test_get_run_wait_returns_a_bridge_error_mid_wait(monkeypatch):
+    _scripted_reads(monkeypatch, [_run("running"), (503, {"detail": "manager unreachable"})])
+    with assert_raises_error(error_type="bluesky_bridge_error"):
+        await _fn("get_run")(run_id="run-1", wait_s=60)
+
+
+def test_get_run_docstring_says_what_the_wait_does():
+    doc = " ".join((read_tools.get_run.__doc__ or "").split())
+    assert "wait_s" in doc
+    assert "estimate" in doc
+    # The cap an agent is told is the cap the tool enforces.
+    assert f"at most {read_tools.RUN_WAIT_MAX_S} seconds" in doc
 
 
 # ---------------------------------------------------------------------------
