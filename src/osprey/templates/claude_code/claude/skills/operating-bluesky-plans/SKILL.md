@@ -75,6 +75,15 @@ answer, not a reason to hold back beforehand.
 
 ---
 
+## Take the clearly best reading
+
+When what you can read — the request, the queue, the run history, the draft —
+makes one reading of a request clearly the best, take it, say which you took
+and why, and carry on. Ask the operator when two readings are each defensible
+and would do different things to the machine.
+
+---
+
 ## Ask first whether this deployment can run anything
 
 **`queue_status()`** answers one question, before you compose anything: can

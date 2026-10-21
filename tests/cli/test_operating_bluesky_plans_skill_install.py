@@ -473,3 +473,7 @@ class TestOperatingBlueskyPlansWatchToTheEnd:
         assert "watched until it reaches a final state" in prose
         assert "wait_s" in prose
         assert "how long it still needs" in prose
+
+    def test_the_clearly_best_reading_is_taken_and_named(self, skill_text):
+        prose = _prose(skill_text)
+        assert "take it, say which you took and why" in prose
