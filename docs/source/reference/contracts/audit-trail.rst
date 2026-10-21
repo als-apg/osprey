@@ -58,7 +58,8 @@ gallery refusal and a config refusal never share a file.
      - Tool calls on an OSPREY MCP server, allowed and refused alike, in a file
        named for the server: ``osprey_workspace``, ``python``, ``bluesky``
    * - ``hook_writes_check.jsonl``, ``hook_approval.jsonl``,
-       ``hook_limits.jsonl``, ``hook_memory_guard.jsonl``
+       ``hook_limits.jsonl``, ``hook_memory_guard.jsonl``,
+       ``hook_plan_mode.jsonl``
      - What the safety hooks denied, and what they put in front of a person
    * - ``http_mutation.jsonl``, ``web_auth.jsonl``
      - Requests that changed something through a web API, and the 401s and 403s

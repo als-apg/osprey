@@ -74,6 +74,17 @@ next tool call; whether writes are switched on for that machine is rendered from
    a single file, at ``var/agent_data/control_target/control_context.json``, are not read ---
    including a narrowing that record held.
 
+Plan mode
+=========
+
+While the session is in plan mode, every OSPREY tool that acts is refused: the tools that ask
+for approval, the write-gated ones, and the ones that delete. The agent is told
+``Plan mode: <tool> is off while planning. Leave plan mode to run it.`` Stopping a queue or a
+run, removing a queued item, validating a plan and the full health check stay available. A
+custom server follows its ``config.yml``: its ``permissions.ask`` tools are refused, and so is
+every tool of a server that declares ``writes_check``; a tool it lists in neither ``allow`` nor
+``ask`` is not.
+
 Five paths below the checks
 ===========================
 
