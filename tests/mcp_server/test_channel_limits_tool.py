@@ -6,6 +6,7 @@ and the reported limits posture (tri-state mode plus the
 config key that answered, resolved for the deployment's control target).
 """
 
+import re
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
@@ -119,6 +120,18 @@ def _get_channel_limits():
     from osprey.mcp_server.control_system.tools.channel_limits import channel_limits
 
     return get_tool_fn(channel_limits)
+
+
+# ---------------------------------------------------------------------------
+# Guidance the agent reads
+# ---------------------------------------------------------------------------
+
+
+def test_docstring_says_a_channel_with_no_record_is_normal():
+    """The tool tells the agent to size a step itself, never to ask for a record."""
+    doc = re.sub(r"\s+", " ", _get_channel_limits().__doc__ or "")
+    assert "a channel with no record is normal" in doc.lower()
+    assert "never ask for a record" in doc.lower()
 
 
 # ---------------------------------------------------------------------------
