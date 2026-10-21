@@ -230,10 +230,10 @@ dependencies = [
     # The floor admits no pre-release by itself. Every install OSPREY drives
     # from a pre-release pin admits them for the whole resolve (`--pre` for
     # pip, `--prerelease allow` for uv; see osprey.version.pins_prerelease),
-    # which lets it take the newest connectors pre-release, and pip also takes
-    # a pre-release when no stable release satisfies the floor. uv resolves
-    # transitive pre-releases only when told (`--prerelease=allow`); it fails
-    # loudly with that hint, never silently pairs an older stable.
+    # which lets it take the newest connectors pre-release. Where no stable
+    # release satisfies the floor, pip *and* uv under its default policy
+    # (`if-necessary`) silently take a pre-release — which is why the floor
+    # names only a stable connectors release already on PyPI.
     "osprey-connectors>=2026.6.2",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
