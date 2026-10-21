@@ -73,6 +73,7 @@ results are findings, not dead ends.**
 - If `capabilities().search_modes` includes `hybrid`, run `hybrid_search`
   for sub-questions where a known term and a fuzzy description matter at
   once, or that are about a picture; otherwise skip it silently.
+{%- if ariel_sql_tool %}
 
 ### 2d. SQL / structural queries
 
@@ -81,6 +82,7 @@ results are findings, not dead ends.**
   - Date-range groupings (`GROUP BY DATE_TRUNC('day', timestamp)`)
   - JSONB metadata filters
 - The query is read-only; it cannot mutate the database.
+{%- endif %}
 
 ### 2e. Browse and filter discovery
 
@@ -143,7 +145,7 @@ Produce a structured response for the user.
 - **NEVER fabricate authors, timestamps, or systems** — these come from
   entry data, not your prior assumptions about the facility.
 - **NEVER stop after one search.** Each sub-question gets at least keyword
-  + semantic (+ SQL when applicable).
+  + semantic{% if ariel_sql_tool %} (+ SQL when applicable){% endif %}.
 - **NEVER write entries to the logbook as part of research.** `entry_create`
   and `entry_publish` are for user-requested authoring only; if the user
   asks for a written-up summary, the user will explicitly request a write

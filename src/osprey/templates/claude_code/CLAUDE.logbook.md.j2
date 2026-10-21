@@ -49,7 +49,9 @@ You have access to these ARIEL MCP tools for logbook search:
   query expansion and reranking; the strongest single search when the
   deployment runs the hybrid module (`capabilities().search_modes` includes
   hybrid)
+{%- if ariel_sql_tool %}
 - `sql_query` — Read-only SQL for structural queries (counting, grouping, JSONB)
+{%- endif %}
 
 **Browse & Discovery**
 - `browse` — List recent entries with optional filters (date, author, source)
@@ -91,8 +93,10 @@ Plus workspace MCP tools for artifact handoff (`mcp__osprey_workspace__*`).
   `hybrid_search` next to `keyword_search`; entries whose matched_via
   contains image matched by their pictures{% if ariel_attachment_view %}, then open it with
   `attachment_view`{% endif %}.
+{%- if ariel_sql_tool %}
 - **SQL** for structural questions — counts, date ranges, group-by-author,
   group-by-source, JSONB metadata filters.
+{%- endif %}
 - **Browse** for chronological exploration of a date range.
 - **filter_options** before constraining by author or source — discover what
   values exist before guessing.
@@ -126,8 +130,10 @@ quarter", "what caused the beam dump on Jan 15"), invoke the
 - You interact with the logbook **exclusively** through ARIEL MCP tools.
 - **Never fabricate entry IDs, author names, or timestamps.** Only use values
   from tool results.
+{%- if ariel_sql_tool %}
 - **Never invent SQL columns or table names** — use `capabilities` if you
   need to discover the schema.
+{%- endif %}
 - **`entry_create` and `entry_publish` require explicit user request.**
   The approval hook will prompt the user before either tool fires; do not
   attempt to bypass that prompt.

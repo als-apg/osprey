@@ -77,6 +77,7 @@ def _ctx(view: bool) -> dict:
         "facility_name": "Test Facility",
         "facility_permissions": {},
         "ariel_attachment_view": view,
+        "ariel_sql_tool": True,
         "ariel_read_tools": _ariel_read_tools(view),
     }
     ctx["servers"] = resolve_servers({}, ctx)

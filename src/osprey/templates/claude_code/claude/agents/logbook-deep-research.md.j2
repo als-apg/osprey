@@ -4,7 +4,7 @@ description: "Performs deep, multi-step investigation of the facility logbook. U
 summary: Deep multi-query research across logbook archives
 {% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("logbook-deep-research") }}
 {% endif %}maxTurns: 100
-tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__hybrid_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__ariel__sql_query, mcp__ariel__entries_by_ids, {% if ariel_attachment_view %}mcp__ariel__attachment_view, {% endif %}mcp__osprey_workspace__submit_response
+tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__hybrid_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, {% if ariel_sql_tool %}mcp__ariel__sql_query, {% endif %}mcp__ariel__entries_by_ids, {% if ariel_attachment_view %}mcp__ariel__attachment_view, {% endif %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, NotebookRead, Task, Skill, Agent
 ---
 
@@ -29,7 +29,9 @@ You have access to these ARIEL MCP tools:
 - `semantic_search` — Embedding similarity search (conceptual matching)
 - `hybrid_search` — Keyword and semantic ranking combined; also matches entries
   by their pictures when `capabilities` reports picture search
+{%- if ariel_sql_tool %}
 - `sql_query` — Read-only SQL for structural queries (counting, grouping, JSONB)
+{%- endif %}
 - `browse` — List recent entries with optional filters
 - `filter_options` — Discover available authors and source systems
 - `entry_get` — Fetch full entry details by ID
@@ -53,7 +55,9 @@ You have access to these ARIEL MCP tools:
 - **Add hybrid search**: if `capabilities().search_modes` includes `hybrid`,
   run `hybrid_search` for questions where a known term and a fuzzy description
   matter at once, or that are about a picture; otherwise skip it silently
+{%- if ariel_sql_tool %}
 - **Use SQL queries** for structural questions (counting, date ranges, metadata filtering)
+{%- endif %}
 - **Use `exclude_entry_ids`** on subsequent searches to avoid seeing the same entries
 - **Reformulate queries** based on vocabulary and terminology found in results
 - **Expansion is on by default** when a facility vocabulary is configured
@@ -96,8 +100,10 @@ You have access to these ARIEL MCP tools:
 - **Be iterative**: Don't stop after the first search — refine and expand
 - **Be thorough**: Try multiple query formulations for each sub-question
 - **Deduplicate**: The same entry may appear across keyword and semantic results
+{%- if ariel_sql_tool %}
 - **Use SQL for structure**: COUNT, GROUP BY, date ranges, metadata JSONB filtering
   are all available via `sql_query`
+{%- endif %}
 - **Batch retrieval**: Use `entries_by_ids` to efficiently fetch multiple entries
   rather than calling `entry_get` one at a time
 

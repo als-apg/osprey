@@ -1171,6 +1171,50 @@ class TestArielAttachmentView:
         } <= set(allow)
 
 
+class TestArielSqlTool:
+    """``ariel_sql_tool`` decides whether the agent is offered sql_query."""
+
+    _CFG = {"servers": {"ariel": {"enabled": True}, "ariel2": {"extends": "ariel"}}}
+
+    @staticmethod
+    def _by_name(cfg, offered):
+        ctx = _base_ctx(ariel_sql_tool=offered)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_withheld_from_the_server_and_every_clone(self):
+        offered = self._by_name(self._CFG, True)
+        withheld = self._by_name(self._CFG, False)
+        for name in ("ariel", "ariel2"):
+            assert withheld[name]["permissions_allow"] == [
+                t for t in offered[name]["permissions_allow"] if t != "sql_query"
+            ]
+            assert "sql_query" not in withheld[name]["permissions_ask"]
+
+    def test_offered_by_default(self):
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
+        for name in ("ariel", "ariel2"):
+            assert "sql_query" in servers[name]["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, False)
+        assert "sql_query" in FRAMEWORK_SERVERS["ariel"].permissions_allow
+
+    @staticmethod
+    def _settings_allow(offered):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(ariel_sql_tool=offered, _claude_code_config=TestArielSqlTool._CFG)
+        rendered = rendering._render(TemplateManager(), "claude_code/claude/settings.json.j2", ctx)
+        return json.loads(rendered)["permissions"]["allow"]
+
+    def test_rendered_allow_list_is_the_one_without_sql_query(self):
+        offered = self._settings_allow(True)
+        withheld = self._settings_allow(False)
+        assert {"mcp__ariel__sql_query", "mcp__ariel2__sql_query"} <= set(offered)
+        assert withheld == [p for p in offered if not p.endswith("__sql_query")]
+
+
 # ---------------------------------------------------------------------------
 # Agent resolution tests
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -108,8 +108,18 @@ def check_sql_tool_offered() -> None:
     )
 
 
-class AttachmentViewOfferMiddleware(Middleware):
-    """Leave the picture tools out of ``tools/list`` when the view is switched off.
+#: Each config-gated tool and the predicate that offers it here.
+_TOOL_OFFERS: tuple[tuple[frozenset[str], Callable[[], bool]], ...] = (
+    (VIEW_GATED_TOOLS, attachment_view_offered),
+    (frozenset({SQL_QUERY_TOOL}), sql_tool_offered_here),
+)
+
+
+class ToolOfferMiddleware(Middleware):
+    """Leave every tool whose offer predicate is false out of ``tools/list``.
+
+    The picture tools follow :func:`attachment_view_offered` and ``sql_query``
+    follows :func:`sql_tool_offered_here`.
 
     It hides the tools and does not refuse them. The refusal lives in each
     tool, so a call that reaches the server anyway gets an answer naming the
@@ -121,11 +131,15 @@ class AttachmentViewOfferMiddleware(Middleware):
         context: MiddlewareContext[mt.ListToolsRequest],
         call_next: CallNext[mt.ListToolsRequest, Sequence[Tool]],
     ) -> Sequence[Tool]:
-        """Return the listed tools, without ``VIEW_GATED_TOOLS`` when they are not offered."""
+        """Return the listed tools, without those not offered here."""
         tools = await call_next(context)
-        if attachment_view_offered():
+        withheld: set[str] = set()
+        for names, offered in _TOOL_OFFERS:
+            if not offered():
+                withheld |= names
+        if not withheld:
             return tools
-        return [tool for tool in tools if tool.name not in VIEW_GATED_TOOLS]
+        return [tool for tool in tools if tool.name not in withheld]
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +156,7 @@ mcp = FastMCP(
         "`raw_text_length` is the full length, and `entry_get` returns the whole entry."
     ),
 )
-mcp.add_middleware(AttachmentViewOfferMiddleware())
+mcp.add_middleware(ToolOfferMiddleware())
 
 # The source_system value ARIEL stamps on its own natively-created entries
 # (see tools/entry.py entry_create direct mode). Such entries are not (yet) in
