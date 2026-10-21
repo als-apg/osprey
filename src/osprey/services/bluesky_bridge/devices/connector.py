@@ -119,6 +119,14 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
     return value
 
 
+def _data_key(address: str, unit: str | None) -> DataKey:
+    """A scalar numeric data key for ``address``, carrying ``units`` when ``unit`` is known."""
+    key: DataKey = {"source": f"connector:{address}", "dtype": "number", "shape": []}
+    if unit is not None:
+        key["units"] = unit
+    return key
+
+
 class ConnectorSettable(StandardReadable):
     """A settable/readable PV pair mediated entirely by the OSPREY connector.
 
@@ -160,6 +168,11 @@ class ConnectorSettable(StandardReadable):
     The device is Bluesky-``Locatable``, so ``bps.locate`` answers where it
     was told to go and where it is, both read live through the connector.
 
+    ``unit`` is the unit of the value reported under ``<name>`` and
+    ``setpoint_unit`` the unit of the demand under ``<name>_setpoint``; each is
+    stated as the data key's ``units`` in :meth:`describe`, and a key whose
+    unit is ``None`` carries no ``units``.
+
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
     owns the ``self._connector`` attribute (its internal
@@ -178,6 +191,8 @@ class ConnectorSettable(StandardReadable):
         settle_relative: float | None = None,
         motion_band: float | None = None,
         simulated: bool = False,
+        unit: str | None = None,
+        setpoint_unit: str | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._setpoint_pv = setpoint_pv
@@ -186,6 +201,8 @@ class ConnectorSettable(StandardReadable):
         self._settle_relative = settle_relative
         self._motion_band = motion_band
         self._simulated = simulated
+        self._unit = unit
+        self._setpoint_unit = setpoint_unit
         super().__init__(name=name)
 
     @AsyncStatus.wrap
@@ -314,20 +331,13 @@ class ConnectorSettable(StandardReadable):
 
     async def describe(self) -> dict[str, DataKey]:
         """Describe the live readback channel as a scalar numeric data key,
-        and the setpoint channel beside it when the two differ."""
+        and the setpoint channel beside it when the two differ, each with the
+        ``units`` the device was given. Reads nothing through the connector."""
         described: dict[str, DataKey] = {
-            self.name: {
-                "source": f"connector:{self._readback_pv}",
-                "dtype": "number",
-                "shape": [],
-            }
+            self.name: _data_key(self._readback_pv, self._unit),
         }
         if self.has_distinct_readback:
-            described[self.setpoint_key] = {
-                "source": f"connector:{self._setpoint_pv}",
-                "dtype": "number",
-                "shape": [],
-            }
+            described[self.setpoint_key] = _data_key(self._setpoint_pv, self._setpoint_unit)
         return described
 
     @property
@@ -365,9 +375,12 @@ class ConnectorReadable(StandardReadable):
     is already owned by ophyd-async's ``Device.__init__``.
     """
 
-    def __init__(self, connector: Any, read_pv: str, name: str = "") -> None:
+    def __init__(
+        self, connector: Any, read_pv: str, name: str = "", unit: str | None = None
+    ) -> None:
         self._osprey_connector = connector
         self._read_pv = read_pv
+        self._unit = unit
         super().__init__(name=name)
 
     async def read(self) -> dict[str, Reading[Any]]:
@@ -376,14 +389,9 @@ class ConnectorReadable(StandardReadable):
         return {self.name: {"value": reading.value, "timestamp": time.time()}}
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe the live channel as a scalar numeric data key."""
-        return {
-            self.name: {
-                "source": f"connector:{self._read_pv}",
-                "dtype": "number",
-                "shape": [],
-            }
-        }
+        """Describe the live channel as a scalar numeric data key, with its
+        ``units`` when the device was given one."""
+        return {self.name: _data_key(self._read_pv, self._unit)}
 
     @property
     def hints(self) -> Hints:
@@ -451,9 +459,11 @@ async def build_devices(
             settle_relative=settable_spec.settle_relative,
             motion_band=settable_spec.motion_band,
             simulated=simulated,
+            unit=settable_spec.unit,
+            setpoint_unit=settable_spec.setpoint_unit,
         )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(
-            connector, readable_spec.read_pv, name=readable_spec.name
+            connector, readable_spec.read_pv, name=readable_spec.name, unit=readable_spec.unit
         )
     return await connect_all(devices)
