@@ -60,6 +60,13 @@ menu (or the command palette) at any time. The choice is remembered per
 browser, and each user's own pick wins over the configured default. (Pair it
 with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
 
+Dragging rail entries
+---------------------
+
+Drag an entry along the rail to reorder it; SESSION stays at the head. The
+order is shared by everyone on the same terminal and kept across reloads. Drag
+an entry onto the workspace instead to open it as a new tile where you drop it.
+
 Taking panels off the rail
 --------------------------
 
