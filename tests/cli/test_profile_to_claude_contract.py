@@ -773,6 +773,8 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # The render carries no pyAML view.
         "measurement": {},
+        # With every server off no tool acts, so plan mode refuses nothing.
+        "plan_mode_denied_tools": [],
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 

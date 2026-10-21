@@ -54,6 +54,7 @@ _EXPECTED_KEYS = {
     "mixed_read_write_tools",
     "lane_addressed_tools",
     "measurement",
+    "plan_mode_denied_tools",
 }
 
 
@@ -454,3 +455,64 @@ def test_build_path_context_carries_the_mixed_list(tmp_path):
     built = _hook_config(project_dir)
     assert built["mixed_read_write_tools"] == regen_ctx["mixed_read_write_tools"]
     assert built["mixed_read_write_tools"], "default render should carry python execute"
+
+
+# ---------------------------------------------------------------------------
+# plan_mode_denied_tools
+# ---------------------------------------------------------------------------
+
+
+def _plan_mode_exemptions():
+    """Every tool the registry keeps callable in plan mode, fully qualified."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    return {
+        f"mcp__{sdef.name}__{tool}"
+        for sdef in FRAMEWORK_SERVERS.values()
+        for tool in sdef.plan_mode_allowed
+    }
+
+
+def _assert_plan_mode_list_populated(config):
+    denied = config["plan_mode_denied_tools"]
+    assert "mcp__controls__channel_write" in denied
+    assert _plan_mode_exemptions().isdisjoint(denied)
+
+
+def test_both_render_paths_carry_the_plan_mode_list(tmp_path):
+    manager, project_dir = _create_project(tmp_path)
+    _assert_plan_mode_list_populated(_hook_config(project_dir))
+    _assert_plan_mode_list_populated(_regenerate(manager, project_dir))
+
+
+def test_build_path_context_carries_the_plan_mode_list(tmp_path):
+    """create_project's own context derives the plan-mode list as the regen path does."""
+    from osprey.registry.mcp import plan_mode_denied_tools
+
+    manager, project_dir = _create_project(tmp_path)
+    built = _hook_config(project_dir)
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    regen_ctx = claude_code.build_claude_code_context(
+        manager.template_root, manager.jinja_env, project_dir, config
+    )
+
+    assert regen_ctx["plan_mode_denied_tools"] == plan_mode_denied_tools(
+        regen_ctx["servers"], regen_ctx.get("control_system_write_tools") or []
+    )
+    assert set(built["plan_mode_denied_tools"]) <= set(regen_ctx["plan_mode_denied_tools"])
+    assert built["plan_mode_denied_tools"], "default render should deny channel_write"
+
+
+def test_absent_plan_mode_key_renders_an_empty_list():
+    manager = TemplateManager()
+    rendered = _render_direct(
+        manager,
+        {
+            "servers": [{"name": "controls", "enabled": True, "hooks_pre": []}],
+            "control_system_write_tools": [],
+        },
+    )
+
+    config = json.loads(rendered)
+    assert config["plan_mode_denied_tools"] == []
+    assert set(config) == _EXPECTED_KEYS

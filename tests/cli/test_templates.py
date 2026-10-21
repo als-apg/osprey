@@ -482,6 +482,7 @@ class TestTemplateManifest:
             "osprey_memory_guard.py",
             "osprey_notebook_update.py",
             "osprey_panels_context.py",
+            "osprey_plan_mode.py",
             "osprey_safety_file.py",
             "osprey_target_state.py",
             "osprey_turn_state.py",

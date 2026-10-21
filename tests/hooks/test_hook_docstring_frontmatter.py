@@ -22,6 +22,7 @@ HOOK_FILES = [
     "osprey_error_guidance.py",
     "osprey_notebook_update.py",
     "osprey_memory_guard.py",
+    "osprey_plan_mode.py",
     "osprey_config_drift.py",
     "osprey_focus_validate.py",
     "osprey_panels_context.py",
