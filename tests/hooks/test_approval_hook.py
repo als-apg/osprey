@@ -2824,3 +2824,170 @@ def test_the_hook_restates_the_view_writers_names(hook_module):
     approval = hook_module("osprey_approval")
     assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
     assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE
+
+
+# ── Plan mode: silent where the plan-mode rule denies ────────────────
+
+#: A render's hook config with the plan-mode list, in the shape the build writes.
+PLAN_MODE_HOOK_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__bluesky__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__bluesky__"],
+    "write_tools": ["mcp__controls__channel_write", "mcp__bluesky__queue_add"],
+    "plan_mode_denied_tools": ["mcp__controls__channel_write", "mcp__bluesky__queue_add"],
+}
+
+PLAN_MODE_APPROVAL_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"channel_write": "always", "stop_run": "always"},
+    },
+    "control_system": {"writes_enabled": True},
+}
+
+PLAN_WRITE_INPUT = {"operations": [{"channel": "TEST:PV", "value": 1.0}]}
+
+
+def _plan_mode_run(hook_runner, make_config, tmp_path, tool, mode, hook_config=None, tid="t1"):
+    return hook_runner(
+        "osprey_approval.py",
+        tool,
+        PLAN_WRITE_INPUT if tool.endswith("channel_write") else {},
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_config=PLAN_MODE_HOOK_CONFIG if hook_config is None else hook_config,
+        hook_input_extra={
+            "hook_event_name": "PreToolUse",
+            "permission_mode": mode,
+            "tool_use_id": f"toolu_{tid}",
+            "session_id": "conv-plan",
+        },
+    )
+
+
+@pytest.fixture
+def plan_stamp_dir(tmp_path, monkeypatch):
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return state
+
+
+def test_plan_mode_leaves_a_denied_tool_to_the_plan_mode_rule(
+    tmp_path, hook_runner, make_config, monkeypatch, plan_stamp_dir
+):
+    """An ask here would win over the plan-mode deny, so the hook says nothing."""
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
+
+    result = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__controls__channel_write", "plan", tid="pm1"
+    )
+
+    assert result is None
+    debug = [
+        json.loads(line)
+        for line in (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    approval_lines = [rec for rec in debug if rec["hook"] == "approval"]
+    assert [rec["status"] for rec in approval_lines] == ["defer"]
+    assert "plan_mode" in approval_lines[0]["detail"]
+    assert sorted(plan_stamp_dir.glob("approval_ask_*.json")) == []
+
+
+def test_plan_mode_asks_for_an_unlisted_approval_gated_tool(tmp_path, hook_runner, make_config):
+    """A tool that stays callable while planning keeps exactly its default-mode prompt."""
+    planned = _plan_mode_run(hook_runner, make_config, tmp_path, "mcp__bluesky__stop_run", "plan")
+    default = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__bluesky__stop_run", "default"
+    )
+
+    assert _decision(planned) == _decision(default) == "ask"
+
+
+@pytest.mark.parametrize(
+    "hook_config",
+    [
+        pytest.param(
+            {k: v for k, v in PLAN_MODE_HOOK_CONFIG.items() if k != "plan_mode_denied_tools"},
+            id="key-missing",
+        ),
+        pytest.param(
+            {**PLAN_MODE_HOOK_CONFIG, "plan_mode_denied_tools": "mcp__controls__channel_write"},
+            id="non-list",
+        ),
+    ],
+)
+def test_plan_mode_without_a_readable_list_asks_as_before(
+    tmp_path, hook_runner, make_config, hook_config
+):
+    result = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__controls__channel_write", "plan", hook_config
+    )
+
+    assert _decision(result) == "ask"
+
+
+def test_plan_mode_with_an_unreadable_hook_config_asks_as_before(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """No list, no prefixes: the hook behaves exactly as with any unreadable config."""
+    broken = tmp_path / "hook_config.json"
+    broken.write_text("{not json")
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(broken))
+
+    planned = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        PLAN_WRITE_INPUT,
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "plan"},
+    )
+    default = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        PLAN_WRITE_INPUT,
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "default"},
+    )
+
+    assert planned == default
+
+
+def test_plan_mode_without_the_sibling_rule_asks(
+    tmp_path, hook_module, make_config, monkeypatch, capsys
+):
+    """A render that ships no plan-mode rule gets no early exit: the hook asks."""
+    import io
+
+    approval = hook_module("osprey_approval")
+    monkeypatch.setattr(approval, "_plan_mode", None)
+    hook_config = tmp_path / "plan_hook_config.json"
+    hook_config.write_text(json.dumps(PLAN_MODE_HOOK_CONFIG))
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(hook_config))
+    config_path = make_config(PLAN_MODE_APPROVAL_CONFIG)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    monkeypatch.setattr(sys, "argv", ["osprey_approval.py"])
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__controls__channel_write",
+        "tool_input": PLAN_WRITE_INPUT,
+        "permission_mode": "plan",
+        "cwd": str(tmp_path),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(SystemExit) as exit_info:
+        approval.main()
+
+    assert exit_info.value.code == 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert _decision(result) == "ask"

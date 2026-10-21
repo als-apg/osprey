@@ -81,6 +81,7 @@ _COMMON_HOOK_FILES = frozenset(
         "osprey_hook_log.py",
         "osprey_memory_guard.py",
         "osprey_panels_context.py",
+        "osprey_plan_mode.py",
         "osprey_safety_file.py",
         "osprey_target_state.py",
         "osprey_turn_state.py",
@@ -137,3 +138,56 @@ def test_every_bundled_preset_renders_its_pinned_hook_files(preset: str, tmp_pat
     hooks_dir = project / ".claude" / "hooks"
     rendered = {path.name for path in hooks_dir.iterdir() if path.is_file()}
     assert rendered == PINNED_PRESET_HOOK_FILES[preset]
+
+
+# ── The plan-mode rule ships and is wired with the approval hook ─────
+
+
+def _plan_mode_rules(settings: dict) -> list[dict]:
+    return [
+        rule
+        for rule in settings.get("hooks", {}).get("PreToolUse", [])
+        if any("osprey_plan_mode.py" in hook["command"] for hook in rule["hooks"])
+    ]
+
+
+def _render(tmp_path: Path, preset: str, drop: tuple[str, ...] = ()) -> Path:
+    from osprey.cli.build_profile_presets import _nearest_preset_value
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.cli.templates.manifest import load_template_manifest
+    from tests._preset_data import bundle_data_root
+
+    bundle = _nearest_preset_value(preset, "app_template")
+    selection = load_template_manifest(preset)
+    artifacts = {kind: list(names) for kind, names in selection["artifacts"].items()}
+    artifacts["hooks"] = [name for name in artifacts.get("hooks", []) if name not in drop]
+    return TemplateManager().create_project(
+        project_name="plan-mode",
+        output_dir=tmp_path,
+        data_bundle=bundle,
+        context={"channel_finder_mode": "hierarchical"},
+        artifacts=artifacts,
+        data_root=bundle_data_root(bundle),
+    )
+
+
+def test_a_render_selecting_approval_ships_and_wires_the_plan_mode_rule(tmp_path: Path):
+    import json
+
+    project = _render(tmp_path, "control-assistant-knowledge")
+    assert "approval" in _resolved_hooks("control-assistant-knowledge")
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    rules = _plan_mode_rules(settings)
+    assert (project / ".claude" / "hooks" / "osprey_plan_mode.py").is_file()
+    assert [rule["matcher"] for rule in rules] == ["mcp__.*"]
+
+
+def test_a_render_without_approval_has_neither_the_file_nor_the_rule(tmp_path: Path):
+    import json
+
+    project = _render(tmp_path, "control-assistant-knowledge", drop=("approval",))
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert not (project / ".claude" / "hooks" / "osprey_plan_mode.py").exists()
+    assert _plan_mode_rules(settings) == []

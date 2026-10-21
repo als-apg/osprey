@@ -774,8 +774,9 @@ class TestSafetyPreservation:
            pre/post rules.
         3. **Frontmatter ``wiring: standalone``** — hooks whose own YAML
            frontmatter declares the event and matcher tools, from which the
-           renderer builds the rule. Exactly two hooks use this route today:
-           ``osprey_memory_guard`` and ``osprey_notebook_update``.
+           renderer builds the rule. Exactly three hooks use this route today:
+           ``osprey_memory_guard``, ``osprey_notebook_update`` and
+           ``osprey_plan_mode``.
         """
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         hooks_dir = regen_project / ".claude" / "hooks"

@@ -505,3 +505,42 @@ def test_post_tool_use_hooks_independent(hook_runner, make_config):
     )
 
     assert nb_result is None  # channel_read has no notebook_path
+
+
+def test_plan_mode_channel_write_is_denied_once_and_asked_nowhere(tmp_path, hook_runner):
+    """In plan mode the whole PreToolUse chain yields one deny and no ask.
+
+    Every hook runs, as the harness runs them all and aggregates: the plan-mode
+    rule's deny would lose to an ask from the approval hook, so the approval
+    hook must stay silent where the rule denies.
+    """
+    config = _make_chain_config(
+        tmp_path,
+        writes_enabled=True,
+        channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+        approval_default_policy="always",
+        approval_tools={"channel_write": "always"},
+    )
+    hook_config = {
+        **DEFAULT_CHAIN_CONFIG,
+        "write_tools": ["mcp__controls__channel_write"],
+        "plan_mode_denied_tools": ["mcp__controls__channel_write"],
+    }
+
+    decisions = []
+    for hook_name in ["osprey_plan_mode.py", *WRITE_HOOK_CHAIN]:
+        result = hook_runner(
+            hook_name,
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
+            config_path=config,
+            cwd=tmp_path,
+            hook_config=hook_config,
+            hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "plan"},
+        )
+        if result is not None:
+            decision = result.get("hookSpecificOutput", {}).get("permissionDecision")
+            if decision is not None:
+                decisions.append((hook_name, decision))
+
+    assert decisions == [("osprey_plan_mode.py", "deny")]
