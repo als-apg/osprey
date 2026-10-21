@@ -28,8 +28,9 @@ The step is computed from a shot and the current reference by
 horizontal corrector, then every vertical one), and the increment written is
 ``δ = −factor·step``, where ``factor`` is the largest uniform scale at most 1
 that keeps every ``|δ|`` strictly inside its ``max_step``. A step solves on the
-model matrix restricted to the shot's excluded BPMs and the SolveConfig's
-excluded correctors (:func:`restricted_tool`), with the SolveConfig's
+model matrix restricted to the SolveConfig's excluded BPMs and correctors
+(:func:`restricted_tool`) — the BPM set every shot is taken with, so the step,
+the shot and the published solve agree — with the SolveConfig's
 ``alpha`` and ``gain`` and the discard count its ``keep_live`` stands for over
 that matrix (:func:`n_discard_for`), all passed per call. The step's digest
 binds the target, the model, the holder's ``client_id``, the shot id, the
@@ -924,19 +925,23 @@ def _solve_inputs(
 ) -> tuple[TrajectoryTool, dict[str, Any] | None, str | None, frozenset[str]]:
     """The tool, settings, solve identity and ignored rows a step on ``shot`` solves with.
 
-    With no SolveConfig and no excluded BPM the step is the shared tool's, at
-    its configured values, outside any published solve. Blocking: a
-    restriction not cached builds a pyAML tool.
+    The excluded BPMs and correctors are the SolveConfig's, the set the shot
+    was taken with. With no SolveConfig the shot's own excluded BPMs stand in,
+    and with none of those the step is the shared tool's, at its configured
+    values, outside any published solve. Blocking: a restriction not cached
+    builds a pyAML tool.
     """
     if config is None and not shot.excluded_bpms:
         return shared, None, None, frozenset()
     if config is None:
+        excluded_bpms: list[str] = list(shot.excluded_bpms)
         excluded_cms: list[str] = []
         alpha, gain, keep_live = shared.alpha, shared.gain, keep_live_default(shared)
     else:
+        excluded_bpms = list(config.excluded_bpms)
         excluded_cms = list(config.excluded_cms)
         alpha, gain, keep_live = config.alpha, config.gain, config.keep_live
-    excluded = frozenset({*shot.excluded_bpms, *excluded_cms})
+    excluded = frozenset({*excluded_bpms, *excluded_cms})
     tool = restricted_tool(shared, excluded)
     settings = per_call_settings(
         tool, alpha=alpha, n_discard=n_discard_for(tool, keep_live), gain=gain
@@ -986,8 +991,8 @@ async def step_for_shot(
 
     Reads the current reference from ``store`` matched over the shot's BPMs,
     takes every ``max_step`` from the limits validator the turn resolved for
-    the service target, restricts the model matrix to the shot's excluded BPMs
-    and ``config``'s excluded correctors, and runs :func:`compute_step` with
+    the service target, restricts the model matrix to ``config``'s excluded
+    BPMs and correctors (the shot's excluded BPMs without one), and runs :func:`compute_step` with
     ``config``'s ``alpha``, ``gain`` and the discard count its ``keep_live``
     stands for, in a thread.
 

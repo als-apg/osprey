@@ -21,7 +21,9 @@ import {
 } from './correction.js';
 import { createView } from './views.js';
 
-const FAMILIES = { bpms: ['B1', 'B2', 'B3'], hcms: ['H1', 'H2'], vcms: ['V1'] };
+/** @param {string[]} names */
+const entries = (names) => names.map((name, i) => ({ name, device: name, label: name, places: [], s: i, plane: null, groups: [] }));
+const CATALOG = { bpms: entries(['B1', 'B2', 'B3']), hcms: entries(['H1', 'H2']), vcms: entries(['V1']), groups: [] };
 
 const CONFIG = {
   alpha: 0.01, keep_live: 3, n_discard: 0, gain: 0.5,
@@ -49,7 +51,7 @@ function stepOf(over = {}) {
 /** @param {Record<string, unknown>} [over] */
 function snapshotOf(over = {}) {
   return {
-    mode: 'idle', model: 'SR', families: FAMILIES, solve: solveOf(), step: stepOf(), last_action: null,
+    mode: 'idle', model: 'SR', catalog: CATALOG, solve: solveOf(), step: stepOf(), last_action: null,
     ...over,
   };
 }

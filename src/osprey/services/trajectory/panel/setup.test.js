@@ -14,10 +14,13 @@ import {
   seededTexts,
 } from './setup.js';
 
-const FAMILIES = {
-  bpms: ['B1', 'B2', 'B3', 'B4', 'B5', 'B6'],
-  hcms: ['H1', 'H2', 'H3'],
-  vcms: ['V1', 'V2'],
+/** @param {string[]} names */
+const entries = (names) => names.map((name, i) => ({ name, device: name, label: name, places: [], s: i, plane: null, groups: [] }));
+const CATALOG = {
+  bpms: entries(['B1', 'B2', 'B3', 'B4', 'B5', 'B6']),
+  hcms: entries(['H1', 'H2', 'H3']),
+  vcms: entries(['V1', 'V2']),
+  groups: [],
 };
 
 /**
@@ -26,7 +29,7 @@ const FAMILIES = {
  */
 function snapshotWith(bpms = [], cms = []) {
   return {
-    families: FAMILIES,
+    catalog: CATALOG,
     setup: null,
     solve: { config: { excluded_bpms: bpms, excluded_cms: cms, alpha: 0, gain: 1, keep_live: 1, n_discard: 0, loss_cutoff: 0, overridden: [] } },
   };

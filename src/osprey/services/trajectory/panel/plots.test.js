@@ -32,7 +32,7 @@ function raw() {
 function snapshot(over = {}) {
   return {
     holder: null,
-    families: { bpms: ['B1', 'B2'], hcms: [], vcms: [] },
+    catalog: { bpms: [{ name: 'B1' }, { name: 'B2' }], hcms: [], vcms: [], groups: [] },
     reference: null,
     solve: { sha: 's1', config: { excluded_bpms: [], excluded_cms: [], alpha: 0.1 } },
     ...over,

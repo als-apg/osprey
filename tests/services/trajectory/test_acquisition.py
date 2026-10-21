@@ -327,6 +327,73 @@ async def test_shots_are_averaged_and_lost_bpms_read_none_at_the_earliest_loss(
     assert shot.commands_fired == [*SHOT_ARM, REQUEST, *SHOT_ARM, REQUEST]
 
 
+@pytest.mark.usefixtures("optional_validator")
+async def test_the_default_chain_takes_the_solveconfigs_exclusions_and_loss_cutoff(
+    store: TrajectoryStore,
+) -> None:
+    layer, machine = _shot_layer()
+
+    shot = await _shoot(layer, store, excluded_bpms=["BPM2"], loss_cutoff=0.25)
+
+    # The excluded BPM is never read; the shot keeps its row as a gap.
+    assert not {ROWS.x[1], ROWS.y[1], ROWS.sum[1]} & set(machine.reads)
+    assert {ROWS.x[0], ROWS.x[2]} <= set(machine.reads)
+    assert shot.excluded_bpms == ["BPM2"]
+    assert shot.x[ROWS.x[1]] is None
+    assert shot.loss_cutoff == 0.25
+
+
+@pytest.mark.usefixtures("optional_validator")
+async def test_an_excluded_bpm_is_neither_armed_nor_waited_on_nor_read(
+    store: TrajectoryStore,
+) -> None:
+    # Each BPM is named by its x row, as the service's row layout names it;
+    # BPM2 alone arms through device B.
+    rows = ShotRows(bpms=ROWS.x, x=ROWS.x, y=ROWS.y, sum=ROWS.sum)
+    commands = TrajectoryCommands(
+        model="SR",
+        devices=tuple(
+            TrajectoryDevice(
+                name=bpm,
+                x_row=x,
+                y_row=y,
+                sum_row=total,
+                arm=SHOT_ARM[1] if bpm == "BPM2" else SHOT_ARM[0],
+                armed=SHOT_ARMED[1] if bpm == "BPM2" else SHOT_ARMED[0],
+            )
+            for bpm, x, y, total in zip(BPMS, ROWS.x, ROWS.y, ROWS.sum, strict=True)
+        ),
+        injection_request=REQUEST,
+        injection_busy=BUSY,
+        trigger_sample=TRIGGER_SAMPLE,
+    )
+    layer, machine = _shot_layer()
+    layer.startup.commands = commands
+    # Device B is never armed by the shot; the stand-in injects once every
+    # flag reads armed, so B's flag starts set.
+    machine.values[SHOT_ARMED[1]] = 1
+
+    shot = await _shoot(layer, store, rows=rows, excluded_bpms=[ROWS.x[1]])
+
+    assert [ops for ops, _ in machine.commands] == [[(SHOT_ARM[0], 1)], [(REQUEST, 1)]]
+    assert SHOT_ARMED[1] not in machine.reads
+    assert not {ROWS.x[1], ROWS.y[1], ROWS.sum[1]} & set(machine.reads)
+    assert shot.excluded_bpms == [ROWS.x[1]]
+    assert shot.shots_included == 1
+
+
+@pytest.mark.usefixtures("optional_validator")
+async def test_the_default_chain_without_a_solveconfig_takes_the_configured_cutoff(
+    store: TrajectoryStore,
+) -> None:
+    layer, _ = _shot_layer(TrajectorySettings(armed_timeout_s=0.3, loss_cutoff_fraction=0.4))
+
+    shot = await _shoot(layer, store)
+
+    assert shot.excluded_bpms == []
+    assert shot.loss_cutoff == 0.4
+
+
 # -- failed shots: reported, excluded, never retried -------------------------------
 
 

@@ -447,9 +447,9 @@ export const mount = (host, ctx) => {
     const shown = kept != null && ctx.view.get('plotCmStep');
     cmPlot.hidden = !shown;
     if (!shown) return;
-    const families = ctx.snapshot()?.families ?? null;
+    const catalog = ctx.snapshot()?.catalog ?? null;
     const step = kept;
-    ctx.adapter?.render?.('plot-cm-step', (/** @type {any} */ theme) => cmStepFigure(step, families, theme));
+    ctx.adapter?.render?.('plot-cm-step', (/** @type {any} */ theme) => cmStepFigure(step, catalog, theme));
   }
 
   function drawResult() {

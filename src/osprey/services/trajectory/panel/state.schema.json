@@ -95,6 +95,169 @@
       "title": "ApplyResult",
       "type": "object"
     },
+    "Catalog": {
+      "additionalProperties": false,
+      "description": "The devices the response matrix covers, each family in ring order.\n\nRing order is ``s``, then matrix order; a device without ``s`` follows the\nplaced ones, in matrix order. Selection addresses a device by its\n``name``; an excluded device keeps its entry.\n\nAttributes:\n    bpms: The BPMs, one per matrix row pair.\n    hcms: The horizontal correctors.\n    vcms: The vertical correctors.\n    groups: The facility groups listing matrix devices.",
+      "properties": {
+        "bpms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Bpms",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/CatalogGroup"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "hcms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Hcms",
+          "type": "array"
+        },
+        "vcms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Vcms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bpms",
+        "hcms",
+        "vcms"
+      ],
+      "title": "Catalog",
+      "type": "object"
+    },
+    "CatalogEntry": {
+      "additionalProperties": false,
+      "description": "One device the response matrix covers, as the facility names it.\n\nAttributes:\n    name: The matrix name the service addresses the device by: a BPM's\n        x-row address, a corrector's setpoint address.\n    device: The facility device id.\n    label: The name a person reads for the device.\n    places: The places holding the device, root to leaf.\n    s: Its position along the model in metres, ``None`` when unknown.\n    plane: ``x`` or ``y`` for a corrector, ``None`` for a BPM.\n    groups: The ids of the facility groups listing the device.",
+      "properties": {
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/CatalogPlace"
+          },
+          "title": "Places",
+          "type": "array"
+        },
+        "plane": {
+          "anyOf": [
+            {
+              "enum": [
+                "x",
+                "y"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plane"
+        },
+        "s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "S"
+        }
+      },
+      "required": [
+        "name",
+        "device",
+        "label"
+      ],
+      "title": "CatalogEntry",
+      "type": "object"
+    },
+    "CatalogGroup": {
+      "additionalProperties": false,
+      "description": "A facility group listing matrix devices.\n\nAttributes:\n    id: The group's id.\n    label: The name a person reads for the group.\n    members: The matrix names of its devices.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "members"
+      ],
+      "title": "CatalogGroup",
+      "type": "object"
+    },
+    "CatalogPlace": {
+      "additionalProperties": false,
+      "description": "One link of a device's place chain.\n\nAttributes:\n    id: The place's id.\n    level: The facility's own word for the place's level, ``None`` when it\n        states none.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Level"
+        }
+      },
+      "required": [
+        "id",
+        "level"
+      ],
+      "title": "CatalogPlace",
+      "type": "object"
+    },
     "ChainBody": {
       "additionalProperties": false,
       "description": "A chain run on the panel door; also the body a continuous run starts with.\n\nAttributes:\n    steps: The ticked step ids; the service runs them in chain order.\n    readout: How a readout step reads the injections.\n    n_turns: The turns a pseudo-orbit readout averages over.\n    n_shots: The injections in the action.\n    average: How the included injections are combined.",
@@ -389,40 +552,6 @@
         "lease_expires_in_s"
       ],
       "title": "ContinuousStatus",
-      "type": "object"
-    },
-    "Families": {
-      "additionalProperties": false,
-      "description": "The build's device families in build-time order.\n\nThe panel addresses a device by its 1-based index here; an excluded device\nkeeps its index.",
-      "properties": {
-        "bpms": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Bpms",
-          "type": "array"
-        },
-        "hcms": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Hcms",
-          "type": "array"
-        },
-        "vcms": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Vcms",
-          "type": "array"
-        }
-      },
-      "required": [
-        "bpms",
-        "hcms",
-        "vcms"
-      ],
-      "title": "Families",
       "type": "object"
     },
     "HolderView": {
@@ -1462,7 +1591,7 @@
     },
     "Snapshot": {
       "additionalProperties": false,
-      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.\n    chain: The declared chain, in order.\n    families: The build's BPM and corrector families, ``None`` without a\n        model.\n    machine: The machine readings, ``None`` until read.\n    setup: The current setup, ``None`` when none was applied.\n    solve: The published solve, ``None`` before one is computed.\n    retention: How many shots' raw buffers are kept; the panel's record\n        cap.\n    n_shots_max: The largest ``n_shots`` the action budget admits.\n    notices: What the service voided or dropped since, for the operator.",
+      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.\n    chain: The declared chain, in order.\n    catalog: The devices the build's response matrix covers, ``None``\n        when the build wrote no catalog for the model.\n    machine: The machine readings, ``None`` until read.\n    setup: The current setup, ``None`` when none was applied.\n    solve: The published solve, ``None`` before one is computed.\n    retention: How many shots' raw buffers are kept; the panel's record\n        cap.\n    n_shots_max: The largest ``n_shots`` the action budget admits.\n    notices: What the service voided or dropped since, for the operator.",
       "properties": {
         "action": {
           "anyOf": [
@@ -1493,6 +1622,17 @@
           ],
           "title": "Caller"
         },
+        "catalog": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Catalog"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "chain": {
           "items": {
             "$ref": "#/$defs/ChainStep"
@@ -1509,17 +1649,6 @@
               "type": "null"
             }
           ]
-        },
-        "families": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Families"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "holder": {
           "anyOf": [

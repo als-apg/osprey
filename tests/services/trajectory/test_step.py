@@ -1247,12 +1247,12 @@ def _startup(tool: TrajectoryTool) -> Any:
     )
 
 
-async def test_a_step_solves_on_the_shots_bpms_and_the_configs_correctors(
+async def test_a_step_solves_on_the_configs_bpms_and_correctors(
     real: TrajectoryTool,
 ) -> None:
     bpm = real.layout.bpm_names_h[3]
     hcm, vcm = real.layout.hcorr_names[2], real.layout.vcorr_names[7]
-    config = _config(excluded_cms=[hcm, vcm])
+    config = _config(excluded_bpms=[bpm], excluded_cms=[hcm, vcm])
     shot = _real_shot(real, excluded_bpms=(bpm,))
 
     got = await step_for_shot(
@@ -1276,6 +1276,49 @@ async def test_a_step_solves_on_the_shots_bpms_and_the_configs_correctors(
         shot_id="real-1",
         reference=None,
         solve_sha=solve_sha(real, {bpm, hcm, vcm}, settings),
+        deltas=got.deltas,
+    )
+
+
+async def test_the_steps_matrix_omits_a_bpm_the_config_excludes_even_when_the_shot_read_it(
+    real: TrajectoryTool,
+) -> None:
+    bpm = real.layout.bpm_names_h[5]
+    config = _config(excluded_bpms=[bpm])
+    shot = _real_shot(real)  # read before the exclusion: every BPM in
+
+    got = await step_for_shot(
+        _startup(real),
+        _NoReferences(),  # type: ignore[arg-type]
+        shot,
+        client_id=CLIENT,
+        config=config,
+    )
+
+    restricted = step.restricted_tool(real, {bpm})
+    assert bpm not in restricted.layout.bpm_names_h
+    settings = per_call_settings(
+        restricted, alpha=0.001, n_discard=n_discard_for(restricted, 140), gain=0.5
+    )
+    expected = restricted.tool.correct(
+        [shot.x[name] for name in restricted.layout.bpm_names_h],
+        [shot.y[name] for name in restricted.layout.bpm_names_v],
+        None,
+        bpm_index=list(restricted.bpm_index),
+        hcorr_index=list(restricted.hcorr_index),
+        vcorr_index=list(restricted.vcorr_index),
+        **settings,
+    )
+    for name, value in zip(expected.names, expected.step, strict=True):
+        assert got.deltas[name] == pytest.approx(-float(value) * got.factor, abs=1e-15)
+    # The step is bound to the published solve's identity: the config's BPM set.
+    assert got.digest == step_digest(
+        target=TARGET,
+        model=MODEL,
+        client_id=CLIENT,
+        shot_id="real-1",
+        reference=None,
+        solve_sha=solve_sha(real, {bpm}, settings),
         deltas=got.deltas,
     )
 

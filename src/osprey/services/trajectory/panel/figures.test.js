@@ -5,6 +5,7 @@ import {
   POSITION_HALF_RANGE_MM,
   TURN_AXIS_TITLE,
   attenuationFigure,
+  catalogNames,
   cmStepFigure,
   differenceFigures,
   pilotToneFigure,
@@ -24,7 +25,14 @@ const THEME = Object.freeze({
   colorway: ['red', 'blue', 'green'],
 });
 
-const FAMILIES = { bpms: ['B1', 'B2', 'B3', 'B4'], hcms: ['H1', 'H2', 'H3'], vcms: ['V1', 'V2'] };
+/** @param {string[]} names */
+const entries = (names) => names.map((name, i) => ({ name, device: name, label: name, places: [], s: i, plane: null, groups: [] }));
+const CATALOG = {
+  bpms: entries(['B1', 'B2', 'B3', 'B4']),
+  hcms: entries(['H1', 'H2', 'H3']),
+  vcms: entries(['V1', 'V2']),
+  groups: [],
+};
 
 /**
  * A raw buffer of `nInj` injections over BPMs B1, B2, B4 (B3 not in the shot),
@@ -75,7 +83,7 @@ function shot(over = {}) {
 }
 
 const SNAPSHOT = {
-  families: FAMILIES,
+  catalog: CATALOG,
   reference: {
     name: 'golden',
     sha256: 'abc',
@@ -210,7 +218,7 @@ describe('trajectoryFigures', () => {
   });
 
   it('draws only the measurement without a reference', () => {
-    const figs = trajectoryFigures(shot(), { families: FAMILIES, reference: null }, THEME);
+    const figs = trajectoryFigures(shot(), { catalog: CATALOG, reference: null }, THEME);
     expect(figs.x.data).toHaveLength(1);
   });
 
@@ -220,10 +228,23 @@ describe('trajectoryFigures', () => {
     expect(figs.y.data[0].name).toBe('Mean (no step)');
   });
 
-  it('falls back to the shot order without families', () => {
-    const meas = trajectoryFigures(shot(), { families: null, reference: null }, THEME).x.data[0];
+  it('puts the BPMs on the axis in the catalog order (ring order)', () => {
+    const ring = { ...CATALOG, bpms: entries(['B4', 'B1', 'B3', 'B2']) };
+    const meas = trajectoryFigures(shot(), { catalog: ring, reference: null }, THEME).x.data[0];
+    expect(meas.customdata).toEqual(['B4', 'B1', 'B3', 'B2']);
+  });
+
+  it('falls back to the shot order without a catalog', () => {
+    const meas = trajectoryFigures(shot(), { catalog: null, reference: null }, THEME).x.data[0];
     expect(meas.x).toEqual([1, 2, 3]);
     expect(meas.customdata).toEqual(['B1', 'B2', 'B4']);
+  });
+});
+
+describe('catalogNames', () => {
+  it('lists a family by matrix name, empty without a catalog', () => {
+    expect(catalogNames(CATALOG, 'hcms')).toEqual(['H1', 'H2', 'H3']);
+    expect(catalogNames(null, 'bpms')).toEqual([]);
   });
 });
 
@@ -244,7 +265,7 @@ describe('differenceFigures', () => {
   it('masks past the earliest loss and is empty without a reference', () => {
     const lossy = shot({ per_shot_lost_at: ['B4'] });
     expect(differenceFigures(lossy, SNAPSHOT, THEME).x.data[0].y).toEqual([0.5, 1, null, null]);
-    const none = differenceFigures(shot(), { families: FAMILIES, reference: null }, THEME);
+    const none = differenceFigures(shot(), { catalog: CATALOG, reference: null }, THEME);
     expect(none.x.data[0].y).toEqual([null, null, null, null]);
   });
 });
@@ -266,7 +287,7 @@ describe('svFigure', () => {
 
 describe('cmStepFigure', () => {
   it('draws HCM and VCM bars against the corrector index with device names', () => {
-    const fig = cmStepFigure({ deltas: { H1: 0.1, H3: -0.2, V2: 0.3, X9: 1 } }, FAMILIES, THEME);
+    const fig = cmStepFigure({ deltas: { H1: 0.1, H3: -0.2, V2: 0.3, X9: 1 } }, CATALOG, THEME);
     const [h, v] = fig.data;
     expect(h).toMatchObject({ type: 'bar', name: 'HCM' });
     expect(h.x).toEqual([1, 2, 3]);
@@ -279,7 +300,7 @@ describe('cmStepFigure', () => {
   });
 
   it('is empty without a step', () => {
-    const fig = cmStepFigure(null, FAMILIES, THEME);
+    const fig = cmStepFigure(null, CATALOG, THEME);
     expect(fig.data[0].y).toEqual([null, null, null]);
   });
 });
@@ -289,7 +310,7 @@ describe('drawer builders', () => {
   const pt = { id: 'pilot_tone', scope: 'device', value: null, values: { B1: 'Off', B3: 'On' } };
 
   it('plots the attenuation readback per BPM index with gaps', () => {
-    const fig = attenuationFigure(att, FAMILIES, THEME);
+    const fig = attenuationFigure(att, CATALOG, THEME);
     expect(fig.data[0].x).toEqual([1, 2, 3, 4]);
     expect(fig.data[0].y).toEqual([12, null, null, 6]);
     expect(fig.data[0].customdata).toEqual(['B1', 'B2', 'B3', 'B4']);
@@ -297,12 +318,12 @@ describe('drawer builders', () => {
   });
 
   it('plots the pilot-tone readback, categorical values kept', () => {
-    const fig = pilotToneFigure(pt, FAMILIES, THEME);
+    const fig = pilotToneFigure(pt, CATALOG, THEME);
     expect(fig.data[0].y).toEqual(['Off', null, 'On', null]);
     expect(fig.layout.uirevision).toBe('drawer-pilot-tone');
   });
 
   it('is empty without a readback', () => {
-    expect(attenuationFigure(null, FAMILIES, THEME).data[0].y).toEqual([null, null, null, null]);
+    expect(attenuationFigure(null, CATALOG, THEME).data[0].y).toEqual([null, null, null, null]);
   });
 });

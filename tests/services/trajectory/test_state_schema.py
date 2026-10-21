@@ -20,13 +20,16 @@ from osprey.services.trajectory.state import (
     SCHEMA_PATH,
     ApplyEvent,
     ApplyResult,
+    Catalog,
+    CatalogEntry,
+    CatalogGroup,
+    CatalogPlace,
     ChainBody,
     ChainResult,
     ChainStep,
     CommandWrite,
     ContinuousEndedEvent,
     ContinuousStatus,
-    Families,
     HolderView,
     LastAction,
     Machine,
@@ -511,6 +514,32 @@ def _solve() -> Solve:
     )
 
 
+def _entry(name: str, s: float | None, place: str | None = "SR/S1", plane=None) -> CatalogEntry:
+    places = (
+        [CatalogPlace(id="SR", level="ring"), CatalogPlace(id=place, level="sector")]
+        if place
+        else []
+    )
+    return CatalogEntry(
+        name=name,
+        device=name.lower(),
+        label=f"label {name}",
+        places=places,
+        s=s,
+        plane=plane,
+        groups=["g1"],
+    )
+
+
+def _catalog() -> Catalog:
+    return Catalog(
+        bpms=[_entry("BPM1", 1.0), _entry("BPM2", None, place=None)],
+        hcms=[_entry("HCM1", 0.5, plane="x")],
+        vcms=[_entry("VCM1", 0.7, plane="y")],
+        groups=[CatalogGroup(id="g1", label="Group 1", members=["BPM1", "BPM2", "HCM1", "VCM1"])],
+    )
+
+
 def _filled_snapshot() -> Snapshot:
     reference = _reference().model_copy(
         update={
@@ -520,7 +549,7 @@ def _filled_snapshot() -> Snapshot:
     )
     return _snapshot(
         chain=_chain(),
-        families=Families(bpms=["BPM1", "BPM2"], hcms=["HCM1"], vcms=["VCM1"]),
+        catalog=_catalog(),
         machine=Machine(rf_on=1, stored_current=0.25),
         setup=SetupState(applied_at=1.0, by="alice", settings_sha="e" * 64, turns_tracked=250),
         solve=_solve(),
@@ -591,7 +620,7 @@ def _typed_models() -> list[BaseModel]:
 def test_a_snapshot_without_any_new_field_still_validates() -> None:
     snap = _snapshot()
     assert snap.chain == []
-    assert snap.families is None
+    assert snap.catalog is None
     assert snap.machine is None
     assert snap.setup is None
     assert snap.solve is None
@@ -621,7 +650,7 @@ def test_a_shot_without_any_new_field_is_a_fresh_tbt_shot() -> None:
 def test_the_snapshot_carries_every_end_state_field() -> None:
     for name in (
         "chain",
-        "families",
+        "catalog",
         "machine",
         "setup",
         "solve",
@@ -672,7 +701,17 @@ def test_the_solve_and_its_config_name_every_published_knob() -> None:
     }
     assert set(SetupState.model_fields) >= {"applied_at", "by", "settings_sha", "turns_tracked"}
     assert set(Machine.model_fields) == {"rf_on", "stored_current"}
-    assert set(Families.model_fields) == {"bpms", "hcms", "vcms"}
+    assert set(Catalog.model_fields) == {"bpms", "hcms", "vcms", "groups"}
+    assert set(CatalogEntry.model_fields) == {
+        "name",
+        "device",
+        "label",
+        "places",
+        "s",
+        "plane",
+        "groups",
+    }
+    assert "families" not in Snapshot.model_fields
     assert set(ChainResult.model_fields) == {"steps_run", "commands_fired", "shot"}
 
 
@@ -762,7 +801,10 @@ def test_the_schema_defines_every_typed_model() -> None:
         "ChainResult",
         "ChainBody",
         "ChainStep",
-        "Families",
+        "Catalog",
+        "CatalogEntry",
+        "CatalogGroup",
+        "CatalogPlace",
         "Machine",
         "SetupState",
         "SetupBody",
@@ -776,6 +818,45 @@ def test_the_schema_defines_every_typed_model() -> None:
         "ApplyResult",
     ):
         assert name in defs, name
+
+
+def test_the_catalog_reads_the_build_catalog_into_ring_order() -> None:
+    def raw(name: str, s: float | None) -> dict:
+        return {
+            "name": name,
+            "device": name,
+            "label": name,
+            "places": [],
+            "s": s,
+            "plane": None,
+            "groups": [],
+        }
+
+    built = {
+        "bpms": [raw("B1", 5.0), raw("B2", None), raw("B3", 1.0), raw("B4", 1.0)],
+        "hcms": [],
+        "vcms": [],
+        "groups": [{"id": "g", "label": "G", "members": ["B1"]}],
+    }
+    catalog = Catalog.in_ring_order(built)
+    # s first, ties and the unplaced in matrix order, the unplaced last
+    assert catalog.names("bpms") == ["B3", "B4", "B1", "B2"]
+    assert catalog.groups[0].members == ["B1"]
+    with pytest.raises(ValidationError):
+        Catalog.in_ring_order({**built, "bpms": [{"name": "B1"}]})
+
+
+def test_the_snapshot_catalog_matches_the_committed_schema() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definition = {"$defs": schema["$defs"], "$ref": "#/$defs/Snapshot"}
+    wire = json.loads(_filled_snapshot().model_dump_json())
+    jsonschema.validate(wire, definition)
+    assert "families" not in schema["$defs"]["Snapshot"]["properties"]
+    assert "Families" not in schema["$defs"]
+    bad = {**wire, "catalog": {"bpms": ["BPM1"], "hcms": [], "vcms": []}}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, definition)
 
 
 def test_a_filled_snapshot_event_validates_against_the_committed_schema() -> None:

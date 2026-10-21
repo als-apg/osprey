@@ -3,7 +3,8 @@
  * setup — the Setup BPMs and Setup CMs tabs: families, exclusions and the
  * BPM settings, committed through the setup and solve routes.
  *
- * Each tab shows its build-time family counts (`Snapshot.families`) and an
+ * Each tab shows its family counts from the build's device catalog
+ * (`Snapshot.catalog`, each family in ring order) and an
  * exclude list by index in the grammar of `exclude.js`. An exclude field
  * shows the exclusions in force (`Snapshot.solve.config`) and is re-seeded
  * from every snapshot until the operator edits it; from then on it holds the
@@ -24,6 +25,7 @@
  */
 
 import { formatExclude, indicesOf, parseExclude, toggleName } from './exclude.js';
+import { catalogNames } from './figures.js';
 import { settingsFor } from './settings.js';
 import { control, h, noticeFromResult } from './views.js';
 
@@ -59,13 +61,13 @@ export function emptyDrafts() {
 }
 
 /**
- * A family's device names, empty when the snapshot has none.
+ * A family's device names in ring order, empty when the snapshot has no catalog.
  * @param {any} snapshot
  * @param {FamilyKey} key
  * @returns {string[]}
  */
 export function familyOf(snapshot, key) {
-  return snapshot?.families?.[key] ?? [];
+  return catalogNames(snapshot?.catalog, key);
 }
 
 /**

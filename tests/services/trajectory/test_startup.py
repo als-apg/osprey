@@ -47,6 +47,7 @@ from osprey.services.trajectory.startup import (
     TrajectoryDevice,
     TrajectorySettings,
     resolve_sequence_dir,
+    select_catalog,
     select_commands,
     service_settings,
 )
@@ -217,6 +218,22 @@ async def test_starts_on_the_baseline_with_the_one_models_commands(
         assert armed == [1]
     finally:
         await started.connector.disconnect()
+
+
+async def test_the_models_catalog_from_the_build_reaches_the_started_service(
+    repo: Path,
+) -> None:
+    built = json.loads((repo / "build" / FACTS).read_text(encoding="utf-8"))
+    assert MODEL in built["trajectory_catalog"], "the build writes the model's catalog"
+
+    started = await _started()
+
+    assert started.catalog is not None
+    (device,) = started.commands.devices
+    assert started.catalog.names("bpms") == [device.x_row]
+    assert [entry.device for entry in started.catalog.bpms] == [
+        entry["device"] for entry in built["trajectory_catalog"][MODEL]["bpms"]
+    ]
 
 
 async def test_the_tunable_keys_and_the_sequence_dir_reach_the_started_service(
@@ -505,6 +522,54 @@ def _slots(prefix: str) -> dict[str, Any]:
         "injection_request": f"{prefix}:INJ:REQ",
         "injection_busy": f"{prefix}:INJ:BUSY",
     }
+
+
+def _raw_entry(name: str, s: float | None) -> dict[str, Any]:
+    return {
+        "name": name,
+        "device": name,
+        "label": name,
+        "places": [{"id": "SR", "level": None}],
+        "s": s,
+        "plane": None,
+        "groups": [],
+    }
+
+
+def _raw_catalog(*entries: dict[str, Any]) -> dict[str, Any]:
+    return {"bpms": list(entries), "hcms": [], "vcms": [], "groups": []}
+
+
+def test_the_selected_models_catalog_is_read_in_ring_order() -> None:
+    facts = {
+        "trajectory_catalog": {
+            "SR": _raw_catalog(
+                _raw_entry("B1", 9.0), _raw_entry("B2", None), _raw_entry("B3", 2.0)
+            ),
+            "BR": _raw_catalog(_raw_entry("X1", 1.0)),
+        }
+    }
+
+    catalog = select_catalog(facts, "SR")
+
+    assert catalog is not None
+    assert catalog.names("bpms") == ["B3", "B1", "B2"]
+
+
+def test_no_model_or_no_catalog_for_it_selects_no_catalog() -> None:
+    facts = {"trajectory_catalog": {"SR": _raw_catalog(_raw_entry("B1", 1.0))}}
+    assert select_catalog(facts, None) is None
+    assert select_catalog(facts, "BR") is None
+    assert select_catalog({}, "SR") is None
+
+
+def test_a_catalog_that_does_not_read_as_one_refuses_the_start() -> None:
+    facts = {"trajectory_catalog": {"SR": {"bpms": [{"name": "B1"}], "hcms": [], "vcms": []}}}
+
+    with pytest.raises(StartupRefused) as refused:
+        select_catalog(facts, "SR")
+
+    assert "SR" in str(refused.value) and "catalog" in str(refused.value)
 
 
 def test_no_trajectory_model_selects_nothing() -> None:

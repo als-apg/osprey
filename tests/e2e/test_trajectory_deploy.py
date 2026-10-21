@@ -1165,6 +1165,64 @@ def test_the_shot_lands_on_the_host_and_in_the_listing(deployed_stack: DeployedS
     )
 
 
+def _exclude(stack: DeployedStack, bpms: list[str]) -> dict[str, Any]:
+    """Setup BPMs through the panel door: the turns tracked and the BPM exclusions."""
+    status, done = _request(
+        f"{PANEL_PREFIX}/setup",
+        "POST",
+        body={"settings": {"turns_tracked": TURNS_TRACKED}, "excluded_bpms": bpms},
+        headers=_held(stack),
+        timeout=ACTION_HTTP_TIMEOUT_SEC,
+    )
+    assert status == 200, f"Setup BPMs excluding {bpms} refused: {status} {done!r}\n{_logs()}"
+    return done
+
+
+def test_an_excluded_bpm_is_left_out_of_the_shot_and_apply_succeeds(
+    deployed_stack: DeployedStack,
+) -> None:
+    """One BPM excluded end to end: the build's catalog names it, Setup BPMs commits
+    it, the shot leaves it out, and the step for that shot applies."""
+    grant = _open(deployed_stack, PANEL_PREFIX)
+    deployed_stack.client_id = grant["client_id"]
+    record, value_a = shape.KICK["record"], float(shape.KICK["value_a"])
+    origin: float | None = None
+    try:
+        status, state = _request(f"{PANEL_PREFIX}/state", headers=_held(deployed_stack))
+        assert status == 200, f"GET state: {status} {state!r}"
+        catalog = state["catalog"]
+        assert catalog and len(catalog["bpms"]) > 2, f"the snapshot carries no catalog: {catalog!r}"
+        out = catalog["bpms"][1]["name"]
+        _exclude(deployed_stack, [out])
+        status, state = _request(f"{PANEL_PREFIX}/state", headers=_held(deployed_stack))
+        assert state["solve"]["config"]["excluded_bpms"] == [out], state["solve"]["config"]
+
+        origin = _standin_read(deployed_stack, record)
+        _standin_write(deployed_stack, record, origin + value_a)
+        shot = _measure(deployed_stack)
+        assert shot["excluded_bpms"] == [out], shot["excluded_bpms"]
+        assert shot["x"][out] is None and shot["y"], f"{out} was read: {shot['x'][out]!r}"
+
+        status, step = _request(f"{PANEL_PREFIX}/step", headers=_held(deployed_stack))
+        assert status == 200, f"no step after the shot: {status} {step!r}"
+        assert step["shot_id"] == shot["shot_id"], (step["shot_id"], shot["shot_id"])
+        status, done = _request(
+            f"{PANEL_PREFIX}/apply",
+            "POST",
+            body={"step_digest": step["digest"]},
+            headers=_held(deployed_stack),
+            timeout=ACTION_HTTP_TIMEOUT_SEC,
+        )
+        assert status == 200, f"apply with {out} excluded refused: {status} {done!r}\n{_logs()}"
+        assert done["moved"], "the apply moved no corrector"
+    finally:
+        if origin is not None:
+            _standin_write(deployed_stack, record, origin)
+        if deployed_stack.client_id is not None:
+            _exclude(deployed_stack, [])
+        _release_held(deployed_stack)
+
+
 # ---------------------------------------------------------------------------
 # 6. The panel smoke through alice's terminal: her browser, her agent's server,
 #    the terminal's own refusals (STRICT, ordered: the browser's session spans them)

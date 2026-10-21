@@ -36,7 +36,12 @@ In order:
    actions unavailable; one model, or the one ``services.trajectory.model``
    names → its declaration: the device table (each BPM's x, y and sum rows,
    arm command and armed flag), the injection request and busy flag, and the
-   trigger sample; several and none named → refused, naming them.
+   trigger sample; several and none named → refused, naming them. The
+   selected model's ``trajectory_catalog`` — the devices its response matrix
+   covers, with their labels and places — is read beside it, each family put
+   in ring order (:meth:`~.state.Catalog.in_ring_order`); a model the build
+   wrote no catalog for leaves the service without one, and a catalog that
+   does not read as one is refused.
 5. **The raw-put block**, armed once per process with the executor's armed
    contract, so a client put no connector let through is refused here in the
    words it is refused everywhere else.
@@ -82,6 +87,7 @@ from osprey.services.trajectory.constants import (
     SERVICE_KEY,
     SHOT_THRESHOLD_FRACTION_KEY,
 )
+from osprey.services.trajectory.state import Catalog
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +232,8 @@ class TrajectoryStartup:
             the service has none
             (:class:`~osprey.services.trajectory.step.ToolUnavailable`); ``None``
             until its builder filled the slot.
+        catalog: The devices the selected model's response matrix covers, in
+            ring order, or ``None`` when the build wrote no catalog for it.
     """
 
     target: str
@@ -236,6 +244,7 @@ class TrajectoryStartup:
     sequence_dir: Path | None = None
     sequence: Any = None
     tool: Any = None
+    catalog: Catalog | None = None
 
     @property
     def writing_available(self) -> bool:
@@ -561,6 +570,35 @@ def select_commands(facts: Mapping[str, Any], model: str | None) -> TrajectoryCo
     return _commands_of(names[0], by_model[names[0]])
 
 
+def select_catalog(facts: Mapping[str, Any], model: str | None) -> Catalog | None:
+    """The device catalog the build wrote for *model*, each family in ring order.
+
+    Args:
+        facts: The build's ``facility_facts.json``.
+        model: The selected model's name, or ``None`` when none is selected.
+
+    Returns:
+        The catalog, or ``None`` when no model is selected or the build wrote
+        none for it.
+
+    Raises:
+        StartupRefused: The model's catalog does not read as one.
+    """
+    from pydantic import ValidationError
+
+    if model is None:
+        return None
+    raw = _mapping(facts.get("trajectory_catalog")).get(model)
+    if raw is None:
+        return None
+    try:
+        return Catalog.in_ring_order(raw)
+    except ValidationError as exc:
+        raise StartupRefused(
+            f"the build's trajectory catalog of model {model!r} does not read as one: {exc}"
+        ) from exc
+
+
 _RAW_PUT_ARMED = False
 
 
@@ -639,6 +677,7 @@ async def start() -> TrajectoryStartup:
     check_limits_file(section, target)
     facts = _facts(config)
     commands = select_commands(facts, model)
+    catalog = select_catalog(facts, commands.model if commands else None)
     if commands is None:
         logger.warning(
             "trajectory service: the build has no trajectory model; writing actions are unavailable"
@@ -661,4 +700,5 @@ async def start() -> TrajectoryStartup:
         sequence_dir=sequence_dir,
         sequence=sequence,
         tool=build_service_tool(config, commands.model if commands else None),
+        catalog=catalog,
     )

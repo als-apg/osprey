@@ -61,6 +61,7 @@ from osprey.services.trajectory.startup import (
     TrajectorySettings,
     TrajectoryStartup,
 )
+from osprey.services.trajectory.state import Catalog
 from osprey.services.trajectory.step import TOOL_NAME, TrajectoryTool
 from osprey.services.trajectory.store import STATE_DIR_ENV_VAR
 from osprey_connectors import posture_store
@@ -223,6 +224,44 @@ def slots(n_bpms: int) -> dict[str, Any]:
             _step("readout", "Readout BPMs", "Reads every BPM's turn-by-turn buffer."),
         ],
     }
+
+
+def catalog(n_bpms: int) -> Catalog:
+    """The model's device catalog, shaped as the facility build writes it.
+
+    Each BPM sits in its own sector of the ring, the correctors in the first;
+    the BPMs are listed in matrix order, which is also their order along the
+    ring.
+    """
+
+    def entry(name: str, device: str, s: float, place: str, plane: str | None) -> dict:
+        return {
+            "name": name,
+            "device": device,
+            "label": device.split("/")[-1],
+            "places": [{"id": "SR", "level": "ring"}, {"id": place, "level": "sector"}],
+            "s": s,
+            "plane": plane,
+            "groups": ["BPM"] if plane is None else ["CM"],
+        }
+
+    bpms = [
+        entry(_row(device, "X"), device, float(index), f"SR/SECT{index}", None)
+        for index, device in enumerate(bpm_names(n_bpms), start=1)
+    ]
+    hcms = [entry(name, name.replace(":", "/"), 0.5, "SR/SECT1", "x") for name in HCMS]
+    vcms = [entry(name, name.replace(":", "/"), 0.6, "SR/SECT1", "y") for name in VCMS]
+    return Catalog.in_ring_order(
+        {
+            "bpms": bpms,
+            "hcms": hcms,
+            "vcms": vcms,
+            "groups": [
+                {"id": "BPM", "label": "BPM", "members": [e["name"] for e in bpms]},
+                {"id": "CM", "label": "CM", "members": [*HCMS, *VCMS]},
+            ],
+        }
+    )
 
 
 def tool(n_bpms: int) -> TrajectoryTool:
@@ -678,6 +717,7 @@ def run_stack(
     sequence = load_sequence(sequence_dir)
     machine = Beamline(n_bpms)
     model_tool = tool(n_bpms)
+    model_catalog = catalog(n_bpms)
     declared = slots(n_bpms)
     monkeypatch.setattr(trajectory_app, "_trajectory_slots", lambda _config, _model: declared)
 
@@ -691,6 +731,7 @@ def run_stack(
             sequence_dir=sequence_dir,
             sequence=sequence,
             tool=model_tool,
+            catalog=model_catalog,
         )
 
     service = trajectory_app.create_app(start=start)

@@ -1175,6 +1175,8 @@ def shot_action(
     call_timeout_s: float = DEFAULT_TIMEOUT_S,
     average: str = "mean",
     declaration: ChainDeclaration = DEFAULT_DECLARATION,
+    excluded_bpms: Collection[str] = (),
+    loss_cutoff: float | None = None,
     shot_id: Callable[[], str] = _shot_id,
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -1183,7 +1185,8 @@ def shot_action(
 ) -> Action[ShotResult]:
     """The agent door's action: the declared default chain, answering its shot.
 
-    As :func:`chain_action` with :func:`default_run`'s run.
+    As :func:`chain_action` with :func:`default_run`'s run; *excluded_bpms* and
+    *loss_cutoff* are the SolveConfig's, as there.
 
     Raises:
         AcquisitionRefused: As :func:`chain_action` and :func:`default_run`.
@@ -1197,6 +1200,8 @@ def shot_action(
         declaration=declaration,
         post_shot=post_shot,
         call_timeout_s=call_timeout_s,
+        excluded_bpms=excluded_bpms,
+        loss_cutoff=loss_cutoff,
         shot_id=shot_id,
         sleep=sleep,
         clock=clock,

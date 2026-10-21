@@ -148,7 +148,7 @@ export const mount = (host, ctx) => {
     if (!last) return;
     const { shot, raw } = last;
     const snapshot = ctx.snapshot();
-    const plane = { families: snapshot?.families ?? null, reference: snapshot?.reference ?? null };
+    const plane = { catalog: snapshot?.catalog ?? null, reference: snapshot?.reference ?? null };
     const units = raw?.header?.units ?? {};
     adapter.renderGroup(TRAJECTORY_PLOTS, (/** @type {any} */ theme, /** @type {any} */ options) => {
       const traj = trajectoryFigures(shot, plane, theme, { units, ranges: options.ranges });

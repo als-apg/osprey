@@ -43,9 +43,11 @@ from osprey.services.trajectory.app import CLIENT_HEADER, LAUNCH_TOKEN_ENV, crea
 from osprey.services.trajectory.startup import (
     TrajectoryCommands,
     TrajectoryDevice,
+    TrajectorySettings,
     TrajectoryStartup,
 )
 from osprey.services.trajectory.state import (
+    Catalog,
     ChainResult,
     SetupState,
     ShotResult,
@@ -524,6 +526,31 @@ class _Correct:
         )
 
 
+def _catalog_entry(name: str, s: float, plane: str | None = None) -> dict[str, Any]:
+    device = name.replace(":X", "").replace(":", "/")
+    return {
+        "name": name,
+        "device": device,
+        "label": device.split("/")[-1],
+        "places": [{"id": "SR", "level": "ring"}, {"id": f"SR/S{int(s)}", "level": "sector"}],
+        "s": s,
+        "plane": plane,
+        "groups": [],
+    }
+
+
+#: The build's catalog, in matrix order; along the ring BPM3 comes first.
+CATALOG = Catalog.in_ring_order(
+    {
+        "bpms": [_catalog_entry(X_ROWS[0], 2.0), _catalog_entry(X_ROWS[1], 3.0)]
+        + [_catalog_entry(X_ROWS[2], 1.0)],
+        "hcms": [_catalog_entry(HCM1, 1.5, "x"), _catalog_entry(HCM2, 2.5, "x")],
+        "vcms": [_catalog_entry(VCM1, 0.5, "y")],
+        "groups": [],
+    }
+)
+
+
 TOOL = TrajectoryTool(
     model="SR",
     tool=_Correct(),
@@ -561,7 +588,7 @@ def _shot(shot_id: str = "20260101T000000000000Z-shot0001") -> ShotResult:
     )
 
 
-def _app(connector: Any, *, tool: Any = None) -> FastAPI:
+def _app(connector: Any, *, tool: Any = None, catalog: Catalog | None = None) -> FastAPI:
     async def start() -> TrajectoryStartup:
         return TrajectoryStartup(
             target=TARGET,
@@ -569,6 +596,7 @@ def _app(connector: Any, *, tool: Any = None) -> FastAPI:
             commands=COMMANDS,
             guarded_run_dir=Path("/unused"),
             tool=tool,
+            catalog=catalog,
         )
 
     app = create_app(start=start)
@@ -596,7 +624,7 @@ def machine() -> _Machine:
 @pytest.fixture
 def loop_client(machine: _Machine, state_dir: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
     monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
-    with TestClient(_app(machine, tool=TOOL)) as test_client:
+    with TestClient(_app(machine, tool=TOOL, catalog=CATALOG)) as test_client:
         yield test_client
 
 
@@ -930,20 +958,29 @@ def test_a_lone_readout_answers_a_chain_result_stores_the_shot_and_makes_no_step
     assert sessions.latest_shot_id == shot.shot_id
 
 
-def test_the_snapshot_publishes_the_chain_families_retention_and_budget(
+def test_the_snapshot_publishes_the_chain_catalog_retention_and_budget(
     loop_client: TestClient,
 ) -> None:
     state = Snapshot.model_validate(
         loop_client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
     )
     assert [step.id for step in state.chain] == ["arm", "inject", "readout"]
-    assert state.families is not None
-    assert state.families.bpms == list(X_ROWS)
-    assert (state.families.hcms, state.families.vcms) == ([HCM1, HCM2], [VCM1])
+    assert state.catalog is not None
+    # Ring order: s first, so BPM3 (s = 1) leads the matrix's first BPM.
+    assert state.catalog.names("bpms") == [X_ROWS[2], X_ROWS[0], X_ROWS[1]]
+    assert (state.catalog.names("hcms"), state.catalog.names("vcms")) == ([HCM1, HCM2], [VCM1])
+    assert state.catalog.bpms[0].label == "BPM3"
+    assert state.catalog.bpms[0].places[-1].id == "SR/S1"
     assert state.retention == 100
     assert state.setup is None
     # No sequence module: no chain can inject, so there is no shot count to publish.
     assert state.n_shots_max is None
+
+
+def test_the_snapshot_has_no_catalog_when_the_build_wrote_none(client: TestClient) -> None:
+    state = client.get("/panel/api/state", headers=_as(ALICE_SECRET, "/panel/api")).json()
+    assert state["catalog"] is None
+    assert "families" not in state
 
 
 RF, CURRENT, CLEAN = "SR:RF:ON:RB", "SR:DCCT:CURRENT", "SR:DIAG:CLEANING:REQUEST"
@@ -1258,3 +1295,146 @@ def test_a_heartbeat_reads_the_machine(declared_client: TestClient, machine: _Ma
 
     assert response.status_code == 200, response.text
     assert machine.batches == [[RF, CURRENT]]
+
+
+# -- the committed selection reaches every shot, the step and Apply -------------------
+#
+# The real pyAML tool and the fake beamline the browser stack drives: an arm
+# sets the armed flag, an injection posts a fresh turn-by-turn record on every
+# BPM. The beamline records every address a shot reads.
+
+
+class _Reads:
+    """Adds a record of every address read to the stack's beamline."""
+
+    def __init__(self, machine: Any) -> None:
+        self.machine = machine
+        self.reads: list[str] = []
+        read = machine.read_channel
+
+        async def recorded(address: str, timeout: float | None = None) -> Any:
+            self.reads.append(address)
+            return await read(address, timeout)
+
+        machine.read_channel = recorded
+
+
+@pytest.fixture
+def stack_client(
+    state_dir: Path,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    pytest.importorskip("pyaml")
+    from tests.interfaces.trajectory import _stack
+
+    from osprey.services.trajectory import app as app_module
+    from osprey.services.trajectory.sequence import SEQUENCE_MODULE_FILE, load_sequence
+
+    n_bpms = 3
+    machine = _stack.Beamline(n_bpms)
+    reads = _Reads(machine)
+    sequence_dir = tmp_path / "sequences"
+    sequence_dir.mkdir()
+    (sequence_dir / SEQUENCE_MODULE_FILE).write_text(_stack.SEQUENCE_SOURCE, encoding="utf-8")
+    declared = _stack.slots(n_bpms)
+    monkeypatch.setattr(app_module, "_trajectory_slots", lambda _config, _model: declared)
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+
+    async def start() -> TrajectoryStartup:
+        return TrajectoryStartup(
+            target=TARGET,
+            connector=machine,
+            commands=_stack.commands(n_bpms),
+            guarded_run_dir=Path("/unused"),
+            settings=TrajectorySettings(armed_timeout_s=1.0),
+            sequence=load_sequence(sequence_dir),
+            tool=_stack.tool(n_bpms),
+            catalog=_stack.catalog(n_bpms),
+        )
+
+    app = create_app(start=start)
+    app.state.web_credentials = WebCredentials(
+        operator_secret=OWN_SECRET,
+        panel_token="panel-token",
+        roster_secrets=(ALICE_SECRET, BOB_SECRET),
+        roster_owners=("alice", "bob"),
+    )
+    with TestClient(app) as test_client:
+        yield test_client, machine, reads
+
+
+def _panel(client_id: str | None = None) -> dict[str, str]:
+    extra = {CLIENT_HEADER: client_id} if client_id else {}
+    return _as(ALICE_SECRET, "/panel/api", **extra)
+
+
+def _setup_bpms(client: TestClient, client_id: str, excluded: list[str]) -> None:
+    """Setup BPMs, as the panel commits it: the exclusions and a current setup."""
+    response = client.post(
+        "/panel/api/setup", headers=_panel(client_id), json={"excluded_bpms": excluded}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_an_excluded_bpm_is_neither_armed_nor_read_and_apply_succeeds(stack_client) -> None:
+    client, machine, reads = stack_client
+    grant = client.post("/panel/api/session", headers=_panel()).json()
+    client_id = grant["client_id"]
+    out = "SR:BPM2:X"
+    _setup_bpms(client, client_id, [out])
+    state = client.get("/panel/api/state", headers=_panel()).json()
+    assert state["solve"]["config"]["excluded_bpms"] == [out]
+
+    reads.reads.clear()
+    response = client.post(
+        "/panel/api/shot",
+        headers=_panel(client_id),
+        json={"steps": ["arm", "inject", "readout"]},
+    )
+    assert response.status_code == 200, response.text
+    shot = ChainResult.model_validate(response.json()).shot
+    assert shot is not None and shot.fresh
+
+    # The shot was taken on the committed selection: BPM2 is never read.
+    assert shot.excluded_bpms == [out]
+    assert {"SR:BPM2:X", "SR:BPM2:Y", "SR:BPM2:SUM"}.isdisjoint(reads.reads)
+    assert {"SR:BPM1:X", "SR:BPM3:X"} <= set(reads.reads)
+    assert shot.x[out] is None
+
+    # The step solves on the same set as the published solve, so Apply goes through.
+    state = client.get("/panel/api/state", headers=_panel()).json()
+    step = state["step"]
+    assert step is not None and step["shot_id"] == shot.shot_id
+    assert state["solve"]["config"]["excluded_bpms"] == shot.excluded_bpms
+    applied = client.post(
+        "/panel/api/apply", headers=_panel(client_id), json={"step_digest": step["digest"]}
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["moved"], "the step's correctors were written"
+    assert machine.shots == 1
+
+
+def test_an_agent_door_shot_takes_the_committed_selection_and_loss_cutoff(
+    stack_client,
+) -> None:
+    client, _machine, reads = stack_client
+    grant = client.post("/panel/api/session", headers=_panel()).json()
+    client_id = grant["client_id"]
+    out = "SR:BPM3:X"
+    _setup_bpms(client, client_id, [out])
+    cutoff = client.post("/panel/api/solve", headers=_panel(client_id), json={"loss_cutoff": 0.25})
+    assert cutoff.status_code == 200, cutoff.text
+
+    agent = client.post("/api/takeover", headers=_as(ALICE_SECRET, "/api")).json()
+    reads.reads.clear()
+    response = client.post(
+        "/api/shot",
+        headers=_as(ALICE_SECRET, "/api", **{CLIENT_HEADER: agent["client_id"]}),
+        json={"n_shots": 1},
+    )
+    assert response.status_code == 200, response.text
+    shot = ShotResult.model_validate(response.json())
+    assert shot.loss_cutoff == 0.25
+    assert shot.excluded_bpms == [out]
+    assert {"SR:BPM3:X", "SR:BPM3:Y", "SR:BPM3:SUM"}.isdisjoint(reads.reads)

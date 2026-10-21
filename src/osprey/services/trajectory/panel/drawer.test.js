@@ -11,7 +11,9 @@ import {
 } from './drawer.js';
 import { NO_SESSION, mount as mountSetup } from './setup.js';
 
-const FAMILIES = { bpms: ['B1', 'B2', 'B3'], hcms: ['H1'], vcms: ['V1'] };
+/** @param {string[]} names */
+const entries = (names) => names.map((name, i) => ({ name, device: name, label: name, places: [], s: i, plane: null, groups: [] }));
+const CATALOG = { bpms: entries(['B1', 'B2', 'B3']), hcms: entries(['H1']), vcms: entries(['V1']), groups: [] };
 
 const READBACKS = {
   read_at: 1,
@@ -27,7 +29,7 @@ const READBACKS = {
 /** @param {number} [current] */
 function snapshotWith(current = 12.5) {
   return {
-    families: FAMILIES,
+    catalog: CATALOG,
     machine: { rf_on: 1, stored_current: current },
     setup: { settings_sha: 'a' },
     solve: { config: { excluded_bpms: [], excluded_cms: [], alpha: 0, gain: 1, keep_live: 1, n_discard: 0, loss_cutoff: 0, overridden: [] } },
@@ -171,10 +173,10 @@ describe('drawer', () => {
     expect(pt.data[0].y).toEqual(['Off', 'Off', 'Off']);
   });
 
-  it('does not redraw the plots on a snapshot that changes neither readbacks nor families', async () => {
+  it('does not redraw the plots on a snapshot that changes neither readbacks nor the catalog', async () => {
     const { adapter, emit } = await harness();
     const before = adapter.render.mock.calls.length;
-    emit({ ...snapshotWith(5), families: FAMILIES, setup: { settings_sha: 'a' } });
+    emit({ ...snapshotWith(5), catalog: CATALOG, setup: { settings_sha: 'a' } });
     expect(adapter.render.mock.calls.length).toBe(before);
   });
 

@@ -3,7 +3,7 @@
  * exclude — the exclude-list grammar the Setup BPMs and Setup CMs tabs read.
  *
  * An exclude list addresses devices by their 1-based index in a build-time
- * family (`Snapshot.families`). The grammar accepts an optional pair of
+ * catalog family (`Snapshot.catalog`, ring order). The grammar accepts an optional pair of
  * square brackets around the list, space or comma separators (any mix), and
  * inclusive ranges like `3:5`. An index outside the family, a range running
  * backwards, or a token that is neither an index nor a range is refused with

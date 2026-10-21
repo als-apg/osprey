@@ -141,13 +141,15 @@ def _call(page: Page, method: str, path: str, client_id: str | None = None, body
 
 
 def test_the_fake_machine_serves_what_the_panel_reads(stack: Stack) -> None:
-    """The chain, families, machine facts, solve, settings readbacks and a raw
+    """The chain, catalog, machine facts, solve, settings readbacks and a raw
     buffer all reach the panel door through the proxy."""
     page = stack.open("alice")
     status, state = _call(page, "GET", "api/state")
     assert status == 200
     assert [step["id"] for step in state["chain"]] == ["arm", "inject", "clean", "readout"]
-    assert len(state["families"]["bpms"]) == 3
+    assert [entry["label"] for entry in state["catalog"]["bpms"]] == ["BPM1", "BPM2", "BPM3"]
+    assert state["catalog"]["bpms"][1]["places"][-1] == {"id": "SR/SECT2", "level": "sector"}
+    assert "families" not in state
     assert state["machine"] == {"rf_on": 1, "stored_current": 0}
     assert state["setup"] is None
     assert state["solve"] is not None and state["solve"]["singular_values"]

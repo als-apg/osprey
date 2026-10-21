@@ -13,8 +13,9 @@
  * Conventions every builder keeps:
  * - traces are `scatter` lines (or bars for corrector steps); trace colours are
  *   never set, so the theme's `colorway` picks them;
- * - an index axis is the device's 1-based position in `Snapshot.families`, so
- *   a device absent from the data is a gap (`null`), never a shifted point;
+ * - an index axis is the device's 1-based position in its `Snapshot.catalog`
+ *   family (ring order), so a device absent from the data is a gap (`null`),
+ *   never a shifted point;
  * - `customdata` names the device each point belongs to, which is how a click
  *   resolves to a device;
  * - units come from the raw buffer's header.
@@ -30,10 +31,23 @@
  * @typedef {{header: RawHeader, samples: ArrayLike<number>}} RawData
  * @typedef {[number, number]} Range
  * @typedef {{turns?: Range|null, sum?: Range|null, x?: Range|null, y?: Range|null}} Ranges
- * @typedef {{bpms: string[], hcms: string[], vcms: string[]}} Families
+ * @typedef {{name: string, device?: string, label?: string, places?: {id: string, level: string|null}[], s?: number|null, plane?: string|null, groups?: string[]}} CatalogEntry
+ * @typedef {{bpms: CatalogEntry[], hcms: CatalogEntry[], vcms: CatalogEntry[], groups?: any[]}} Catalog
  * @typedef {Record<string, any>} Theme
  * @typedef {{data: Record<string, any>[], layout: Record<string, any>}} Figure
  */
+
+/**
+ * The matrix names of one catalog family, in ring order; empty without a catalog.
+ *
+ * @param {Catalog|null|undefined} catalog
+ * @param {'bpms'|'hcms'|'vcms'} family
+ * @returns {string[]}
+ */
+export function catalogNames(catalog, family) {
+  const entries = catalog?.[family];
+  return Array.isArray(entries) ? entries.map((entry) => entry.name) : [];
+}
 
 /** The sample axis title of the Raw tab's plots. */
 export const TURN_AXIS_TITLE = 'Index of turn';
@@ -133,15 +147,15 @@ function finite(value) {
 }
 
 /**
- * The BPM axis: the family's names in index order, or the shot's own order
- * when the snapshot has no families yet.
+ * The BPM axis: the catalog's BPMs in ring order, or the shot's own order
+ * when the snapshot has no catalog yet.
  *
  * @param {any} shot
- * @param {Families|null|undefined} families
+ * @param {Catalog|null|undefined} catalog
  * @returns {string[]}
  */
-function bpmAxis(shot, families) {
-  return families && Array.isArray(families.bpms) ? families.bpms : [...(shot?.bpm_order || [])];
+function bpmAxis(shot, catalog) {
+  return catalog && Array.isArray(catalog.bpms) ? catalogNames(catalog, 'bpms') : [...(shot?.bpm_order || [])];
 }
 
 /**
@@ -280,13 +294,13 @@ export function rawFigures(raw, shot, theme, options = {}) {
  * reference's readings. A pseudo-orbit's average makes no step, and says so.
  *
  * @param {any} shot
- * @param {{families?: Families|null, reference?: any}} snapshot
+ * @param {{catalog?: Catalog|null, reference?: any}} snapshot
  * @param {Theme} theme
  * @param {PlaneOptions} [options]
  * @returns {{x: Figure, y: Figure}}
  */
 export function trajectoryFigures(shot, snapshot, theme, options = {}) {
-  const names = bpmAxis(shot, snapshot?.families);
+  const names = bpmAxis(shot, snapshot?.catalog);
   const readings = shotReadings(shot);
   const masked = maskedBpms(shot);
   const reference = snapshot?.reference;
@@ -322,13 +336,13 @@ export function trajectoryFigures(shot, snapshot, theme, options = {}) {
  * symmetric y range so the two planes compare at a glance.
  *
  * @param {any} shot
- * @param {{families?: Families|null, reference?: any}} snapshot
+ * @param {{catalog?: Catalog|null, reference?: any}} snapshot
  * @param {Theme} theme
  * @param {PlaneOptions} [options]
  * @returns {{x: Figure, y: Figure}}
  */
 export function differenceFigures(shot, snapshot, theme, options = {}) {
-  const names = bpmAxis(shot, snapshot?.families);
+  const names = bpmAxis(shot, snapshot?.catalog);
   const readings = shotReadings(shot);
   const masked = maskedBpms(shot);
   const refReadings = snapshot?.reference?.readings || {};
@@ -402,11 +416,11 @@ export function svFigure(solve, theme) {
  * The CM step — HCM and VCM step bars against each family's corrector index.
  *
  * @param {any} step - `Snapshot.step` (its `deltas` by corrector name)
- * @param {Families|null|undefined} families
+ * @param {Catalog|null|undefined} catalog
  * @param {Theme} theme
  * @returns {Figure}
  */
-export function cmStepFigure(step, families, theme) {
+export function cmStepFigure(step, catalog, theme) {
   const deltas = step?.deltas || {};
   /** @param {string} name @param {string[]} correctors */
   const bars = (name, correctors) => ({
@@ -418,7 +432,7 @@ export function cmStepFigure(step, families, theme) {
     hovertemplate: '%{customdata} (%{x}): %{y}<extra></extra>',
   });
   return {
-    data: [bars('HCM', families?.hcms || []), bars('VCM', families?.vcms || [])],
+    data: [bars('HCM', catalogNames(catalog, 'hcms')), bars('VCM', catalogNames(catalog, 'vcms'))],
     layout: layout(
       theme,
       'cm-step',
@@ -434,15 +448,15 @@ export function cmStepFigure(step, families, theme) {
  * a setting's option labels; unread devices are gaps.
  *
  * @param {any} readback - one `SettingReadback`
- * @param {Families|null|undefined} families
+ * @param {Catalog|null|undefined} catalog
  * @param {Theme} theme
  * @param {string} title
  * @param {string} uirevision
  * @returns {Figure}
  */
-function readbackFigure(readback, families, theme, title, uirevision) {
+function readbackFigure(readback, catalog, theme, title, uirevision) {
   const values = readback?.values || {};
-  const names = families?.bpms || Object.keys(values);
+  const names = catalog?.bpms ? catalogNames(catalog, 'bpms') : Object.keys(values);
   /** @param {string} bpm */
   const value = (bpm) => {
     const v = values[bpm];
@@ -464,22 +478,22 @@ function readbackFigure(readback, families, theme, title, uirevision) {
  * The drawer's attenuation readbacks per BPM.
  *
  * @param {any} readback - the attenuation `SettingReadback`
- * @param {Families|null|undefined} families
+ * @param {Catalog|null|undefined} catalog
  * @param {Theme} theme
  * @returns {Figure}
  */
-export function attenuationFigure(readback, families, theme) {
-  return readbackFigure(readback, families, theme, 'Attenuation', 'drawer-attenuation');
+export function attenuationFigure(readback, catalog, theme) {
+  return readbackFigure(readback, catalog, theme, 'Attenuation', 'drawer-attenuation');
 }
 
 /**
  * The drawer's pilot-tone readbacks per BPM.
  *
  * @param {any} readback - the pilot-tone `SettingReadback`
- * @param {Families|null|undefined} families
+ * @param {Catalog|null|undefined} catalog
  * @param {Theme} theme
  * @returns {Figure}
  */
-export function pilotToneFigure(readback, families, theme) {
-  return readbackFigure(readback, families, theme, 'Pilot tone', 'drawer-pilot-tone');
+export function pilotToneFigure(readback, catalog, theme) {
+  return readbackFigure(readback, catalog, theme, 'Pilot tone', 'drawer-pilot-tone');
 }

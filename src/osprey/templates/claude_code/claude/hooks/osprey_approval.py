@@ -3412,14 +3412,56 @@ def _trajectory_step_lines(step: object, step_digest) -> list[str]:
     return lines
 
 
-def _trajectory_solve_lines(solve: object) -> list[str]:
-    """The prompt lines stating the SolveConfig in force, from the snapshot's ``solve``."""
+def _catalog_places(catalog: object) -> dict:
+    """``{name: (label, place)}`` of every device the snapshot's ``catalog`` lists.
+
+    ``place`` is the id of the device's own (leaf) place, ``None`` when the
+    catalog places it nowhere; a catalog that is not one yields nothing.
+    """
+    if not isinstance(catalog, dict):
+        return {}
+    shown = {}
+    for family in ("bpms", "hcms", "vcms"):
+        entries = catalog.get(family)
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            places = entry.get("places")
+            leaf = places[-1] if isinstance(places, list) and places else None
+            place = leaf.get("id") if isinstance(leaf, dict) else None
+            shown[entry["name"]] = (entry.get("label") or entry["name"], place)
+    return shown
+
+
+def _excluded_line(label: str, names, shown: dict) -> str:
+    """``label: "BPM 9" at "SR/SECT2" ("SR:BPM9:X"), …`` — or ``label: none``.
+
+    A device the catalog does not list is named by its matrix name alone.
+    """
+    listed = []
+    for name in names or []:
+        name = str(name)
+        if name not in shown:
+            listed.append(_prompt_text(name))
+            continue
+        device_label, place = shown[name]
+        where = f" at {_prompt_text(str(place))}" if place else ""
+        listed.append(f"{_prompt_text(str(device_label))}{where} ({_prompt_text(name)})")
+    return f"{label}: {', '.join(listed) if listed else 'none'}"
+
+
+def _trajectory_solve_lines(solve: object, catalog: object = None) -> list[str]:
+    """The prompt lines stating the SolveConfig in force, from the snapshot's ``solve``.
+
+    Exclusions are listed by label and place from the snapshot's ``catalog``.
+    """
     if not isinstance(solve, dict):
         return ["SolveConfig: none published (the service solves with no model matrix)"]
     config = solve.get("config")
     if not isinstance(config, dict):
         return ["SolveConfig: none published (the service solves with no model matrix)"]
     values = {name: config.get(name) for name in _SOLVE_CONFIG_FIELDS}
+    shown = _catalog_places(catalog)
     overridden = [str(name) for name in values["overridden"] or []]
     lines = [
         "SolveConfig in force:",
@@ -3428,8 +3470,8 @@ def _trajectory_solve_lines(solve: object) -> list[str]:
         f"(n_discard {_prompt_text(values['n_discard'])} of L {_prompt_text(solve.get('L'))}, "
         f"live rank {_prompt_text(solve.get('live_rank'))})",
         f"  loss_cutoff: {_prompt_text(values['loss_cutoff'])}",
-        "  " + _names_line("Excluded BPMs", values["excluded_bpms"]),
-        "  " + _names_line("Excluded correctors", values["excluded_cms"]),
+        "  " + _excluded_line("Excluded BPMs", values["excluded_bpms"], shown),
+        "  " + _excluded_line("Excluded correctors", values["excluded_cms"], shown),
         "  Operator overrides: "
         + (", ".join(_prompt_text(name) for name in overridden) if overridden else "none"),
     ]
@@ -3494,14 +3536,14 @@ def _trajectory_call_lines(config: dict, short_name: str, tool_input: dict, dead
         n_shots = tool_input.get("n_shots", 1)
         average = tool_input.get("average", "mean")
         lines.append(f"Shots: {_prompt_text(n_shots)}, averaged by {_prompt_text(average)}")
-        lines.extend(_trajectory_solve_lines(snapshot.get("solve")))
+        lines.extend(_trajectory_solve_lines(snapshot.get("solve"), snapshot.get("catalog")))
     elif put_back:
         put_back_lines, digest = _trajectory_put_back_lines(target, model, values)
         lines.extend(put_back_lines)
         binding[_APPROVED_VALUES_SHA256_KEY] = digest
     else:
         lines.extend(_trajectory_step_lines(snapshot.get("step"), step_digest))
-        lines.extend(_trajectory_solve_lines(snapshot.get("solve")))
+        lines.extend(_trajectory_solve_lines(snapshot.get("solve"), snapshot.get("catalog")))
         binding[_APPROVED_STEP_DIGEST_KEY] = step_digest
     return lines, binding
 

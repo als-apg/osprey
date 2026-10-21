@@ -14,8 +14,8 @@ service, the MCP server and the tests share one spelling of every wire shape:
   :class:`ReferenceImport`.
 - **The snapshot** — :class:`Snapshot`, what ``GET /state`` answers and the
   ``snapshot`` event carries: every fact the panel's states are drawn from,
-  among them the declared :class:`ChainStep` list, the build's
-  :class:`Families`, the :class:`Machine` readings, the :class:`SetupState`
+  among them the declared :class:`ChainStep` list, the build's device
+  :class:`Catalog`, the :class:`Machine` readings, the :class:`SetupState`
   and the published :class:`Solve`. It never carries a ``client_id``.
 - **The events** — one model per SSE event, told apart by ``type`` (which is
   also the SSE ``event:`` name); :data:`Event` is their union and
@@ -50,8 +50,11 @@ __all__ = [
     "ContinuousEnd",
     "ContinuousEndedEvent",
     "ContinuousStatus",
+    "Catalog",
+    "CatalogEntry",
+    "CatalogGroup",
+    "CatalogPlace",
     "Event",
-    "Families",
     "HolderView",
     "LastAction",
     "LimitsPosture",
@@ -531,16 +534,98 @@ class ChainStep(_Model):
     done: CommandWrite | None = None
 
 
-class Families(_Model):
-    """The build's device families in build-time order.
+class CatalogPlace(_Model):
+    """One link of a device's place chain.
 
-    The panel addresses a device by its 1-based index here; an excluded device
-    keeps its index.
+    Attributes:
+        id: The place's id.
+        level: The facility's own word for the place's level, ``None`` when it
+            states none.
     """
 
-    bpms: list[str]
-    hcms: list[str]
-    vcms: list[str]
+    id: str
+    level: str | None
+
+
+class CatalogEntry(_Model):
+    """One device the response matrix covers, as the facility names it.
+
+    Attributes:
+        name: The matrix name the service addresses the device by: a BPM's
+            x-row address, a corrector's setpoint address.
+        device: The facility device id.
+        label: The name a person reads for the device.
+        places: The places holding the device, root to leaf.
+        s: Its position along the model in metres, ``None`` when unknown.
+        plane: ``x`` or ``y`` for a corrector, ``None`` for a BPM.
+        groups: The ids of the facility groups listing the device.
+    """
+
+    name: str
+    device: str
+    label: str
+    places: list[CatalogPlace] = Field(default_factory=list)
+    s: float | None = None
+    plane: Literal["x", "y"] | None = None
+    groups: list[str] = Field(default_factory=list)
+
+
+class CatalogGroup(_Model):
+    """A facility group listing matrix devices.
+
+    Attributes:
+        id: The group's id.
+        label: The name a person reads for the group.
+        members: The matrix names of its devices.
+    """
+
+    id: str
+    label: str
+    members: list[str]
+
+
+class Catalog(_Model):
+    """The devices the response matrix covers, each family in ring order.
+
+    Ring order is ``s``, then matrix order; a device without ``s`` follows the
+    placed ones, in matrix order. Selection addresses a device by its
+    ``name``; an excluded device keeps its entry.
+
+    Attributes:
+        bpms: The BPMs, one per matrix row pair.
+        hcms: The horizontal correctors.
+        vcms: The vertical correctors.
+        groups: The facility groups listing matrix devices.
+    """
+
+    bpms: list[CatalogEntry]
+    hcms: list[CatalogEntry]
+    vcms: list[CatalogEntry]
+    groups: list[CatalogGroup] = Field(default_factory=list)
+
+    @classmethod
+    def in_ring_order(cls, catalog: Any) -> Self:
+        """The catalog the build wrote (matrix order), each family put in ring order.
+
+        Raises:
+            pydantic.ValidationError: *catalog* is not a catalog.
+        """
+        read = cls.model_validate(catalog)
+
+        def ring(entries: list[CatalogEntry]) -> list[CatalogEntry]:
+            order = sorted(
+                range(len(entries)),
+                key=lambda i: (entries[i].s is None, entries[i].s or 0.0, i),
+            )
+            return [entries[i] for i in order]
+
+        return read.model_copy(
+            update={"bpms": ring(read.bpms), "hcms": ring(read.hcms), "vcms": ring(read.vcms)}
+        )
+
+    def names(self, family: Literal["bpms", "hcms", "vcms"]) -> list[str]:
+        """The matrix names of one family, in ring order."""
+        return [entry.name for entry in getattr(self, family)]
 
 
 class Machine(_Model):
@@ -651,8 +736,8 @@ class Snapshot(_Model):
         last_action: The last finished writing action and what it moved.
         continuous: The continuous run in progress, else ``None``.
         chain: The declared chain, in order.
-        families: The build's BPM and corrector families, ``None`` without a
-            model.
+        catalog: The devices the build's response matrix covers, ``None``
+            when the build wrote no catalog for the model.
         machine: The machine readings, ``None`` until read.
         setup: The current setup, ``None`` when none was applied.
         solve: The published solve, ``None`` before one is computed.
@@ -684,7 +769,7 @@ class Snapshot(_Model):
     last_action: LastAction | None
     continuous: ContinuousStatus | None
     chain: list[ChainStep] = Field(default_factory=list)
-    families: Families | None = None
+    catalog: Catalog | None = None
     machine: Machine | None = None
     setup: SetupState | None = None
     solve: Solve | None = None

@@ -66,7 +66,7 @@ function snapshot(over = {}) {
     last_action: null,
     continuous: null,
     chain: [],
-    families: null,
+    catalog: null,
     machine: { rf_on: 'on', stored_current: 12.5 },
     setup: null,
     solve: null,

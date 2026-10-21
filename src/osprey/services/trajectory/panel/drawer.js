@@ -137,7 +137,7 @@ export const mount = (host, ctx) => {
   /** @type {any} */
   let plottedReadbacks;
   /** @type {any} */
-  let plottedFamilies;
+  let plottedCatalog;
 
   /** Whether the operator is typing in one of the drawer's fields. */
   function typing() {
@@ -145,15 +145,15 @@ export const mount = (host, ctx) => {
     return active != null && controls.contains(active) && active.tagName === 'INPUT' && active.getAttribute('type') === 'text';
   }
 
-  /** Draw the readback plots when their readbacks or the BPM family changed. */
+  /** Draw the readback plots when their readbacks or the device catalog changed. */
   function plot() {
     const readbacks = sync.model.readbacks();
-    const families = ctx.snapshot()?.families ?? null;
-    if (readbacks === plottedReadbacks && families === plottedFamilies) return;
+    const catalog = ctx.snapshot()?.catalog ?? null;
+    if (readbacks === plottedReadbacks && catalog === plottedCatalog) return;
     plottedReadbacks = readbacks;
-    plottedFamilies = families;
+    plottedCatalog = catalog;
     for (const [plotId, { id, figure }] of Object.entries(READBACK_PLOTS)) {
-      ctx.adapter?.render(plotId, (/** @type {any} */ theme) => figure(readbackById(readbacks, id), families, theme));
+      ctx.adapter?.render(plotId, (/** @type {any} */ theme) => figure(readbackById(readbacks, id), catalog, theme));
     }
   }
 

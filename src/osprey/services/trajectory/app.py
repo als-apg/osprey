@@ -150,10 +150,10 @@ from osprey.services.trajectory.setup import (
 from osprey.services.trajectory.startup import StartupRefused, TrajectoryStartup
 from osprey.services.trajectory.state import (
     ApplyEvent,
+    Catalog,
     ChainBody,
     ChainResult,
     ContinuousEndedEvent,
-    Families,
     HolderView,
     LastAction,
     LimitsPosture,
@@ -543,7 +543,7 @@ def _frame(event: BaseModel) -> str:
 class _Feed:
     """The service's state view and its fan-out to the open state streams.
 
-    Holds what the sessions do not: the declared chain, the build's families,
+    Holds what the sessions do not: the declared chain, the build's catalog,
     the latest take-over, the last shot, the last finished writing action, the
     current reference's match, the machine readings and the current setup. A
     stream ends only when :attr:`shutdown` is set. While a stream is open the
@@ -553,8 +553,8 @@ class _Feed:
         sessions: The started service's sessions.
         store: Its shot files and references, ``None`` without a state dir.
         declaration: The model's declared chain and readbacks.
-        families: The build's BPM and corrector families, ``None`` without a
-            tool.
+        catalog: The devices the build's response matrix covers, ``None``
+            when the build wrote no catalog for the model.
         machine: The latest machine readings, ``None`` until read.
         setup_keeper: Holds, persists and re-checks the current setup.
         shutdown: The service-shutdown signal, the sessions' own; set once, it
@@ -573,7 +573,7 @@ class _Feed:
         self.sessions = sessions
         self.store = store
         self.declaration = declaration or DEFAULT_DECLARATION
-        self.families = _families(sessions.layer.startup)
+        self.catalog = _catalog(sessions.layer.startup)
         self.machine: Machine | None = None
         self.setup_keeper = setup_keeper or SetupKeeper()
         self.setup_keeper.on_void = self._setup_voided
@@ -648,7 +648,7 @@ class _Feed:
             last_action=self.last_action,
             continuous=run.status() if run is not None and run.running else None,
             chain=list(self.declaration.steps),
-            families=self.families,
+            catalog=self.catalog,
             machine=self.machine,
             setup=self.setup,
             solve=sessions.solve.solve if sessions.solve is not None else None,
@@ -853,6 +853,7 @@ class _Feed:
             run=run,
             declaration=declaration,
             call_timeout_s=call_timeout_s,
+            **self.shot_selection(),
         )
 
         def build(hook: PostShotHook) -> Action[ChainResult]:
@@ -865,18 +866,20 @@ class _Feed:
                 self.publish(ShotEvent(shot=shot), StepEvent(step=step))
                 return step
 
-            chained = chain_action(
-                startup,
-                store,
-                rows=rows,
-                run=run,
-                declaration=declaration,
-                post_shot=published,
-                call_timeout_s=call_timeout_s,
-                setup_check=self.setup_keeper,
-            )
-
             async def action(admission: Any, stop: asyncio.Event) -> ChainResult:
+                # Built inside the turn, so the shot takes the exclusions in
+                # force when it runs, not those of when it was queued.
+                chained = chain_action(
+                    startup,
+                    store,
+                    rows=rows,
+                    run=run,
+                    declaration=declaration,
+                    post_shot=published,
+                    call_timeout_s=call_timeout_s,
+                    setup_check=self.setup_keeper,
+                    **self.shot_selection(),
+                )
                 result = await chained(admission, stop)
                 if result.shot is not None and not makes_step(result.shot):
                     self.shot_unhooked(result.shot)
@@ -886,24 +889,32 @@ class _Feed:
 
         return build
 
+    def shot_selection(self) -> dict[str, Any]:
+        """The BPM exclusions and loss cutoff a shot is taken with: the SolveConfig's in force.
+
+        Every shot path reads them here, so a shot, the step solved from it,
+        the published solve and the Apply guard see one BPM set. Without a
+        SolveConfig nothing is excluded and the configured cutoff applies.
+        """
+        solve = self.sessions.solve
+        if solve is None:
+            return {"excluded_bpms": (), "loss_cutoff": None}
+        values = solve.values
+        cutoff = values.get("loss_cutoff")
+        return {
+            "excluded_bpms": tuple(values["excluded_bpms"]),
+            "loss_cutoff": None if cutoff is None else float(cutoff),
+        }
+
     def shot_unhooked(self, shot: ShotResult) -> None:
         """Publish a stored shot that made no step: not fresh, not TbT, or nothing included."""
         self.last_shot = ShotSummary.of(shot)
         self.publish(ShotEvent(shot=shot), StepEvent(step=None))
 
 
-def _families(startup: TrajectoryStartup) -> Families | None:
-    """The build's BPM and corrector families from the tool's layout, ``None`` without one."""
-    try:
-        tool = require_tool(startup.tool)
-    except StepRefused:
-        return None
-    layout = tool.layout
-    return Families(
-        bpms=list(layout.bpm_names_h),
-        hcms=list(layout.hcorr_names),
-        vcms=list(layout.vcorr_names),
-    )
+def _catalog(startup: TrajectoryStartup) -> Catalog | None:
+    """The devices the build's response matrix covers, in ring order; ``None`` without a catalog."""
+    return startup.catalog
 
 
 def _writes_enabled(gate: AdmitGate) -> bool:
