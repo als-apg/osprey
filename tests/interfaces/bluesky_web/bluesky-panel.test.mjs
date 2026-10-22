@@ -1393,7 +1393,10 @@ describe('createResultsView', () => {
 
   const DATA = {
     run_uid: null,
-    columns: ['time', 'signal'],
+    columns: [
+      { name: 'time', unit: null },
+      { name: 'signal', unit: null },
+    ],
     rows: [
       [1, 10],
       [2, 20],
@@ -3666,7 +3669,7 @@ describe('the merged panel shell', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              columns: ['x'],
+              columns: [{ name: 'x', unit: null }],
               rows: [[1]],
               row_count: 1,
               truncated: false,
@@ -3723,7 +3726,7 @@ describe('the merged panel shell', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              columns: ['x'],
+              columns: [{ name: 'x', unit: null }],
               rows: [[1]],
               row_count: 1,
               truncated: false,

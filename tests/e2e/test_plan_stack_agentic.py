@@ -868,15 +868,20 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
     )
 
 
+def _column_names(data: dict[str, Any]) -> list[str]:
+    """The column names a ``get_run_data`` answer states, in row order."""
+    return [column["name"] for column in data.get("columns") or []]
+
+
 def _numeric_series(data: dict[str, Any], column: str) -> list[tuple[int, float]]:
     """``(row index, value)`` for every numeric cell of ``column``.
 
     Rows are positional lists aligned with ``columns`` — the bridge route's
-    wire shape (``{"columns": [...], "rows": [[...], ...]}``), not dicts. A
-    non-numeric or missing cell is a dropout and is simply absent from the
-    result, which is what lets callers measure coverage as well as span.
+    wire shape (``{"columns": [{"name", "unit"}, ...], "rows": [[...], ...]}``),
+    not dicts. A non-numeric or missing cell is a dropout and is simply absent
+    from the result, which is what lets callers measure coverage as well as span.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     if column not in columns:
         return []
     idx = columns.index(column)
@@ -930,7 +935,7 @@ def assert_run_is_live(
     moves exactly and a dead one is exactly flat. A future VA that adds noise
     wants a real floor passed here rather than a looser comparison baked in.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     rows = data.get("rows") or []
     corrector_columns = [c for c in columns if c in set(correctors)]
     bpm_columns = [c for c in columns if c in set(bpms)]
@@ -1003,7 +1008,7 @@ def assert_hysteresis_loop_measured(
        for a future VA that adds measurement noise, not a claim about the
        present one.
     """
-    columns = data.get("columns") or []
+    columns = _column_names(data)
     rows = data.get("rows") or []
     corrector_columns = [c for c in columns if c in set(correctors)]
     bpm_columns = [c for c in columns if c in set(bpms)]
@@ -1018,7 +1023,7 @@ def assert_hysteresis_loop_measured(
 
     def _series(column: str) -> list[tuple[int, float]]:
         # Rows are positional lists aligned with `columns` — the route's wire
-        # shape (`{"columns": [...], "rows": [[...], ...]}`), not dicts.
+        # shape (`{"columns": [{"name", "unit"}, ...], "rows": [[...], ...]}`).
         idx = columns.index(column)
         pairs = []
         for i, row in enumerate(rows):
@@ -2354,7 +2359,11 @@ _HYST_ARGS: dict[str, Any] = {
 #: response node and never moves. One responding, agreeing BPM is the floor's
 #: requirement, so the flat one must not fail a healthy run.
 _HYST_RUN_DATA: dict[str, Any] = {
-    "columns": ["corrector_01", "bpm_01", "bpm_02"],
+    "columns": [
+        {"name": "corrector_01", "unit": None},
+        {"name": "bpm_01", "unit": None},
+        {"name": "bpm_02", "unit": None},
+    ],
     "rows": [[s, 2.0 * s, 0.0] for s in _HYST_ARGS["settings"]],
 }
 
@@ -2499,7 +2508,7 @@ def test_hysteresis_data_floor_rejects_a_monotonic_ramp() -> None:
     loop, however many points it carries."""
     ramp = [-1.0 + i * 0.25 for i in range(9)]
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 2.0 * s] for s in ramp],
     }
     with pytest.raises(AssertionError, match="reversed direction"):
@@ -2519,7 +2528,10 @@ def test_hysteresis_data_floor_rejects_disagreeing_passes() -> None:
         elif current > previous:
             direction = 1.0
         rows.append([current, 2.0 * current + (1.5 if direction < 0 else 0.0)])
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": rows,
+    }
     with pytest.raises(AssertionError, match="responded to the loop and agreed"):
         assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
 
@@ -2529,7 +2541,7 @@ def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
     """Every BPM flat means the loop measured nothing — a dead pair, not a
     hysteresis check."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 0.0] for s in _HYST_ARGS["settings"]],
     }
     with pytest.raises(AssertionError, match="responded to the loop and agreed"):
@@ -2548,7 +2560,12 @@ def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
 #: both BPMs answering on every row. Written positionally, the bridge's own
 #: wire shape.
 _LIVE_ORM_DATA: dict[str, Any] = {
-    "columns": ["corrector_01", "corrector_02", "bpm_01", "bpm_02"],
+    "columns": [
+        {"name": "corrector_01", "unit": None},
+        {"name": "corrector_02", "unit": None},
+        {"name": "bpm_01", "unit": None},
+        {"name": "bpm_02", "unit": None},
+    ],
     "rows": [
         [s, -s, 9.0 * s, 6.2 * s] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0]
     ],
@@ -2568,7 +2585,7 @@ def test_liveness_floor_rejects_an_undriven_machine() -> None:
     """Every corrector parked at one setting. The sequence can still complete
     — stage, queue, start, read — so only a data floor catches it."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[0.0, 0.0] for _ in range(9)],
     }
     with pytest.raises(AssertionError, match="no wired corrector moved"):
@@ -2581,7 +2598,11 @@ def test_liveness_floor_rejects_flat_readbacks() -> None:
     nothing was listening to. This is the shape that leaves an agent with
     nothing real to report."""
     data = {
-        "columns": ["corrector_01", "bpm_01", "bpm_02"],
+        "columns": [
+            {"name": "corrector_01", "unit": None},
+            {"name": "bpm_01", "unit": None},
+            {"name": "bpm_02", "unit": None},
+        ],
         "rows": [[s, 0.0, 0.0] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
     }
     with pytest.raises(AssertionError, match="no wired BPM answered"):
@@ -2594,7 +2615,10 @@ def test_liveness_floor_rejects_dropped_readbacks() -> None:
     the span alone would call that live, which is why coverage is checked."""
     rows: list[list[Any]] = [[s, None] for s in [-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5]]
     rows += [[0.75, 6.75], [1.0, 9.0]]
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": rows,
+    }
     with pytest.raises(AssertionError, match="no wired BPM answered"):
         assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
 
@@ -2603,7 +2627,10 @@ def test_liveness_floor_rejects_dropped_readbacks() -> None:
 def test_liveness_floor_rejects_an_empty_table() -> None:
     """A completed sequence over an empty table — what a dead stack produces
     and what the structural floor happily accepts."""
-    data = {"columns": ["corrector_01", "bpm_01"], "rows": []}
+    data = {
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
+        "rows": [],
+    }
     with pytest.raises(AssertionError, match="a measurement needs points"):
         assert_run_is_live(data, ["corrector_01"], ["bpm_01"])
 
@@ -2613,7 +2640,10 @@ def test_liveness_floor_rejects_unwired_columns() -> None:
     """Columns that name no registered device mean the run measured some
     other machine — or a renamed one nobody noticed."""
     data = {
-        "columns": ["something_else", "another_thing"],
+        "columns": [
+            {"name": "something_else", "unit": None},
+            {"name": "another_thing", "unit": None},
+        ],
         "rows": [[s, 2.0 * s] for s in [-1.0, 0.0, 1.0]],
     }
     with pytest.raises(AssertionError, match="no wired corrector column"):
@@ -2625,7 +2655,7 @@ def test_liveness_floor_honours_an_explicit_noise_floor() -> None:
     """A response below the caller's noise floor is not a signal. Pins the
     knob a future noisy VA needs, so it cannot rot unnoticed."""
     data = {
-        "columns": ["corrector_01", "bpm_01"],
+        "columns": [{"name": "corrector_01", "unit": None}, {"name": "bpm_01", "unit": None}],
         "rows": [[s, 0.001 * s] for s in [-1.0, -0.5, 0.0, 0.5, 1.0]],
     }
     assert_run_is_live(data, ["corrector_01"], ["bpm_01"])

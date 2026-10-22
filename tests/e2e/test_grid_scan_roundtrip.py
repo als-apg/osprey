@@ -286,7 +286,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         f"expected {NUM_POINTS} rows (one per grid point), got {data['row_count']}: {data}"
     )
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     corrector_col = _find_column(columns, corrector_name)
     bpm_col = _find_column(columns, bpm_name)
 

@@ -1875,7 +1875,7 @@ def _data_response(
     run reads the same whichever source served it, and a promise kept by two
     copies of the same code is kept only until one of them is edited.
 
-    Three rules the two sources must not diverge on:
+    The rules the two sources must not diverge on:
 
     - ``run_uid`` is always present, carrying ``None`` when the source does not
       know it, so a caller never has to tell "unknown" from "omitted".
@@ -1885,8 +1885,9 @@ def _data_response(
     - ``analysis`` is computed over ALL the rows the source holds, never the
       window `_window` cuts — statistics over a page of a run describe the
       page.
-    - ``units`` is always present: each of the window's columns whose unit
-      the run declared, ``{}`` when none did.
+    - ``columns`` states each column once, in row order, as ``{"name",
+      "unit"}``: ``unit`` is what the run declared for it and ``None`` when
+      it declared none, so a row's values are read by position against it.
 
     *generation* is the caller's, read BEFORE the source, as the figure route
     reads it: an eviction landing between the two reads then leaves a cache
@@ -1898,9 +1899,9 @@ def _data_response(
         _window(held["columns"], held["rows"], held["total_seen"], max_rows, offset, tail)
     )
     declared = held["units"]
-    result["units"] = {
-        column: declared[column] for column in result["columns"] if column in declared
-    }
+    result["columns"] = [
+        {"name": column, "unit": declared.get(column)} for column in result["columns"]
+    ]
     if held["partial"]:
         result["partial"] = True
     result["analysis"] = _run_analysis(
@@ -1999,8 +2000,9 @@ def get_run_data(
     over the whole run rather than this window and always present: a run that
     has none carries the reason it has none. See `_run_analysis`.
 
-    ``units`` maps each column to the unit the run's descriptors declared for
-    it, and is always present; a column absent from it declared none.
+    ``columns`` lists each column once, in the order every row's values
+    follow, as ``{"name", "unit"}``; ``unit`` is the one the run's descriptors
+    declared for it, ``None`` when they declared none.
     """
     generation = figure_cache.snapshot_generation(run_id)
     buf = live_rows.get(run_id)

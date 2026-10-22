@@ -228,7 +228,7 @@ async def test_list_runs_bridge_error():
 async def test_get_run_data_success():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,

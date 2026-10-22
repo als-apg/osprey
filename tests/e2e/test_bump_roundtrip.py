@@ -910,7 +910,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
         "event, which also shifts every step's row out of position"
     )
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     assert len(rows) == EXPECTED_ROWS
     measured = _Measured(stack, columns, rows)

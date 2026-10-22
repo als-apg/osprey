@@ -1784,7 +1784,7 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
                 "the analysis chose an x axis the plan never declared movable "
                 f"(expected the swept corrector {expected_axis!r}): {analysis}"
             )
-            assert analysis["x_column"] in data["columns"], (
+            assert analysis["x_column"] in [column["name"] for column in data["columns"]], (
                 f"the analysis names an x column that is not in the table: {analysis}"
             )
             assert analysis["points"] == data["row_count"]

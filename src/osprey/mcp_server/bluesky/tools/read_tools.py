@@ -296,16 +296,18 @@ async def get_run_data(
 
     Returns:
         JSON ``{"run_uid", "columns", "rows", "row_count", "truncated",
-        "units", "analysis"[, "partial"]}``. ``partial: true`` means the run is
+        "analysis"[, "partial"]}``. ``partial: true`` means the run is
         still in progress and more rows will arrive; an empty/never-started buffer
         returns ``{"columns": [], "rows": []}``. ``run_uid`` is always present
         as a key but is null when the rows came from the live buffer, and
         populated when they came from durable storage — a null there says which
         path served the read, not that anything is missing.
 
-        ``units`` maps a column to the unit the run declared for it, and every
-        value in that column is in that unit. A column absent from ``units``
-        has no declared unit: report its unit as not stated, never assume one.
+        ``columns`` lists each column once as ``{"name", "unit"}``, in the
+        order every row's values follow: a row's n-th value belongs to the
+        n-th column and is in that column's ``unit``, the one the run declared.
+        A null ``unit`` means the run declared none: report the unit as not
+        stated, never assume one.
 
         ``analysis`` is the run's peak statistics, computed over the WHOLE run
         rather than this window, and is always present with the same six keys
