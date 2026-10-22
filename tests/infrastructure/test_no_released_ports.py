@@ -42,9 +42,6 @@ PORT_PICKERS = frozenset(
 #: Files under ``tests/`` that still pick a released port, sorted.
 REMAINING_SITES: tuple[str, ...] = (
     "connectors/test_epics_ca_softioc.py",
-    "deployment/test_host_ports.py",
-    "deployment/test_qmd_entrypoint_loopback_probe.py",
-    "deployment/web_terminals/test_auth_serving.py",
     "e2e/_ca_client_name_sniffer.py",
     "e2e/_orm_stack.py",
     "e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
@@ -57,7 +54,6 @@ REMAINING_SITES: tuple[str, ...] = (
     "e2e/web_terminals/test_loopback_chokepoint.py",
     "e2e/web_terminals/test_terminal_auth_e2e.py",
     "fixtures/bench_ioc.py",
-    "health/core/test_ariel.py",
     "infrastructure/proxy/test_proxy_lifecycle.py",
     "integration/test_tiled_export.py",
     "pty/conftest.py",
