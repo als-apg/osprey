@@ -706,7 +706,7 @@ implementation:</p>
 <code class="docutils literal notranslate"><span class="pre">asyncio.run_coroutine_threadsafe</span></code>. Each runs the put in a copy of the
 calling context, and a task created while the door is open inherits it too.
 The EPICS connector uses the last: its Channel Access puts run on the
-process’s CA loop (<code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.ca_loop</span></code>).</p></li>
+process’s single Channel Access loop.</p></li>
 <li><p><strong>Not behind</strong> <code class="docutils literal notranslate"><span class="pre">loop.run_in_executor</span></code>, a raw executor <code class="docutils literal notranslate"><span class="pre">submit</span></code> or a bare
 <code class="docutils literal notranslate"><span class="pre">threading.Thread</span></code>. Each starts from a fresh context, sees the door
 closed, and the put is refused with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>.</p></li>
@@ -882,7 +882,7 @@ for every channel in it and every processing mode. A backend that bins on a
 grid of its own is the documented exception – the Archiver Appliance’s
 operators are epoch-anchored, and the window merely clips them.</p></li>
 </ul>
-<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey_connectors.archiver._timerange</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
+<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey_connectors.archiver</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
 <code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
 <code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>, <code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code>) implement all of the above –
 every in-tree connector builds on them rather than reimplementing binning.</p>
