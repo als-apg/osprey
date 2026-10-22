@@ -1,8 +1,7 @@
 """Unit tests for tests/e2e/sdk_helpers.py pure-logic helpers.
 
-No LLM, no build, no DB — fast logic checks. Excluded from the model-capability
-matrix (scripts/benchmark/matrix_e2e_config.json) since it measures nothing
-about the model under test.
+No LLM, no build, no DB — fast logic checks that measure nothing about a
+model, so they live outside the e2e suite.
 """
 
 from __future__ import annotations
@@ -30,8 +29,6 @@ from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     hook_attachments,
 )
-
-pytestmark = pytest.mark.model_free
 
 # ---------------------------------------------------------------------------
 # The agent-transcript dump. Its whole reason to exist is that the judge sees

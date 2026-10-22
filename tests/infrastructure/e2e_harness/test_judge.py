@@ -4,8 +4,7 @@ values without seeing references, and compares reported values in code.
 No model is reached: the provider call is replaced by a fake that answers on a
 script, so what is pinned is the judge's own rule -- an unreadable reply is
 asked again a bounded number of times, and any other failure of the call is
-raised as it comes. Model-independent, so the benchmark matrix leaves this
-file out of its per-model counts (``scripts/benchmark/matrix_e2e_config.json``).
+raised as it comes. Model-independent, so it lives outside the e2e suite.
 """
 
 from __future__ import annotations
