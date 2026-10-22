@@ -634,9 +634,9 @@ class PtyRegistry:
         if existing is None or not existing.is_alive:
             return None
         # An entry with no recorded fingerprint never came through this
-        # registry's own spawn path (every insertion site records one), so
-        # the only thing that can be assumed about its child is the base
-        # environment — no overlay, and therefore no sandbox marker.
+        # registry's spawn path (every insertion site records one, ``reinsert``
+        # deliberately does not), so it is treated as launched with no
+        # overlay: any caller with an overlay replaces it.
         recorded = self._env_fingerprints.get(session_key, EMPTY_ENV_FINGERPRINT)
         if recorded == env_fingerprint(extra_env):
             return None
