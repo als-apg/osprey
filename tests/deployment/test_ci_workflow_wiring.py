@@ -37,6 +37,7 @@ import ast
 import copy
 import functools
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -253,13 +254,9 @@ LANE_LEAVING_MARKERS = (
                 "tests/integration/",
                 "-m wallclock",
             ),
-            # On demand: the module is slow, so no per-PR step collects it.
-            SerialHost(
-                "channel-finder-benchmarks",
-                "Search-index scale guard (no LLM, no store)",
-                "tests/services/channel_finder/graph_index/test_scale.py",
-                "-m wallclock",
-            ),
+            # The image-free budgets, on every event: the step selects the
+            # marker over the tree, minus the directories with hosts of their own.
+            SerialHost("test", "Run the wall-clock budgets serially", "tests/", "-m wallclock"),
         ),
     ),
 )
@@ -1150,18 +1147,11 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #:    process per module through that gate, in a step of the unit job itself
 #:    that is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
-#:    and the gate — not a path in a run step — is what proves they ran;
-#:  * the search-index scale guard is `slow` and runs on demand, alone in the
-#:    benchmark job, so the lane ignores the module by path. Its absolute
-#:    budgets are not held by that ignore: they carry the `wallclock` marker,
-#:    and the marker's row in LANE_LEAVING_MARKERS names the benchmark step as
-#:    their serial host. The `channel_finder_benchmark` marker text in
-#:    pyproject.toml states the on-demand rule from the other side.
+#:    and the gate — not a path in a run step — is what proves they ran.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_apply_fault.py",
         "tests/va/test_lume_pva_seam.py",
-        "tests/services/channel_finder/graph_index/test_scale.py",
     }
 )
 
@@ -1618,17 +1608,41 @@ def _unhosted_carriers(row: LaneLeavingMarker, sources: dict[str, str]) -> list[
     ]
 
 
+def _sole_marker(command: str) -> str | None:
+    """The one marker an invocation's ``-m`` expression names, when it names
+    nothing else; such an invocation collects only that marker's tests."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    for flag, expression in itertools.pairwise(tokens):
+        if flag == "-m":
+            return expression if re.fullmatch(r"\w+", expression) else None
+    return None
+
+
 def _undeselected_reaches(
-    wf: dict[str, Any], row: LaneLeavingMarker, carriers: list[str]
+    wf: dict[str, Any], row: LaneLeavingMarker, sources: dict[str, str]
 ) -> list[str]:
     """Non-host invocations that reach a marked file without deselecting the
-    marker (empty = the row's tests run in its hosts and nowhere else)."""
+    marker (empty = the row's tests run in its hosts and nowhere else).
+
+    An invocation that selects one other marker alone reaches a marked file
+    only when the file carries that marker too."""
     hosts = {(host.job, host.step) for host in row.hosts}
+
+    def _selects(command: str, name: str) -> bool:
+        sole = _sole_marker(command)
+        if sole is None or sole == row.marker:
+            return True
+        return re.search(rf"pytest\.mark\.{re.escape(sole)}\b", sources[name]) is not None
+
+    carriers = _carriers(row, sources)
     return [
         f"{job} · {step}: {command}"
         for job, step, command in _ci_pytest_invocations(wf)
         if (job, step) not in hosts
-        and any(_invocation_reaches(command, f) for f in carriers)
+        and any(_invocation_reaches(command, f) and _selects(command, f) for f in carriers)
         and row.deselect_term() not in command
     ]
 
@@ -1766,12 +1780,18 @@ def test_every_marked_file_lives_where_a_serial_step_looks(row: LaneLeavingMarke
     )
 
 
-@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+#: The rows whose every host path is narrower than the tree. A row hosted over
+#: the whole tree has no stray under tests/ by construction.
+_NARROW_ROWS = [row for row in LANE_LEAVING_MARKERS if all(h.path != "tests/" for h in row.hosts)]
+
+
+@pytest.mark.parametrize("row", _NARROW_ROWS, ids=[row.marker for row in _NARROW_ROWS])
 def test_every_marked_file_lives_where_a_serial_step_looks__mutation_strays(
     row: LaneLeavingMarker,
 ) -> None:
     """A future marked file one directory over must be reported by name, not
-    tolerated because the tests it was modelled on are still in place."""
+    tolerated because the tests it was modelled on are still in place. A row
+    hosted over the whole tree has no stray under tests/ by construction."""
     sources = _test_module_sources()
     phantom = f"tests/cli/test_future_{row.marker}_scenarios.py"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
@@ -1854,22 +1874,23 @@ def test_marker_runs_in_its_own_serial_step__mutation_drops_the_select(host: Ser
 
 
 def test_marker_runs_in_its_own_serial_step__mutation_neighbour_line_drops_the_term() -> None:
-    """A host step may run the rest of its module on a line of its own; that
-    line without the term times the budgets a second time, among the others."""
+    """A host step may run other tests on a line of its own; that line without
+    the term times the budgets a second time, among the others."""
     row = _row("wallclock")
-    host = next(h for h in row.hosts if h.job == BENCHMARKS_JOB)
+    host = next(h for h in row.hosts if h.job == UNIT_TEST_JOB)
     mutated = _load_workflow()
     step = _find_named_step(mutated, host.job, host.step)
-    original = step["run"]
-    step["run"] = original.replace(f' -m "{row.deselect_term()}"', "")
-    assert step["run"] != original, "neighbour-line deselection not found; mutation is stale"
+    assert row.deselect_term() not in step["run"], "neighbour line already present; stale"
+    step["run"] = f"{step['run'].rstrip()}\nuv run pytest tests/ --ignore=tests/e2e -v\n"
+    _check_host(_load_workflow(), host)
     with pytest.raises(AssertionError, match="beside its host line"):
         _check_host(mutated, host)
 
 
-def _check_nothing_else_times_it(wf: dict[str, Any], row: LaneLeavingMarker) -> None:
-    carriers = _carriers(row, _test_module_sources())
-    leaks = _undeselected_reaches(wf, row, carriers)
+def _check_nothing_else_times_it(
+    wf: dict[str, Any], row: LaneLeavingMarker, sources: dict[str, str] | None = None
+) -> None:
+    leaks = _undeselected_reaches(wf, row, _test_module_sources() if sources is None else sources)
     assert leaks == [], (
         f"pytest invocation(s) reach a {row.marker}-marked file without "
         f"{row.deselect_term()!r}: {leaks}. Only the row's serial step may run it; "
@@ -1924,6 +1945,17 @@ def test_nothing_else_times_it__mutation_sidecar_step_drops_the_term() -> None:
     assert step["run"] != original, "sidecar-step deselection not found; mutation is stale"
     with pytest.raises(AssertionError):
         _check_nothing_else_times_it(mutated, row)
+
+
+def test_nothing_else_times_it__mutation_a_file_carries_both_markers() -> None:
+    """A host that selects its own marker alone still reaches a file that
+    carries another row's marker as well, and runs those tests a second time."""
+    sources = _test_module_sources()
+    phantom = "tests/cli/test_future_pty_wallclock_scenarios.py"
+    sources[phantom] = "pytestmark = [pytest.mark.pty, pytest.mark.wallclock]\n"
+    _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW)
+    with pytest.raises(AssertionError, match="Run the wall-clock budgets serially"):
+        _check_nothing_else_times_it(_load_workflow(), TERMINAL_ROW, sources)
 
 
 def test_pty_step_runs_only_where_a_terminal_is_real(workflow: dict[str, Any]) -> None:
@@ -2041,8 +2073,14 @@ def _script_source(name: str) -> str:
 
 
 def _lane_invocations(source: str) -> list[str]:
-    """The script's wholesale ``pytest tests/`` sweeps, ignoring narrower runs."""
-    return [line for line in _script_pytest_lines(source) if "--ignore=tests/e2e" in line]
+    """The script's wholesale ``pytest tests/`` sweeps, ignoring narrower runs
+    and each row's serial run, which may name the same tree."""
+    selects = {row.select() for row in LANE_LEAVING_MARKERS}
+    return [
+        line
+        for line in _script_pytest_lines(source)
+        if "--ignore=tests/e2e" in line and not any(select in line for select in selects)
+    ]
 
 
 def _sweeps_missing_the_deselection(source: str, row: LaneLeavingMarker) -> list[str]:
@@ -2175,13 +2213,13 @@ def test_serial_mirror_scripts_run_what_they_deselect__mutation_parallelizes_it(
 
 
 @pytest.mark.parametrize(
-    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"])]
+    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e", "test"])]
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]
 ) -> None:
-    """The scale guard's host is dispatched by hand and sits outside the merge
-    gate, so it is the one host a per-PR mirror does not owe."""
+    """Every host gates the merge, and ``_per_pr_hosts`` is the filter that
+    still holds the day an on-demand host is added."""
     assert [host.job for host in _per_pr_hosts(workflow, _row(marker))] == jobs
 
 
@@ -2263,32 +2301,16 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_dire
 ) -> None:
     """A second per-PR host directory is owed too, not only the first."""
     widened = replace(
-        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/cli/", row.select()))
+        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/e2e/", row.select()))
     )
     sources = _test_module_sources()
-    phantom = f"tests/cli/test_future_{row.marker}.py"
+    phantom = f"tests/e2e/test_future_{row.marker}.py"
     assert phantom not in sources, f"{phantom} exists; mutation is stale"
     sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
     assert phantom in _per_pr_carriers(workflow, widened, sources)
     assert _unreached_by_serial_runs(
         _script_source(script), widened, _per_pr_carriers(workflow, widened, sources)
     ) == [phantom]
-
-
-@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
-def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_demand_host(
-    script: str,
-) -> None:
-    """The scale guard is exempt only because its job is outside the merge
-    gate; the day it gates the merge, a mirror owes it as well."""
-    row = _row("wallclock")
-    mutated = _load_workflow()
-    needs = _jobs(mutated)[GATE_JOB]["needs"]
-    assert BENCHMARKS_JOB not in needs, f"{BENCHMARKS_JOB} gates the merge; mutation is stale"
-    needs.append(BENCHMARKS_JOB)
-    files = _per_pr_carriers(mutated, row, _test_module_sources())
-    scale = "tests/services/channel_finder/graph_index/test_scale.py"
-    assert scale in _unreached_by_serial_runs(_script_source(script), row, files)
 
 
 # The gate is held tighter than the other scripts: every pytest line it runs is

@@ -111,15 +111,7 @@ echo ""
 echo "→ Running pytest with coverage..."
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
-#
-# tests/services/channel_finder/graph_index/test_scale.py is ignored for the same
-# reason ci.yml's lane ignores it: it is a wall-clock latency guard whose budgets
-# are held to an unloaded workstation, and its own module docstring says it does
-# not run in the parallel lane. Under -n it measures worker contention rather
-# than the index, so leaving it in made this script red on every branch. It runs
-# on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
-# — and in the benchmark job.
-if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -145,7 +137,7 @@ echo ""
 # as the CI lane does it: a budget measured beside four workers measures the
 # workers. Selected by marker, so a marked test cannot be left unrun.
 echo "→ Running the wall-clock budgets (serial)..."
-if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration -m wallclock -v --tb=short; then
+if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m wallclock -v --tb=short; then
     FAILED_CHECKS+=("pytest-wallclock")
     echo "❌ Wall-clock budgets failed"
 else
