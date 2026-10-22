@@ -4127,9 +4127,10 @@ def _wheel_difference_report(first: Path, second: Path) -> str:
 def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     """Two dev-wheel builds from identical source yield identical sha256.
 
-    Skips cleanly under exactly the conditions the production helper itself
-    falls back on: osprey not editable-installed, no pyproject.toml at the
-    source root, or the ``build`` package unavailable.
+    Skips only where no dev wheel can be built from source at all: osprey not
+    editable-installed, no pyproject.toml at the source root, or the ``build``
+    package unavailable. Past those, the helper either stages the wheels or
+    raises DevModeUnavailableError, and a raise here is a failure, not a skip.
     """
     import hashlib
     import importlib.util
@@ -4167,8 +4168,7 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             # Reset the memo so the second round is a genuinely fresh build, not
             # a copy of the first round's cached wheel.
             _reset_wheel_build_cache()
-            if not _copy_local_framework_for_override(str(out_dir)):
-                pytest.skip("dev wheel build unavailable in this environment")
+            assert _copy_local_framework_for_override(str(out_dir))
             staged = {w.name.split("-")[0]: w for w in out_dir.glob("*.whl")}
             assert sorted(staged) == sorted(
                 ["osprey_framework"] + [m.replace("-", "_") for m in WORKSPACE_MEMBERS]
