@@ -59,7 +59,6 @@ REMAINING_SITES: tuple[str, ...] = (
     "fixtures/bench_ioc.py",
     "health/core/test_ariel.py",
     "infrastructure/proxy/test_proxy_lifecycle.py",
-    "infrastructure/test_server_launcher.py",
     "integration/test_tiled_export.py",
     "pty/conftest.py",
     "stores/test_gallery_launch_on_save.py",
