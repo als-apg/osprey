@@ -25,6 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
 import litellm
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport

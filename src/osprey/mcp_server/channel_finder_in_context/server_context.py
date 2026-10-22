@@ -20,6 +20,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
+
 from osprey.mcp_server.channel_finder_common import (
     config_path,
     load_cf_config,

@@ -24,22 +24,14 @@ Provider Integration:
 """
 
 import json
-import os
 import warnings
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-# Must precede `import litellm`. LiteLLM calls a bare `dotenv.load_dotenv()` at
-# import when LITELLM_MODE is "DEV" (its default), which searches *upward* from
-# the process for a `.env` and publishes it into os.environ. A git worktree with
-# no `.env` of its own therefore inherits the parent checkout's — importing an
-# OSPREY provider module would absorb whatever `.env` sits above it on disk.
-# LITELLM_MODE gates nothing else in the package, so this disables that one side
-# effect and changes no other LiteLLM behaviour. setdefault, not assignment: an
-# operator who set LITELLM_MODE explicitly keeps their value.
-os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
 
-import litellm  # must follow the LITELLM_MODE setdefault above
+# isort: split
+import litellm
 from pydantic import BaseModel, ValidationError
 
 from osprey.models.messages import parse_data_url
@@ -127,7 +119,7 @@ def get_litellm_model_name(
     _fallback_prefixes = {
         "anthropic": "anthropic",
         "google": "gemini",
-        "openai": "",  # No prefix for OpenAI
+        "openai": "openai",
         "ollama": "ollama",
     }
     _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc-i2", "als-apg", "ds4"}
