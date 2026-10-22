@@ -2,11 +2,12 @@
 
 A port taken from ``bind(0)`` and closed again lies in the kernel's ephemeral
 range and is free for any ``connect()`` or ``bind(0)`` on the host until the
-server the test starts binds it. A test-started server binds a port from
-``tests._ports.reserved_port()`` / ``reserved_ports()`` instead, held until the
-server has stopped.
+server the test starts binds it. A test takes its port from ``tests._ports``
+instead: a server it controls binds port 0 itself and reports the number, a
+free port that is held is a ``reserved_port()`` / ``reserved_ports()``, and an
+occupied port is a ``bound_socket()``.
 
-A site is a ``.bind((<host>, 0))`` call whose host is a string or a name, or a
+A site is a ``.bind((<host>, 0))`` call, whatever expression the host is, or a
 test's use of a product helper that picks a port the same way: an import of
 ``osprey.interfaces._serving.free_port`` or a call of
 ``osprey.infrastructure.proxy.lifecycle.find_free_port``. ``REMAINING_SITES``
@@ -125,11 +126,8 @@ def _binds_port_zero(node: ast.Call) -> bool:
     elts = node.args[0].elts
     if len(elts) != 2:
         return False
-    host, port = elts
-    host_is_address = (isinstance(host, ast.Constant) and isinstance(host.value, str)) or (
-        _dotted(host) is not None
-    )
-    return host_is_address and isinstance(port, ast.Constant) and port.value == 0
+    port = elts[1]
+    return isinstance(port, ast.Constant) and port.value == 0
 
 
 def has_released_port(source: str) -> bool:
@@ -178,8 +176,8 @@ def ratchet_failures(found: set[str], remaining: tuple[str, ...]) -> list[str]:
     """What the found sites break of the ratchet: new files and stale entries."""
     listed = set(remaining)
     failures = [
-        f"{path}: picks a port by binding 0 and releasing it; bind a port from "
-        "tests._ports.reserved_port() and hold it until the server stops"
+        f"{path}: picks a port by binding 0 and releasing it; take the port from "
+        "tests._ports, which names each remedy"
         for path in sorted(found - listed)
     ]
     failures += [
@@ -201,6 +199,8 @@ def test_no_new_released_port_sites():
         'import socket\nwith socket.socket() as s:\n    s.bind(("127.0.0.1", 0))\n',
         "def pick(sock, host):\n    sock.bind((host, 0))\n",
         "def pick(self):\n    self.sock.bind((self.host, 0))\n",
+        "def pick(sock, hosts):\n    sock.bind((hosts[0], 0))\n",
+        "def pick(sock, host):\n    sock.bind((host(), 0))\n",
         "from osprey.interfaces._serving import free_port as _free_port\n",
         "def port():\n    from osprey.interfaces._serving import free_port\n    return free_port()\n",
         "import osprey.infrastructure.proxy.lifecycle as lifecycle\n"
@@ -214,6 +214,8 @@ def test_no_new_released_port_sites():
         "str-host",
         "name-host",
         "attribute-host",
+        "subscript-host",
+        "call-host",
         "serving-import-aliased",
         "serving-import-in-function",
         "lifecycle-module-aliased",
