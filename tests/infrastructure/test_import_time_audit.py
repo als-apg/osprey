@@ -32,12 +32,11 @@ WHITELIST: dict[str, set[str]] = {
     # moment for the same reason, picked from free ones or held reservations.
     "va/test_apply_fault.py": {"os.environ", "socket"},
     "va/test_lume_pva_seam.py": {"os.environ"},
-    # Deploying suites reserve their CA / gallery ports at import: the value
+    # Deploying suites reserve their CA ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
     "e2e/_orm_stack.py": {"socket"},
     "e2e/test_va_substrate_equivalence.py": {"socket"},
-    "interfaces/_panel_launch.py": {"socket"},
     # docs/source/_ext is not an installed package, and the extension under
     # test is imported at module top level.
     "documentation/test_workflow_autodoc.py": {"sys.path"},

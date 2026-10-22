@@ -80,7 +80,7 @@ from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 # The control-target render, the chip's selectors and the waits are the sibling
@@ -212,7 +212,7 @@ def _live_server(workspace_dir: Path):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
+            side_effect=publish_artifact_url(),
         ),
     ):
         from osprey.interfaces.web_terminal.app import create_app
@@ -554,7 +554,7 @@ def _control_target_lab(
         ),
         patch(
             "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
+            side_effect=publish_artifact_url(),
         ),
         patch(
             "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"

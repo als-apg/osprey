@@ -26,7 +26,6 @@ from pathlib import Path
 import nbformat
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
@@ -1039,8 +1038,8 @@ def test_a_refused_request_resolves_to_nothing(sessions_server: str) -> None:
     assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
 
 
-def test_no_sidecar_at_that_url_resolves_to_nothing() -> None:
+def test_no_sidecar_at_that_url_resolves_to_nothing(reserve_port) -> None:
     """The panel can die between the marker being written and the switch."""
-    dead = f"http://127.0.0.1:{free_port()}/panel/jupyter"
+    dead = f"http://127.0.0.1:{reserve_port()}/panel/jupyter"
 
     assert jupyter_sidecar.kernel_notebook_path(dead, {}, "wanted") is None
