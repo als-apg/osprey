@@ -16,8 +16,10 @@ import pytest
 from osprey.deployment.subprocess_capture import stop_group
 from tests import _ports
 from tests._ports import (
+    bound_socket,
     ephemeral_range_start,
     lock_path,
+    require_ipv6_loopback,
     reserved_port,
     reserved_ports,
 )
@@ -198,3 +200,32 @@ def test_hold_ports_keeps_the_locks_until_exit():
         _end_holder(holder)
     assert holder.returncode == 0
     assert _lockable_elsewhere(ports) == [True, True]
+
+
+def test_a_reserved_port_refuses_connections():
+    with reserved_port() as port, socket.socket() as client:
+        client.settimeout(5)
+        with pytest.raises(ConnectionRefusedError):
+            client.connect(("127.0.0.1", port))
+
+
+@pytest.mark.parametrize(
+    ("host", "family"),
+    [("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)],
+    ids=["ipv4", "ipv6"],
+)
+def test_a_bound_socket_holds_its_port(host, family):
+    if family == socket.AF_INET6:
+        require_ipv6_loopback()
+    with bound_socket(host) as held:
+        assert held.family == family
+        port = held.getsockname()[1]
+        with socket.socket(family, socket.SOCK_STREAM) as rival, pytest.raises(OSError):
+            rival.bind((host, port))
+
+
+def test_a_bound_socket_can_listen():
+    with bound_socket() as held, socket.socket() as client:
+        held.listen()
+        client.settimeout(5)
+        client.connect(("127.0.0.1", held.getsockname()[1]))

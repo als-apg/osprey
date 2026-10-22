@@ -1,4 +1,10 @@
-"""Reserve a loopback port that a test-started server binds later.
+"""Loopback ports for tests, named by what the number is.
+
+A port a test needs is one of three things. A server the test controls binds
+port 0 itself and reports the number. A port that is free and held, which
+nothing answers on or a server binds later, is a :func:`reserved_port`. A port
+that must be occupied, for a test of what a bind conflict does, is a
+:func:`bound_socket`.
 
 Picking a port by binding port 0 and releasing it leaves a gap before the
 server binds it, and the port is inside the kernel's ephemeral range: the kernel
@@ -113,7 +119,9 @@ def reserved_port() -> Iterator[int]:
 
     The port's lock is held until the block ends, and at reservation time the
     port binds on 127.0.0.1 for both TCP and UDP; the probe sockets are closed
-    before the port is yielded, so the caller's server can bind it.
+    before the port is yielded, so the caller's server can bind it. Until the
+    caller binds it, no socket holds the port, so a connect to it on 127.0.0.1
+    is refused at once.
 
     Raises:
         RuntimeError: Every candidate below the ephemeral range was taken, or
@@ -147,3 +155,35 @@ def reserved_ports(count: int) -> Iterator[list[int]]:
 def hold_ports(count: int) -> list[int]:
     """*count* distinct :func:`reserved_ports`, held until the process exits."""
     return _HELD.enter_context(reserved_ports(count))
+
+
+@contextmanager
+def bound_socket(host: str = "127.0.0.1") -> Iterator[socket.socket]:
+    """Yield a TCP socket bound to ``(host, 0)``, closed when the block ends.
+
+    The socket is opened ``AF_INET6`` when *host* contains ``:`` and ``AF_INET``
+    otherwise. While the block is open no other bind can take its port; the
+    socket is never put in ``listen()`` here, and a caller that needs a
+    listener calls ``listen()`` on it.
+    """
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        yield sock
+
+
+def require_ipv6_loopback() -> None:
+    """Skip the calling test unless this host can bind ``::1``.
+
+    Called from inside a test, never from a ``skipif`` condition: a condition
+    is evaluated at import, and the probe opens a socket.
+    """
+    import pytest
+
+    if not socket.has_ipv6:
+        pytest.skip("host has no IPv6 support")
+    try:
+        with bound_socket("::1"):
+            pass
+    except OSError as exc:
+        pytest.skip(f"host has no usable IPv6 loopback ({exc})")
