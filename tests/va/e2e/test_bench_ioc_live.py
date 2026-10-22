@@ -1024,19 +1024,20 @@ class TestWhenTheBenchMachineGoesAway:
             stopped = bench.docker("stop", ioc.container, timeout=60)
             assert stopped.returncode == 0, stopped.stderr
 
-            # The recovery seam is recorded rather than executed: a ConnectionError
-            # is what makes the tool handler respawn the child, and letting that
-            # run would race a spawn against a gateway nothing is listening on
-            # while these assertions are being made. That it was *asked* for is
-            # asserted below; the respawn itself is pinned in test_target_switch.py.
+            # One dead IOC is that channel's failure: the supervisor recovers
+            # nothing for it, so its recovery seam is recorded to prove it was
+            # never asked to.
             invalidated: list[str] = []
 
-            async def record(connector_name: str) -> None:
+            async def record(connector_name: str, **kwargs: object) -> bool:
                 invalidated.append(connector_name)
+                return True
 
-            monkeypatch.setattr(error_handling, "invalidate_active_connector", record)
+            monkeypatch.setattr(
+                server_context_mod.get_server_context(), "invalidate_connector", record
+            )
 
-            with assert_raises_error(error_type="connection_error") as captured:
+            with assert_raises_error(error_type="channel_unreachable") as captured:
                 await get_tool_fn(channel_read)(channels=[PROBE_CHANNEL], include_metadata=False)
 
             message = captured["envelope"]["error_message"]
@@ -1052,7 +1053,10 @@ class TestWhenTheBenchMachineGoesAway:
             assert identity["name"] == "live"
             assert identity["label"] == "LIVE MACHINE"
             assert identity["endpoint"].endswith(f":{ioc.port}")
-            assert invalidated == ["control_system"]
+            assert captured["envelope"]["details"]["channel"] == PROBE_CHANNEL
+            assert "recovery" not in captured["envelope"]["details"]
+            # One dead IOC restarts nothing.
+            assert invalidated == []
             # A dead machine is not a switch.
             assert manager.active_target() == "live"
             assert manager.active_generation() == generation

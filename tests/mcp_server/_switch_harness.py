@@ -114,6 +114,7 @@ import os
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.errors import ChannelUnreachableError
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
@@ -153,7 +154,9 @@ class FixtureConnector(VAInProcessConnector):
                 f"probe read of {channel_address!r} timed out: nothing serves this gateway"
             )
         if channel_address == REFUSE_CHANNEL:
-            raise ConnectionError(f"the fixture connector refuses {channel_address}")
+            raise ChannelUnreachableError(
+                channel_address, f"the fixture connector refuses {channel_address}"
+            )
         if channel_address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
         return await super().read_channel(channel_address, timeout=timeout)

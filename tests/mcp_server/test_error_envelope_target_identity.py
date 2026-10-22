@@ -157,11 +157,6 @@ def resolved_identity(monkeypatch):
     """Pin the resolver so each branch's wiring is tested in isolation."""
     monkeypatch.setattr(error_handling, "describe_active_target", lambda: dict(IDENTITY))
 
-    async def no_invalidate(connector_name: str) -> None:  # noqa: ARG001 - invalidate_active_connector fixes this stand-in's signature
-        return None
-
-    monkeypatch.setattr(error_handling, "invalidate_active_connector", no_invalidate)
-
 
 async def _envelope_for(exc: BaseException, connector_name: str = "control_system") -> dict:
     with assert_raises_error() as captured:
