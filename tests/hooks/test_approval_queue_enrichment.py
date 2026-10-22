@@ -45,7 +45,6 @@ from __future__ import annotations
 import http.server
 import json
 import shlex
-import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -126,15 +125,6 @@ def fake_bridge(routes: dict[str, object], posted: list | None = None):
     finally:
         server.shutdown()
         thread.join()
-
-
-def _unused_port() -> int:
-    """A port nothing is listening on, for the fail-open (unreachable) test."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
 
 
 _SHIPPED_SOURCE = (
@@ -464,13 +454,15 @@ def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_con
     assert "Tool: queue_add" in reason
 
 
-def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
+def test_unreachable_bridge_fails_open(
+    reserve_port, tmp_path, hook_runner, make_config, monkeypatch
+):
     """A dead bridge must never block the approval prompt: the hook still asks,
     just with the plain tool/policy reason instead of any draft detail.
     `hook_runner` asserts a zero exit code, so this also proves the enrichment
     never raises out to the subprocess boundary."""
     config = _queue_config(make_config)
-    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{reserve_port()}")
 
     result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=5)
 
@@ -696,12 +688,12 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
 
 
 def test_queue_start_with_an_unreachable_bridge_says_the_queue_is_unseen(
-    tmp_path, hook_runner, make_config, monkeypatch
+    reserve_port, tmp_path, hook_runner, make_config, monkeypatch
 ):
     """Fail-open, but never silently: approving a start nobody can enumerate is
     itself the thing the approver needs told."""
     config = _queue_config(make_config)
-    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{reserve_port()}")
 
     reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
@@ -1497,7 +1489,7 @@ def test_the_rendered_start_prompt_leaves_its_queue_token_stamped_on_disk(
 
 
 def test_a_start_prompt_that_reached_no_bridge_nulls_the_stamped_queue_token(
-    tmp_path, hook_runner, hook_module, make_config, monkeypatch
+    reserve_port, tmp_path, hook_runner, hook_module, make_config, monkeypatch
 ):
     """Fail-open in the prompt is fail-closed in the binding: the prompt still
     renders, and the token a previous prompt left behind is withdrawn rather
@@ -1512,7 +1504,7 @@ def test_a_start_prompt_that_reached_no_bridge_nulls_the_stamped_queue_token(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{reserve_port()}")
     reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
     assert "the bridge could not be reached" in reason
