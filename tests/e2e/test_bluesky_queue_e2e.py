@@ -1858,7 +1858,7 @@ logger = logging.getLogger(__name__)
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
     readbacks: ReadableChannels = Field(..., min_length=1)
-    span_a: float = Field(..., gt=0, le=10.0)
+    span: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
@@ -1873,8 +1873,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
     bpm_devices = [devices[name] for name in params.readbacks]
-    step = (2 * params.span_a) / (params.num - 1)
-    currents = [-params.span_a + i * step for i in range(params.num)]
+    step = (2 * params.span) / (params.num - 1)
+    currents = [-params.span + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
@@ -1910,13 +1910,13 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     bytes that were validated are exercised with the parameters they will
     actually run with.
 
-    The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
+    The plan body sweeps ``-span .. span`` absolutely and restores to 0.0,
     so the device must be one whose own limits record contains that range -- a
     bipolar corrector. The staged device set is every channel of the facility
     file (dipoles and all), so the first settable is not that device; pick the
     first one whose record proves it is.
     """
-    span_a = 1.0
+    span = 1.0
     corrector = next(
         (
             name
@@ -1924,19 +1924,19 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
             if isinstance(entry := stack.limits.get(sp_address), dict)
             and "min_value" in entry
             and "max_value" in entry
-            and float(entry["min_value"]) <= -span_a
-            and float(entry["max_value"]) >= span_a
+            and float(entry["min_value"]) <= -span
+            and float(entry["max_value"]) >= span
         ),
         None,
     )
     assert corrector is not None, (
         f"no staged settable has a limits record covering "
-        f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
+        f"[-{span}, {span}] -- the session sweep needs a bipolar corrector"
     )
     return {
         "correctors": [corrector],
         "readbacks": [next(iter(stack.bpms))],
-        "span_a": span_a,
+        "span": span,
         "num": 3,
     }
 
@@ -2061,13 +2061,13 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
     if _S.session_plan_name is None:
         pytest.skip("stage 5's authoring step never produced a validated session plan")
 
-    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span_a": 2.0})
+    revision = _patch_draft(_SESSION_PLAN_NAME, {**_session_plan_args(stack), "span": 2.0})
 
     # Same name, different bytes -> the recorded hash no longer matches disk.
     _author_session_plan(
         _SESSION_PLAN_NAME,
         _SESSION_PLAN_BODY.replace(
-            "span_a: float = Field(..., gt=0, le=10.0)", "span_a: float = Field(..., gt=0, le=9.0)"
+            "span: float = Field(..., gt=0, le=10.0)", "span: float = Field(..., gt=0, le=9.0)"
         ),
     )
 

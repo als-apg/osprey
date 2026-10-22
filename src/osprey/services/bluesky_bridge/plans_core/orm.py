@@ -15,7 +15,7 @@ guessing it from a field name.
 
 This plan opens its own run, so it stamps its own run metadata through
 ``scan_metadata()``: the channels it moves and reads, and the total point
-count (one point per corrector per swept current). It adds ``regressor``, the
+count (one point per corrector per kick). It adds ``regressor``, the
 corrector value its response fit regresses on. No dimensionality hint —
 the sweeps are serial and per-corrector, not one continuous traversal, so
 there is no truthful value for one.
@@ -84,17 +84,17 @@ class PARAMS(BaseModel):
     evenly-spaced kicks *away from that corrector's own pre-scan working
     point*, reading every channel in ``readbacks`` at each point. ``sweep``
     selects the kick range: ``bidirectional`` spans the symmetric
-    ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
-    corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
+    ``[-span, +span]`` (kicks both ways, so a linear fit rejects a
+    corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span]``
     (one-sided, for a corrector that should never be driven below where it
     already sits).
 
     ``regressor`` chooses what the fitted slopes are per unit of:
     ``setpoint`` (the default) regresses each BPM on the corrector's
-    commanded current, the convention of MML and pySC; ``readback`` regresses
-    on the corrector's measured current instead.
+    setpoint, the convention of MML and pySC; ``readback`` regresses on the
+    corrector's readback instead.
 
-    ``span_a`` carries no upper bound of its own. It is an excursion, not an
+    ``span`` carries no upper bound of its own. It is an excursion, not an
     absolute setpoint, and how large an excursion a corrector tolerates is a
     property of the deployment, not of this schema — the connector's
     reference monitor checks every setpoint against that project's own
@@ -121,36 +121,34 @@ class PARAMS(BaseModel):
         description="BPM channel names to read at every point.",
         json_schema_extra={"x-widget": "channel-list"},
     )
-    span_a: float = Field(
+    span: float = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
-        title="Max kick (corrector's own unit)",
+        title="Max kick",
         description=(
-            "Largest kick, in the corrector's own unit, away from a corrector's "
-            "own pre-scan working point at the far end of the sweep."
+            "Largest kick away from a corrector's own pre-scan working point, "
+            "at the far end of the sweep, in the corrector's own unit."
         ),
     )
     num: int = Field(
         ...,
         ge=3,
         title="Number of steps",
-        description="Number of evenly-spaced current points per corrector.",
+        description="Number of evenly-spaced kicks per corrector.",
     )
     sweep: Literal["bidirectional", "monodirectional"] = Field(
         default="bidirectional",
         title="Sweep direction",
-        description=(
-            "bidirectional sweeps [-span_a, +span_a]; monodirectional sweeps [0, +span_a]."
-        ),
+        description="bidirectional sweeps [-span, +span]; monodirectional sweeps [0, +span].",
         json_schema_extra={"x-widget": "segmented"},
     )
     regressor: Regressor = Field(
         default="setpoint",
         title="Regress on",
         description=(
-            "setpoint: slopes per unit of commanded current (the MML/pySC convention); "
-            "readback: per unit of measured current."
+            "setpoint: slopes per unit of the corrector's setpoint (the MML/pySC convention); "
+            "readback: per unit of the corrector's readback."
         ),
         json_schema_extra={"x-widget": "segmented"},
     )
@@ -171,18 +169,18 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
     For each corrector in turn: read where it is already sitting, sweep it
     over ``num`` kicks evenly spaced across the range ``sweep`` selects —
-    ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
+    ``[-span, +span]`` (bidirectional) or ``[0, +span]``
     (monodirectional) — and put it back. Each kick is applied *relative to
     that corrector's own pre-scan working point*, and at each point the plan
     ``trigger_and_read``-s every corrector together with every BPM channel
     in one bundle, so each point emits exactly one event carrying the driven
-    corrector's current alongside every BPM reading.
+    corrector's value alongside every BPM reading.
 
     **Relative, because a machine with beam in it is not at zero.** A machine
     running corrected orbit holds every corrector at a nonzero
-    orbit-correction working point. Sweeping absolute currents about zero
+    orbit-correction working point. Sweeping absolute values about zero
     would measure the response about a point the machine is not at, and
-    "restoring" to a literal 0 A would drop the entire correction the machine
+    "restoring" to a literal zero would drop the entire correction the machine
     was holding — on a stored beam, that is the orbit gone. Reading each
     corrector's working point costs one extra read per corrector and makes
     the plan mean the same thing on a real machine as on a virtual accelerator
@@ -219,11 +217,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     corrector_devices = [corrector for _, corrector in correctors]
     readback_devices = [devices[name] for name in params.readbacks]
     if params.sweep == "monodirectional":
-        step = params.span_a / (params.num - 1)
+        step = params.span / (params.num - 1)
         kicks = [i * step for i in range(params.num)]
     else:
-        step = (2 * params.span_a) / (params.num - 1)
-        kicks = [-params.span_a + i * step for i in range(params.num)]
+        step = (2 * params.span) / (params.num - 1)
+        kicks = [-params.span + i * step for i in range(params.num)]
 
     all_devices = corrector_devices + readback_devices
 
@@ -341,11 +339,11 @@ def _units(window: RowWindow, params: PARAMS) -> _Units:
 def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], bool, int, int]:
     """Corrector *index*'s BPM traces: series, decimated, points, samples drawn.
 
-    A sample whose corrector current is non-finite is dropped -- there is no
+    A sample whose corrector value is non-finite is dropped -- there is no
     place on the x axis for a point with no x (and `Point.x` rejects it) --
     while a non-finite BPM reading is kept and becomes a drawn gap. The last
     element is how many samples survived that, which is what tells a caller
-    whether this corrector reported a current at all.
+    whether this corrector reported a value at all.
     """
     currents = fit.currents[index]
     readings = fit.readings[index]
@@ -376,7 +374,7 @@ def _trace_panels(
     The x axis is the column the fit regressed on (``fit.regressor``), and the
     axis label names it.
 
-    A corrector that has recorded no current yet -- the sweep has not reached
+    A corrector that has recorded no value yet -- the sweep has not reached
     it, or the run's rows never carried that device -- gets no panel at all; an
     empty plot says less than no plot. Past `_MAX_TRACE_PANELS` the *most
     recently swept* correctors are kept, not the first: the plan sweeps in
@@ -414,7 +412,7 @@ def _trace_panels(
                 )
             else:
                 annotations.append(
-                    "This corrector's recorded currents never moved, so no "
+                    "This corrector's recorded values never moved, so no "
                     "response could be fitted for it."
                 )
         panels.append(

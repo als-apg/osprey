@@ -28,7 +28,7 @@
 const PLAN_LAYOUTS = {
   orm: [
     ['correctors', 'readbacks'],
-    ['span_a', 'num'],
+    ['span', 'num'],
     ['sweep'],
   ],
   grid_scan: [['axes'], ['readbacks', 'snake_axes']],
@@ -55,7 +55,7 @@ const PLAN_SUMMARIES = {
     const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
     const d = Array.isArray(args.readbacks) ? args.readbacks.length : 0;
     const n = typeof args.num === 'number' ? args.num : 0;
-    const span = typeof args.span_a === 'number' ? args.span_a : null;
+    const span = typeof args.span === 'number' ? args.span : null;
     /** @type {string[]} */
     const parts = [];
     const sweep = typeof args.sweep === 'string' ? args.sweep : null;
@@ -63,7 +63,7 @@ const PLAN_SUMMARIES = {
     if (d) parts.push(`${d} BPM${d === 1 ? '' : 's'}`);
     if (span !== null) {
       // Monodirectional sweeps [0, +span]; bidirectional the symmetric ±span.
-      parts.push(sweep === 'monodirectional' ? `0…${span} A` : `±${span} A`);
+      parts.push(sweep === 'monodirectional' ? `0…${span}` : `±${span}`);
     }
     if (c && n) parts.push(`${c} × ${n} = ${c * n} sweep points`);
     else if (n) parts.push(`${n} points`);
@@ -121,7 +121,7 @@ export function planLayout(planName) {
  * The live readout line for a plan's currently-collected args, or '' when
  * there is nothing worth showing yet.
  *
- * A plan with its own summary gets it (e.g. "2 correctors · ±5 A · 2 × 7 = 14
+ * A plan with its own summary gets it (e.g. "2 correctors · ±5 · 2 × 7 = 14
  * sweep points"); anything else — and any plan whose own summary has nothing to
  * say for these args — falls back to a field count.
  *

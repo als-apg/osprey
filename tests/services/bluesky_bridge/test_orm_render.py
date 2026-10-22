@@ -43,13 +43,13 @@ from osprey.services.bluesky_bridge.plans_core import orm
 # =========================================================================
 
 
-def _currents(span_a: float, num: int, *, sweep: str) -> list[float]:
+def _currents(span: float, num: int, *, sweep: str) -> list[float]:
     """The currents `build_plan` sweeps, by the same arithmetic."""
     if sweep == "monodirectional":
-        step = span_a / (num - 1)
+        step = span / (num - 1)
         return [i * step for i in range(num)]
-    step = (2 * span_a) / (num - 1)
-    return [-span_a + i * step for i in range(num)]
+    step = (2 * span) / (num - 1)
+    return [-span + i * step for i in range(num)]
 
 
 def _rows(
@@ -99,7 +99,7 @@ def _params(**overrides) -> orm.PARAMS:
     defaults = {
         "correctors": ["hcm1", "hcm2"],
         "readbacks": ["bpm1", "bpm2", "bpm3"],
-        "span_a": 1.0,
+        "span": 1.0,
         "num": 7,
     }
     return orm.PARAMS(**{**defaults, **overrides})
@@ -779,7 +779,7 @@ def test_the_shipped_orm_spec_carries_this_render() -> None:
             {
                 "correctors": correctors,
                 "readbacks": readbacks,
-                "span_a": 1.0,
+                "span": 1.0,
                 "num": 7,
             }
         )

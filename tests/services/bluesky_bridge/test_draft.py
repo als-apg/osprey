@@ -35,7 +35,7 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
     "readbacks": ["BPM1"],
-    "span_a": 1.0,
+    "span": 1.0,
     "num": 3,
 }
 _GRID_SCAN_ARGS: dict[str, Any] = {
@@ -218,7 +218,7 @@ def test_plan_name_change_replaces_plan_args(client: TestClient) -> None:
     # value, so it is the one key a wholesale replacement leaves unchanged.
     assert set(body["changed"]) == {
         "correctors",
-        "span_a",
+        "span",
         "num",
         "axes",
     }
@@ -542,8 +542,8 @@ def test_sse_frame_order_and_content_over_real_http() -> None:
                     frame3 = _read_frame(lines)
                     assert frame3["type"] == "plan-change"
                     assert frame3["revision"] == 3
-                    # The prior orm-only keys (correctors, span_a, num) vanish; axes is new.
-                    assert {"correctors", "span_a", "num", "axes"} <= set(frame3["changed"])
+                    # The prior orm-only keys (correctors, span, num) vanish; axes is new.
+                    assert {"correctors", "span", "num", "axes"} <= set(frame3["changed"])
 
                     del_resp = action_client.request("DELETE", "/draft")
                     assert del_resp.status_code == 200

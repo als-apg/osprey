@@ -29,13 +29,13 @@ from osprey.services.bluesky_bridge.orm_analysis import (
 )
 
 
-def _sweep_currents(span_a: float, num: int, *, monodirectional: bool = False) -> list[float]:
+def _sweep_currents(span: float, num: int, *, monodirectional: bool = False) -> list[float]:
     """The currents `plans_core/orm.py`'s `build_plan` sweeps, same arithmetic."""
     if monodirectional:
-        step = span_a / (num - 1)
+        step = span / (num - 1)
         return [i * step for i in range(num)]
-    step = (2 * span_a) / (num - 1)
-    return [-span_a + i * step for i in range(num)]
+    step = (2 * span) / (num - 1)
+    return [-span + i * step for i in range(num)]
 
 
 def _emit_rows(
