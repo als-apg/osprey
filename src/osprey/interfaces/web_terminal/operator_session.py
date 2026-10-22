@@ -522,6 +522,25 @@ class OperatorSession:
         # creation and re-stamped when a turn's reader completes; the chat
         # registry (issue: chat-registry) uses it as its idle predicate.
         self.last_activity = time.monotonic()
+        # The conversation id this session's child last reported; None until
+        # its first report. See :meth:`note_transcript`.
+        self._transcript_id: str | None = None
+
+    def note_transcript(self, transcript_id: str) -> bool:
+        """Record the conversation id this session's child reported.
+
+        Returns True exactly when the child had reported a different id
+        before: the conversation moved inside this child.
+
+        The baseline is the child's own first report, never the id it was asked
+        to resume or start under: a resume may be answered with a different id
+        (see the system branch of ``_event_to_wire``), and that is the same
+        conversation continued. One session runs one child, so a respawn starts
+        a new baseline. Called only by the consumer of :meth:`run_turn`, one
+        turn at a time, so it takes no lock.
+        """
+        previous, self._transcript_id = self._transcript_id, transcript_id
+        return previous is not None and previous != transcript_id
 
     # ---- Per-turn one-in-flight guard (synchronous, lock-free) ---- #
 
