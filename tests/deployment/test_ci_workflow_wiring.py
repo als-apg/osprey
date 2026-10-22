@@ -147,10 +147,8 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_telemetry_store_e2e.py",
     "tests/e2e/test_telemetry_access_e2e.py",
-    "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
     "tests/e2e/claude_code/test_safety_gates_scripted.py",
-    "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
     "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
@@ -3627,7 +3625,7 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
+    assert "tests/e2e/test_scripted_model.py" in _model_free_selected_paths(mutated)
     with pytest.raises(AssertionError, match="does not name"):
         test_model_free_lane_names_every_file_it_owns(mutated)
 

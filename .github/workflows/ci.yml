@@ -1673,10 +1673,8 @@ jobs:
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
             --ignore=tests/e2e/test_telemetry_store_e2e.py \
             --ignore=tests/e2e/test_telemetry_access_e2e.py \
-            --ignore=tests/e2e/test_sdk_helpers.py \
             --ignore=tests/e2e/test_scripted_model.py \
             --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
-            --ignore=tests/e2e/test_mcp_readiness.py \
             --ignore=tests/e2e/test_dispatch_deploy_render.py \
             --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
             --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
@@ -1871,10 +1869,8 @@ jobs:
         uv run pytest \
           tests/e2e/test_telemetry_store_e2e.py \
           tests/e2e/test_telemetry_access_e2e.py \
-          tests/e2e/test_sdk_helpers.py \
           tests/e2e/test_scripted_model.py \
           tests/e2e/claude_code/test_safety_gates_scripted.py \
-          tests/e2e/test_mcp_readiness.py \
           tests/e2e/test_dispatch_deploy_render.py \
           tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
           tests/e2e/web_terminals/test_skills_overlay_discovery.py \

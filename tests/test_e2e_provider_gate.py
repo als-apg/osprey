@@ -421,14 +421,14 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
 #: A module whose every test drives a model, and one whose every test is
 #: ``model_free``. Selected together they are the mixed run the refusal has to
 #: split: name the first, leave the second alone.
-_MODEL_DRIVEN = "tests/e2e/test_judge.py"
-_MODEL_FREE = "tests/e2e/test_sdk_helpers.py"
+_MODEL_DRIVEN = "tests/e2e/test_llm_providers.py"
+_MODEL_FREE = "tests/e2e/test_dispatch_deploy_render.py"
 _DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single", "xdist"])
 
 
 @_DISTRIBUTION
 def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
-    result = _run_pytest("tests/e2e/test_sdk_helpers.py", "--setup-plan", *dist)
+    result = _run_pytest(_MODEL_FREE, "--setup-plan", *dist)
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert "names no provider" not in output
