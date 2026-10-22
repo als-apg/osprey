@@ -91,6 +91,26 @@ def test_timeout_error_injects_guidance(hook_runner, make_config):
     assert "Connection" in ctx
 
 
+def test_an_unreachable_channel_injects_connection_guidance(hook_runner, make_config):
+    """An unreachable channel is classed Connection, and the guidance names it."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:DEAD:IOC"]},
+        config_path=config,
+        tool_response=_make_error_response(
+            "channel_unreachable",
+            "Channel SR:DEAD:IOC did not answer during channel_read: SR:DEAD:IOC timed out",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Connection" in ctx
+
+
 def test_validation_error_injects_guidance(hook_runner, make_config):
     """Validation errors produce Validation class guidance."""
     config = make_config({})
@@ -632,6 +652,7 @@ EXPECTED_ERROR_CLASSES = {
     # Connection
     "connection_error": "Connection",
     "timeout_error": "Connection",
+    "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",

@@ -914,7 +914,8 @@ async def channel_write(
         # connector, instead of shipping a plausible envelope.
         if len(connector_results) != len(operations):
             raise RuntimeError(
-                f"{type(connector).__name__} returned {len(connector_results)} write result(s) "
+                f"{type(connector.connector).__name__} returned {len(connector_results)} "
+                "write result(s) "
                 f"for {len(operations)} operation(s): the fate of at least one write is "
                 f"unreported, so no outcome from this call can be trusted."
             )

@@ -1,12 +1,13 @@
 """Tests for MongoDB Archiver connector."""
 
 import copy
+import json
 import logging
 import re
 import ssl
 import sys
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -1312,41 +1313,45 @@ class TestErrorHandlingWithoutDocker:
         assert exc_info.value.__cause__ is lost
 
     @pytest.mark.asyncio
-    async def test_lost_connection_reaches_the_tool_wrapper_as_an_invalidation(self):
-        """The mapping is only useful if it makes the MCP layer drop the connector.
+    async def test_a_lost_connection_makes_the_supervisor_drop_the_archiver(self):
+        """The mapping is only useful if the MCP supervisor drops the connector for it.
 
         This is the half a per-connector unit test cannot see: ``get_data``
-        raising ConnectionError and ``connector_error_handler`` invalidating on
-        ConnectionError are two separate pieces, and the recovery behaviour is
-        the claim that spans them. Wiring the real connector's failure into the
-        real handler is what pins it.
+        raising ConnectorUnavailableError and the supervisor that owns the
+        archiver dropping it are two separate pieces, and the recovery is the
+        claim that spans them. Wiring the real connector's failure through the
+        real supervised handle and the real handler is what pins it.
         """
-        from unittest.mock import AsyncMock
-
         from fastmcp.exceptions import ToolError
 
+        from osprey.mcp_server.control_system import server_context
         from osprey.mcp_server.control_system.error_handling import connector_error_handler
 
         pymongo_errors = pytest.importorskip("pymongo.errors")
         connector = self._erroring_connector(find=pymongo_errors.AutoReconnect("primary stepped"))
         connector._ConnectionFailure = pymongo_errors.ConnectionFailure
+        connector.disconnect = AsyncMock()
 
-        registry = MagicMock()
-        registry.invalidate_connector = AsyncMock()
+        context = server_context.ControlSystemContext()
+        context._config = server_context.MCPServerConfig(raw={})
+        context._connectors["archiver"] = server_context.ConnectorEntry(
+            config={}, instance=connector, connector_type="archiver"
+        )
 
-        with patch(
-            "osprey.mcp_server.control_system.server_context.get_server_context",
-            return_value=registry,
-        ):
-            with pytest.raises(ToolError):
-                async with connector_error_handler("archiver_read", connector_name="archiver"):
-                    await connector.get_data(
-                        channels=["BEAM:CURRENT"],
-                        start_date=datetime(2024, 1, 1, tzinfo=UTC),
-                        end_date=datetime(2024, 1, 2, tzinfo=UTC),
-                    )
+        with pytest.raises(ToolError) as raised:
+            async with connector_error_handler("archiver_read", connector_name="archiver"):
+                archiver = await context.archiver()
+                await archiver.get_data(
+                    channels=["BEAM:CURRENT"],
+                    start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_date=datetime(2024, 1, 2, tzinfo=UTC),
+                )
 
-        registry.invalidate_connector.assert_awaited_once_with("archiver")
+        envelope = json.loads(str(raised.value))
+        assert envelope["error_type"] == "connection_error"
+        assert [r["action"] for r in envelope["details"]["recovery"]] == ["connector_dropped"]
+        connector.disconnect.assert_awaited_once()
+        assert context._connectors["archiver"].instance is None
 
 
 class TestHonestMetadataWithoutDocker:

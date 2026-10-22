@@ -1,8 +1,10 @@
 """Shared error handling for control-system MCP tools.
 
-Provides an async context manager that wraps the common
-ConnectionError / TimeoutError / Exception pattern used by
-channel_read, channel_write, and archiver_read.
+Provides an async context manager that renders every failure of
+channel_read, channel_write and archiver_read as the envelope its class is
+answered with. It only reports: whatever was done about a failure, the
+supervisor that owns the connector did it before the failure arrived here,
+and the envelope carries that record under ``details.recovery``.
 """
 
 from __future__ import annotations
@@ -23,10 +25,11 @@ from osprey.mcp_server.errors import (
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     RefusalReason,
 )
-from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError
+from osprey_connectors.ipc import ChildUnresponsiveError
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
@@ -35,7 +38,6 @@ __all__ = [
     "ToolError",
     "connector_error_handler",
     "describe_active_target",
-    "invalidate_active_connector",
     "shared_typed_cause",
 ]
 
@@ -117,6 +119,7 @@ def _not_a_channel(tool_name: str, address: str, connector_name: str) -> _Envelo
 #: it tests them. A request whose every item failed with one of these, all of
 #: the same one, is answered with that error's envelope.
 TYPED_CAUSES: tuple[type[BaseException], ...] = (
+    ChannelUnreachableError,
     ConnectionError,
     ChildUnresponsiveError,
     TimeoutError,
@@ -142,109 +145,22 @@ def shared_typed_cause(errors: list[BaseException]) -> BaseException | None:
     return errors[0]
 
 
-async def invalidate_active_connector(connector_name: str) -> bool:
-    """Drop the connector a failed call was using, so the next call rebuilds it.
-
-    This is the one seam between the ``ConnectionError`` handling below and
-    whoever owns the connector's lifetime. It delegates to
-    :meth:`ServerContext.invalidate_connector`, which recreates an in-process
-    connector, or respawns a connector-host child on the same target, so the
-    envelope rendering never has to know where connectors live.
-
-    Returns:
-        What :meth:`ServerContext.invalidate_connector` returns: ``False`` when
-        a connector-host respawn was refused and the previous child still serves.
-    """
-    from osprey.mcp_server.control_system.server_context import get_server_context
-
-    return await get_server_context().invalidate_connector(connector_name)
-
-
-#: One thing the server did about a failure: ``{"action": <word>, "text": <sentence>}``.
+#: One thing the supervisor did about a failure: ``{"action": <word>, "text": <sentence>}``.
 _Recovery = dict[str, str]
 
 
-def _served_from_a_child(connector_name: str) -> bool:
-    """Whether ``connector_name`` is the control system served from a connector-host child."""
-    if connector_name != "control_system":
-        return False
-    try:
-        from osprey.mcp_server.control_system.server_context import get_server_context
-
-        return bool(get_server_context().switch_capable)
-    except Exception:  # no server context: there is no child
-        return False
+def _recovery_of(exc: BaseException) -> list[_Recovery]:
+    """The records the supervisor attached to *exc*, in the order it did them."""
+    return [dict(record) for record in getattr(exc, "recovery", ()) or ()]
 
 
-async def _drop_connector(connector_name: str) -> _Recovery:
-    """Drop the connector after a lost link, and say what that did.
-
-    On the control system served from a connector-host child the drop is a
-    respawn on the same target, which the owner may refuse; only ``False``
-    counts as refused.
-    """
-    done = await invalidate_active_connector(connector_name)
-    if not _served_from_a_child(connector_name):
-        return {
-            "action": "connector_dropped",
-            "text": f"The {connector_name.replace('_', ' ')} connector was dropped; "
-            "the next call builds a new one.",
-        }
-    if done is False:
-        return {
-            "action": "respawn_refused",
-            "text": "Replacing the connector-host child was refused; the previous child "
-            "still serves this target.",
-        }
-    return {
-        "action": "child_replaced",
-        "text": "The connector-host child was replaced on the same target; "
-        "the call was not retried.",
-    }
-
-
-async def _answer_unresponsive_child(connector_name: str) -> _Recovery | None:
-    """Ping the active child after a call missed its deadline; replace it if silent.
-
-    A child that answers the ping is alive and merely slow, so it is kept: the
-    call may yet complete in it. A child that answers nothing is wedged, and it
-    is invalidated, which respawns the connector host on the same target with
-    the generation unchanged. The ping goes to the child active now, which may
-    not be the one that missed the deadline if a switch ran in between; a
-    child that answers is never replaced, so that ping harms nothing. Nothing
-    is retried.
-
-    Returns:
-        What was done, as ``child_kept`` or ``child_replaced`` with its
-        sentence, or ``None`` when the control system is not served from a child.
-    """
-    if connector_name != "control_system":
-        return None
-    try:
-        from osprey.mcp_server.control_system.server_context import get_server_context
-
-        context = get_server_context()
-        if not context.switch_capable:
-            return None
-        proxy = context.connector_hosts.active_proxy()
-    except Exception:  # no server context: there is no child to answer for
-        return None
-    if proxy is None:
-        return None
-    try:
-        await proxy.supervisor_request("ping", {}, DEFAULT_PING_TIMEOUT_S)
-    except Exception:
-        await invalidate_active_connector(connector_name)
-        return {
-            "action": "child_replaced",
-            "text": "The connector-host child did not answer a ping and was replaced on the "
-            "same target; the call was not retried.",
-        }
-    return {
-        "action": "child_kept",
-        "text": "The connector-host child still answers a ping, so it was kept; the call "
-        "may yet complete in it and was not retried.",
-    }
+def _merged_recovery(errors: Iterable[BaseException]) -> list[_Recovery]:
+    """Every record the failed items carry, one per action, in first-seen order."""
+    merged: dict[str, _Recovery] = {}
+    for error in errors:
+        for record in _recovery_of(error):
+            merged.setdefault(record["action"], record)
+    return list(merged.values())
 
 
 @asynccontextmanager
@@ -277,11 +193,12 @@ async def connector_error_handler(
     A :class:`~osprey.mcp_server.errors.NothingAnsweredError` is answered with
     its cause's envelope, the tool's map added under the key
     :data:`~osprey.mcp_server.errors.MAP_KEYS` declares for it, and with
-    ``nothing_answered`` when it has no cause. Without a cause, the connector
-    is still dropped once if any item failed with a ``ConnectionError``, and
-    the connector-host child still pinged once if any item found it
-    unresponsive; the envelope reports what was done under
-    ``details.recovery``.
+    ``nothing_answered`` when it has no cause. Nothing here recovers anything:
+    the supervisor that owns the connector already did, and attached what it
+    did to each failure as ``recovery``. Every connection or timeout envelope
+    reports those records under ``details.recovery``; without a cause, the
+    records of every failed item are merged, one per action, in first-seen
+    order.
     """
     try:
         yield
@@ -289,23 +206,16 @@ async def connector_error_handler(
         raise  # Already a formatted envelope — propagate as-is
     except NothingAnsweredError as exc:
         if exc.cause is None:
-            recovery: list[_Recovery | None] = []
-            if any(isinstance(error, ConnectionError) for error in exc.errors):
-                recovery.append(await _drop_connector(connector_name))
-            if any(isinstance(error, ChildUnresponsiveError) for error in exc.errors):
-                recovery.append(await _answer_unresponsive_child(connector_name))
             identity = describe_active_target() if connector_name == "control_system" else None
             refuse_nothing_answered(
                 tool_name,
                 "channels",
                 exc.missing,
                 details={"active_target": identity} if identity else None,
-                recovery=[record for record in recovery if record],
+                recovery=_merged_recovery(exc.errors),
                 results=exc.results,
             )
-        error_type, message, suggestions, details = await _envelope(
-            exc.cause, tool_name, connector_name
-        )
+        error_type, message, suggestions, details = _envelope(exc.cause, tool_name, connector_name)
         if error_type == "write_refused" and exc.results:
             # A refused batch suggests the remedy of every reason its rows
             # name, not only the remedy of the row that stands for the batch.
@@ -316,7 +226,7 @@ async def connector_error_handler(
         }
         make_error(error_type, message, suggestions, details=details)
     except Exception as exc:
-        error_type, message, suggestions, details = await _envelope(exc, tool_name, connector_name)
+        error_type, message, suggestions, details = _envelope(exc, tool_name, connector_name)
         make_error(error_type, message, suggestions, details=details)
 
 
@@ -333,16 +243,31 @@ def _refusal_suggestions(reasons: Iterable[str | None]) -> list[str]:
     ]
 
 
-async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envelope:
-    """Render ``exc`` as the envelope its class is answered with, running its side effects.
+def _recovery_clause(records: list[_Recovery]) -> str:
+    """The sentences of what the supervisor did, to close a message with."""
+    return "".join(f" {record['text']}" for record in records)
 
-    A ``ConnectionError`` drops the connector it came from, and a timed-out call
-    into the connector-host child pings that child, before the envelope is
-    built; each runs once per rendered envelope and is reported under
-    ``details.recovery``.
+
+def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envelope:
+    """Render ``exc`` as the envelope its class is answered with.
+
+    An unreachable channel is that channel's failure and carries no recovery.
+    A connection or timeout failure carries what the supervisor did about it,
+    from ``exc.recovery``, under ``details.recovery``, and its sentences close
+    the message.
     """
+    if isinstance(exc, ChannelUnreachableError):
+        identity = describe_active_target() if connector_name == "control_system" else None
+        error_type = "channel_unreachable"
+        return (
+            error_type,
+            f"Channel {exc.channel_address} did not answer during {tool_name}"
+            f"{_target_clause(identity)}: {exc}",
+            ["Report the channel to the operator; the rest of the control system still answers."],
+            {"channel": exc.channel_address, **({"active_target": identity} if identity else {})},
+        )
     if isinstance(exc, ConnectionError):
-        dropped = await _drop_connector(connector_name)
+        recovery = _recovery_of(exc)
         identity = describe_active_target() if connector_name == "control_system" else None
         if identity:
             where = f" at {identity['endpoint']}" if identity.get("endpoint") else ""
@@ -353,37 +278,32 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
         return (
             error_type,
             f"Failed to connect to the {connector_name.replace('_', ' ')}"
-            f"{_target_clause(identity)}: {exc}. {dropped['text']}",
+            f"{_target_clause(identity)}: {exc}.{_recovery_clause(recovery)}",
             [
                 reach_suggestion,
                 f"If the {connector_name} settings are wrong, fix them in the build profile "
                 "(profile.yml on the host), then rebuild and redeploy.",
             ],
-            {**({"active_target": identity} if identity else {}), RECOVERY_KEY: [dropped]},
+            {
+                **({"active_target": identity} if identity else {}),
+                **({RECOVERY_KEY: recovery} if recovery else {}),
+            }
+            or None,
         )
-    if isinstance(exc, ChildUnresponsiveError):
-        outcome = await _answer_unresponsive_child(connector_name)
+    if isinstance(exc, TimeoutError):
+        recovery = _recovery_of(exc)
         identity = describe_active_target() if connector_name == "control_system" else None
         error_type = "timeout_error"
         return (
             error_type,
             f"{tool_name} timed out{_target_clause(identity)}: {exc}"
-            + (f". {outcome['text']}" if outcome else ""),
+            + (f".{_recovery_clause(recovery)}" if recovery else ""),
             ["Check network connectivity.", "Try a smaller request."],
             {
                 **({"active_target": identity} if identity else {}),
-                **({RECOVERY_KEY: [outcome]} if outcome else {}),
+                **({RECOVERY_KEY: recovery} if recovery else {}),
             }
             or None,
-        )
-    if isinstance(exc, TimeoutError):
-        identity = describe_active_target() if connector_name == "control_system" else None
-        error_type = "timeout_error"
-        return (
-            error_type,
-            f"{tool_name} timed out{_target_clause(identity)}: {exc}",
-            ["Check network connectivity.", "Try a smaller request."],
-            {"active_target": identity} if identity else None,
         )
     if isinstance(exc, ChannelNotFoundError):
         return _not_a_channel(tool_name, exc.channel_address, connector_name)

@@ -29,6 +29,7 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.errors import ChannelUnreachableError
 from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -1401,7 +1402,7 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
 
     _prepare(tmp_path, monkeypatch)
     connector = AsyncMock()
-    connector.read_multiple_channels.side_effect = ConnectionError("dead IOC")
+    connector.read_multiple_channels.side_effect = ChannelUnreachableError("TEST:PV", "dead IOC")
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
     with _patched(connector):
         with call_scope("toolu_dead", None) as call:
@@ -1409,7 +1410,7 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
 
     assert extract_response_dict(raw)["status"] == "success"
     connector.write_channel.assert_awaited_once()
-    assert call.facts["old_values"] == {"TEST:PV": {"error": "ConnectionError"}}
+    assert call.facts["old_values"] == {"TEST:PV": {"error": "ChannelUnreachableError"}}
 
 
 async def test_nothing_extra_is_read_with_the_surface_off(tmp_path, monkeypatch):

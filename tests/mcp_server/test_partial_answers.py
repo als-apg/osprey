@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -31,7 +31,12 @@ from osprey.mcp_server.errors import (
     answer_map,
     refuse_nothing_answered,
 )
-from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelUnreachableError,
+    ChannelWriteBlockedError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import ChildUnresponsiveError
 from tests.mcp_server.test_channel_read_size_rule import _read
 
@@ -232,114 +237,140 @@ async def test_no_cause_is_nothing_answered_with_the_rows():
     assert envelope["details"] == {"results": ROWS}
 
 
-async def test_a_shared_connection_error_drops_the_connector_once():
-    invalidate = AsyncMock()
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
-            invalidate,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+#: What the supervisor attaches to a failure it recovered from.
+DROPPED = {
+    "action": "connector_dropped",
+    "text": "The archiver connector was dropped; the next call builds a new one.",
+}
+KEPT = {"action": "child_kept", "text": "The connector-host child was kept."}
+REPLACED = {
+    "action": "child_replaced",
+    "text": "The connector-host child did not answer a ping and was replaced.",
+}
+
+
+def _unresponsive(message: str, record: dict) -> ChildUnresponsiveError:
+    error = ChildUnresponsiveError(message)
+    error.recovery = (record,)
+    return error
+
+
+async def test_the_envelope_renders_the_supervisors_recovery():
+    cause = ConnectorUnavailableError("down", recovery=(DROPPED,))
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read", "archiver"):
-            raise NothingAnsweredError(
-                ConnectionError("down"), missing={"A": "x", "B": "y", "C": "z"}
-            )
+            raise NothingAnsweredError(cause, missing={"A": "x", "B": "y", "C": "z"})
 
     envelope = _envelope(excinfo)
     assert envelope["error_type"] == "connection_error"
-    assert envelope["details"][RECOVERY_KEY][0]["action"] == "connector_dropped"
-    assert envelope["error_message"].endswith(envelope["details"][RECOVERY_KEY][0]["text"])
-    invalidate.assert_awaited_once_with("archiver")
+    assert envelope["details"][RECOVERY_KEY] == [DROPPED]
+    assert envelope["error_message"].endswith(DROPPED["text"])
 
 
-async def test_a_wedged_child_is_pinged_once():
-    ping = AsyncMock(return_value="")
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
-            ping,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+async def test_an_unreachable_channel_recovers_nothing():
+    cause = ChannelUnreachableError("SR:DEAD", "SR:DEAD did not answer")
+    with pytest.raises(ToolError) as excinfo:
+        async with connector_error_handler("channel_read", "archiver"):
+            raise NothingAnsweredError(cause, missing={"SR:DEAD": "x"})
+
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "channel_unreachable"
+    assert envelope["details"]["channel"] == "SR:DEAD"
+    assert RECOVERY_KEY not in envelope["details"]
+
+
+class _UnresponsiveProxy:
+    """A connector-host proxy whose every read misses its deadline."""
+
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector's read signature
+        raise ChildUnresponsiveError(f"no answer for {address}")
+
+
+class _OneChild:
+    """A started manager with one live child, the proxy above."""
+
+    def __init__(self) -> None:
+        self.proxy = _UnresponsiveProxy()
+
+    def is_started(self) -> bool:
+        return True
+
+    async def ensure_started(self, target=None) -> bool:  # noqa: ARG002 - the manager's signature
+        return True
+
+    async def serving_proxy(self):
+        return self.proxy
+
+    def active_proxy(self):
+        return self.proxy
+
+    def active_binding(self):
+        return ("live", 0)
+
+
+async def test_a_wedged_child_is_pinged_once(monkeypatch):
+    """A batch the child did not answer runs one ping, and every failure reports it."""
+    from osprey.mcp_server.control_system import server_context
+    from osprey.mcp_server.control_system.tools.channel_read import _gather_readings
+
+    context = server_context.ControlSystemContext()
+    context._config = server_context.MCPServerConfig(raw={})
+    context._switch_capable = True
+    context._connector_hosts = _OneChild()
+    context._connectors["control_system"] = server_context.ConnectorEntry(
+        config={}, connector_type="control_system"
+    )
+    monkeypatch.setattr(server_context, "_registry", context)
+    ping = AsyncMock(return_value=dict(KEPT))
+    monkeypatch.setattr(context, "_answer_unresponsive", ping)
+
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read"):
-            raise NothingAnsweredError(
-                ChildUnresponsiveError("deadline"), missing={"A": "x", "B": "y"}
-            )
+            connector = await context.control_system()
+            await _gather_readings(connector, ["A", "B"])
 
-    assert _envelope(excinfo)["error_type"] == "timeout_error"
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "timeout_error"
+    assert envelope["details"][RECOVERY_KEY] == [KEPT]
     ping.assert_awaited_once()
 
 
-async def test_mixed_causes_still_recover_what_failed():
-    invalidate = AsyncMock(return_value=True)
-    ping = AsyncMock(return_value={"action": "child_kept", "text": "The child was kept."})
+async def test_mixed_causes_report_every_recovery_once_in_first_seen_order():
     errors = [
-        ConnectionError("down"),
-        ConnectionRefusedError("refused"),
-        ChildUnresponsiveError("deadline"),
-        ChildUnresponsiveError("deadline again"),
+        ConnectorUnavailableError("down", recovery=(DROPPED,)),
+        ConnectorUnavailableError("refused", recovery=(DROPPED,)),
+        _unresponsive("deadline", KEPT),
+        _unresponsive("deadline again", KEPT),
         TimeoutError("late"),
     ]
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
-            invalidate,
-        ),
-        patch(
-            "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
-            ping,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(
                 None, missing={str(i): str(e) for i, e in enumerate(errors)}, errors=errors
             )
 
-    assert _envelope(excinfo)["error_type"] == "nothing_answered"
-    invalidate.assert_awaited_once_with("control_system")
-    ping.assert_awaited_once_with("control_system")
+    envelope = _envelope(excinfo)
+    assert envelope["error_type"] == "nothing_answered"
+    assert envelope["details"][RECOVERY_KEY] == [DROPPED, KEPT]
 
 
-async def test_mixed_causes_without_a_dropped_link_recover_nothing():
-    invalidate = AsyncMock(return_value=True)
-    ping = AsyncMock(return_value=None)
+async def test_mixed_causes_without_a_recovery_report_none():
     errors = [TimeoutError("late"), ChannelNotFoundError("B")]
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
-            invalidate,
-        ),
-        patch(
-            "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
-            ping,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
     envelope = _envelope(excinfo)
     assert envelope["error_type"] == "nothing_answered"
     assert RECOVERY_KEY not in envelope["details"]
-    invalidate.assert_not_awaited()
-    ping.assert_not_awaited()
 
 
-async def test_mixed_causes_report_the_recovery_they_ran(monkeypatch):
+async def test_mixed_causes_report_the_recovery_they_carry(monkeypatch):
     from osprey.mcp_server.control_system import server_context
 
     monkeypatch.setattr(server_context, "_registry", None)
-    invalidate = AsyncMock(return_value=True)
-    errors = [ConnectionError("down"), TimeoutError("late")]
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
-            invalidate,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+    errors = [ConnectorUnavailableError("down", recovery=(DROPPED,)), TimeoutError("late")]
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
@@ -348,30 +379,18 @@ async def test_mixed_causes_report_the_recovery_they_ran(monkeypatch):
     recovery = envelope["details"][RECOVERY_KEY]
     assert [r["action"] for r in recovery] == ["connector_dropped"]
     assert envelope["error_message"].endswith(recovery[0]["text"])
-    invalidate.assert_awaited_once_with("control_system")
 
 
 async def test_mixed_causes_report_a_replaced_child():
-    replaced = {
-        "action": "child_replaced",
-        "text": "The connector-host child did not answer a ping and was replaced.",
-    }
-    ping = AsyncMock(return_value=replaced)
-    errors = [ChildUnresponsiveError("deadline"), TimeoutError("late")]
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
-            ping,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+    errors = [_unresponsive("deadline", REPLACED), TimeoutError("late")]
+    with pytest.raises(ToolError) as excinfo:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
     envelope = _envelope(excinfo)
     assert envelope["error_type"] == "nothing_answered"
-    assert envelope["details"][RECOVERY_KEY] == [replaced]
-    assert replaced["text"] in envelope["error_message"]
+    assert envelope["details"][RECOVERY_KEY] == [REPLACED]
+    assert REPLACED["text"] in envelope["error_message"]
 
 
 # ---------------------------------------------------------------------------
@@ -421,21 +440,14 @@ async def test_a_read_nothing_answered_for_an_untyped_cause_is_nothing_answered(
 
 
 async def test_a_read_that_timed_out_and_lost_its_link_drops_the_connector(tmp_path, monkeypatch):
-    invalidate = AsyncMock()
     values = {"SR:A": TimeoutError("late"), "SR:B": ConnectionError("down")}
-    with (
-        patch(
-            "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
-            invalidate,
-        ),
-        pytest.raises(ToolError) as excinfo,
-    ):
+    with pytest.raises(ToolError) as excinfo:
         await _read(tmp_path, monkeypatch, values)
 
     envelope = _envelope(excinfo)
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",
-        "SR:B": "ConnectionError: down",
+        "SR:B": "ConnectorUnavailableError: down",
     }
-    invalidate.assert_awaited_once_with("control_system")
+    assert [r["action"] for r in envelope["details"][RECOVERY_KEY]] == ["connector_dropped"]
