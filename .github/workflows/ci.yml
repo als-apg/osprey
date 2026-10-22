@@ -232,11 +232,14 @@ jobs:
         # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
         # except pull requests.
         #
-        # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
-        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
-        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
-        # cell would add three more macOS jobs to a main-push run that already
-        # queues one against the ceiling of 5.
+        # 3.14 runs as a full cell on ubuntu only, on every event. It is in the
+        # matrix for the interpreter's own removals -- behaviour 3.11 and 3.12
+        # only warn about and 3.14 raises on. The stdlib's lazy native loads are
+        # OS-specific (ctypes.util loads libc through find_library on darwin and
+        # through CDLL(None) on other POSIX), so on macOS the readonly-gate
+        # warm-up module runs under 3.14 as one step of the one macOS PR cell
+        # ("Readonly gate under Python 3.14" below). No third macOS cell is
+        # added: it would queue three more macOS jobs against the ceiling of 5.
         exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
 
     steps:
@@ -461,6 +464,18 @@ jobs:
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
         uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+
+    - name: Readonly gate under Python 3.14
+      # The readonly gate refuses every shared-library load once user code
+      # starts, so a stdlib lookup that loads native code lazily must be warmed
+      # before it closes, and which lookups do so depends on the OS. The ubuntu
+      # 3.14 cells run this module in their shard; this step runs it under 3.14
+      # on macOS, once per event, in the cell that runs on pull requests and
+      # pushes alike. `--isolated` builds a throwaway 3.14 environment and
+      # leaves the cell's 3.12 .venv to the steps below.
+      if: matrix.os == 'macos-latest' && matrix.python-version == '3.12' && matrix.shard == 'rest-b'
+      timeout-minutes: 15
+      run: uv run --isolated --python 3.14 --extra dev pytest tests/runtime/test_raw_put_block_readonly_warmups.py -v
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test

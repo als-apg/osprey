@@ -1946,6 +1946,79 @@ def test_pty_step_runs_only_where_a_terminal_is_real__mutation_drops_the_gate() 
         test_pty_step_runs_only_where_a_terminal_is_real(mutated)
 
 
+#: The unit-lane step that runs the readonly gate's warm-up module under 3.14 on
+#: macOS, where the stdlib's lazy native loads differ from the ubuntu 3.14 cells.
+READONLY_314_STEP = "Readonly gate under Python 3.14"
+READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
+_MATRIX_TERM_RE = re.compile(r"matrix\.([\w-]+) == '([^']*)'")
+
+
+def test_readonly_314_step_runs_the_warmups_in_one_macos_cell(
+    workflow: dict[str, Any],
+) -> None:
+    """One macOS cell and one shard run the warm-up module, alone, serially.
+
+    The condition is a conjunction of one equality per matrix axis, so it names
+    exactly one cell of the matrix and one shard; the command names the module
+    and nothing else, with no xdist workers."""
+    step = _find_named_step(workflow, UNIT_TEST_JOB, READONLY_314_STEP)
+    condition = step.get("if", "")
+    terms = [term.strip() for term in condition.split("&&")]
+    pairs = [_MATRIX_TERM_RE.fullmatch(term) for term in terms]
+    assert all(pairs), f"'{READONLY_314_STEP}' if: must be matrix equalities; got {condition!r}"
+    named = {match.group(1): match.group(2) for match in pairs if match}
+    assert len(named) == len(terms), f"an axis is named twice in {condition!r}"
+    matrix = _jobs(workflow)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    assert set(named) == {"os", "python-version", "shard"}, (
+        f"'{READONLY_314_STEP}' must pin os, python-version and shard; got {condition!r}"
+    )
+    assert named["os"] == "macos-latest", condition
+    for axis, value in named.items():
+        assert value in [str(v) for v in matrix[axis]], f"{axis}={value!r} is not a matrix cell"
+
+    tokens = shlex.split(step["run"])
+    assert tokens[:2] == ["uv", "run"] and "pytest" in tokens, step["run"]
+    assert tokens[tokens.index("--python") + 1] == "3.14", step["run"]
+    after_pytest = tokens[tokens.index("pytest") + 1 :]
+    paths = [token for token in after_pytest if not token.startswith("-")]
+    assert paths == [READONLY_WARMUPS_TEST_FILE], f"the step must run only the warm-ups: {paths}"
+    assert (CI_YML.parents[2] / READONLY_WARMUPS_TEST_FILE).is_file()
+    assert not {"-n", "--numprocesses"} & set(after_pytest), step["run"]
+    assert not any(t.startswith(("-n", "--numprocesses=")) for t in after_pytest), step["run"]
+
+
+def test_readonly_314_step__mutation_drops_the_gate() -> None:
+    mutated = _load_workflow()
+    del _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_runs_on_every_macos_cell() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["if"] = "matrix.os == 'macos-latest' && matrix.shard == 'rest-b'"
+    with pytest.raises(AssertionError, match="must pin os, python-version and shard"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_adds_xdist_workers() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["run"] = f"{step['run']} -n 4"
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_widens_to_the_directory() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    assert READONLY_WARMUPS_TEST_FILE in step["run"], "mutation is stale"
+    step["run"] = step["run"].replace(READONLY_WARMUPS_TEST_FILE, "tests/runtime/")
+    with pytest.raises(AssertionError, match="must run only the warm-ups"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
 def _imports_stdlib_pty(source: str) -> bool:
     """Whether *source* imports the stdlib ``pty`` module, at any nesting.
 
