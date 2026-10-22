@@ -79,6 +79,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     RefusalReason,
 )
+from tests._ports import reserved_port
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -276,48 +277,48 @@ def va_endpoint() -> Iterator[int]:
     the container, which is what makes concurrent runs safe.
     """
     _require_va_image()
-    port = bench.free_port()
-    name = f"{VA_CONTAINER_PREFIX}-{port}"
-    # Stale cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    bench.docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{VA_CONTAINER_PREFIX}-{port}"
+        # Stale cleanup only: the port is this run's alone, so this can name nothing
+        # a concurrent run is using.
+        bench.docker("rm", "-f", name, timeout=60)
 
-    started = bench.docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        VA_IMAGE,
-    )
-    if started.returncode != 0:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = bench.docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            VA_IMAGE,
+        )
+        if started.returncode != 0:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _va_served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = bench.docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        with contextlib.suppress(subprocess.SubprocessError):
-            bench.docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + VA_BOOT_TIMEOUT_S
+            while time.monotonic() < deadline:
+                if _va_served(port):
+                    break
+                time.sleep(1.0)
+            else:
+                logs = bench.docker("logs", "--tail", "40", name, timeout=60)
+                raise RuntimeError(
+                    f"{name} never served {PROBE_CHANNEL} within {VA_BOOT_TIMEOUT_S}s.\n"
+                    f"{logs.stdout}\n{logs.stderr}"
+                )
+            yield port
+        finally:
+            with contextlib.suppress(subprocess.SubprocessError):
+                bench.docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
