@@ -475,7 +475,7 @@ class TestThroughTheToolBody:
         failures = data["summary"]["missing"]
         assert CA_UNREACHABLE in failures
         assert CA_UNREACHABLE in failures[CA_UNREACHABLE]
-        assert failures[CA_UNREACHABLE].startswith("ConnectionError:")
+        assert failures[CA_UNREACHABLE].startswith("ChannelUnreachableError:")
 
     async def test_the_frame_takes_the_artifact_path(self, tmp_path, monkeypatch, connector):
         """3072 pixels are over the inline budget, so the value is withheld."""
