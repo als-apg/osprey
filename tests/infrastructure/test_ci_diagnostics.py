@@ -31,6 +31,7 @@ from tests.ci_diagnostics import (
     DiagnosticsRecorder,
     recorder_from_env,
     register_container_snapshots,
+    snapshot_label_filters,
     worker_id,
     worker_index,
 )
@@ -495,7 +496,21 @@ def test_snapshot_is_taken_once_per_module(fake_engine, tmp_path):
         "gw0--tests_test_a.py",
         "gw0--tests_test_b.py",
     ]
-    assert _engine_calls(tmp_path).count("ps -aq") == 2
+    id_listings = [call for call in _engine_calls(tmp_path) if call.startswith("ps -aq ")]
+    assert len(id_listings) == 2 * len(snapshot_label_filters())
+
+
+def test_snapshot_lists_only_labelled_containers(fake_engine, tmp_path):
+    """Every listing is scoped to the containers this run's tests started."""
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", fake_engine.name)
+
+    assert snapshots.capture("tests/test_a.py::test_one", "call") is not None
+
+    listings = [call for call in _engine_calls(tmp_path) if call.startswith("ps ")]
+    assert listings
+    assert all("--filter label=" in call for call in listings), listings
+    filters = {call.split("--filter ", 1)[1] for call in listings}
+    assert filters == set(snapshot_label_filters())
 
 
 def test_snapshot_writes_nothing_when_no_container_exists(fake_engine, tmp_path):

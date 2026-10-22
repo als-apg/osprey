@@ -32,13 +32,13 @@ A third record is written only when a test fails:
 ``containers/at-failure/<worker>--<module>/``
     The container engine's ``ps -a``, one ``state.txt`` line per container, a
     ``<name>.log`` per container and ``<name>.health.json`` where the container
-    has a health check. Written at the first failing report of each test module
-    in each process, from ``pytest_runtest_makereport`` — before that module's
-    fixtures tear its stack down — with the test's timeout alarm suspended and
-    within one total deadline, so the snapshot is charged to no test's budget.
-    The workflow's capture step cannot take it: that teardown happens inside
-    the pytest step, so by the time any later step runs, the stack's
-    containers are gone.
+    has a health check, for the containers this run's tests started, by label.
+    Written at the first failing report of each test module in each process,
+    from ``pytest_runtest_makereport`` — before that module's fixtures tear its
+    stack down — with the test's timeout alarm suspended and within one total
+    deadline, so the snapshot is charged to no test's budget. The workflow's
+    capture step cannot take it: that teardown happens inside the pytest step,
+    so by the time any later step runs, the stack's containers are gone.
 
 All three are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means
 this module installs nothing at all.
@@ -155,6 +155,10 @@ CONTAINER_SNAPSHOT_SUBDIR = Path("containers") / "at-failure"
 #: failure's report by more than one short test's whole budget; a healthy
 #: engine answers a few containers' read-only calls in seconds.
 SNAPSHOT_DEADLINE = 60.0
+
+#: Label carried by every container of an osprey-deployed stack, matched by key
+#: alone: its value is per project, and no run-wide value exists.
+_DEPLOY_LABEL = "com.osprey.repo-id"
 
 #: The name the snapshot plugin is registered under.
 CONTAINER_SNAPSHOT_PLUGIN = "osprey-ci-diag-containers"
@@ -308,6 +312,23 @@ class DiagnosticsRecorder:
             pass
 
 
+def snapshot_label_filters() -> list[str]:
+    """The ``label=`` filters naming the containers this run's tests started.
+
+    One filter per listing, merged by id, because the engine ANDs the filters
+    of one call. This process's testcontainers session, when testcontainers is
+    installed, and the osprey deploy label by key, which is host-wide: no label
+    is carried by every container the suite starts.
+    """
+    filters = []
+    with contextlib.suppress(ImportError):
+        from testcontainers.core.labels import LABEL_SESSION_ID, SESSION_ID
+
+        filters.append(f"label={LABEL_SESSION_ID}={SESSION_ID}")
+    filters.append(f"label={_DEPLOY_LABEL}")
+    return filters
+
+
 @contextlib.contextmanager
 def _alarm_suspended() -> Iterator[None]:
     """Suspend the real-time interval timer, then re-arm what was left of it.
@@ -334,10 +355,11 @@ def _safe(name: str) -> str:
 
 
 class ContainerSnapshots:
-    """Snapshots the container engine at the first failing report of each module.
+    """Snapshots this run's containers at the first failing report of each module.
 
-    The whole snapshot stays within :data:`SNAPSHOT_DEADLINE` and runs with the
-    test's timeout alarm suspended.
+    The containers are the ones this run's tests started, by label
+    (:func:`snapshot_label_filters`). The whole snapshot stays within
+    :data:`SNAPSHOT_DEADLINE` and runs with the test's timeout alarm suspended.
 
     A module fixture that brings a stack up removes it in its own teardown,
     which runs inside the pytest process right after the module's last test.
@@ -387,10 +409,13 @@ class ContainerSnapshots:
         if shutil.which(self.engine) is None:
             return None
         deadline = time.monotonic() + SNAPSHOT_DEADLINE
-        listed, _ = self._run(deadline, "ps", "-aq")
-        if listed is None or listed.returncode != 0:
-            return None
-        ids = listed.stdout.split()
+        filters = snapshot_label_filters()
+        ids: list[str] = []
+        for label in filters:
+            listed, _ = self._run(deadline, "ps", "-aq", "--filter", label)
+            if listed is None or listed.returncode != 0:
+                return None
+            ids.extend(cid for cid in listed.stdout.split() if cid not in ids)
         if not ids:
             return None
 
@@ -398,7 +423,9 @@ class ContainerSnapshots:
         target.mkdir(parents=True, exist_ok=True)
         utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
-        (target / "ps.txt").write_text(self._run(deadline, "ps", "-a")[1])
+        (target / "ps.txt").write_text(
+            "".join(self._run(deadline, "ps", "-a", "--filter", label)[1] for label in filters)
+        )
 
         state = []
         for index, cid in enumerate(ids):
