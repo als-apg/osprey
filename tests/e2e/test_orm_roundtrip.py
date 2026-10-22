@@ -780,7 +780,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["truncated"] is False, f"asked for every row and still got a window: {data}"
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     measured = build_response_matrix(rows, correctors=list(correctors), readbacks=list(bpms))
 

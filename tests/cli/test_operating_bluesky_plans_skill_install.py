@@ -192,6 +192,7 @@ class TestOperatingBlueskyPlansSkillStructure:
         prose = _prose(skill_text)
         assert "a value's unit is the one the run declares for its column" in prose
         assert "say the unit is not stated, never assume one" in prose
+        assert "each entry of columns is {name, unit}, in the order a row's values follow" in prose
 
     # --- the choreography ---
 

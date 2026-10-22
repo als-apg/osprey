@@ -195,7 +195,7 @@ def test_evicted_live_buffer_falls_back_to_tiled(
 
     tiled_body = {
         "run_uid": "bluesky-uid-a",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
@@ -227,7 +227,7 @@ def test_a_run_with_no_buffer_at_all_falls_back_to_tiled_by_run_id(
     """
     tiled_body = {
         "run_uid": "bluesky-uid-after-restart",
-        "columns": ["motor"],
+        "columns": [{"name": "motor", "unit": None}],
         "rows": [[1.0], [2.0]],
         "row_count": 2,
         "truncated": False,
@@ -269,7 +269,6 @@ def test_matched_but_empty_tiled_run_returns_200_not_404(
         "rows": [],
         "row_count": 0,
         "truncated": False,
-        "units": {},
         "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: empty_but_real)
@@ -311,11 +310,10 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
     # `_from_tiled` computes for the run it stands in for.
     tiled_body_payload = {
         "run_uid": "uid-schema-tiled",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
-        "units": {},
         "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: tiled_body_payload)
@@ -328,9 +326,9 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
         "rows",
         "row_count",
         "truncated",
-        "units",
         "analysis",
     }
+    assert live_body["columns"] == tiled_body["columns"]
     # Parity goes one level deeper for `analysis`: a stored run's statistics
     # must read exactly like a live one's, absent results included — which is
     # why the absent shape carries the same keys an available one does.

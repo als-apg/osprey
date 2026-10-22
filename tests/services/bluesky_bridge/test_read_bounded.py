@@ -113,7 +113,7 @@ def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient
 def test_read_data_returns_all_rows_when_under_max_rows(client: TestClient) -> None:
     _feed("run-3", [{"x": 1.0}, {"x": 2.0}], stop=True)
     body = client.get("/runs/run-3/data").json()
-    assert body["columns"] == ["x"]
+    assert body["columns"] == [{"name": "x", "unit": None}]
     assert body["rows"] == [[1.0], [2.0]]
     assert body["row_count"] == 2
     assert body["truncated"] is False

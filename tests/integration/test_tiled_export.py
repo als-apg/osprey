@@ -425,8 +425,9 @@ def test_a_waveform_column_survives_the_export_and_the_data_route(
     body = data.json()
 
     projected = [c for c in declared if c not in ("seq_num", "time") and not c.startswith("ts_")]
-    assert body["columns"] == projected
-    assert "det_wave" in body["columns"]
+    names = [column["name"] for column in body["columns"]]
+    assert names == projected
+    assert "det_wave" in names
 
 
 @pytest.mark.usefixtures("bridge")
@@ -508,7 +509,8 @@ def test_the_data_route_serves_a_waveform_cell_as_a_json_array(
     parquet list. All three now carry the numbers.
     """
     body = bridge.get(f"/runs/{WAVE_RUN}/data").json()
-    wave_cell = body["rows"][0][body["columns"].index("det_wave")]
+    names = [column["name"] for column in body["columns"]]
+    wave_cell = body["rows"][0][names.index("det_wave")]
 
     assert wave_cell == WAVEFORM.tolist()
     assert type(wave_cell) is list

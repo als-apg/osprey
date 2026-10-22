@@ -31,7 +31,7 @@ def _fn(name):
 async def test_max_rows_caps_the_returned_row_window():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 5,
         "truncated": True,
@@ -52,7 +52,7 @@ async def test_max_rows_caps_the_returned_row_window():
 async def test_row_count_reflects_true_total_not_window_size():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 500,
         "truncated": True,
@@ -73,7 +73,7 @@ async def test_row_count_reflects_true_total_not_window_size():
 async def test_truncated_false_when_window_covers_every_row():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 2,
         "truncated": False,
@@ -87,7 +87,7 @@ async def test_truncated_false_when_window_covers_every_row():
 async def test_truncated_true_when_window_omits_rows():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 5,
         "truncated": True,
@@ -146,7 +146,7 @@ async def test_paginated_rows_surface_unmodified_from_the_bridge_body():
     """The tool must not re-slice or otherwise alter the bridge's own window."""
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[2.0], [3.0]],
         "row_count": 5,
         "truncated": True,
@@ -178,7 +178,7 @@ async def test_empty_stream_returns_the_minimal_shape():
 async def test_mid_run_surfaces_partial_true():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
@@ -193,7 +193,7 @@ async def test_mid_run_surfaces_partial_true():
 async def test_completed_run_omits_partial_key():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,

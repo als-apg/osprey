@@ -87,6 +87,11 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
+def _names(body: dict[str, Any]) -> list[str]:
+    """The column names a data body states, in row order."""
+    return [column["name"] for column in body["columns"]]
+
+
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(_TILED_URI_ENV, raising=False)
@@ -452,10 +457,10 @@ def test_matching_run_projects_away_seq_num_time_and_ts_columns(
 
     assert result is not None
     assert result["run_uid"] == "bluesky-uid-1"
-    assert set(result["columns"]) == {"motor", "det"}
-    assert "seq_num" not in result["columns"]
-    assert "time" not in result["columns"]
-    assert not any(c.startswith("ts_") for c in result["columns"])
+    assert set(_names(result)) == {"motor", "det"}
+    assert "seq_num" not in _names(result)
+    assert "time" not in _names(result)
+    assert not any(c.startswith("ts_") for c in _names(result))
     assert result["row_count"] == 3
     assert len(result["rows"]) == 3
     assert result["truncated"] is False
@@ -495,8 +500,8 @@ def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
 def test_the_data_body_carries_the_declared_units_of_its_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``units`` maps each served column to the unit the run declared for it,
-    whatever window of rows the read asked for."""
+    """Each served column is one ``{"name", "unit"}`` record carrying the unit
+    the run declared for it, or null, whatever window of rows the read asked for."""
     declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
     rows = [{"motor": float(i), "det": i} for i in range(5)]
     run_node = _run_node_with_events(
@@ -507,8 +512,10 @@ def test_the_data_body_carries_the_declared_units_of_its_columns(
     whole = app_module._from_tiled("run-b", max_rows=100, offset=None, tail=False)
     page = app_module._from_tiled("run-b", max_rows=1, offset=2, tail=False)
 
-    expected = {key: entry["units"] for key, entry in declared.items() if "units" in entry}
-    assert whole["units"] == page["units"] == expected
+    expected = [{"name": name, "unit": declared[name].get("units")} for name in _names(whole)]
+    assert sorted(_names(whole)) == sorted(declared)
+    assert whole["columns"] == page["columns"] == expected
+    assert "units" not in whole
 
 
 def test_the_live_data_body_carries_the_declared_units_of_its_columns() -> None:
@@ -530,7 +537,11 @@ def test_the_live_data_body_carries_the_declared_units_of_its_columns() -> None:
     finally:
         live_rows._clear()
 
-    assert body["units"] == {key: e["units"] for key, e in declared.items() if "units" in e}
+    assert body["columns"] == [
+        {"name": name, "unit": declared[name].get("units")} for name in _names(body)
+    ]
+    assert sorted(_names(body)) == sorted(declared)
+    assert "units" not in body
 
 
 def test_a_run_with_no_primary_stream_declares_no_units(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -589,7 +600,6 @@ def test_matching_run_with_no_primary_stream_reports_empty_shape(
         "rows": [],
         "row_count": 0,
         "truncated": False,
-        "units": {},
         # Settled, but stamped with no plan: nothing declares what this run's
         # columns would have meant, so its statistics are absent with that
         # reason rather than missing from the shape.
@@ -637,7 +647,7 @@ def test_real_tiled_column_set_projects_to_the_live_buffer_columns(
     result = app_module._from_tiled("repro-run-id-123", max_rows=100, offset=None, tail=False)
 
     assert result is not None
-    assert result["columns"] == ["det1-value"]
+    assert _names(result) == ["det1-value"]
     assert result["rows"] == [[1.0], [2.0], [3.0]]
     assert result["row_count"] == 3
 
@@ -763,7 +773,7 @@ def test_data_and_figure_routes_read_one_snapshot(monkeypatch: pytest.MonkeyPatc
     windowed = app_module._from_tiled("run-parity", max_rows=100, offset=None, tail=False)
 
     assert snapshot is not None
-    assert windowed["columns"] == snapshot["columns"]
+    assert _names(windowed) == snapshot["columns"]
     assert windowed["rows"] == snapshot["rows"]
     assert windowed["row_count"] == snapshot["total_seen"]
     assert windowed["partial"] is snapshot["partial"] is True
@@ -792,7 +802,7 @@ def test_external_array_parts_are_never_fetched(monkeypatch: pytest.MonkeyPatch)
     result = app_module._from_tiled("run-waveform", max_rows=100, offset=None, tail=False)
 
     assert frames.read_count == 0, "the image part was downloaded only to be discarded"
-    assert result["columns"] == ["motor"]
+    assert _names(result) == ["motor"]
     assert result["rows"] == [[1.0], [2.0], [3.0]]
 
 
@@ -824,7 +834,7 @@ def test_parts_of_differing_length_still_serve_their_rows(
 
     result = app_module._from_tiled("run-ragged", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == ["motor"], "the run's own columns collapsed away"
+    assert _names(result) == ["motor"], "the run's own columns collapsed away"
     assert result["rows"] == [[1.0], [2.0], [3.0]]
     assert result["row_count"] == 3
 
@@ -854,7 +864,6 @@ def test_primary_stream_with_no_table_part_reads_empty_rather_than_500(
         "rows": [],
         "row_count": 0,
         "truncated": False,
-        "units": {},
         "partial": True,  # no stop document landed
         # Statistics are computed once a run settles; this one has not.
         "analysis": analysis.absent(analysis.REASON_RUN_IN_PROGRESS),
@@ -885,7 +894,7 @@ def test_served_column_order_follows_the_stored_table(monkeypatch: pytest.Monkey
 
     result = app_module._from_tiled("run-order", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == columns
+    assert _names(result) == columns
 
 
 # =========================================================================
@@ -933,7 +942,7 @@ def test_a_waveform_cell_is_served_as_a_json_array_of_numbers(
 
     result = app_module._from_tiled("run-wave", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == ["motor", "det_wave"]
+    assert _names(result) == ["motor", "det_wave"]
     assert result["rows"] == [[1.0, [0.0, 1.0, 2.0]], [2.0, [10.0, 11.0, 12.0]]]
 
     wave_cell = result["rows"][0][1]
