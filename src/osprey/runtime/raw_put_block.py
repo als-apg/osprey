@@ -126,6 +126,20 @@ _CTYPES_LOADER_ROWS = frozenset(
 _FFI_LOADER_ROWS = frozenset({("cffi.api.FFI", "dlopen")})
 _SYMBOL_LOOKUP_ROW = ("ctypes.CDLL", "__getitem__")
 
+#: The stdlib resolutions that load native code or spawn a process lazily, on
+#: first use, each with a label a test or a failure can name. A readonly run
+#: resolves every row before it closes the gate, while loading and spawning are
+#: still allowed; once resolved, each answers from its cache, so a library that
+#: makes the lookup later imports under the gate.
+_STDLIB_WARMUPS: tuple[tuple[str, Callable[[], object]], ...] = (
+    # Resolved by shelling out to ``uname -p`` on first read; h5py reads it
+    # while ``import at`` initialises its type layer.
+    ("platform.processor", platform.processor),
+    # From CPython 3.14 the module loads libc while it is imported, and
+    # threadpoolctl imports it under ``scipy.io``.
+    ("ctypes.util", lambda: importlib.import_module("ctypes.util")),
+)
+
 #: Put entry points no library handle resolves in a readonly run, and which are
 #: closed on the instance of a handle that already resolved them.
 _HANDLE_PUT_SYMBOLS = ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put")
@@ -634,13 +648,10 @@ def _install_readonly(
     refusal: str,
 ) -> None:
     """Refuse every write entry point in the tables, and every escape route."""
-    # CPython resolves ``platform.uname().processor`` lazily, by shelling out to
-    # ``uname -p`` on first read — and h5py reads it while ``import at``
-    # initialises its type layer, so the subprocess refusal below would kill the
-    # import of a pure-simulation library. Resolve it once now, while spawning
-    # is still allowed; the cached value answers every later lookup without
-    # touching subprocess.
-    platform.processor()
+    # A warm-up that raises fails the install: a gate that skipped one would
+    # refuse the lookup later, inside an innocent import.
+    for _label, warm in _STDLIB_WARMUPS:
+        warm()
 
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
