@@ -195,6 +195,20 @@ def _flat(output: str) -> str:
     return " ".join(re.sub(r"\x1b\[[0-9;]*m", "", output).split())
 
 
+def _table_rows(output: str) -> list[list[str]]:
+    """The body rows of a rendered listing table, each split into its cells.
+
+    Only lines drawn inside the table's box count, so a path in the banner
+    above it can never be mistaken for a row.
+    """
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", output)
+    return [
+        [cell.strip() for cell in line.strip().strip("│").split("│")]
+        for line in plain.splitlines()
+        if line.lstrip().startswith("│")
+    ]
+
+
 def _header_bytes(*headers: dict[str, Any]) -> bytes:
     """Serialize headers the way a store read concatenates them."""
     return "".join(json.dumps(header) for header in headers).encode("utf-8")
@@ -1082,14 +1096,15 @@ class TestFeedbackListCommand:
         result = cli_runner.invoke(feedback, ["list", "--repo", str(repo)])
 
         assert result.exit_code == 0, result.output
-        flat = _flat(result.output)
-        assert "aaaa1111" in flat, "the well-formed record is still listed"
-        assert "local" in flat, "so is the one with the unreadable id"
-        assert "email" in flat, "and the one with no id at all"
-        unreadable_id = next(line for line in result.output.splitlines() if "local" in line)
-        no_id = next(line for line in result.output.splitlines() if "email" in line)
-        assert " - " in _flat(unreadable_id), "its stamp falls back to a dash"
-        assert _flat(no_id).count(" - ") >= 2, "both its id and its stamp fall back"
+        # Columns: ID, User, Submitted (UTC), Channel, Excerpt.
+        rows = _table_rows(result.output)
+        assert len(rows) == 3, rows
+        by_channel = {row[3]: row for row in rows}
+        assert by_channel["-"][0] == "fb-1700000000000-aaaa1111", "the well-formed one is listed"
+        assert by_channel["local"][0] == "fb-²-x", "so is the one with the unreadable id"
+        assert by_channel["local"][2] == "-", "its stamp falls back to a dash"
+        assert by_channel["email"][0] == "-", "the one with no id is listed under a dash"
+        assert by_channel["email"][2] == "-", "and so is its stamp"
 
     def test_list_command_refuses_a_home_relative_agent_data_dir(
         self, tmp_path: Path, cli_runner: CliRunner
