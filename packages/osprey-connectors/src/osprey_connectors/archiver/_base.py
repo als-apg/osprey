@@ -60,7 +60,7 @@ class ArchiverConnector(ABC):
             config: Archiver-specific configuration
 
         Raises:
-            ConnectionError: If connection cannot be established
+            ConnectorUnavailableError: If connection cannot be established
         """
         pass
 
@@ -122,7 +122,7 @@ class ArchiverConnector(ABC):
             empty result is an empty frame with these columns.
 
         Raises:
-            ConnectionError: If archiver cannot be reached
+            ConnectorUnavailableError: If archiver cannot be reached
             TimeoutError: If operation times out
             ValueError: If time range, channel addresses, or processing mode are
                 invalid, or if a non-"raw" processing mode is requested for a
@@ -142,7 +142,7 @@ class ArchiverConnector(ABC):
             ArchiverMetadata with archiving information
 
         Raises:
-            ConnectionError: If archiver cannot be reached
+            ConnectorUnavailableError: If archiver cannot be reached
             ValueError: If the channel address is invalid
         """
         pass

@@ -20,6 +20,7 @@ from osprey_connectors.archiver._mongodb_archiver_connector import (
     MongoDBArchiverConnector,
     address_overrides,
 )
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
@@ -159,7 +160,7 @@ class TestConnectValidationWithoutDocker:
 
         ``osprey up`` mints the password into the project's ``.env``, so this is
         exactly what a built-but-never-deployed project hits on its first
-        archiver call. It must raise ConnectionError — that is what reaches the
+        archiver call. It must raise ConnectorUnavailableError, which reaches the
         agent as an actionable ``connection_error`` envelope naming the fix,
         rather than as an opaque internal error.
         """
@@ -168,7 +169,9 @@ class TestConnectValidationWithoutDocker:
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ConnectionError, match="NONEXISTENT_ENV_VAR.*is not set") as exc_info:
+        with pytest.raises(
+            ConnectorUnavailableError, match="NONEXISTENT_ENV_VAR.*is not set"
+        ) as exc_info:
             await connector.connect(config)
 
         assert "osprey up" in str(exc_info.value)
@@ -1046,7 +1049,7 @@ class TestErrorHandlingWithoutDocker:
         ],
     )
     async def test_connect_failures_map_to_connection_error(self, raised, match, monkeypatch):
-        """Every connect()-time failure surfaces as ConnectionError, message per cause."""
+        """Every connect()-time failure surfaces as ConnectorUnavailableError, message per cause."""
         if isinstance(raised, str):  # pymongo exception class, imported lazily
             pymongo_errors = pytest.importorskip("pymongo.errors")
             raised = getattr(pymongo_errors, raised)("refused")
@@ -1066,7 +1069,7 @@ class TestErrorHandlingWithoutDocker:
 
         with patch("pymongo.MongoClient") as mock_client_cls:
             mock_client_cls.return_value.admin.command.side_effect = raised
-            with pytest.raises(ConnectionError, match=match) as exc_info:
+            with pytest.raises(ConnectorUnavailableError, match=match) as exc_info:
                 await connector.connect(config)
 
         assert isinstance(exc_info.value.__cause__, type(raised))
@@ -1098,7 +1101,7 @@ class TestErrorHandlingWithoutDocker:
         }
 
         with patch("pymongo.MongoClient", side_effect=raised):
-            with pytest.raises(ConnectionError, match=r"tls\.ca_bundle") as exc_info:
+            with pytest.raises(ConnectorUnavailableError, match=r"tls\.ca_bundle") as exc_info:
                 await MongoDBArchiverConnector().connect(config)
 
         assert exc_info.value.__cause__ is raised
@@ -1120,7 +1123,9 @@ class TestErrorHandlingWithoutDocker:
         }
 
         with patch("pymongo.MongoClient", side_effect=FileNotFoundError(2, "missing")):
-            with pytest.raises(ConnectionError, match="MongoDB connection failed") as exc_info:
+            with pytest.raises(
+                ConnectorUnavailableError, match="MongoDB connection failed"
+            ) as exc_info:
                 await MongoDBArchiverConnector().connect(config)
 
         assert "tls.ca_bundle" not in str(exc_info.value)
@@ -1213,7 +1218,7 @@ class TestErrorHandlingWithoutDocker:
             (TimeoutError("slow server"), TimeoutError, "MongoDB query timed out after 10s"),
             (
                 ConnectionError("connection reset"),
-                ConnectionError,
+                ConnectorUnavailableError,
                 "Network connectivity issue with MongoDB",
             ),
             (ValueError("bad document"), ValueError, "Error retrieving data from MongoDB"),
@@ -1280,13 +1285,12 @@ class TestErrorHandlingWithoutDocker:
         assert availability == {"BEAM:CURRENT": False, "BEAM:LIFETIME": False}
 
     @pytest.mark.asyncio
-    async def test_get_data_pymongo_connection_loss_maps_to_connection_error(self):
-        """A pymongo connection-class failure mid-query must surface as ConnectionError.
+    async def test_get_data_pymongo_connection_loss_maps_to_connector_unavailable(self):
+        """A pymongo connection-class failure mid-query is the connector being unavailable.
 
-        The MCP tool wrapper invalidates the cached connector on ConnectionError
-        and on nothing else, so mapping this to the generic ValueError would
-        leave a dead client cached and every later archiver call failing until
-        the server restarted.
+        The supervisor rebuilds an unavailable archiver connector, so mapping
+        this to the generic ValueError would leave a dead client cached and
+        every later archiver call failing until the server restarted.
         """
         pymongo_errors = pytest.importorskip("pymongo.errors")
         # ServerSelectionTimeoutError -> AutoReconnect -> ConnectionFailure: the
@@ -1296,7 +1300,9 @@ class TestErrorHandlingWithoutDocker:
         connector = self._erroring_connector(find=lost)
         connector._ConnectionFailure = pymongo_errors.ConnectionFailure
 
-        with pytest.raises(ConnectionError, match="Lost connection to MongoDB") as exc_info:
+        with pytest.raises(
+            ConnectorUnavailableError, match="Lost connection to MongoDB"
+        ) as exc_info:
             await connector.get_data(
                 channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
