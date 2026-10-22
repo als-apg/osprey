@@ -42,8 +42,8 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
+from tests.interfaces._panel_launch import publish_artifact_url, unserved_url
+from tests.interfaces.conftest import _run_app_server
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -98,7 +98,7 @@ def _unhealthy_panel(panel_id: str = "beam-cam") -> dict:
     return {
         "id": panel_id,
         "label": panel_id.upper(),
-        "url": f"http://127.0.0.1:{_free_port()}",
+        "url": unserved_url(),
         "healthEndpoint": "/health",
         "path": "/",
     }

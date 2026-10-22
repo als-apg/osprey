@@ -77,8 +77,8 @@ import requests
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
+from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
+from tests.interfaces.conftest import _run_app_server
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -146,7 +146,7 @@ def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None
         def log_message(self, *args):  # silence per-request stderr logging
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -165,7 +165,7 @@ def _live_server(
     allow_runtime: bool = False,
     # The shared unserved address — never the artifact slot at the default
     # base, which a real deployment on this host serves for real.
-    artifact_url: str | None = DEFAULT_ARTIFACT_URL,
+    artifact_url: str | None | Unserved = UNSERVED,
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
     ui_mode: str | None = None,
@@ -2411,7 +2411,7 @@ def _contrib_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -2422,7 +2422,7 @@ def _contrib_panel_backend():
         thread.join(timeout=5)
 
 
-def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser):
+def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chromium_browser):
     """A panel's contribution renders in ITS tile bar and actions round-trip.
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
@@ -2450,9 +2450,9 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             # URL is the artifacts server's standard port, so a real artifacts
             # server running on this host (a live web terminal, a demo stack)
             # would load for real and contribute its own nav items — turning
-            # that assertion into a report about the machine. A free port keeps
-            # the panel dead by construction.
-            artifact_url=f"http://127.0.0.1:{_free_port()}",
+            # that assertion into a report about the machine. A reserved port
+            # keeps the panel dead by construction.
+            artifact_url=f"http://127.0.0.1:{reserve_port()}",
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
@@ -2531,7 +2531,7 @@ def _search_menu_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

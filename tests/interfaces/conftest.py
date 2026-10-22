@@ -30,7 +30,6 @@ import yaml
 # screenshot runner; re-export them under their historical underscore names so
 # every ``tests/interfaces`` importer stays byte-for-byte unchanged.
 from osprey.interfaces._serving import authorize_browser_context as _authorize_browser_context
-from osprey.interfaces._serving import free_port as _free_port
 from osprey.interfaces._serving import run_app_server as _run_app_server
 from osprey.interfaces._serving import wait_for_port as _wait_for_port
 
@@ -42,7 +41,6 @@ if TYPE_CHECKING:
 __all__ = [
     "_apply_all",
     "_authorize_browser_context",
-    "_free_port",
     "_run_app_server",
     "_wait_for_port",
     "BROWSER_ENGINES",
