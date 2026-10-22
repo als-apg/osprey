@@ -426,6 +426,28 @@ describe('createChatRenderer', () => {
       r.handleEvent({ type: 'session_reset' }); // shown
       expect(container.querySelectorAll('.op-system').length).toBe(1);
     });
+
+    test('a reset just before the result of a moving turn divides it from the earlier exchange', () => {
+      // A conversation that moves inside a live chat is marked where the move
+      // is seen: the reset arrives just before the result closing that turn.
+      const r = createChatRenderer(container);
+      r.addUserMessage('read the beam current');
+      r.handleEvent({ type: 'text', content: 'The beam current is 500 mA.' });
+      r.handleEvent({ type: 'result', is_error: false });
+      r.addUserMessage('/clear');
+      r.handleEvent({ type: 'thinking' });
+      r.handleEvent({ type: 'session_reset' });
+      r.handleEvent({ type: 'result', is_error: false });
+
+      const dividers = container.querySelectorAll('.op-system');
+      expect(dividers.length).toBe(1);
+      expect(dividers[0].textContent).toBe('session reset');
+      const children = Array.from(container.children);
+      const earlier = qs(container, '.op-entry.assistant');
+      expect(children.indexOf(dividers[0])).toBeGreaterThan(children.indexOf(earlier));
+      // The turn finished: no activity line is left showing.
+      expect(container.querySelector('.op-processing.active')).toBeNull();
+    });
   });
 
   describe('error rendering', () => {
