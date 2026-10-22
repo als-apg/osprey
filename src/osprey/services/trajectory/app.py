@@ -913,7 +913,7 @@ class _Feed:
 
 
 def _catalog(startup: TrajectoryStartup) -> Catalog | None:
-    """The devices the build's response matrix covers, in ring order; ``None`` without a catalog."""
+    """The devices the build's response matrix covers, in position order; ``None`` without a catalog."""
     return startup.catalog
 
 

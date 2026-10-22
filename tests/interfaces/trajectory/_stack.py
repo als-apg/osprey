@@ -251,7 +251,7 @@ def catalog(n_bpms: int) -> Catalog:
     ]
     hcms = [entry(name, name.replace(":", "/"), 0.5, "SR/SECT1", "x") for name in HCMS]
     vcms = [entry(name, name.replace(":", "/"), 0.6, "SR/SECT1", "y") for name in VCMS]
-    return Catalog.in_ring_order(
+    return Catalog.in_position_order(
         {
             "bpms": bpms,
             "hcms": hcms,

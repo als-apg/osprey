@@ -540,7 +540,7 @@ def _raw_catalog(*entries: dict[str, Any]) -> dict[str, Any]:
     return {"bpms": list(entries), "hcms": [], "vcms": [], "groups": []}
 
 
-def test_the_selected_models_catalog_is_read_in_ring_order() -> None:
+def test_the_selected_models_catalog_is_read_in_position_order() -> None:
     facts = {
         "trajectory_catalog": {
             "SR": _raw_catalog(

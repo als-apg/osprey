@@ -39,7 +39,7 @@ In order:
    trigger sample; several and none named → refused, naming them. The
    selected model's ``trajectory_catalog`` — the devices its response matrix
    covers, with their labels and places — is read beside it, each family put
-   in ring order (:meth:`~.state.Catalog.in_ring_order`); a model the build
+   in position order (:meth:`~.state.Catalog.in_position_order`); a model the build
    wrote no catalog for leaves the service without one, and a catalog that
    does not read as one is refused.
 5. **The raw-put block**, armed once per process with the executor's armed
@@ -233,7 +233,7 @@ class TrajectoryStartup:
             (:class:`~osprey.services.trajectory.step.ToolUnavailable`); ``None``
             until its builder filled the slot.
         catalog: The devices the selected model's response matrix covers, in
-            ring order, or ``None`` when the build wrote no catalog for it.
+            position order, or ``None`` when the build wrote no catalog for it.
     """
 
     target: str
@@ -571,7 +571,7 @@ def select_commands(facts: Mapping[str, Any], model: str | None) -> TrajectoryCo
 
 
 def select_catalog(facts: Mapping[str, Any], model: str | None) -> Catalog | None:
-    """The device catalog the build wrote for *model*, each family in ring order.
+    """The device catalog the build wrote for *model*, each family in position order.
 
     Args:
         facts: The build's ``facility_facts.json``.
@@ -592,7 +592,7 @@ def select_catalog(facts: Mapping[str, Any], model: str | None) -> Catalog | Non
     if raw is None:
         return None
     try:
-        return Catalog.in_ring_order(raw)
+        return Catalog.in_position_order(raw)
     except ValidationError as exc:
         raise StartupRefused(
             f"the build's trajectory catalog of model {model!r} does not read as one: {exc}"

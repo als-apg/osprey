@@ -13,7 +13,7 @@ way your facility names them.
 The map
 =======
 
-Each tab shows a map of the machine: one row per place, rows in ring order,
+Each tab shows a map of the machine: one row per place, rows in position order,
 one square per device. The header counts the devices in use; Setup CMs shows a
 horizontal and a vertical strip per row and counts each plane. Hover a square
 to see the device's label, place and position.

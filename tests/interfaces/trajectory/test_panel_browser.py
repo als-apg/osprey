@@ -191,7 +191,7 @@ def test_the_setup_map_draws_the_catalog_and_a_click_only_marks_a_pending_change
     stack: Stack,
 ) -> None:
     """The Setup BPMs map is drawn from the served catalog, one row per place in
-    ring order; clicking a device marks a pending change and commits nothing."""
+    position order; clicking a device marks a pending change and commits nothing."""
     page = stack.open("alice")
     _open_session(page, "alice")
     bpm_map = page.locator("[data-map=bpms]")

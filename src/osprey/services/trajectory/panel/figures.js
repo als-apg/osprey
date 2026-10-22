@@ -13,7 +13,7 @@
  * Conventions every builder keeps:
  * - traces are `scatter` lines (or bars for corrector steps); trace colours are
  *   never set, so the theme's `colorway` picks them;
- * - a device axis is the device's 1-based position in ring order along its
+ * - a device axis is the device's 1-based position in position order along its
  *   `Snapshot.catalog` family, so a device absent from the data is a gap
  *   (`null`), never a shifted point; its ticks are the devices' labels,
  *   thinned to fit, and every other run of devices sharing a leaf place is
@@ -41,7 +41,7 @@
  */
 
 /**
- * The matrix names of one catalog family, in ring order; empty without a catalog.
+ * The matrix names of one catalog family, in position order; empty without a catalog.
  *
  * @param {Catalog|null|undefined} catalog
  * @param {'bpms'|'hcms'|'vcms'} family
@@ -89,8 +89,8 @@ export function leafOf(entry) {
 export const NO_PLACE = 'no place';
 
 /**
- * Devices grouped by leaf place: one row per place in ring order (by the
- * first device of each along the ring), devices without a place on one row
+ * Devices grouped by leaf place: one row per place in position order (by the
+ * first device of each along the model), devices without a place on one row
  * labelled *model*. Rows keep the devices' given order.
  *
  * @template {CatalogEntry} T
@@ -276,7 +276,7 @@ function finite(value) {
 }
 
 /**
- * The BPM axis: the catalog's BPMs in ring order, or the shot's own order
+ * The BPM axis: the catalog's BPMs in position order, or the shot's own order
  * when the snapshot has no catalog yet.
  *
  * @param {any} shot
@@ -435,7 +435,7 @@ export function rawFigures(raw, shot, theme, options = {}) {
  */
 
 /**
- * The Trajectories figures — x and y against the BPMs in ring order: the
+ * The Trajectories figures — x and y against the BPMs in position order: the
  * action's average (masked from the earliest per-injection loss on) and the
  * selected reference's readings, excluded BPMs as gaps in both. A
  * pseudo-orbit's average makes no step, and says so.
@@ -483,8 +483,8 @@ export function trajectoryFigures(shot, snapshot, theme, options = {}) {
 }
 
 /**
- * The Difference to Reference figures — dx and dy against the BPMs in ring
- * order, measurement minus reference, masked and gapped like the
+ * The Difference to Reference figures — dx and dy against the BPMs in
+ * position order, measurement minus reference, masked and gapped like the
  * trajectories. Both share one symmetric y range so the two planes compare at
  * a glance.
  *
@@ -568,7 +568,7 @@ export function svFigure(solve, theme) {
 }
 
 /**
- * The correctors of both planes in ring order: by `s`, horizontal before
+ * The correctors of both planes in position order: by `s`, horizontal before
  * vertical at one position, a corrector without `s` after the placed ones.
  *
  * @param {Catalog|null|undefined} catalog
@@ -587,7 +587,7 @@ function correctorAxis(catalog) {
 }
 
 /**
- * The CM step — HCM and VCM step bars against the correctors in ring order,
+ * The CM step — HCM and VCM step bars against the correctors in position order,
  * each bar at its own corrector.
  *
  * @param {any} step - `Snapshot.step` (its `deltas` by corrector name)
@@ -627,7 +627,7 @@ export function cmStepFigure(step, catalog, theme) {
 }
 
 /**
- * A per-BPM setting readback against the BPMs in ring order. Values may be numbers or
+ * A per-BPM setting readback against the BPMs in position order. Values may be numbers or
  * a setting's option labels; unread devices are gaps.
  *
  * @param {any} readback - one `SettingReadback`

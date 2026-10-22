@@ -257,7 +257,7 @@ the service's **snapshot**. Its fields:
        ``command``, ``timeout_s`` and ``done``.
    * - ``catalog``
      - The devices the response matrix covers, as the facility names them:
-       ``bpms``, ``hcms`` and ``vcms`` in ring order, and the facility
+       ``bpms``, ``hcms`` and ``vcms`` in position order, and the facility
        ``groups`` that list them (see `Device catalog`_).
    * - ``machine``
      - ``rf_on`` and ``stored_current`` as last read; ``null`` where the
@@ -311,7 +311,7 @@ build, so the two always list the same devices. Each entry:
    * - ``groups``
      - The ids of the facility groups that list the device.
 
-Ring order is ``s``, then matrix order; a device without ``s`` follows the
+Position order is ``s``, then matrix order; a device without ``s`` follows the
 placed ones. Each of ``groups`` is an ``id``, a ``label`` and its ``members`` by
 name, and only groups listing matrix devices appear. An excluded device keeps
 its entry.

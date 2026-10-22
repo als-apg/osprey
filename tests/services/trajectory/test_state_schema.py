@@ -838,12 +838,12 @@ def test_the_catalog_reads_the_build_catalog_into_ring_order() -> None:
         "vcms": [],
         "groups": [{"id": "g", "label": "G", "members": ["B1"]}],
     }
-    catalog = Catalog.in_ring_order(built)
+    catalog = Catalog.in_position_order(built)
     # s first, ties and the unplaced in matrix order, the unplaced last
     assert catalog.names("bpms") == ["B3", "B4", "B1", "B2"]
     assert catalog.groups[0].members == ["B1"]
     with pytest.raises(ValidationError):
-        Catalog.in_ring_order({**built, "bpms": [{"name": "B1"}]})
+        Catalog.in_position_order({**built, "bpms": [{"name": "B1"}]})
 
 
 def test_the_snapshot_catalog_matches_the_committed_schema() -> None:

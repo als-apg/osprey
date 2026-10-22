@@ -24,7 +24,7 @@ import {
 } from './setup.js';
 
 /**
- * A catalog entry in a place chain of a ring and one cell of it.
+ * A catalog entry in a place chain of a machine and one cell of it.
  * @param {string} name
  * @param {string} label
  * @param {string | null} place
@@ -35,7 +35,7 @@ const entry = (name, label, place, s, plane = null) => ({
   name,
   device: `dev-${name}`,
   label,
-  places: place ? [{ id: 'RING', level: 'ring' }, { id: place, level: 'cell' }] : [],
+  places: place ? [{ id: 'MACHINE', level: 'machine' }, { id: place, level: 'cell' }] : [],
   s,
   plane,
   groups: [],
@@ -67,7 +67,7 @@ const CATALOG = {
  */
 function snapshotWith(bpms = [], cms = [], catalog = CATALOG) {
   return {
-    model: 'ring-model',
+    model: 'model-a',
     catalog,
     setup: null,
     solve: { config: { excluded_bpms: bpms, excluded_cms: cms, alpha: 0, gain: 1, keep_live: 1, n_discard: 0, loss_cutoff: 0, overridden: [] } },
@@ -156,13 +156,13 @@ beforeEach(() => {
 });
 
 describe('pure helpers', () => {
-  it('rows the map by leaf place in ring order, placeless devices on the model row', () => {
-    const rows = placeRows(tabEntries(snapshotWith(), 'bpms'), 'ring-model');
+  it('rows the map by leaf place in position order, placeless devices on the model row', () => {
+    const rows = placeRows(tabEntries(snapshotWith(), 'bpms'), 'model-a');
     expect(rows.map((row) => [row.label, row.entries.map((e) => e.name)])).toEqual([
       ['CELL-A', ['B1', 'B2']],
       ['CELL-B', ['B3', 'B4']],
       ['CELL-C', ['B5']],
-      ['ring-model', ['B6']],
+      ['model-a', ['B6']],
     ]);
   });
 
@@ -205,7 +205,7 @@ describe('pure helpers', () => {
 
   it('suggests labels and place ids, no facility word of its own', () => {
     expect(findSuggestions(snapshotWith(), 'bpms')).toEqual(
-      ['Pick 1', 'Pick 2', 'Pick 3', 'Pick 4', 'Pick 5', 'Pick 6', 'RING', 'CELL-A', 'CELL-B', 'CELL-C']);
+      ['Pick 1', 'Pick 2', 'Pick 3', 'Pick 4', 'Pick 5', 'Pick 6', 'MACHINE', 'CELL-A', 'CELL-B', 'CELL-C']);
   });
 
   it('offers Start from only for two or more distinct non-empty sets of the tab', () => {

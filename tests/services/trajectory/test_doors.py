@@ -540,7 +540,7 @@ def _catalog_entry(name: str, s: float, plane: str | None = None) -> dict[str, A
 
 
 #: The build's catalog, in matrix order; along the ring BPM3 comes first.
-CATALOG = Catalog.in_ring_order(
+CATALOG = Catalog.in_position_order(
     {
         "bpms": [_catalog_entry(X_ROWS[0], 2.0), _catalog_entry(X_ROWS[1], 3.0)]
         + [_catalog_entry(X_ROWS[2], 1.0)],
@@ -966,7 +966,7 @@ def test_the_snapshot_publishes_the_chain_catalog_retention_and_budget(
     )
     assert [step.id for step in state.chain] == ["arm", "inject", "readout"]
     assert state.catalog is not None
-    # Ring order: s first, so BPM3 (s = 1) leads the matrix's first BPM.
+    # Position order: s first, so BPM3 (s = 1) leads the matrix's first BPM.
     assert state.catalog.names("bpms") == [X_ROWS[2], X_ROWS[0], X_ROWS[1]]
     assert (state.catalog.names("hcms"), state.catalog.names("vcms")) == ([HCM1, HCM2], [VCM1])
     assert state.catalog.bpms[0].label == "BPM3"

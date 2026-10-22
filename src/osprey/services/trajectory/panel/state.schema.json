@@ -97,7 +97,7 @@
     },
     "Catalog": {
       "additionalProperties": false,
-      "description": "The devices the response matrix covers, each family in ring order.\n\nRing order is ``s``, then matrix order; a device without ``s`` follows the\nplaced ones, in matrix order. Selection addresses a device by its\n``name``; an excluded device keeps its entry.\n\nAttributes:\n    bpms: The BPMs, one per matrix row pair.\n    hcms: The horizontal correctors.\n    vcms: The vertical correctors.\n    groups: The facility groups listing matrix devices.",
+      "description": "The devices the response matrix covers, each family in position order.\n\nPosition order is ``s``, then matrix order; a device without ``s`` follows the\nplaced ones, in matrix order. Selection addresses a device by its\n``name``; an excluded device keeps its entry.\n\nAttributes:\n    bpms: The BPMs, one per matrix row pair.\n    hcms: The horizontal correctors.\n    vcms: The vertical correctors.\n    groups: The facility groups listing matrix devices.",
       "properties": {
         "bpms": {
           "items": {

@@ -5,9 +5,9 @@
  * routes.
  *
  * Every device, place and word on the map comes from the build's device
- * catalog (`Snapshot.catalog`, each family in ring order); this module names
+ * catalog (`Snapshot.catalog`, each family in position order); this module names
  * none. A tab draws one row per leaf place — each device's own place — in
- * ring order, devices without a place sharing one row labelled by the model.
+ * position order, devices without a place sharing one row labelled by the model.
  * Clicking a place name toggles every device in it, clicking a square toggles
  * one device; Setup CMs draws a horizontal and a vertical strip per row.
  *
@@ -90,7 +90,7 @@ export function emptyPending() {
 }
 
 /**
- * A tab's devices, family by family in ring order, each tagged with its
+ * A tab's devices, family by family in position order, each tagged with its
  * family; empty when the snapshot has no catalog.
  * @param {any} snapshot
  * @param {SetupTab} tab

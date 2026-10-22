@@ -585,9 +585,9 @@ class CatalogGroup(_Model):
 
 
 class Catalog(_Model):
-    """The devices the response matrix covers, each family in ring order.
+    """The devices the response matrix covers, each family in position order.
 
-    Ring order is ``s``, then matrix order; a device without ``s`` follows the
+    Position order is ``s``, then matrix order; a device without ``s`` follows the
     placed ones, in matrix order. Selection addresses a device by its
     ``name``; an excluded device keeps its entry.
 
@@ -604,15 +604,15 @@ class Catalog(_Model):
     groups: list[CatalogGroup] = Field(default_factory=list)
 
     @classmethod
-    def in_ring_order(cls, catalog: Any) -> Self:
-        """The catalog the build wrote (matrix order), each family put in ring order.
+    def in_position_order(cls, catalog: Any) -> Self:
+        """The catalog the build wrote (matrix order), each family put in position order.
 
         Raises:
             pydantic.ValidationError: *catalog* is not a catalog.
         """
         read = cls.model_validate(catalog)
 
-        def ring(entries: list[CatalogEntry]) -> list[CatalogEntry]:
+        def ordered(entries: list[CatalogEntry]) -> list[CatalogEntry]:
             order = sorted(
                 range(len(entries)),
                 key=lambda i: (entries[i].s is None, entries[i].s or 0.0, i),
@@ -620,11 +620,15 @@ class Catalog(_Model):
             return [entries[i] for i in order]
 
         return read.model_copy(
-            update={"bpms": ring(read.bpms), "hcms": ring(read.hcms), "vcms": ring(read.vcms)}
+            update={
+                "bpms": ordered(read.bpms),
+                "hcms": ordered(read.hcms),
+                "vcms": ordered(read.vcms),
+            }
         )
 
     def names(self, family: Literal["bpms", "hcms", "vcms"]) -> list[str]:
-        """The matrix names of one family, in ring order."""
+        """The matrix names of one family, in position order."""
         return [entry.name for entry in getattr(self, family)]
 
 

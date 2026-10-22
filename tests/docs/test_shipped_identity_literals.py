@@ -266,6 +266,9 @@ DENIED: tuple[Denied, ...] = (
                 # pattern.
                 "tests/registry/test_pyat_specialist_agent.py",
                 "tests/facility/test_mml_fixtures_wellformed.py",
+                # The trajectory panel's facility-word scan, whose self-check
+                # spells the facility names the panel source may not carry.
+                "tests/services/trajectory/test_panel_bundle.py",
                 # The legacy record prefixes a renamed panel may no longer carry.
                 "tests/scripts/test_panel_rename.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author

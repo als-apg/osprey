@@ -232,9 +232,9 @@ describe('trajectoryFigures', () => {
     expect(figs.y.data[0].name).toBe('Mean (no step)');
   });
 
-  it('puts the BPMs on the axis in the catalog order (ring order)', () => {
-    const ring = { ...CATALOG, bpms: entries(['B4', 'B1', 'B3', 'B2']) };
-    const meas = trajectoryFigures(shot(), { catalog: ring, reference: null }, THEME).x.data[0];
+  it('puts the BPMs on the axis in the catalog order (position order)', () => {
+    const ordered = { ...CATALOG, bpms: entries(['B4', 'B1', 'B3', 'B2']) };
+    const meas = trajectoryFigures(shot(), { catalog: ordered, reference: null }, THEME).x.data[0];
     expect(meas.customdata).toEqual(['B4', 'B1', 'B3', 'B2']);
   });
 
@@ -248,7 +248,7 @@ describe('trajectoryFigures', () => {
 
   it('labels the ticks and hovers with label, place and s, and bands every other place', () => {
     const placed = (/** @type {string} */ name, /** @type {string} */ label, /** @type {string} */ place, /** @type {number} */ s) =>
-      ({ name, device: name, label, places: [{ id: 'RING', level: 'ring' }, { id: place, level: 'cell' }], s, plane: null, groups: [] });
+      ({ name, device: name, label, places: [{ id: 'MACHINE', level: 'machine' }, { id: place, level: 'cell' }], s, plane: null, groups: [] });
     const catalog = {
       ...CATALOG,
       bpms: [placed('B1', 'Pick 1', 'C1', 1), placed('B2', 'Pick 2', 'C1', 2), placed('B3', 'Pick 3', 'C2', 3),
@@ -322,7 +322,7 @@ describe('svFigure', () => {
 });
 
 describe('cmStepFigure', () => {
-  it('draws HCM and VCM bars at their correctors in ring order with device names', () => {
+  it('draws HCM and VCM bars at their correctors in position order with device names', () => {
     const fig = cmStepFigure({ deltas: { H1: 0.1, H3: -0.2, V2: 0.3, X9: 1 } }, CATALOG, THEME);
     const [h, v] = fig.data;
     expect(h).toMatchObject({ type: 'bar', name: 'HCM' });
