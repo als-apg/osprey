@@ -246,7 +246,7 @@ first: a basename collision silently drops tests under xdist.
 
 Never edit source or tests, and never commit, while pytest or a gate is running
 in the checkout. Run gates in the foreground. Run e2e only by path
-(`uv run pytest tests/e2e/<file>`), never `-m e2e` (tests/e2e/README.md).
+(`uv run pytest tests/e2e/<file>`).
 
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,

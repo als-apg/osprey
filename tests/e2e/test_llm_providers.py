@@ -490,7 +490,6 @@ def weather_tool(city: str) -> dict:
 # =============================================================================
 
 
-@pytest.mark.e2e
 class TestProviderAvailability:
     """Meta-tests for provider detection."""
 
@@ -503,7 +502,6 @@ class TestProviderAvailability:
         print(f"\nAvailable: {list(available_providers.keys())}")
 
 
-@pytest.mark.e2e
 class TestExtendedThinking:
     """Test Anthropic extended thinking (provider-specific feature)."""
 
@@ -533,7 +531,6 @@ class TestExtendedThinking:
             assert "391" in str(result)
 
 
-@pytest.mark.e2e
 class TestLLMMatrix:
     """Matrix tests across provider × model combinations."""
 

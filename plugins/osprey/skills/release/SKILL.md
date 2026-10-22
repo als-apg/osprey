@@ -208,8 +208,7 @@ sed -n '/^  e2e-tests:/,/^  channel-finder-benchmarks:/p' .github/workflows/ci.y
 ```
 
 It runs `pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile` with that
-ignore list. The path, not the marker — `-m e2e` leaks registry state between
-tests.
+ignore list.
 
 **The ignored modules are not untested.** Each has a dedicated CI lane of its
 own, because each binds a fixed host port, leaves a fixed-name container

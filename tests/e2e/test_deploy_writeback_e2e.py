@@ -98,7 +98,7 @@ from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e.profile_edits import set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Container runtime selection — same contract as tests/e2e/test_deploy_lifecycle.py:

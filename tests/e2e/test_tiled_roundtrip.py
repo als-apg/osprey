@@ -132,7 +132,6 @@ CONTAINER_HEALTH_TIMEOUT_SEC = 240.0  # docker healthcheck start_period + a few 
 SCAN_TIMEOUT_SEC = 420.0
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

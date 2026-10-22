@@ -65,7 +65,6 @@ def _is_ariel_db_available() -> bool:
 # ---------------------------------------------------------------------------
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.e2e_services,
     pytest.mark.slow,

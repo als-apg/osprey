@@ -31,7 +31,7 @@ from tests._container_support import is_docker_available, start_or_skip, stop_qu
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.asyncio]
+pytestmark = [pytest.mark.slow, pytest.mark.asyncio]
 
 logger = logging.getLogger(__name__)
 

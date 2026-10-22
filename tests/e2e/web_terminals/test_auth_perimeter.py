@@ -110,7 +110,7 @@ from tests.e2e.profile_edits import set_pairs
 # be --ignore'd in the shared e2e-tests lane AND given its own job. Without the
 # marker this file would be swept into that lane's glob over tests/e2e/ and the
 # expensive sidecar build would run twice per PR.
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 _SUPPORTED_RUNTIMES = ("docker", "podman")
 RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")

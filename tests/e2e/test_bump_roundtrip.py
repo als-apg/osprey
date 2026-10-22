@@ -113,7 +113,6 @@ from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job alongside test_orm_roundtrip.py and

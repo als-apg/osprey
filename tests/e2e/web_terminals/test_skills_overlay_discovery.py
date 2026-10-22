@@ -72,7 +72,7 @@ import pytest
 from osprey.agent_runner.launcher import build_claude_launch_argv
 from tests.e2e.sdk_helpers import is_claude_code_available
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
+pytestmark = [pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 # The flags the web terminal launches ``claude`` with, read from the launcher
 # itself (unpinned: ``["claude", *flags]``) so this probe tracks the real launch.

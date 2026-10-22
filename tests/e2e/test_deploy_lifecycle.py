@@ -91,7 +91,7 @@ from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
 from tests._renders import tier_render
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Container runtime selection — ``docker`` by default, ``podman`` opt-in via
