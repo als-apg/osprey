@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +25,7 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     offline_build_env,
 )
 from tests._env_scope_guard import restore_module_environment
+from tests._ports import port_reserver
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -205,6 +206,13 @@ def agent_cli_resolved_per_test():
 @pytest.fixture
 def real_agent_cli():
     """Opt a test out of :func:`stub_agent_cli`: it resolves the real Claude Code."""
+
+
+@pytest.fixture
+def reserve_port() -> Iterator[Callable[[], int]]:
+    """A :func:`tests._ports.port_reserver` call, its reservations held until the test ends."""
+    with port_reserver() as reserve:
+        yield reserve
 
 
 @pytest.fixture(autouse=True, scope="function")
