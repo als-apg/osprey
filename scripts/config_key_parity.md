@@ -222,19 +222,6 @@ The preset conversion added twenty of the seventy-five, in three groups:
 | `archiver.mongodb_archiver.*` (9) | the build's archiver injector derives the connection block from the deployment's own `services.postgresql` / `va_archiver:` declaration. The preset states only `archiver.type: mongodb_archiver` |
 | `control_system.connector.virtual_accelerator.response_delay_ms` (1) | the presets serve the simulator in process at the connector's own delay; a slower machine is authored per deployment |
 
-### Deleted keys documented as commented examples
-
-A key on the `deleted` list may still be documented, commented, in a preset, and
-the manifest's `deleted_commented_examples` section records why each such key is
-not a resurrection: it left what OSPREY *ships* while staying live in its reader.
-`ariel.database.uri` still wins over the derived DSN when set. Under the app templates that documentation sat in a template, which the
-resurrection check never read for comments; converting the templates into
-presets moved the same lines onto the surface it does read. The exemption is
-narrow — a LIVE spelling of an exempt key in a preset is still a resurrection, as
-is one reappearing in the rendered union or in the loader's synthesized
-defaults — and the exemption itself is checked, so one that names a key that was
-never deleted, carries no reason, or outlives its preset line fails the guard.
-
 ### `api.providers` membership
 
 Not a fixed set, and no longer a per-template question: `providers.yml` is the

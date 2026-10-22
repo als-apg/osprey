@@ -963,19 +963,7 @@ class ConfigKeyGuard:
         A retired key documented as a commented example is still a retired key
         put back in front of the operator, which is what ``system.facility_name``
         was before this branch removed it.
-
-        Some keys are exempt, and the manifest says which and why
-        (``deleted_commented_examples``). Each was removed from what OSPREY
-        SHIPS while staying live in its reader — an explicitly set
-        ``ariel.database.uri`` still wins over the derived DSN — and the
-        commented line beside that prose is the documentation of an override
-        that works, not a retired knob put back. The exemption is narrow: an
-        exempt key is still checked against the rendered union, against a LIVE
-        preset override and against the loader's defaults, which is where an
-        actual resurrection would show.
         """
-        if key in (self.manifest.get("deleted_commented_examples") or {}):
-            return []
         pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
         return [name for name, text in self.preset_texts() if self.has_match(pattern, text)]
 
@@ -1017,36 +1005,6 @@ class ConfigKeyGuard:
                     "resurrection",
                     f"{key} is deleted but the config loader still synthesizes it as a default",
                 )
-
-    def check_deleted_commented_examples(self) -> None:
-        """The exemptions above must stay tied to something real.
-
-        Three ways one rots: it can name a key that was never deleted, it can
-        carry no reason, and it can outlive the preset line it was written for —
-        the last being the one that matters, because an unused exemption is a
-        hole waiting for the next retired key that happens to share the name.
-        """
-        deleted = set(self.manifest["deleted"])
-        for key, why in (self.manifest.get("deleted_commented_examples") or {}).items():
-            if key not in deleted:
-                self.fail(
-                    "resurrection",
-                    f"deleted_commented_examples exempts {key}, which is not on the deleted list",
-                )
-                continue
-            if not str(why or "").strip():
-                self.fail(
-                    "resurrection", f"the commented-example exemption for {key} gives no reason"
-                )
-            pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
-            if not any(self.has_match(pattern, text) for _name, text in self.preset_texts()):
-                self.fail(
-                    "resurrection",
-                    f"the commented-example exemption for {key} is unused — no preset documents "
-                    f"it any more, so the exemption is a hole with nothing behind it",
-                )
-
-    # ── failure mode 5: orphan sites ────────────────────────────────────
 
     def check_orphan_sites(self) -> None:
         absent = [entry["path"] for entry in self.manifest.get("absent_paths") or []]
@@ -1524,7 +1482,6 @@ class ConfigKeyGuard:
         self.check_defaults()
         self.check_evidence_vacuity()
         self.check_deleted()
-        self.check_deleted_commented_examples()
         self.check_orphan_sites()
         self.check_parity()
         self.check_panel_port_markers()

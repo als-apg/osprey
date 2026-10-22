@@ -68,7 +68,6 @@ RETIRED_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "P4 — derive, don't duplicate": (
         "ariel.database.connection_string",
-        "ariel.database.uri",
         "control_system.connector.epics.gateways.read_only.port",
         "archiver.mock_archiver.simulation_file",
     ),
