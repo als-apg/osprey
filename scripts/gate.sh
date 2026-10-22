@@ -121,13 +121,12 @@ uv run python scripts/mypy_gate.py
 
 # The sweep deselects every marker whose tests cannot share the machine with
 # xdist workers; each of those markers runs alone in a serial step below.
-# test_scale.py is a wall-clock guard held to an unloaded workstation.
 if ! no_python_test "pytest sweep"; then
     step "pytest sweep"
     if [ "$mode" = full ]; then
-        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
+        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     else
-        uv run python scripts/run_bounded.py 1800 -- uv run pytest "$@" --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
+        uv run python scripts/run_bounded.py 1800 -- uv run pytest "$@" -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     fi
 fi
 
@@ -146,7 +145,7 @@ fi
 if ! no_python_test "pytest wallclock (serial)"; then
     step "pytest wallclock (serial)"
     if [ "$mode" = full ]; then
-        serial uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration -m wallclock -q --tb=short
+        serial uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m wallclock -q --tb=short
     else
         serial uv run python scripts/run_bounded.py 900 -- uv run pytest "$@" -m wallclock -q --tb=short
     fi

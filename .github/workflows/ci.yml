@@ -358,8 +358,9 @@ jobs:
       #
       # `not wallclock` hands away every wall-clock budget for the same
       # reason: a budget timed beside three loaded workers measures them. Each
-      # is timed in a serial step that selects the marker: the qmd panel
-      # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
+      # is timed in a serial step that selects the marker: the image-free
+      # budgets in this job's "Run the wall-clock budgets serially", and the
+      # sidecar budget in qmd-sidecar-e2e's step of that name.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
@@ -456,7 +457,7 @@ jobs:
         # read on fewer events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -526,6 +527,17 @@ jobs:
       # minute, so the tail margin the job cap comment argues for is untouched.
       timeout-minutes: 10
       run: uv run pytest tests/pty/ -m pty -v --tb=short
+
+    - name: Run the wall-clock budgets serially
+      # Selected by marker over the tree, so an image-free budget added
+      # anywhere is timed here with no new wiring, alone in the process and
+      # with no xdist flags. tests/integration is left to qmd-sidecar-e2e,
+      # whose budgets need the image that job builds. Linux rest-b cells only,
+      # for the reason the pty step above gives: a budget measures the box,
+      # and the macOS runners are the noisier ones.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest-b'
+      timeout-minutes: 15
+      run: uv run pytest tests/ --ignore=tests/e2e --ignore=tests/integration -m wallclock -v --tb=short
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
@@ -1972,23 +1984,6 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --extra dev
-
-    - name: Search-index scale guard (no LLM, no store)
-      # The unit lane ignores this module by path: its budgets are held to a
-      # workstation's numbers, and four xdist workers on a four-vCPU runner
-      # miss them by ~7x on both corpora at once — the box, not the code (see
-      # the module docstring). It runs here instead, serially and alone, in
-      # two invocations: the first runs everything but the absolute budgets,
-      # the second is the serial host of the module's wallclock-marked
-      # budgets and times them with nothing else in the process. Each
-      # invocation builds the project and the hundred-thousand-row index for
-      # itself, which is a cost only an on-demand job can carry.
-      # Placed ahead of the probe below deliberately: a DuckDB latency
-      # measurement needs no API key, and gating it on one would mean an
-      # unreachable proxy silently takes the scale guard down with it.
-      run: |
-        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m "not wallclock" -v --tb=short
-        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m wallclock -v --tb=short
 
     - name: Pre-flight LLM endpoint reachability check
       env:

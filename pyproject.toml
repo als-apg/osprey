@@ -630,7 +630,7 @@ tmp_path_retention_policy = "failed"
 markers = [
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
-    "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
+    "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on. Tests carrying it live under tests/e2e/, which keeps them out of the unit lane",
     "e2e_tutorial: Tutorial workflow validation tests",
     "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
