@@ -4,9 +4,11 @@ A session key is the one identity a browser tab keeps for its whole life: the
 same string names the PTY pool entry, the chat pool entry and the audit
 session. The *transcript* is a different thing — the Claude
 Code session id whose ``.jsonl`` holds the conversation — and the two are equal
-only until the conversation is replaced. A ``/clear`` in the terminal starts a
+only until the conversation is replaced. A ``/clear`` in either view starts a
 fresh transcript under a new id while the key stays exactly where it was, so
-after one ``/clear`` the key and the transcript have diverged permanently.
+after one ``/clear`` the key and the transcript have diverged permanently. Two
+routes record the move: the agent-turn route for the terminal, from its hook's
+reports, and the chat route for the Simple view, from the SDK's own reports.
 
 This module holds that divergence, and nothing else:
 
