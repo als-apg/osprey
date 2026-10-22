@@ -9,7 +9,6 @@ Covers:
 """
 
 import json
-import socket
 from unittest.mock import patch
 
 import pytest
@@ -19,14 +18,6 @@ from tests.mcp_server.conftest import (
     extract_response_dict,
     get_tool_fn,
 )
-
-
-def _free_port() -> int:
-    """Return an ephemeral port the OS just handed us (avoids fixed-port flakes)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
 
 # ---------------------------------------------------------------------------
 # ArtifactStore — core storage layer
@@ -1345,16 +1336,17 @@ class TestAutoLaunchLogging:
 class TestServerLauncherRetry:
     """Tests for server launcher crash recovery."""
 
-    def test_server_launcher_retries_after_crash(self):
+    def test_server_launcher_retries_after_crash(self, reserve_port):
         """_launched resets to False when the server thread crashes."""
         from osprey.infrastructure.server_launcher import ServerLauncher
 
         def crash_app_factory(**kwargs):
             raise RuntimeError("app factory crash")
 
+        port = reserve_port()
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", port),
             auto_launch_checker=lambda: True,
             app_factory=crash_app_factory,
             pass_workspace=False,
@@ -1371,7 +1363,7 @@ class TestServerLauncherRetry:
         # After crash, _launched should be reset to False
         assert launcher._launched is False
 
-    def test_server_launcher_health_check_warning(self, caplog, monkeypatch):
+    def test_server_launcher_health_check_warning(self, caplog, monkeypatch, reserve_port):
         """A server that never answers /health is warned about once the late-health window ends."""
         import logging
         import time
@@ -1386,9 +1378,10 @@ class TestServerLauncherRetry:
             # Return something but don't actually start a server
             return None
 
+        port = reserve_port()
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", port),
             auto_launch_checker=lambda: True,
             app_factory=noop_app_factory,
             pass_workspace=False,
