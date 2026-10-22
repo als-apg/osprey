@@ -47,13 +47,16 @@ Three arms
    * - Every item tried, none answered
      - An error whose ``details.missing`` holds the same map. When every item
        failed with the same error the controls server answers on its own --
-       ``not_found``, ``timeout_error``, ``connection_error`` -- that error is
-       returned, with its own message and remedy and ``details.missing``
-       added. Otherwise the error type is ``nothing_answered``. When the
-       controls server dropped the connector or replaced its connector-host
-       child because of one of those failures, the error lists each action
-       under ``details.recovery``, as an ``action`` word and its sentence, and
-       repeats the sentence in the message. A write batch in which no value
+       ``not_found``, ``channel_unreachable``, ``timeout_error``,
+       ``connection_error`` -- that error is returned, with its own message
+       and remedy and ``details.missing`` added. Otherwise the error type is
+       ``nothing_answered``. When the supervisor that owns the connector
+       dropped it, replaced its connector-host child, or kept a child that
+       still answers, because of one of those failures, the error lists each
+       action once under ``details.recovery``, as an ``action`` word and its
+       sentence, and repeats the sentence in the message. A
+       ``channel_unreachable`` failure is that channel's alone and carries no
+       ``details.recovery``. A write batch in which no value
        reached any channel is refused the same way, with its rows under
        ``details.results``: as ``write_refused`` when every write was
        refused, and as ``nothing_answered`` when any was sent and not taken.
