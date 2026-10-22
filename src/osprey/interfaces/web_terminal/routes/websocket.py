@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -674,6 +674,7 @@ class _TerminalChannel:
         interrupt: bool,
         spawn: SpawnCallback,
         end_started: bool = False,
+        launch_env: Callable[[str], dict[str, str] | None] | None = None,
     ) -> AcquireResult:
         """Take *key* for the Expert surface while reading the socket.
 
@@ -693,6 +694,7 @@ class _TerminalChannel:
                 interrupt=interrupt,
                 spawn=spawn,
                 end_started=end_started,
+                launch_env=launch_env,
             )
         finally:
             reader.cancel()
@@ -730,6 +732,7 @@ async def _open_surface(
     interrupt: bool,
     spawn: SpawnCallback,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquireResult | None:
     """Take *key* for this terminal, answering the client for every way that can end.
 
@@ -756,7 +759,12 @@ async def _open_surface(
         await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
         return await channel.acquire(
-            app, key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            app,
+            key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
     except session_handoff.HandoffRefused as refused:
         logger.info("Refusing the terminal session %s: %s", key, refused)
@@ -825,8 +833,8 @@ async def _spawn_pooled_pty(
         command: The child's argv.
         rows: Initial terminal height.
         cols: Initial terminal width.
-        extra_env: The one launch-env overlay used for the mismatch check and
-            the spawn alike.
+        extra_env: The overlay the door compared the key against, used for
+            the mismatch check and the spawn alike.
         cwd: Working directory for a spawned child.
 
     Returns:
@@ -875,7 +883,9 @@ async def terminal_ws(websocket: WebSocket):
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
-    the key's current transcript. The spawn callback below, through
+    the key's current transcript. A pooled PTY is reused only when it was
+    launched under the overlay this handler would launch it with now;
+    otherwise the door replaces it. The spawn callback below, through
     :func:`_spawn_pooled_pty`, is the only place the registry's create path is
     called from, and it never lets that path kill on the loop.
 
@@ -964,16 +974,18 @@ async def terminal_ws(websocket: WebSocket):
             )
         else:
             command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
-        extra_env = _build_extra_env(websocket, request.key, request.key)
         return await _spawn_pooled_pty(
             registry,
             request.key,
             command,
             rows=channel.rows,
             cols=channel.cols,
-            extra_env=extra_env or None,
+            extra_env=request.launch_env,
             cwd=app.state.project_cwd,
         )
+
+    def launch_env(key: str) -> dict[str, str] | None:
+        return _build_extra_env(websocket, key, key) or None
 
     async def close_displaced() -> None:
         # A newer terminal on the same key took the PTY over. This handler's
@@ -999,7 +1011,13 @@ async def terminal_ws(websocket: WebSocket):
     output_task: asyncio.Task[None] | None = None
     try:
         result = await _open_surface(
-            channel, app, current_key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            channel,
+            app,
+            current_key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
         if result is None or channel.closed.is_set():
             return
@@ -1103,6 +1121,7 @@ async def terminal_ws(websocket: WebSocket):
                                 interrupt=False,
                                 spawn=spawn,
                                 end_started=False,
+                                launch_env=launch_env,
                             )
                         except Exception:
                             logger.exception("Session switch to %s failed", target_id)

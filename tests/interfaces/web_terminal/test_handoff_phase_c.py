@@ -15,7 +15,11 @@ under the key. These tests pin the invariants around that:
 - an Expert caller is attached with its channel token before the pending
   slot and the reservation are released, and a displaced Expert connection
   is closed and detached first;
-- a cancellation delivered mid-phase does not stop the phase.
+- a cancellation delivered mid-phase does not stop the phase;
+- an Expert caller reuses the key's pooled PTY only when it was launched
+  under the overlay the caller would launch it with now; a mismatched one is
+  replaced through the same pop, kill and death check as a teardown, and the
+  spawn is handed that same overlay.
 
 Fakes and the faked clock come from ``_handoff_harness``. Phase (b)
 is real unless a test says otherwise; where a test is about how (c) answers a
@@ -31,7 +35,9 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal import session_handoff
+from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.session_handoff import (
     ACTION_HANDOFF,
     ACTION_REUSE,
@@ -70,6 +76,7 @@ from tests.interfaces.web_terminal._handoff_harness import (
     chats,
     disk,  # noqa: F401  (fixture, requested by name)
     make_app,
+    must_not_spawn,
     pool_pty,
     pty_spawner,
     registry,
@@ -828,3 +835,141 @@ async def test_a_replaced_same_channel_acquire_carrying_out_leaves_the_new_slot_
         await second
     assert_released(app)
     assert len(spawn.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# The launch environment of a reused PTY
+# ---------------------------------------------------------------------------
+
+OVERLAY_A = {PANEL_TOKEN_ENV: "token-a-7f3e"}
+OVERLAY_B = {PANEL_TOKEN_ENV: "token-b-91c2"}
+
+
+def launched_under(app: SimpleNamespace, overlay: dict[str, str], fake=None) -> RecordingPty:
+    """Pool a fake PTY under :data:`KEY` recorded as launched with *overlay*."""
+    pty = pool_pty(app, fake)
+    registry(app)._env_fingerprints[KEY] = env_fingerprint(overlay)
+    return pty
+
+
+@pytest.mark.usefixtures("disk")
+async def test_a_pty_launched_under_the_same_overlay_is_reattached():
+    app = make_app()
+    pty = launched_under(app, OVERLAY_A)
+    channel = object()
+    result = await acquire_surface(
+        app,
+        KEY,
+        "expert",
+        channel,
+        spawn=must_not_spawn,
+        launch_env=lambda _key: dict(OVERLAY_A),
+    )
+
+    assert result.session is pty
+    assert result.spawned is False
+    assert pty.terminates == 0 and pty.is_alive
+    assert registry(app).attached_owner(KEY) is channel
+    assert_released(app)
+
+
+@pytest.mark.usefixtures("disk")
+async def test_a_pty_launched_under_another_overlay_is_replaced(disk):  # noqa: F811
+    app = make_app()
+    disk.add(KEY)
+    old = launched_under(app, OVERLAY_A)
+    channel = object()
+    spawn = pty_spawner(app)
+    result = await acquire_surface(
+        app, KEY, "expert", channel, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+    )
+
+    assert old.terminates == 1 and not old.is_alive
+    (request,) = spawn.calls
+    assert request.launch_env == OVERLAY_B
+    assert request.resume_id == KEY
+    assert result.spawned is True
+    assert result.resume_id == KEY
+    assert result.session is not old
+    assert registry(app).get_session(KEY) is result.session
+    assert registry(app).attached_owner(KEY) is channel
+    assert turn_state(app) == IDLE
+    assert_released(app)
+
+
+@pytest.mark.usefixtures("disk")
+async def test_a_takeover_of_a_mismatched_pty_closes_the_older_connection_first():
+    app = make_app()
+    old = launched_under(app, OVERLAY_A)
+    older, newer = object(), object()
+    assert registry(app).attach_session(KEY, older)
+    order: list[str] = []
+
+    async def close_older() -> None:
+        order.append("closed")
+        assert old.terminates == 0
+
+    get_state(app).closers[older] = close_older
+    spawn = pty_spawner(app)
+    result = await acquire_surface(
+        app, KEY, "expert", newer, spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+    )
+
+    assert result.plan.action == ACTION_TAKEOVER
+    assert order == ["closed"]
+    assert old.terminates == 1 and not old.is_alive
+    assert len(spawn.calls) == 1
+    assert result.session is not old
+    assert registry(app).attached_owner(KEY) is newer
+    assert_released(app)
+
+
+@pytest.mark.usefixtures("disk")
+async def test_a_mismatched_pty_that_survives_its_kill_is_put_back_and_refused_503():
+    app = make_app()
+    survivor = SurvivorPty()
+    launched_under(app, OVERLAY_A, survivor)
+    spawn = pty_spawner(app)
+    with pytest.raises(HandoffRefused) as refused:
+        await acquire_surface(
+            app, KEY, "expert", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+        )
+
+    assert refused.value.status == 503
+    assert refused.value.error == ERROR_OUTGOING_STILL_RUNNING
+    assert survivor.terminates == 1
+    assert registry(app).get_session(KEY) is survivor
+    assert not registry(app).is_attached(KEY)
+    assert KEY not in registry(app)._env_fingerprints
+    assert spawn.calls == []
+    assert_released(app)
+
+
+@pytest.mark.usefixtures("disk")
+async def test_no_stated_overlay_reattaches_a_pty_launched_with_none():
+    app = make_app()
+    pty = pool_pty(app)
+    result = await acquire(app, KEY, "expert", object())
+
+    assert result.session is pty
+    assert result.spawned is False
+    assert pty.terminates == 0
+
+
+@pytest.mark.usefixtures("disk")
+async def test_the_spawn_request_never_shows_the_overlay(caplog):
+    caplog.set_level(logging.DEBUG)
+    app = make_app()
+    launched_under(app, OVERLAY_A)
+    spawn = pty_spawner(app)
+    await acquire_surface(
+        app, KEY, "expert", object(), spawn=spawn, launch_env=lambda _key: dict(OVERLAY_B)
+    )
+
+    (request,) = spawn.calls
+    assert request.launch_env == OVERLAY_B
+    assert "launch_env" not in repr(request)
+    for overlay in (OVERLAY_A, OVERLAY_B):
+        token = overlay[PANEL_TOKEN_ENV]
+        assert token not in repr(request)
+        assert token not in caplog.text
