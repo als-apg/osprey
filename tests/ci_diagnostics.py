@@ -34,9 +34,11 @@ A third record is written only when a test fails:
     ``<name>.log`` per container and ``<name>.health.json`` where the container
     has a health check. Written at the first failing report of each test module
     in each process, from ``pytest_runtest_makereport`` — before that module's
-    fixtures tear its stack down. The workflow's capture step cannot take it:
-    that teardown happens inside the pytest step, so by the time any later step
-    runs, the stack's containers are gone.
+    fixtures tear its stack down — with the test's timeout alarm suspended and
+    within one total deadline, so the snapshot is charged to no test's budget.
+    The workflow's capture step cannot take it: that teardown happens inside
+    the pytest step, so by the time any later step runs, the stack's
+    containers are gone.
 
 All three are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means
 this module installs nothing at all.
@@ -120,9 +122,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -146,8 +150,11 @@ ENV_E2E_RUNTIME = "OSPREY_E2E_RUNTIME"
 #: place. The action's files there are flat, so a subdirectory cannot collide.
 CONTAINER_SNAPSHOT_SUBDIR = Path("containers") / "at-failure"
 
-#: Upper bound, in seconds, on each engine call a snapshot makes.
-SNAPSHOT_CALL_TIMEOUT = 30.0
+#: Upper bound, in seconds, on one whole snapshot. It equals the shortest
+#: per-file ``pytest.mark.timeout`` in the suite, so a snapshot never delays a
+#: failure's report by more than one short test's whole budget; a healthy
+#: engine answers a few containers' read-only calls in seconds.
+SNAPSHOT_DEADLINE = 60.0
 
 #: The name the snapshot plugin is registered under.
 CONTAINER_SNAPSHOT_PLUGIN = "osprey-ci-diag-containers"
@@ -301,6 +308,26 @@ class DiagnosticsRecorder:
             pass
 
 
+@contextlib.contextmanager
+def _alarm_suspended() -> Iterator[None]:
+    """Suspend the real-time interval timer, then re-arm what was left of it.
+
+    pytest-timeout's signal method arms that timer for the running test; a
+    diagnostic run inside it would be charged to the test and interrupted by
+    its alarm. Off the main thread no alarm is delivered here, so nothing is
+    touched.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    remaining, interval = signal.setitimer(signal.ITIMER_REAL, 0)
+    try:
+        yield
+    finally:
+        if remaining > 0:
+            signal.setitimer(signal.ITIMER_REAL, remaining, interval)
+
+
 def _safe(name: str) -> str:
     """``name`` with every character outside ``[A-Za-z0-9._-]`` replaced by ``_``."""
     return _UNSAFE.sub("_", name)
@@ -308,6 +335,9 @@ def _safe(name: str) -> str:
 
 class ContainerSnapshots:
     """Snapshots the container engine at the first failing report of each module.
+
+    The whole snapshot stays within :data:`SNAPSHOT_DEADLINE` and runs with the
+    test's timeout alarm suspended.
 
     A module fixture that brings a stack up removes it in its own teardown,
     which runs inside the pytest process right after the module's last test.
@@ -329,14 +359,19 @@ class ContainerSnapshots:
         self.engine = engine
         self._modules: set[str] = set()
 
-    def _run(self, *args: str) -> tuple[subprocess.CompletedProcess[str] | None, str]:
-        """Run one engine call; a failure is returned as text, never raised."""
+    def _run(
+        self, deadline: float, *args: str
+    ) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+        """Run one engine call within ``deadline``; a failure is returned as text, never raised."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, "(snapshot deadline reached)\n"
         try:
             done = subprocess.run(
                 [self.engine, *args],
                 capture_output=True,
                 text=True,
-                timeout=SNAPSHOT_CALL_TIMEOUT,
+                timeout=remaining,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             return None, f"({self.engine} {args[0]} failed: {exc})\n"
@@ -351,7 +386,8 @@ class ContainerSnapshots:
 
         if shutil.which(self.engine) is None:
             return None
-        listed, _ = self._run("ps", "-aq")
+        deadline = time.monotonic() + SNAPSHOT_DEADLINE
+        listed, _ = self._run(deadline, "ps", "-aq")
         if listed is None or listed.returncode != 0:
             return None
         ids = listed.stdout.split()
@@ -362,18 +398,23 @@ class ContainerSnapshots:
         target.mkdir(parents=True, exist_ok=True)
         utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
-        (target / "ps.txt").write_text(self._run("ps", "-a")[1])
+        (target / "ps.txt").write_text(self._run(deadline, "ps", "-a")[1])
 
         state = []
-        for cid in ids:
-            named, _ = self._run("inspect", "--format", "{{.Name}}", cid)
+        for index, cid in enumerate(ids):
+            if time.monotonic() >= deadline:
+                missed = len(ids) - index
+                state.append(f"(snapshot deadline reached; {missed} containers not captured)\n")
+                break
+            named, _ = self._run(deadline, "inspect", "--format", "{{.Name}}", cid)
             raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
             name = _safe(raw.lstrip("/")) or cid
 
-            (target / f"{name}.log").write_text(self._run("logs", "--timestamps", cid)[1])
-            state.append(self._run("inspect", "--format", _STATE_FORMAT, cid)[1])
+            logs = self._run(deadline, "logs", "--timestamps", cid)[1]
+            (target / f"{name}.log").write_text(logs)
+            state.append(self._run(deadline, "inspect", "--format", _STATE_FORMAT, cid)[1])
 
-            health, _ = self._run("inspect", "--format", "{{json .State.Health}}", cid)
+            health, _ = self._run(deadline, "inspect", "--format", "{{json .State.Health}}", cid)
             if health is not None and health.returncode == 0:
                 text = health.stdout.strip()
                 if text and text != "null":
@@ -389,7 +430,10 @@ class ContainerSnapshots:
         if not report.failed:
             return
         # a diagnostic must never replace the failure it observes
-        with contextlib.suppress(Exception):
+        with (
+            contextlib.suppress(Exception, pytest.fail.Exception, pytest.skip.Exception),
+            _alarm_suspended(),
+        ):
             self.capture(item.nodeid, report.when)
 
 

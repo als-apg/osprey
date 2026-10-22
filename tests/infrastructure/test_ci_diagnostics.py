@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 from tests.ci_diagnostics import (
     CONTAINER_SNAPSHOT_PLUGIN,
     CONTAINER_SNAPSHOT_SUBDIR,
@@ -607,6 +608,77 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
     assert state.exists(), done.stdout + done.stderr
     assert "fake-c1" in state.read_text()
     assert "fake-c2" in state.read_text()
+
+
+# The listings answer at once; every per-container call outlives the test's
+# alarm, so only a snapshot that leaves the alarm and keeps one total deadline
+# lets the failure be reported.
+_SLOW_ENGINE_SCRIPT = """#!/bin/sh
+case "$1" in
+  ps)
+    if [ "$2" = "-aq" ]; then
+      printf 'c1\\nc2\\n'
+    else
+      echo "CONTAINER ID   NAMES"
+      printf 'c1   slow-c1\\nc2   slow-c2\\n'
+    fi
+    ;;
+  *) exec sleep 5 ;;
+esac
+"""
+
+_SLOW_RUN_CONFTEST = """\
+from tests import ci_diagnostics
+
+ci_diagnostics.SNAPSHOT_DEADLINE = 3
+
+
+def pytest_configure(config):
+    ci_diagnostics.register_container_snapshots(config.pluginmanager)
+"""
+
+_SLOW_RUN_TEST = """\
+def test_fails():
+    assert False
+"""
+
+
+def test_a_slow_snapshot_leaves_the_failure_reported(tmp_path):
+    """A snapshot slower than the test's own timeout still lets the failure be reported."""
+    engine = _write_engine(tmp_path / "bin", "slow-engine", _SLOW_ENGINE_SCRIPT)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "conftest.py").write_text(_SLOW_RUN_CONFTEST)
+    (run_dir / "test_slow.py").write_text(_SLOW_RUN_TEST)
+
+    env = outer_run_free_env()
+    env["OSPREY_CI_DIAG_DIR"] = "diag"
+    env["OSPREY_E2E_RUNTIME"] = engine.name
+    env["PYTHONPATH"] = str(_REPO_ROOT)
+    env["PATH"] = f"{engine.parent}{os.pathsep}{env.get('PATH', '')}"
+    done = run_nested_pytest(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--timeout=2",
+            "--timeout-method=signal",
+            "test_slow.py",
+        ],
+        cwd=run_dir,
+        env=env,
+    )
+
+    output = done.stdout + done.stderr
+    assert done.returncode == 1, output
+    assert "1 failed" in done.stdout, output
+    assert "INTERNALERROR" not in output, output
+    snapshot = run_dir / "diag" / CONTAINER_SNAPSHOT_SUBDIR / "main--test_slow.py"
+    assert (snapshot / "failure.txt").exists(), output
+    assert "(snapshot deadline reached" in (snapshot / "state.txt").read_text()
 
 
 # ===================================================================
