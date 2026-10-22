@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import stop_group
 from tests import _ports
 from tests._ports import (
     ephemeral_range_start,
@@ -20,6 +21,30 @@ from tests._ports import (
     reserved_port,
     reserved_ports,
 )
+
+#: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
+_HOLDER_GRACE_S = 1.0
+
+
+def _end_holder(holder: subprocess.Popen[str]) -> None:
+    """End a lock holder by closing its stdin; a holder that ignores EOF is stopped as a group.
+
+    The group stop runs only while the leader is unreaped, which is the case
+    exactly when ``communicate`` timed out.
+    """
+    try:
+        holder.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        survivors = stop_group(holder.pid, grace=_HOLDER_GRACE_S)
+        holder.wait()
+        for pipe in (holder.stdin, holder.stdout):
+            if pipe is not None:
+                pipe.close()
+        if survivors is None:
+            pytest.fail("the lock holder ignored EOF; the process table could not be read")
+        if survivors:
+            pytest.fail(f"the lock holder ignored EOF; still running after SIGKILL: {survivors}")
+        pytest.fail("the lock holder ignored EOF; its group was stopped")
 
 
 def test_the_port_lies_below_the_ephemeral_range():
@@ -61,6 +86,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -69,7 +95,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         with pytest.raises(RuntimeError, match="1 candidate"), reserved_port():
             pass
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
 
 
 @pytest.mark.parametrize(
@@ -169,6 +195,6 @@ def test_hold_ports_keeps_the_locks_until_exit():
         assert len(set(ports)) == 2
         assert _lockable_elsewhere(ports) == [False, False]
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
     assert holder.returncode == 0
     assert _lockable_elsewhere(ports) == [True, True]
