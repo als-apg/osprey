@@ -987,9 +987,11 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
         ValueError: An address is no setpoint in the facility file; nothing was read.
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
-        SettleReadError: A readback could not be read, or answered no value
+        SettleReadError: A readback that cannot be reached, is not a channel,
+            or times out, or one that answered no value
             (:class:`osprey_connectors.settle.SettleReadError`, a
-            ``ChannelReadFailedError``); names the readback.
+            ``ChannelReadFailedError``); names the readback. A lost connector
+            raises its own error.
 
     Examples:
         >>> from osprey.runtime import settle, write_channel

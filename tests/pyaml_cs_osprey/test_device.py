@@ -16,6 +16,7 @@ from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteR
 from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelUnreachableError,
     ChannelWriteFailedError,
 )
 from pyaml_cs_osprey import _run
@@ -251,7 +252,7 @@ def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
     plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
 
     def unreachable(address: str) -> None:
-        raise ConnectionError(f"{address} is unreachable")
+        raise ChannelUnreachableError(address, f"{address} is unreachable")
 
     runtime.on_poll = unreachable
 
@@ -263,10 +264,10 @@ def test_a_failed_readback_read_during_the_settle_is_a_read_failure(
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 
-def test_a_connector_value_error_during_the_settle_is_a_read_failure(
+def test_a_connector_value_error_during_the_settle_propagates_as_itself(
     runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
 ) -> None:
-    """A readback read that raises ValueError while settling is a read failure of the readback."""
+    """Only a failure about the readback is a read failure; anything else is raised as it is."""
     del clock
     plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
 
@@ -276,10 +277,9 @@ def test_a_connector_value_error_during_the_settle_is_a_read_failure(
 
     runtime.on_poll = bad_reply
 
-    with pytest.raises(OspreyReadFailed) as info:
+    with pytest.raises(ValueError, match="bad reply"):
         _device(RW).set_and_wait(4.0)
 
-    assert info.value.addresses == ["QF_001:Cm:rdbk"]
     assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 

@@ -66,8 +66,9 @@ demand})`` waits until each setpoint's readback is within the bound the
 facility file states for it: its ``tolerance``, else on the simulator its
 readback's motion band. A setpoint with neither is not waited on. A readback
 that is not inside its bound within 5 seconds raises ``SettleTimeoutError``,
-and the run fails. A readback that cannot be read, or answers no value, raises
-``SettleReadError``, which names it, and the run fails.
+and the run fails. A readback that cannot be reached, is not a channel, or
+times out raises ``SettleReadError``, which names it, as does one that answers
+no value, and the run fails; a lost connector raises its own error.
 
 .. _executor-measurement-tools:
 
