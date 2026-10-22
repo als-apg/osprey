@@ -90,8 +90,7 @@ directory; the tests run on demand in the `tier2-model-benchmark` job
 (`gh workflow run ci.yml -f run_benchmarks=true`) and in the model matrix. They
 carry no rerun marker: a benchmark scores every attempt. Tier 2 sits between the
 build-and-boot checks (Tier 1) and the per-preset agentic lanes (Tier 3) in the CI
-pyramid; the benchmark dashboard's own "Tier 0/1" labels for the two matrix lanes
-are a separate numbering.
+pyramid.
 
 Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
 measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB
