@@ -537,6 +537,50 @@ class SignalRoleEnum(str, Enum):
     """
     Readback that is set while a requested injection shot is in progress.
     """
+    bunch_cleaning_command = "bunch_cleaning_command"
+    """
+    Command that removes the stored charge, so the next injected shot circulates alone.
+    """
+    rf_on_setpoint = "rf_on_setpoint"
+    """
+    Commanded on/off state of the RF system of a lattice that stores beam; with RF off the beam has no closed orbit and is not captured.
+    """
+    rf_on_readback = "rf_on_readback"
+    """
+    Readback of the on/off state of the RF system of a lattice that stores beam.
+    """
+    turns_tracked_setpoint = "turns_tracked_setpoint"
+    """
+    Commanded number of turns after the trigger that a turn-by-turn acquisition records beam on (the acquisition's buffer size).
+    """
+    turns_tracked_readback = "turns_tracked_readback"
+    """
+    Readback of the number of turns a turn-by-turn acquisition records beam on.
+    """
+    pilot_tone_setpoint = "pilot_tone_setpoint"
+    """
+    Commanded on/off state of a BPM's pilot tone, a calibration tone the electronics add to the button signals.
+    """
+    pilot_tone_readback = "pilot_tone_readback"
+    """
+    Readback of the on/off state of a BPM's pilot tone.
+    """
+    bpm_mode_setpoint = "bpm_mode_setpoint"
+    """
+    Commanded operating mode of a BPM's electronics (e.g. low or high beam current), which sets their electronic noise.
+    """
+    bpm_mode_readback = "bpm_mode_readback"
+    """
+    Readback of the operating mode of a BPM's electronics.
+    """
+    attenuation_setpoint = "attenuation_setpoint"
+    """
+    Commanded attenuation of a BPM's input signal ahead of its electronics.
+    """
+    attenuation_readback = "attenuation_readback"
+    """
+    Readback of the attenuation applied to a BPM's input signal.
+    """
     pulse_waveform = "pulse_waveform"
     """
     Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.
@@ -701,6 +745,20 @@ class MeasurementKindEnum(str, Enum):
     crm = "crm"
     chromaticity_monitor = "chromaticity_monitor"
     trajectory = "trajectory"
+
+
+class TrajectorySettingScopeEnum(str, Enum):
+    """
+    What one value of an operator setting of the trajectory measurement sets.
+    """
+    device = "device"
+    """
+    One value per device of the group `groups.bpm` names.
+    """
+    global_ = "global"
+    """
+    One value for the whole model.
+    """
 
 
 
@@ -1208,6 +1266,8 @@ class Identity(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
 
     @field_validator('code')
@@ -1239,6 +1299,8 @@ class FacilityClass(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
 
 
@@ -1275,7 +1337,13 @@ class Place(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
+    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     level: Optional[str] = Field(default=None, description="""The facility's word for this depth of its tree.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
@@ -1283,6 +1351,8 @@ class Place(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
@@ -1307,7 +1377,13 @@ class Device(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
+    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     class_: Optional[str] = Field(default=None, alias="class", description="""A vocabulary class or a facility-added class.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass', 'Device']} })
     place: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'OnTarget']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
@@ -1316,8 +1392,14 @@ class Device(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
-    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     properties: Optional[list[str]] = Field(default=None, description="""Vocabulary property names.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device'], 'list_elements_ordered': True} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
@@ -1346,13 +1428,19 @@ class Channel(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
+    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     pair: Optional[str] = Field(default=None, description="""The readback address of a setpoint. Absent, the build pairs the setpoint with the one readback on the same device, place or nothing whose signal names the same quantity, else with itself.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tolerance: Optional[Tolerance] = Field(default=None, description="""On a float setpoint: how close its readback (its pair, else itself) must come.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     on: Optional[OnTarget] = Field(default=None, description="""Absent means the channel belongs to nothing.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     endpoint_of: Optional[list[str]] = Field(default=None, description="""The devices sharing this channel as an endpoint.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
-    signal: Optional[str] = Field(default=None, description="""A vocabulary signal role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    signal: Optional[str] = Field(default=None, description="""A vocabulary signal role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'TrajectorySetting']} })
     unit: Optional[str] = Field(default=None, description="""Free text.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     description: Optional[str] = Field(default=None, description="""What this channel is. When a source states none and the channel names a `signal`, the build composes one from its owner, its signal and its unit, and records it in `provenance.defaults`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
@@ -1360,8 +1448,14 @@ class Channel(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
-    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     former_addresses: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tags: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1412,7 +1506,13 @@ class Gate(ConfiguredBaseModel):
 class GateInput(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
     blocking_label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput']} })
 
 
@@ -1446,7 +1546,13 @@ class Drift(ConfiguredBaseModel):
 class LinearTerm(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
     coefficient: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm']} })
 
 
@@ -1456,15 +1562,27 @@ class Group(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
+    id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     description: Optional[str] = Field(default=None, description="""What the set is, in the facility's words.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
                        'Place',
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
-    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     members: Optional[list[str]] = Field(default=None, description="""Device ids.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
@@ -1479,7 +1597,7 @@ class Model(ConfiguredBaseModel):
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
     engine: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
     deck: Optional[str] = Field(default=None, description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
-    settings: Optional[Any] = Field(default=None, description="""`{<engine>: {...}}`, the one key equal to `engine`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
+    settings: Optional[Any] = Field(default=None, description="""`{<engine>: {...}}`, the one key equal to `engine`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'TrajectoryDeclaration']} })
     wiring: Optional[list[Wiring]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model'], 'list_elements_ordered': True} })
     measurement: Optional[Measurement] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
@@ -1504,15 +1622,27 @@ class Wiring(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    id: str = Field(default=..., description="""`<model>/<address>`, split at the first `/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    id: str = Field(default=..., description="""`<model>/<address>`, split at the first `/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
     element: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'Slice']} })
     slices: Optional[list[Slice]] = Field(default=None, description="""The first slice is the element read from.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
     engine: Optional[Any] = Field(default=None, description="""The engine's own words for the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
     calibration: Optional[Calibration] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     direction: Optional[str] = Field(default=None, description="""Computed from the channel's role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     unit: Optional[str] = Field(default=None, description="""Computed from the channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
-    default: Optional[Any] = Field(default=None, description="""Computed; the operating point from the deck.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
+    default: Optional[Any] = Field(default=None, description="""Computed; the operating point from the deck.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'TrajectoryStep']} })
     value_range: Optional[list[float]] = Field(default=None, description="""Computed from the channel's limits record.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
@@ -1567,6 +1697,7 @@ class Measurement(ConfiguredBaseModel):
     kinds: Optional[list[MeasurementKindEnum]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     groups: Optional[MeasurementGroups] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
     instruments: Optional[MeasurementInstruments] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    trajectory: Optional[TrajectoryDeclaration] = Field(default=None, description="""The trajectory surface of a model whose `kinds` list `trajectory`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_step: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_avg_meas: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     fit_order: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
@@ -1609,6 +1740,121 @@ class MeasurementInstruments(ConfiguredBaseModel):
     rf_status: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
 
 
+class TrajectoryDeclaration(ConfiguredBaseModel):
+    """
+    The trajectory measurement's surface: the sample of every turn-by-turn buffer the injected shot arrives at, the operator settings the measurement reads its monitors under, and the ordered chain of steps one shot runs.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    trigger_sample: int = Field(default=..., description="""The sample of each turn-by-turn buffer the injected shot arrives at.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryDeclaration']} })
+    settings: Optional[list[TrajectorySetting]] = Field(default=None, description="""The operator settings, in the order they are shown and applied.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'TrajectoryDeclaration'], 'list_elements_ordered': True} })
+    steps: list[TrajectoryStep] = Field(default=..., description="""The chain one shot runs, in order.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryDeclaration'], 'list_elements_ordered': True} })
+
+
+class TrajectorySetting(ConfiguredBaseModel):
+    """
+    One operator setting. Its readback is the setpoint channel's `pair`, and a move counts as settled within the setpoint channel's `tolerance`, or on an exact match when the channel states none.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    id: str = Field(default=..., description="""The setting's name, unique within the declaration.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
+    label: str = Field(default=..., description="""The words an operator sees for the setting.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
+    description: Optional[str] = Field(default=None, description="""What the setting does to the measurement.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+                       'FacilityClass',
+                       'Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
+                       'Scenario']} })
+    scope: TrajectorySettingScopeEnum = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectorySetting']} })
+    signal: Optional[str] = Field(default=None, description="""With scope `device`, the signal of the setpoint channel on each device of the group `groups.bpm` names.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'TrajectorySetting']} })
+    address: Optional[str] = Field(default=None, description="""With scope `global`, the address of the one setpoint channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
+    timeout_s: float = Field(default=..., description="""The longest wait, in seconds, for the readback to settle after a write.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectorySetting', 'TrajectoryCommand']} })
+
+
+class TrajectoryStep(ConfiguredBaseModel):
+    """
+    One step of the chain. A step with a `command` writes it; a step without one is run by the measurement service itself.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    id: str = Field(default=..., description="""The step's name, unique within the chain.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
+    label: str = Field(default=..., description="""The words an operator sees for the step.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep']} })
+    description: str = Field(default=..., description="""What the step does to the machine.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+                       'FacilityClass',
+                       'Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
+                       'Scenario']} })
+    default: bool = Field(default=..., description="""Whether the step is part of the chain a run takes when none is chosen.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'TrajectoryStep']} })
+    command: Optional[TrajectoryCommand] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryStep']} })
+
+
+class TrajectoryCommand(ConfiguredBaseModel):
+    """
+    The write a command step makes, and how long the step may take.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    address: str = Field(default=..., description="""The setpoint channel written.""", json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
+    value: Any = Field(default=..., description="""The value written, of the channel's value_type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryCommand', 'TrajectoryDone']} })
+    timeout_s: float = Field(default=..., description="""The longest the step may take, in seconds: the wait for `done` when it is stated; a step without `done` writes and continues.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectorySetting', 'TrajectoryCommand']} })
+    done: Optional[TrajectoryDone] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryCommand']} })
+
+
+class TrajectoryDone(ConfiguredBaseModel):
+    """
+    The reading a command step waits for before the chain continues.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    address: str = Field(default=..., description="""The channel read.""", json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
+    value: Any = Field(default=..., description="""The value that means the command is done.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TrajectoryCommand', 'TrajectoryDone']} })
+
+
 class Limits(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
@@ -1621,7 +1867,13 @@ class LimitRecord(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'Wiring',
+                       'TrajectorySetting',
+                       'TrajectoryCommand',
+                       'TrajectoryDone',
+                       'LimitRecord']} })
     min_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
@@ -1642,6 +1894,8 @@ class Scenario(ConfiguredBaseModel):
                        'Device',
                        'Channel',
                        'Group',
+                       'TrajectorySetting',
+                       'TrajectoryStep',
                        'Scenario']} })
     overrides: Optional[Any] = Field(default=None, description="""`{<address>: <value>}`, each value of the channel's value_type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     faults: Optional[Any] = Field(default=None, description="""`{<model>: {<address or engine variable>: <value>}}`, where a value is a scalar or a map `{<fault field>: <value>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
@@ -1728,6 +1982,11 @@ TableCurve.model_rebuild()
 Measurement.model_rebuild()
 MeasurementGroups.model_rebuild()
 MeasurementInstruments.model_rebuild()
+TrajectoryDeclaration.model_rebuild()
+TrajectorySetting.model_rebuild()
+TrajectoryStep.model_rebuild()
+TrajectoryCommand.model_rebuild()
+TrajectoryDone.model_rebuild()
 Limits.model_rebuild()
 LimitRecord.model_rebuild()
 Scenario.model_rebuild()

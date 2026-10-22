@@ -27,7 +27,12 @@ from osprey.services.trajectory import actions
 from osprey.services.trajectory.actions import ACTION_STOPPED, ActionLayer, ActionRefused
 from osprey.services.trajectory.admit import NARROWING, Admission, AdmitGate, AdmitRefused
 from osprey.services.trajectory.apply import APPLY, PUT_BACK, apply
-from osprey.services.trajectory.constants import CHECKPOINT_POLL_S, MAX_PAUSE_CEILING_S, budgets
+from osprey.services.trajectory.constants import (
+    CHECKPOINT_POLL_S,
+    DEFAULT_ACTION_TIMEOUT_S,
+    MAX_PAUSE_CEILING_S,
+    budgets,
+)
 from osprey.services.trajectory.sessions import (
     APPLY_IN_PROGRESS,
     BAD_REQUEST,
@@ -42,6 +47,7 @@ from osprey.services.trajectory.sessions import (
 )
 from osprey.services.trajectory.startup import (
     TrajectoryCommands,
+    TrajectoryDevice,
     TrajectorySettings,
     TrajectoryStartup,
 )
@@ -58,7 +64,21 @@ PANEL = "panel"
 AGENT = "agent"
 TARGET = "va"
 COMMANDS = TrajectoryCommands(
-    model="SR", arm=("SR:BPM:ARM",), injection_request="SR:INJ:REQ", injection_busy="SR:INJ:BUSY"
+    model="SR",
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm="SR:BPM:ARM",
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request="SR:INJ:REQ",
+    injection_busy="SR:INJ:BUSY",
+    trigger_sample=10,
 )
 
 
@@ -499,10 +519,12 @@ async def test_state_names_the_holder_and_never_the_client_id() -> None:
 def test_state_publishes_the_budgets_with_the_ceiling_pause_when_no_module_is_loaded() -> None:
     sessions, _ = _sessions()
     expected = budgets(
-        max_pause_s=MAX_PAUSE_CEILING_S, call_timeout_s=DEFAULT_TIMEOUT_S, action_timeout_s=60.0
+        max_pause_s=MAX_PAUSE_CEILING_S,
+        call_timeout_s=DEFAULT_TIMEOUT_S,
+        action_timeout_s=DEFAULT_ACTION_TIMEOUT_S,
     )
     state = sessions.state()
-    assert state["action_timeout_s"] == 60.0
+    assert state["action_timeout_s"] == DEFAULT_ACTION_TIMEOUT_S
     assert state["stop_budget_s"] == expected.stop_budget_s
     assert state["action_budget_s"] == expected.action_budget_s
     assert state["action"] is None
@@ -691,7 +713,7 @@ async def test_the_stop_budget_covers_a_checkpointed_pause_and_one_connector_cal
 # -- take-over during an apply -------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["apply", "put_back"])
+@pytest.mark.parametrize("name", ["apply", "put_back", "setup"])
 async def test_take_over_during_an_apply_is_apply_in_progress_and_changes_nothing(
     name: str,
 ) -> None:
@@ -829,8 +851,8 @@ async def test_a_panel_door_stop_ends_an_agent_door_apply_with_its_moved_list(
         name=APPLY,
         stopped=True,
         moved=[
-            Moved(name=applying.HCM1, before=1.0, outcome="confirmed"),
-            Moved(name=applying.HCM2, before=-2.0, outcome="confirmed"),
+            Moved(name=name, before=before, after=after, outcome="confirmed")
+            for (name, after), before in zip(machine.writes, (1.0, -2.0), strict=True)
         ],
     )
     assert machine.written() == [applying.HCM1, applying.HCM2]
@@ -872,7 +894,7 @@ async def test_a_real_putback_cannot_be_taken_over_and_its_stop_names_it(
         await sessions.layer.close()
     assert (caught.value.code, caught.value.status) == (APPLY_IN_PROGRESS, 409)
     assert record.action == PUT_BACK
-    assert result.moved == [Moved(name=applying.HCM1, before=1.0, outcome="confirmed")]
+    assert result.moved == [Moved(name=applying.HCM1, before=1.0, after=0.75, outcome="confirmed")]
     assert sessions.stopper == BOB
     holder = sessions.holder
     assert holder is not None and holder.client_id == client_id
@@ -885,7 +907,7 @@ async def test_stop_ends_a_continuous_run_as_stopped_and_keeps_the_holder() -> N
     sessions, _fake = looping._sessions()
     client = await looping._open(sessions)
     shots = looping._Shots(gated=True)
-    run = looping._start(sessions, client, shots, max_shots=10)
+    run = looping._start(sessions, client, shots)
     await looping._until(lambda: shots.started == [1])
     sessions.stop(BOB, AGENT)
     event = await looping._ended(run)
@@ -897,7 +919,7 @@ async def test_take_over_ends_a_continuous_run_as_taken_over_and_voids_its_step(
     sessions, _fake = looping._sessions()
     client = await looping._open(sessions)
     shots = looping._Shots(gated=True)
-    run = looping._start(sessions, client, shots, max_shots=10)
+    run = looping._start(sessions, client, shots)
     await looping._until(lambda: shots.started == [1])
     shots.permits.release()  # type: ignore[union-attr]
     await looping._until(lambda: shots.started == [1, 2])
@@ -912,7 +934,7 @@ async def test_release_ends_a_continuous_run_as_released_and_voids_its_step() ->
     sessions, _fake = looping._sessions()
     client = await looping._open(sessions)
     shots = looping._Shots(gated=True)
-    run = looping._start(sessions, client, shots, max_shots=10)
+    run = looping._start(sessions, client, shots)
     await looping._until(lambda: shots.started == [1])
     shots.permits.release()  # type: ignore[union-attr]
     await looping._until(lambda: shots.started == [1, 2])
@@ -927,9 +949,7 @@ async def test_a_heartbeat_only_moves_the_lease_deadline() -> None:
     sessions, _fake = looping._sessions()
     client = await looping._open(sessions)
     shots = looping._Shots(gated=True)
-    run = looping._start(
-        sessions, client, shots, max_shots=10, clock=clock, sleep=looping._tick, lease_s=10.0
-    )
+    run = looping._start(sessions, client, shots, clock=clock, sleep=looping._tick, lease_s=10.0)
     await looping._until(lambda: shots.started == [1])
     stop = sessions.layer.stop_event
     step = sessions.step.step

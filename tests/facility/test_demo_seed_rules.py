@@ -140,8 +140,8 @@ def test_every_setpoint_carries_a_tolerance() -> None:
         for channel in channels
         if channel.get("role") == "setpoint" and "pair" not in channel
     ]
-    assert len(setpoints) == 491
-    assert len(commands) == 73
+    assert len(setpoints) == 563
+    assert len(commands) == 74
     assert not [channel["id"] for channel in commands if "tolerance" in channel]
     assert sum(channel["id"].startswith("LINE:") for channel in setpoints) == 16
     for channel in setpoints:

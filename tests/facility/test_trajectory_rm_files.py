@@ -58,8 +58,6 @@ ROWS = {
     "LINE": ["LINE:BPM:TBT:X", "LINE:BPM:TBT:Y"],
 }
 COLUMNS = {"SR": ["SCOR:H:SP", "SCOR:V:SP"], "LINE": ["LCOR:H:SP", "LCOR:V:SP"]}
-#: Each model's one sum series, the sum reading of both its rows.
-SUMS = {"SR": "SR:BPM:TBT:SUM", "LINE": "LINE:BPM:TBT:SUM"}
 MODELS = ("SR", "LINE")
 
 #: The sidecar's lists of lattice indices.
@@ -195,7 +193,7 @@ def test_the_index_lengths_match_the_rows_and_the_columns(
     view: tuple[Path, list[Path]], name: str
 ) -> None:
     matrix, index = _files(view[0], name)
-    assert list(index) == ["bpm_index", "sum_names", "hcorr_index", "vcorr_index", "unsolved"]
+    assert list(index) == ["bpm_index", "hcorr_index", "vcorr_index", "unsolved"]
     assert index["unsolved"] == {}
     assert all(type(entry) is int for key in INDEX_LISTS for entry in index[key])
     assert len(index["bpm_index"]) == len(matrix["matrix"]) == len(matrix["observable_names"])
@@ -240,7 +238,6 @@ def test_the_matrix_is_the_engines_first_turn_response_at_the_stated_kick_step(
     horizontal, vertical = COLUMNS[name]
     assert index == {
         "bpm_index": [answer.index[row] for row in answer.rows],
-        "sum_names": [SUMS[name]] * 2,
         "hcorr_index": [answer.index[horizontal]],
         "vcorr_index": [answer.index[vertical]],
         "unsolved": {},
@@ -521,7 +518,6 @@ def test_an_unsolved_corrector_keeps_a_zero_column_and_is_named_in_the_sidecar(
     assert matrix["matrix"] == [[2.0, 0.0], [3.0, 0.0]]
     assert index == {
         "bpm_index": [6, 6],
-        "sum_names": [SUMS["LINE"]] * 2,
         "hcorr_index": [4],
         "vcorr_index": [4],
         "unsolved": {"LCOR:V:SP": lost},
@@ -647,7 +643,6 @@ def test_correctors_asked_out_of_lattice_order_are_written_in_it_per_plane(
     assert index["vcorr_index"] == [5, 7]
     assert matrix["observable_names"] == [X1, X2, Y1, Y2]
     assert index["bpm_index"] == [3, 8, 3, 8]
-    assert index["sum_names"] == [S1, S2, S1, S2]
 
 
 def test_an_unsolved_corrector_moves_with_its_index(
@@ -746,11 +741,11 @@ def test_a_row_whose_monitor_wires_no_sum_series_stops_the_build(
 
 
 @pytest.mark.parametrize("name", MODELS)
-def test_each_row_names_the_sum_series_of_its_monitor(
+def test_the_sidecar_names_no_sum_series_the_device_table_names_them(
     view: tuple[Path, list[Path]], name: str
 ) -> None:
-    matrix, index = _files(view[0], name)
-    assert index["sum_names"] == [SUMS[name]] * len(matrix["observable_names"])
+    _, index = _files(view[0], name)
+    assert "sum_names" not in index
 
 
 # --- the kick step ------------------------------------------------------------

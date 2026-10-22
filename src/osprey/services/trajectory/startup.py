@@ -34,9 +34,14 @@ In order:
 4. **The command set.** ``trajectory_slots`` of the build's
    ``facility_facts.json``: no model → the service starts with its writing
    actions unavailable; one model, or the one ``services.trajectory.model``
-   names → its ``arm``, ``armed`` and ``injection_request`` addresses, and
-   its ``tags``, each facility signal to its address on every BPM; several
-   and none named → refused, naming them.
+   names → its declaration: the device table (each BPM's x, y and sum rows,
+   arm command and armed flag), the injection request and busy flag, and the
+   trigger sample; several and none named → refused, naming them. The
+   selected model's ``trajectory_catalog`` — the devices its response matrix
+   covers, with their labels and places — is read beside it, each family put
+   in position order (:meth:`~.state.Catalog.in_position_order`); a model the build
+   wrote no catalog for leaves the service without one, and a catalog that
+   does not read as one is refused.
 5. **The raw-put block**, armed once per process with the executor's armed
    contract, so a client put no connector let through is refused here in the
    words it is refused everywhere else.
@@ -47,9 +52,7 @@ In order:
    run), else none; its sequence module is loaded and validated
    (:func:`~osprey.services.trajectory.sequence.load_sequence`). A directory
    holding no module leaves the service without one; a module that fails to
-   load or validate is refused. With a trajectory model, a module slot
-   tagging a signal absent from the model's ``tags`` is refused, naming the
-   slot and the signal; with none, the module is not checked against tags.
+   load or validate is refused.
 7. **One connector** for the target, built with ``fresh_reads`` on — every
    read asks the machine, so a shot never reads a buffer a cache kept — and
    connected. ``connect()`` latches nothing about reachability; that is asked
@@ -68,20 +71,23 @@ from typing import Any
 from osprey.services.trajectory.constants import (
     ACTION_TIMEOUT_KEY,
     ARMED_TIMEOUT_KEY,
-    CONTINUOUS_MAX_SHOTS_KEY,
+    CONTINUOUS_MIN_PERIOD_KEY,
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_ARMED_TIMEOUT_S,
-    DEFAULT_CONTINUOUS_MAX_SHOTS,
-    DEFAULT_LOSS_SUM_CUTOFF,
+    DEFAULT_CONTINUOUS_MIN_PERIOD_S,
+    DEFAULT_LOSS_CUTOFF_FRACTION,
+    DEFAULT_RAW_RETENTION,
     DEFAULT_RAW_WINDOW_TURNS,
-    DEFAULT_SHOT_SUM_THRESHOLD,
-    LOSS_SUM_CUTOFF_KEY,
+    DEFAULT_SHOT_THRESHOLD_FRACTION,
+    LOSS_CUTOFF_FRACTION_KEY,
+    RAW_RETENTION_KEY,
     RAW_WINDOW_TURNS_KEY,
     SEQUENCE_DIR_ENV_VAR,
     SEQUENCE_DIR_KEY,
     SERVICE_KEY,
-    SHOT_SUM_THRESHOLD_KEY,
+    SHOT_THRESHOLD_FRACTION_KEY,
 )
+from osprey.services.trajectory.state import Catalog
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +98,7 @@ __all__ = [
     "TARGET_KEY",
     "StartupRefused",
     "TrajectoryCommands",
+    "TrajectoryDevice",
     "TrajectorySettings",
     "TrajectoryStartup",
     "arm_raw_put_block",
@@ -99,7 +106,6 @@ __all__ = [
     "check_shared_dirs",
     "resolve_sequence_dir",
     "select_commands",
-    "select_tags",
     "service_settings",
     "start",
 ]
@@ -128,29 +134,50 @@ class StartupRefused(SystemExit):
 
 
 @dataclass(frozen=True)
+class TrajectoryDevice:
+    """One BPM of the declaration's device table.
+
+    Attributes:
+        name: The device's id.
+        x_row: Its horizontal turn series.
+        y_row: Its vertical turn series.
+        sum_row: Its sum turn series.
+        arm: Its arm command.
+        armed: Its armed flag: 1 once its arm took, 0 again once its buffer
+            filled. Watched, never written.
+    """
+
+    name: str
+    x_row: str
+    y_row: str
+    sum_row: str
+    arm: str
+    armed: str
+
+
+@dataclass(frozen=True)
 class TrajectoryCommands:
-    """The addresses one model's trajectory measurement commands and watches.
+    """One model's trajectory declaration, as the service commands and reads it.
 
     Attributes:
         model: The model's name.
-        arm: The arm command of each monitor, in the facts' order.
+        devices: Every BPM carrying turn-by-turn readings, in the facts' order.
         injection_request: The injection request command.
         injection_busy: The flag that reads while an injection is under way.
-        armed: The armed flag of each monitor, in the facts' order: 1 once
-            its arm took, 0 again once its buffer filled. Watched, never
-            written.
+        trigger_sample: The sample of every turn series the injected shot
+            arrives at.
     """
 
     model: str
-    arm: tuple[str, ...]
+    devices: tuple[TrajectoryDevice, ...]
     injection_request: str
     injection_busy: str
-    armed: tuple[str, ...] = ()
+    trigger_sample: int
 
     @property
     def commands(self) -> frozenset[str]:
-        """Every address the service may write: the arm commands and the request."""
-        return frozenset((*self.arm, self.injection_request))
+        """Every address the service may write: each device's arm command and the request."""
+        return frozenset((*(device.arm for device in self.devices), self.injection_request))
 
 
 @dataclass(frozen=True)
@@ -158,23 +185,31 @@ class TrajectorySettings:
     """The service's tunable keys, as read; units in :mod:`.constants`.
 
     Attributes:
-        loss_sum_cutoff: ``services.trajectory.loss_sum_cutoff``.
-        shot_sum_threshold: ``services.trajectory.shot_sum_threshold``.
+        loss_cutoff_fraction: ``services.trajectory.loss_cutoff_fraction``,
+            the SolveConfig's default ``loss_cutoff``.
+        shot_threshold_fraction: ``services.trajectory.shot_threshold_fraction``.
         armed_timeout_s: ``services.trajectory.armed_timeout_s``.
         raw_window_turns: ``services.trajectory.raw_window_turns``.
-        continuous_max_shots: ``services.trajectory.continuous_max_shots``.
         sequence_dir: ``services.trajectory.sequence_dir`` as written, or
             ``None``; :func:`resolve_sequence_dir` turns it into a directory.
         action_timeout_s: ``services.trajectory.action_timeout_s``.
+        raw_retention: ``services.trajectory.raw_retention``.
+        continuous_min_period_s: ``services.trajectory.continuous_min_period_s``.
     """
 
-    loss_sum_cutoff: float = DEFAULT_LOSS_SUM_CUTOFF
-    shot_sum_threshold: float = DEFAULT_SHOT_SUM_THRESHOLD
+    loss_cutoff_fraction: float = DEFAULT_LOSS_CUTOFF_FRACTION
+    shot_threshold_fraction: float = DEFAULT_SHOT_THRESHOLD_FRACTION
     armed_timeout_s: float = DEFAULT_ARMED_TIMEOUT_S
     raw_window_turns: int = DEFAULT_RAW_WINDOW_TURNS
-    continuous_max_shots: int = DEFAULT_CONTINUOUS_MAX_SHOTS
     sequence_dir: str | None = None
     action_timeout_s: float = DEFAULT_ACTION_TIMEOUT_S
+    raw_retention: int = DEFAULT_RAW_RETENTION
+    continuous_min_period_s: float = DEFAULT_CONTINUOUS_MIN_PERIOD_S
+
+    @property
+    def loss_sum_cutoff(self) -> float:
+        """The SolveConfig's default loss cutoff: :attr:`loss_cutoff_fraction`."""
+        return self.loss_cutoff_fraction
 
 
 @dataclass
@@ -188,9 +223,6 @@ class TrajectoryStartup:
             trajectory model and the writing actions are unavailable.
         guarded_run_dir: The target's guarded-run directory.
         settings: The service's tunable keys.
-        tag_addresses: Facility signal to its addresses, one per BPM in BPM
-            order, from the selected model's ``tags``; empty when the build
-            has no trajectory model.
         sequence_dir: The directory the sequence module is loaded from, or
             ``None`` when the deployment names none.
         sequence: The loaded sequence module, once its builder filled the
@@ -200,6 +232,8 @@ class TrajectoryStartup:
             the service has none
             (:class:`~osprey.services.trajectory.step.ToolUnavailable`); ``None``
             until its builder filled the slot.
+        catalog: The devices the selected model's response matrix covers, in
+            position order, or ``None`` when the build wrote no catalog for it.
     """
 
     target: str
@@ -207,10 +241,10 @@ class TrajectoryStartup:
     commands: TrajectoryCommands | None
     guarded_run_dir: Path
     settings: TrajectorySettings = field(default_factory=TrajectorySettings)
-    tag_addresses: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     sequence_dir: Path | None = None
     sequence: Any = None
     tool: Any = None
+    catalog: Catalog | None = None
 
     @property
     def writing_available(self) -> bool:
@@ -236,6 +270,14 @@ def _number(block: Mapping[str, Any], key: str, default: float, *, positive: boo
     return number
 
 
+def _fraction(block: Mapping[str, Any], key: str, default: float) -> float:
+    """``block[leaf of key]`` as a fraction in ``[0, 1]``; refused naming ``key`` otherwise."""
+    number = _number(block, key, default, positive=False)
+    if number > 1:
+        raise StartupRefused(f"{key} must be a fraction from 0 to 1, not {number!r}")
+    return number
+
+
 def _count(block: Mapping[str, Any], key: str, default: int) -> int:
     """``block[leaf of key]`` as a whole number above zero; refused naming ``key`` otherwise."""
     value = block.get(key.rsplit(".", 1)[1])
@@ -256,18 +298,21 @@ def _settings(block: Mapping[str, Any]) -> TrajectorySettings:
     if sequence_dir is not None and (not isinstance(sequence_dir, str) or not sequence_dir.strip()):
         raise StartupRefused(f"{SEQUENCE_DIR_KEY} must name a directory, not {sequence_dir!r}")
     return TrajectorySettings(
-        loss_sum_cutoff=_number(
-            block, LOSS_SUM_CUTOFF_KEY, DEFAULT_LOSS_SUM_CUTOFF, positive=False
+        loss_cutoff_fraction=_fraction(
+            block, LOSS_CUTOFF_FRACTION_KEY, DEFAULT_LOSS_CUTOFF_FRACTION
         ),
-        shot_sum_threshold=_number(
-            block, SHOT_SUM_THRESHOLD_KEY, DEFAULT_SHOT_SUM_THRESHOLD, positive=False
+        shot_threshold_fraction=_fraction(
+            block, SHOT_THRESHOLD_FRACTION_KEY, DEFAULT_SHOT_THRESHOLD_FRACTION
         ),
         armed_timeout_s=_number(block, ARMED_TIMEOUT_KEY, DEFAULT_ARMED_TIMEOUT_S, positive=True),
         raw_window_turns=_count(block, RAW_WINDOW_TURNS_KEY, DEFAULT_RAW_WINDOW_TURNS),
-        continuous_max_shots=_count(block, CONTINUOUS_MAX_SHOTS_KEY, DEFAULT_CONTINUOUS_MAX_SHOTS),
         sequence_dir=sequence_dir,
         action_timeout_s=_number(
             block, ACTION_TIMEOUT_KEY, DEFAULT_ACTION_TIMEOUT_S, positive=True
+        ),
+        raw_retention=_count(block, RAW_RETENTION_KEY, DEFAULT_RAW_RETENTION),
+        continuous_min_period_s=_number(
+            block, CONTINUOUS_MIN_PERIOD_KEY, DEFAULT_CONTINUOUS_MIN_PERIOD_S, positive=True
         ),
     )
 
@@ -420,43 +465,74 @@ def check_limits_file(section: Mapping[str, Any], target: str) -> None:
         )
 
 
-def _commands_of(model: str, slots: Any) -> TrajectoryCommands:
-    """The selected model's slots, refused when one the service needs is empty.
+#: A device row's addresses the service reads or writes, in the facts' key names.
+_DEVICE_SLOTS: tuple[str, ...] = ("x_row", "y_row", "sum_row", "arm", "armed")
 
-    ``arm`` and ``armed`` are lists of addresses, one per monitor and of equal
-    length; ``injection_request`` and the flag reachability reads,
-    ``injection_busy``, are one address each.
+
+def _devices_of(model: str, table: Any) -> tuple[TrajectoryDevice, ...]:
+    """The device table's BPMs that carry turn-by-turn readings.
+
+    A device stating none of :data:`_DEVICE_SLOTS` carries no turn-by-turn
+    readings and is left out; a device stating some but not all is refused.
+    """
+    if not isinstance(table, Mapping):
+        raise StartupRefused(f"model {model!r} states no trajectory device table")
+    devices: list[TrajectoryDevice] = []
+    for name, row in table.items():
+        row = _mapping(row)
+        stated = {slot: row.get(slot) for slot in _DEVICE_SLOTS}
+        if all(value is None for value in stated.values()):
+            continue
+        missing = [
+            slot for slot, value in stated.items() if not isinstance(value, str) or not value
+        ]
+        if missing:
+            raise StartupRefused(
+                f"model {model!r} device {name!r} states no address for "
+                f"{', '.join(missing)}; a BPM with turn-by-turn readings states "
+                f"{', '.join(_DEVICE_SLOTS)}"
+            )
+        addresses = {slot: str(value) for slot, value in stated.items()}
+        devices.append(TrajectoryDevice(name=str(name), **addresses))
+    if not devices:
+        raise StartupRefused(
+            f"model {model!r} states no device with turn-by-turn readings "
+            f"({', '.join(_DEVICE_SLOTS)})"
+        )
+    return tuple(devices)
+
+
+def _commands_of(model: str, slots: Any) -> TrajectoryCommands:
+    """The selected model's declaration, refused when something the service needs is missing.
+
+    ``devices`` is the device table; ``injection_request`` and the flag
+    reachability reads, ``injection_busy``, are one address each;
+    ``trigger_sample`` is a whole number of samples, zero or more.
     """
     slots = _mapping(slots)
-    lists: dict[str, list[str]] = {}
-    for slot in ("arm", "armed"):
-        value = slots.get(slot)
-        if (
-            not isinstance(value, list)
-            or not value
-            or not all(isinstance(a, str) and a for a in value)
-        ):
-            raise StartupRefused(
-                f"model {model!r} states no address for the trajectory slot {slot!r}"
-            )
-        lists[slot] = value
-    if len(lists["arm"]) != len(lists["armed"]):
-        raise StartupRefused(
-            f"model {model!r} states {len(lists['arm'])} 'arm' addresses but "
-            f"{len(lists['armed'])} 'armed' addresses; each monitor has one of each"
-        )
+    devices = _devices_of(model, slots.get("devices"))
     for slot in ("injection_request", "injection_busy"):
         value = slots.get(slot)
         if not isinstance(value, str) or not value:
             raise StartupRefused(
                 f"model {model!r} states no address for the trajectory slot {slot!r}"
             )
+    trigger_sample = slots.get("trigger_sample")
+    if (
+        isinstance(trigger_sample, bool)
+        or not isinstance(trigger_sample, int)
+        or trigger_sample < 0
+    ):
+        raise StartupRefused(
+            f"model {model!r} states the trigger sample as {trigger_sample!r}, not a whole "
+            "number of samples, zero or more"
+        )
     return TrajectoryCommands(
         model=model,
-        arm=tuple(lists["arm"]),
+        devices=devices,
         injection_request=slots["injection_request"],
         injection_busy=slots["injection_busy"],
-        armed=tuple(lists["armed"]),
+        trigger_sample=trigger_sample,
     )
 
 
@@ -494,42 +570,33 @@ def select_commands(facts: Mapping[str, Any], model: str | None) -> TrajectoryCo
     return _commands_of(names[0], by_model[names[0]])
 
 
-def select_tags(
-    facts: Mapping[str, Any], commands: TrajectoryCommands | None
-) -> dict[str, tuple[str, ...]]:
-    """The selected model's ``tags``: each facility signal to its addresses, one per BPM.
+def select_catalog(facts: Mapping[str, Any], model: str | None) -> Catalog | None:
+    """The device catalog the build wrote for *model*, each family in position order.
 
     Args:
         facts: The build's ``facility_facts.json``.
-        commands: The command set :func:`select_commands` selected, or ``None``.
+        model: The selected model's name, or ``None`` when none is selected.
 
     Returns:
-        Signal to addresses in BPM order; empty when there is no command set or
-        the model states no ``tags``.
+        The catalog, or ``None`` when no model is selected or the build wrote
+        none for it.
 
     Raises:
-        StartupRefused: The model's ``tags`` is not a mapping of signal to a
-            list of addresses.
+        StartupRefused: The model's catalog does not read as one.
     """
-    if commands is None:
-        return {}
-    model = commands.model
-    tags = _mapping(_mapping(facts.get("trajectory_slots")).get(model)).get("tags")
-    if tags is None:
-        return {}
-    if not isinstance(tags, Mapping):
+    from pydantic import ValidationError
+
+    if model is None:
+        return None
+    raw = _mapping(facts.get("trajectory_catalog")).get(model)
+    if raw is None:
+        return None
+    try:
+        return Catalog.in_position_order(raw)
+    except ValidationError as exc:
         raise StartupRefused(
-            f"model {model!r} states 'tags' as {tags!r}, not a mapping of signal to addresses"
-        )
-    selected: dict[str, tuple[str, ...]] = {}
-    for signal, addresses in tags.items():
-        if not isinstance(addresses, list) or not all(isinstance(a, str) and a for a in addresses):
-            raise StartupRefused(
-                f"model {model!r} states 'tags' signal {signal!r} as {addresses!r}, "
-                "not a list of addresses"
-            )
-        selected[str(signal)] = tuple(addresses)
-    return selected
+            f"the build's trajectory catalog of model {model!r} does not read as one: {exc}"
+        ) from exc
 
 
 _RAW_PUT_ARMED = False
@@ -593,13 +660,13 @@ async def start() -> TrajectoryStartup:
 
     Returns:
         The started service's target, connector, command set, lock directory,
-        tunable keys, tag map, sequence module directory, sequence module and
+        tunable keys, sequence module directory, sequence module and
         correction tool (or why there is none).
 
     Raises:
         StartupRefused: Any check in the module's list fails.
     """
-    from osprey.services.trajectory.sequence import check_tags, load_sequence
+    from osprey.services.trajectory.sequence import load_sequence
     from osprey.services.trajectory.step import build_service_tool
     from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
@@ -610,15 +677,13 @@ async def start() -> TrajectoryStartup:
     check_limits_file(section, target)
     facts = _facts(config)
     commands = select_commands(facts, model)
-    tag_addresses = select_tags(facts, commands)
+    catalog = select_catalog(facts, commands.model if commands else None)
     if commands is None:
         logger.warning(
             "trajectory service: the build has no trajectory model; writing actions are unavailable"
         )
     sequence_dir = resolve_sequence_dir(settings, resolve_project_root(config))
-    sequence = load_sequence(sequence_dir, commands)
-    if commands is not None and sequence is not None:
-        check_tags(sequence, tag_addresses)
+    sequence = load_sequence(sequence_dir)
     arm_raw_put_block()
     connector = await _connect(section, target)
     logger.info(
@@ -632,8 +697,8 @@ async def start() -> TrajectoryStartup:
         commands=commands,
         guarded_run_dir=directory,
         settings=settings,
-        tag_addresses=tag_addresses,
         sequence_dir=sequence_dir,
         sequence=sequence,
         tool=build_service_tool(config, commands.model if commands else None),
+        catalog=catalog,
     )

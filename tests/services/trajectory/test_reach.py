@@ -18,12 +18,30 @@ from osprey.services.trajectory.reach import (
     TRAJECTORY_UNAVAILABLE,
     probe,
 )
-from osprey.services.trajectory.startup import TrajectoryCommands, TrajectoryStartup
+from osprey.services.trajectory.startup import (
+    TrajectoryCommands,
+    TrajectoryDevice,
+    TrajectoryStartup,
+)
 from osprey_connectors.errors import ChannelReadFailedError
 
 BUSY = "SR:INJ:BUSY"
 COMMANDS = TrajectoryCommands(
-    model="SR", arm=("SR:BPM:ARM",), injection_request="SR:INJ:REQ", injection_busy=BUSY
+    model="SR",
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm="SR:BPM:ARM",
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request="SR:INJ:REQ",
+    injection_busy=BUSY,
+    trigger_sample=10,
 )
 
 

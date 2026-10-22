@@ -486,3 +486,64 @@ class TestSupplyCalibration:
 
         held = simulator.element("QF01").PolynomB[1]
         assert held == pytest.approx(gain * 300.0 + offset, rel=1e-12)
+
+
+class TestBunchAndLaunchFaults:
+    """The model-wide faults a scenario launches and shapes a shot with."""
+
+    LAUNCH = ("launch_x", "launch_px", "launch_y", "launch_py", "launch_delta", "launch_ct")
+    SHAPE = ("bunch_emittance_x", "bunch_emittance_y", "bunch_sigma_delta", "bunch_sigma_z")
+    JITTER = ("centroid_jitter_x", "centroid_jitter_y")
+
+    def test_the_launch_keys_are_one_per_coordinate_in_pyat_order(self):
+        assert pyat_faults.LAUNCH_FAULTS == self.LAUNCH
+        assert pyat_faults.LAUNCH_COORDINATES == ("x", "px", "y", "py", "delta", "ct")
+        assert pyat_faults.launch_coordinate("delta") == "launch_delta"
+
+    def test_the_bunch_keys_are_the_contract(self):
+        assert pyat_faults.BUNCH_SHAPE_FAULTS == self.SHAPE
+        assert pyat_faults.CENTROID_JITTER_FAULTS == self.JITTER
+        assert pyat_faults.STORED_CHARGE == "stored_charge"
+        assert pyat_faults.BUNCH_CHARGE == "bunch_charge"
+        assert pyat_faults.BUNCH_PARTICLES == "bunch_particles"
+
+    def test_every_new_key_is_a_model_wide_fault_declared_by_every_model(self):
+        names = {
+            *self.LAUNCH,
+            *self.SHAPE,
+            *self.JITTER,
+            "stored_charge",
+            "bunch_charge",
+            "bunch_particles",
+        }
+        slots = pyat_faults.MODEL_WIDE_FAULTS
+        assert names <= set(slots)
+        assert names <= set(pyat_faults.fault_variables([]))
+        for name in names:
+            assert slots[name].address is None
+            assert slots[name].field == name
+            assert slots[name].element is None
+        assert list(slots) == sorted(slots)
+
+    def test_a_launch_coordinate_takes_any_finite_value_its_identity_zero(self):
+        for name in self.LAUNCH:
+            low, high = pyat_faults.MODEL_WIDE_FAULTS[name].value_range
+            assert (low, high) == (-math.inf, math.inf)
+
+    def test_shape_jitter_and_charges_are_never_negative(self):
+        for name in (*self.SHAPE, *self.JITTER, "stored_charge", "bunch_charge"):
+            assert pyat_faults.MODEL_WIDE_FAULTS[name].value_range == (0.0, math.inf)
+
+    def test_bunch_particles_is_a_whole_count_of_one_or_more(self):
+        low, high = pyat_faults.MODEL_WIDE_FAULTS["bunch_particles"].value_range
+        assert low == 1.0
+        assert high == pyat_faults.MAX_BUNCH_PARTICLES == float(2**53)
+        assert "bunch_particles" in pyat_faults.WHOLE_FAULTS
+        assert "misalignment_seed" in pyat_faults.WHOLE_FAULTS
+
+    def test_the_bunch_key_is_the_model_key_the_subkey_and_the_shot(self):
+        from osprey_connectors.simulation.series import channel_key_bytes
+
+        assert pyat_faults.bunch_key("SR", 7) == channel_key_bytes("SR") + b":bunch7"
+        assert pyat_faults.bunch_key("SR", 7) != pyat_faults.bunch_key("SR", 8)
+        assert pyat_faults.bunch_key("SR", 7) != pyat_faults.bunch_key("BR", 7)

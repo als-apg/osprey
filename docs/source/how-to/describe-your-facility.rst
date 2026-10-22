@@ -455,6 +455,13 @@ what they use:
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
      injection_request: SR:DIAG:INJECTION:REQUEST
      injection_busy: SR:DIAG:INJECTION:BUSY
+     rf_status: SR:RF:ON:SP
+     beam_current: SR:DIAG:STORED_BEAM:CURRENT:RB
+     bunch_clean_enable: SR:DIAG:CLEANING:REQUEST
+   trajectory:
+     trigger_sample: 10
+     settings: [...]
+     steps: [...]
    n_step: 5
    n_avg_meas: 1
    fit_order: 2
@@ -521,6 +528,67 @@ group carries a turn-by-turn ``x``, ``y`` and ``sum`` record, an arm command
 and an armed reading, under the signals named in
 :ref:`architecture-facility-schema`, and no other device of the model carries
 a turn-by-turn record.
+
+The ``trajectory`` block
+------------------------
+
+A model that allows ``trajectory`` declares its trajectory surface once, in
+the measurement file's ``trajectory`` block. The trajectory service, its
+panel and the virtual accelerator read it and nothing else:
+
+.. code-block:: yaml
+
+   trajectory:
+     trigger_sample: 10
+     settings:
+     - id: bpm_mode
+       label: BPM mode
+       description: Operating mode of each BPM's electronics.
+       scope: device
+       signal: bpm_mode_setpoint
+       timeout_s: 5.0
+     - id: turns_tracked
+       label: Turns tracked
+       description: Turns after the trigger sample every BPM records beam on.
+       scope: global
+       address: SR:DIAG:TBT:TURNS:SP
+       timeout_s: 5.0
+     steps:
+     - {id: arm, label: Arm, description: Arms every BPM., default: true}
+     - {id: inject, label: Inject, description: Fires one shot., default: true}
+     - id: clean
+       label: Bunch cleaning
+       description: Clears the charge the shot left stored.
+       default: true
+       command: {address: SR:DIAG:CLEANING:REQUEST, value: 1, timeout_s: 5.0}
+     - {id: readout, label: Readout, description: Reads the buffers., default: true}
+
+``trigger_sample``
+   The sample of every turn-by-turn buffer the injected shot arrives at.
+   Required.
+
+``settings``
+   The operator settings, in the order they are shown and applied. Each has
+   an ``id``, a ``label``, an optional ``description``, a ``scope`` and a
+   ``timeout_s`` to settle in. A ``device`` setting names the ``signal`` of
+   its setpoint channel on each device of ``groups.bpm``; a ``global`` one
+   names its one ``address``. The readback, the settle tolerance and the
+   values a setting takes are its setpoint channel's ``pair``, ``tolerance``
+   and domain. A setting with id ``turns_tracked`` is the turns every BPM
+   records.
+
+``steps``
+   The chain one shot runs, in order. ``arm``, ``inject`` and ``readout`` are
+   run by the service and take no ``command``; every other step writes its
+   ``command`` --- an ``address``, a ``value`` and a ``timeout_s``, with an
+   optional ``done`` reading to wait for. ``default`` marks the steps a run
+   takes when none are chosen, which is the chain the agent runs. A chain
+   without ``arm``, ``inject`` and ``readout`` stops the service at start.
+
+The devices are not listed: they are the members of ``groups.bpm``, each
+read through the turn-by-turn, arm and armed signals it carries. The RF-on
+and stored-current readings are the ``rf_status`` and ``beam_current``
+instruments.
 
 A group plays one role; only ``hcor`` and ``vcor`` may name the same group. A
 role naming several groups is one pyAML array named after the role. The tools

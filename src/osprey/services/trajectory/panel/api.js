@@ -19,9 +19,13 @@
  *  - `busy` — an action was asked while another action POST is in flight; no
  *    request was sent.
  *
- * At most one action POST (shot, apply, put back, setup, continuous start) is
- * in flight. Stop and the continuous heartbeat are never held back, nor are
- * session, reference and read calls.
+ * At most one action POST (shot, apply, put back, setup, solve, continuous
+ * start) is in flight. Stop and the continuous heartbeat are never held back,
+ * nor are session, reference and read calls.
+ *
+ * Each body carries only the keys its caller passed: a button sends its own
+ * keys and nothing else, and an absent key leaves the service's value as it
+ * is. The raw route answers bytes, decoded by {@link decodeRaw}.
  *
  * `fetch` and the session's client id are injected so tests drive a fake.
  *
@@ -78,10 +82,56 @@ const PUT_BACK_AFTER = Object.freeze(['apply', 'setup']);
  */
 
 /**
+ * A chain run on the panel door, also the body a continuous run starts with.
+ * @typedef {object} ChainBody
+ * @property {string[]} steps  The ticked step ids; the service runs them in chain order.
+ * @property {'tbt' | 'pseudo_orbit'} [readout]
+ * @property {number} [n_turns]  The turns a pseudo-orbit readout averages over.
+ * @property {number} [n_shots]
+ * @property {'mean' | 'nanmean'} [average]
+ */
+
+/**
+ * A setup: a partial update, every absent key left as it is.
+ * @typedef {object} SetupBody
+ * @property {Record<string, number | string | boolean>} [settings]  Value per declared setting id.
+ * @property {string[]} [excluded_bpms]
+ */
+
+/**
+ * A SolveConfig update; an empty one recomputes.
+ * @typedef {object} SolveConfigPartial
+ * @property {number} [alpha]
+ * @property {number} [keep_live]
+ * @property {number} [gain]
+ * @property {string[]} [excluded_bpms]
+ * @property {string[]} [excluded_cms]
+ * @property {number} [loss_cutoff]
+ */
+
+/**
+ * A reference file's content: the import body and the readings route's answer.
+ * @typedef {object} ReferenceImport
+ * @property {string} name
+ * @property {Record<string, {x: number | null, y: number | null}>} readings
+ * @property {'tbt' | 'pseudo_orbit'} readout
+ * @property {boolean} [select]
+ * @property {string | null} [source_target]
+ * @property {string | null} [source_model]
+ */
+
+/**
+ * @typedef {import('./figures.js').RawData} RawData
+ */
+
+/**
  * @typedef {object} ApiOptions
  * @property {() => string | null} [getClientId]
  *   The session's client id, or null while the panel holds no session.
  * @property {FetchLike} [fetchImpl]  Defaults to the global `fetch`.
+ * @property {(refusal: RefusedResult) => void} [onRefused]
+ *   Sees every refusal, whichever caller made the call: the session drops
+ *   its id on a lost-session code here.
  */
 
 /**
@@ -91,6 +141,8 @@ const PUT_BACK_AFTER = Object.freeze(['apply', 'setup']);
  * @property {object} [body]  Sent as JSON; omitted when absent.
  * @property {boolean} [client]  Send {@link CLIENT_HEADER}.
  * @property {boolean} [action]  Subject to the one-action-in-flight rule.
+ * @property {(response: Response) => Promise<unknown>} [read]
+ *   Reads a 2xx answer's body; JSON when absent.
  */
 
 /**
@@ -171,22 +223,48 @@ function pending(status) {
 }
 
 /**
+ * Decode a raw buffer as the raw route serves it: a little-endian uint32
+ * header length, the JSON header, then float32 samples from a 4-byte boundary.
+ * @param {ArrayBuffer} buffer
+ * @returns {RawData}
+ */
+export function decodeRaw(buffer) {
+  const length = new DataView(buffer).getUint32(0, true);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, length)));
+  return { header, samples: new Float32Array(buffer, 4 + length) };
+}
+
+/**
+ * A copy of *body* without its undefined keys, so only what a caller passed is sent.
+ * @param {object} body
+ * @returns {Record<string, unknown>}
+ */
+function only(body) {
+  return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
+}
+
+/** @param {Response} response */
+async function readRaw(response) {
+  return decodeRaw(await response.arrayBuffer());
+}
+
+/**
  * Build the panel's API client.
  * @param {ApiOptions} [options]
  */
-export function createApi({ getClientId = () => null, fetchImpl } = {}) {
+export function createApi({ getClientId = () => null, fetchImpl, onRefused } = {}) {
   let actionInFlight = false;
 
   /**
    * @param {RequestSpec} spec
    * @returns {Promise<Result>}
    */
-  async function send({ method, route, body, client = false, action = false }) {
+  async function send({ method, route, body, client = false, action = false, read }) {
     if (action && actionInFlight) {
       return { kind: 'busy', message: 'another action is still running' };
     }
     /** @type {Record<string, string>} */
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: read ? '*/*' : 'application/json' };
     if (client) {
       const id = getClientId();
       if (id) {
@@ -214,20 +292,28 @@ export function createApi({ getClientId = () => null, fetchImpl } = {}) {
       /** @type {unknown} */
       let parsed;
       try {
-        parsed = await response.json();
+        parsed = response.ok && read ? await read(response) : await response.json();
       } catch {
         return pending(response.status);
       }
       if (response.ok) {
         return { kind: 'ok', status: response.status, body: parsed };
       }
-      return parseRefusal(parsed, response.status) ?? pending(response.status);
+      const refusal = parseRefusal(parsed, response.status);
+      if (refusal == null) {
+        return pending(response.status);
+      }
+      onRefused?.(refusal);
+      return refusal;
     } finally {
       if (action) {
         actionInFlight = false;
       }
     }
   }
+
+  /** @param {string} name */
+  const ref = (name) => `references/${encodeURIComponent(name)}`;
 
   return {
     /** Whether an action POST is in flight. */
@@ -241,11 +327,8 @@ export function createApi({ getClientId = () => null, fetchImpl } = {}) {
     state: () => send({ method: 'GET', route: 'state' }),
     stop: () => send({ method: 'POST', route: 'stop' }),
 
-    /**
-     * @param {{n_shots: number, average: string}} args
-     */
-    shot: ({ n_shots, average }) =>
-      send({ method: 'POST', route: 'shot', body: { n_shots, average }, client: true, action: true }),
+    /** @param {ChainBody} body  The ticked chain, run once per injection. */
+    shot: (body) => send({ method: 'POST', route: 'shot', body: only(body), client: true, action: true }),
     step: () => send({ method: 'GET', route: 'step' }),
 
     /** @param {string} stepDigest */
@@ -262,28 +345,18 @@ export function createApi({ getClientId = () => null, fetchImpl } = {}) {
     putBack: (body) =>
       send({ method: 'POST', route: 'apply', body, client: true, action: true }),
 
-    /** @param {boolean} bunchClean */
-    setup: (bunchClean) =>
-      send({
-        method: 'POST',
-        route: 'setup',
-        body: { bunch_clean: bunchClean },
-        client: true,
-        action: true,
-      }),
+    /** @param {SetupBody} body */
+    setup: (body) => send({ method: 'POST', route: 'setup', body: only(body), client: true, action: true }),
+    /** The typed `SetupReadbacks`. */
+    setupReadbacks: () => send({ method: 'GET', route: 'setup' }),
 
-    /**
-     * @param {{n_shots: number, average: string, max_shots: number | null}} args
-     *   A null `max_shots` sets no shot cap.
-     */
-    continuous: ({ n_shots, average, max_shots }) =>
-      send({
-        method: 'POST',
-        route: 'continuous',
-        body: { n_shots, average, max_shots },
-        client: true,
-        action: true,
-      }),
+    /** @param {SolveConfigPartial} [partial]  Empty recomputes. */
+    solve: (partial = {}) =>
+      send({ method: 'POST', route: 'solve', body: only(partial), client: true, action: true }),
+
+    /** @param {ChainBody} body  The chain each iteration runs. */
+    continuous: (body) =>
+      send({ method: 'POST', route: 'continuous', body: only(body), client: true, action: true }),
     heartbeat: () => send({ method: 'POST', route: 'continuous/heartbeat', client: true }),
 
     references: () => send({ method: 'GET', route: 'references' }),
@@ -293,21 +366,30 @@ export function createApi({ getClientId = () => null, fetchImpl } = {}) {
      * @param {string} [shotId]  When omitted, the step's shot, else the newest.
      */
     saveReference: (name, shotId) =>
-      send({
-        method: 'POST',
-        route: 'references',
-        body: shotId === undefined ? { name } : { name, shot_id: shotId },
-      }),
+      send({ method: 'POST', route: 'references', body: only({ name, shot_id: shotId }) }),
 
     /** @param {string} name */
-    loadReference: (name) =>
-      send({ method: 'GET', route: `references/${encodeURIComponent(name)}` }),
+    loadReference: (name) => send({ method: 'GET', route: ref(name) }),
+
+    /** @param {string} name  Answers exactly the import body. */
+    referenceReadings: (name) => send({ method: 'GET', route: `${ref(name)}/readings` }),
+
+    /** @param {ReferenceImport} body  Selecting it needs the holder. */
+    importReference: (body) =>
+      send({ method: 'POST', route: 'references/import', body: only(body), client: true }),
 
     /** @param {string | null} name  Null selects no reference. */
     selectReference: (name) =>
       send({ method: 'POST', route: 'references/select', body: { name }, client: true }),
 
     shots: () => send({ method: 'GET', route: 'shots' }),
+
+    /**
+     * A shot's raw buffer, decoded; a derived shot answers its root's.
+     * @param {string} shotId
+     */
+    shotRaw: (shotId) =>
+      send({ method: 'GET', route: `shots/${encodeURIComponent(shotId)}/raw`, read: readRaw }),
   };
 }
 

@@ -12,17 +12,19 @@ reach it through the web terminal's panel proxy, both name the person acting
 the same way, and both put every writing action through the same admission
 check and the same guarded-run lock as every other write path on that target.
 
-Its writing actions are the first-turn threading loop --- a shot, the
-apply of the step computed from it, a put-back of earlier values --- with a
-setup, a continuous run of shots, a reference's save and selection, a Stop,
-and a session's open, take-over and release. A session says who drives the
-target; the service fires nothing physical outside one. The exact routes,
-bodies and refusal codes are in :ref:`reference-trajectory-service`; how the
-loop is driven is in :doc:`/how-to/thread-the-first-turn`; the model the
-service drives is in :ref:`reference-trajectory-model`.
-
 .. raw:: html
    :file: ../_diagrams/trajectory-service.html
+
+Its writing actions are the first-turn threading loop --- a chain of arm,
+inject, declared command steps and readout, the apply of the step computed
+from its shot, a put-back of earlier values --- with a setup, a SolveConfig
+update, a continuous run of chains, a reference's save, import and selection,
+a Stop, and a session's open, take-over and release. A session says who
+drives the target; the service fires nothing physical outside one. The exact
+routes, bodies and refusal codes are in :ref:`reference-trajectory-service`;
+how the loop is driven is in :doc:`/how-to/thread-the-first-turn`; the model
+the service drives is in :ref:`reference-trajectory-model`.
+
 
 One app, two doors
 ==================
@@ -38,8 +40,10 @@ service uses. It serves:
 
 Both doors serve the loop itself: open a session, take one over, release
 it, read the state, Stop, take a shot, read the pending step, and apply it or
-put values back. The panel door alone serves the rest: setup, the continuous
-run and its heartbeat, the references, the shot listing and the state stream.
+put values back. The agent door runs only the declared default chain; the
+panel door runs any ticked part of it. The panel door alone serves the rest:
+setup, the SolveConfig, the continuous run and its heartbeat, the references,
+the shots and their raw buffers, and the state stream.
 The door a request came through is its route, never something the request
 says, and an action records which door it took as its ``kind``, ``panel`` or
 ``agent``.
@@ -71,6 +75,26 @@ action's own timeout, the time a Stop of it may take and the wait behind the
 actions already queued, all read from the service's state. The operator has Stop, which the service answers at once on
 either door. The panel's page and its static files keep the proxy's ordinary
 bounds.
+
+One declaration, one state
+==========================
+
+What the service drives is declared once, in the selected model's
+measurement file: its ``trajectory`` block names the BPM devices, the
+operator settings and the chain's steps (see
+:doc:`/how-to/describe-your-facility`). The service, its panel and the
+virtual accelerator read that declaration and nothing else; the facility's
+sequence module only fires the injection
+(:ref:`reference-trajectory-sequence`).
+
+Everything the service decides is one state per target and model: the
+session, the current setup, the SolveConfig and its published solve, the
+pending step, the shots and the references. Both doors read the same state,
+the snapshot; neither keeps its own. A take-over hands the whole of it to the
+new holder, and the setup, the SolveConfig and the shots survive a restart.
+An action that finds the machine moved under the state --- a setup readback
+diverged, a corrector written from outside --- voids what depended on it
+rather than acting on it.
 
 Whose action it is
 ==================
@@ -128,12 +152,13 @@ the first check that refuses decides:
    and the lock refuses theirs while the action runs.
 
 Inside the action, the service writes two kinds of channel. A **command**
---- a BPM's arm, the injection request --- acts and holds no setting. It goes
+--- a BPM's arm, the injection request, a declared command step such as
+cleaning --- acts and holds no setting. It goes
 out with no confirmation read-back, checked against the limits validator in
 the validator's own mode: under ``optional`` a command with no limits record
 is written with no limits, under ``exclusive`` it is refused, and a record's
 bounds always apply. A **setting** --- a corrector an apply or a put-back
-writes, a slot the facility's sequence module declares --- is written through
+writes, an operator setting a setup writes --- is written through
 the connector's checked path, held to its limits record and confirmed as that
 record asks. An apply is refused whole, before its first write, when any
 value it would write breaks the validator.

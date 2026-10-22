@@ -86,8 +86,8 @@ def write_facility_file(
 def write_demo_facility_file(render: Path | str) -> Path:
     """Write the facility file of the tree the control-assistant preset ships.
 
-    3700 channels: 595 setpoints (522 paired with a readback, 73 write-only
-    commands) and 3105 readbacks.
+    4138 channels: 814 setpoints (740 paired with a readback, 74 write-only
+    commands) and 3324 readbacks.
 
     Args:
         render: The render root, the directory holding ``config.yml``.

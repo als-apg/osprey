@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from osprey.services.trajectory.extraction import (
-    PRE_WINDOW_SAMPLES,
     ExtractionFailure,
     ShotExtraction,
     average_shots,
@@ -21,6 +20,8 @@ I0 = 10
 CUTOFF = 0.5
 THRESHOLD = 0.5
 WINDOW_TURNS = 20
+#: The declared sample every turn series' shot arrives at: what the window keeps before i0.
+TRIGGER_SAMPLE = 4
 
 
 def _shot(lost_at: int | None, *, i0: int = I0, garbage: bool = True, seed: int = 0):
@@ -46,9 +47,10 @@ def _shot(lost_at: int | None, *, i0: int = I0, garbage: bool = True, seed: int 
 
 def _extract(x, y, total, **overrides):
     kwargs = {
-        "loss_sum_cutoff": CUTOFF,
-        "shot_sum_threshold": THRESHOLD,
+        "loss_cutoff": CUTOFF,
+        "shot_threshold": THRESHOLD,
         "raw_window_turns": WINDOW_TURNS,
+        "trigger_sample": TRIGGER_SAMPLE,
     }
     kwargs.update(overrides)
     return extract_shot(x, y, total, **kwargs)
@@ -64,7 +66,7 @@ def test_a_full_turn_has_no_loss_and_reads_sample_i0():
     assert result.lost_at is None
     assert result.last_bpm == N_BPM - 1
     assert result.i0 == I0
-    assert result.window == (I0 - PRE_WINDOW_SAMPLES, I0 + WINDOW_TURNS)
+    assert result.window == (I0 - TRIGGER_SAMPLE, I0 + WINDOW_TURNS)
     np.testing.assert_array_equal(result.x, x[:, I0])
     np.testing.assert_array_equal(result.y, y[:, I0])
     np.testing.assert_array_equal(result.sum, total[:, I0])
@@ -143,23 +145,67 @@ def test_a_shot_whose_first_bpm_does_not_rise_fails():
     assert "no BPM rose" in result.reason
 
 
-def test_a_first_turn_sum_below_the_threshold_fails_with_its_level():
+def test_a_first_turn_level_below_the_threshold_fails_with_its_level():
     x, y, total = _shot(None)
-    total[:, :] = 0.0
-    total[:, I0:] = 0.3  # rises by 0.3 > cutoff 0.2, but below threshold 0.5
-    result = _extract(x, y, total, loss_sum_cutoff=0.2)
+    total[0, :] = 0.0
+    total[0, I0:] = 0.3  # rises by 0.3 of the scale > cutoff 0.2, but below threshold 0.5
+    result = _extract(x, y, total, loss_cutoff=0.2)
     assert isinstance(result, ExtractionFailure)
     assert result.sum_level == pytest.approx(0.3)
-    assert "shot_sum_threshold" in result.reason
+    assert "shot_threshold_fraction" in result.reason
     assert "0.3" in result.reason
 
 
 def test_the_threshold_reads_the_first_bpm_only():
     x, y, total = _shot(None)
     total[1:, I0:] = 0.6  # downstream lower; still rises and still above the cutoff
-    total[0, I0:] = 2.0
-    result = _extract(x, y, total, loss_sum_cutoff=0.5, shot_sum_threshold=1.5)
+    total[0, I0:] = 1.0
+    result = _extract(x, y, total, loss_cutoff=0.5, shot_threshold=0.9)
     assert isinstance(result, ShotExtraction)
+    assert result.lost_at is None
+
+
+# --- relative to the injected-charge scale ---------------------------------------------
+
+
+@pytest.mark.parametrize("gain", [1e-3, 1.0, 1e4])
+def test_the_fractions_mean_the_same_in_any_sum_unit(gain: float):
+    x, y, total = _shot(None)
+    total[25:, I0:] = 0.4  # below the cutoff fraction 0.5 of the scale: lost at 25
+    result = _extract(x, y, total * gain)
+    assert isinstance(result, ShotExtraction)
+    assert result.lost_at == 25
+    assert result.i0 == I0
+
+
+def test_a_stored_beam_baseline_moves_no_level():
+    x, y, total = _shot(None)
+    total[30:, I0:] = 0.3
+    stored = total + 5.0  # stored beam: every BPM reads 5 before the injection arrives
+    plain, offset = _extract(x, y, total), _extract(x, y, stored)
+    assert isinstance(plain, ShotExtraction) and isinstance(offset, ShotExtraction)
+    assert offset.lost_at == plain.lost_at == 30
+    assert offset.i0 == plain.i0
+
+
+def test_the_threshold_reads_the_first_bpm_above_its_own_baseline():
+    x, y, total = _shot(None)
+    total[0, :] = 10.0  # a large stored baseline at the first BPM
+    total[0, I0:] = 10.3  # the injection adds 0.3 of the scale there
+    result = _extract(x, y, total, loss_cutoff=0.2)
+    assert isinstance(result, ExtractionFailure)
+    assert result.sum_level == pytest.approx(0.3)
+
+
+def test_the_largest_rise_sets_the_scale():
+    x, y, total = _shot(None)
+    total[5, I0:] = 4.0  # one BPM reads four times the rest: the rest are 0.25 of the scale
+    below = _extract(x, y, total)
+    assert isinstance(below, ExtractionFailure)
+    assert "no BPM rose" in below.reason
+    kept = _extract(x, y, total, loss_cutoff=0.2, shot_threshold=0.2)
+    assert isinstance(kept, ShotExtraction)
+    assert kept.lost_at is None
 
 
 @pytest.mark.parametrize(
@@ -180,6 +226,20 @@ def test_negative_window_turns_are_refused():
     x, y, total = _shot(None)
     with pytest.raises(ValueError):
         _extract(x, y, total, raw_window_turns=-1)
+
+
+def test_a_negative_trigger_sample_is_refused():
+    x, y, total = _shot(None)
+    with pytest.raises(ValueError, match="trigger_sample"):
+        _extract(x, y, total, trigger_sample=-1)
+
+
+@pytest.mark.parametrize("trigger_sample", [0, 7, I0, I0 + 5])
+def test_the_window_keeps_the_declared_trigger_samples_before_i0(trigger_sample: int):
+    x, y, total = _shot(None)
+    result = _extract(x, y, total, trigger_sample=trigger_sample)
+    assert isinstance(result, ShotExtraction)
+    assert result.window == (max(I0 - trigger_sample, 0), I0 + WINDOW_TURNS)
 
 
 def test_extraction_does_not_mutate_its_inputs():
@@ -237,7 +297,7 @@ def test_averaged_i0_and_window_come_from_the_median_shot():
     shots = [_extract(*_shot(None, i0=start, seed=start)) for start in (8, 12, 10)]
     averaged = average_shots(shots)
     assert averaged.i0 == 10
-    assert averaged.window == (10 - PRE_WINDOW_SAMPLES, 10 + WINDOW_TURNS)
+    assert averaged.window == (10 - TRIGGER_SAMPLE, 10 + WINDOW_TURNS)
 
 
 def test_averaging_nothing_is_refused():

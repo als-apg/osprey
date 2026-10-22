@@ -34,6 +34,25 @@ STEP = {
     "zeroed_v": ["VCM3"],
     "unsolved": [],
 }
+SOLVE = {
+    "sha": "5" * 64,
+    "singular_values": [2.0],
+    "inverse_weights": [0.5],
+    "kind": ["LIVE"],
+    "L": 1,
+    "live_rank": 1,
+    "rm": {"source": "model", "rows": 2, "h_cols": 1, "v_cols": 0, "computed_at": None},
+    "config": {
+        "alpha": 0.001,
+        "keep_live": 1,
+        "n_discard": 0,
+        "gain": 0.75,
+        "excluded_bpms": [],
+        "excluded_cms": ["HCM9"],
+        "loss_cutoff": 0.5,
+        "overridden": ["gain"],
+    },
+}
 
 
 @contextmanager
@@ -95,7 +114,8 @@ def _specific(result):
 
 
 def test_apply_asks_with_the_step_and_binds_it(run_hook, config, monkeypatch) -> None:
-    with fake_terminal(monkeypatch, {STATE_PATH: (200, {"target": "va", "step": STEP})}):
+    snapshot = {"target": "va", "step": STEP, "solve": SOLVE}
+    with fake_terminal(monkeypatch, {STATE_PATH: (200, snapshot)}):
         result = run_hook(
             "mcp__trajectory__trajectory_apply",
             {"step_digest": DIGEST, "approved_step_digest": "forged"},
@@ -110,6 +130,9 @@ def test_apply_asks_with_the_step_and_binds_it(run_hook, config, monkeypatch) ->
     assert "Factor: 0.5" in reason
     assert '"HCM1": +0.00015' in reason
     assert 'Zeroed vertical correctors: "VCM3"' in reason
+    assert "alpha: 0.001, gain: 0.75" in reason
+    assert 'Excluded correctors: "HCM9"' in reason
+    assert 'Operator overrides: "gain"' in reason
     assert out["updatedInput"] == {
         "step_digest": DIGEST,
         "approved_target": "va",
@@ -164,7 +187,8 @@ def test_put_back_asks_and_binds_the_values_digest(run_hook, config, monkeypatch
 
 
 def test_shot_asks_and_binds_the_services_target(run_hook, config, monkeypatch) -> None:
-    with fake_terminal(monkeypatch, {STATE_PATH: (200, {"target": "va", "step": None})}):
+    snapshot = {"target": "va", "step": None, "solve": SOLVE}
+    with fake_terminal(monkeypatch, {STATE_PATH: (200, snapshot)}):
         result = run_hook(
             "mcp__trajectory__trajectory_shot",
             {"n_shots": 2},
@@ -173,6 +197,7 @@ def test_shot_asks_and_binds_the_services_target(run_hook, config, monkeypatch) 
         )
     out = _specific(result)
     assert out["permissionDecision"] == "ask"
+    assert "keep_live: 1 (n_discard 0 of L 1, live rank 1)" in out["permissionDecisionReason"]
     assert out["updatedInput"] == {"n_shots": 2, "approved_target": "va"}
 
 

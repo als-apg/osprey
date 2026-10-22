@@ -1782,6 +1782,17 @@ def _wait_running(reader: str, count: int, timeout: float = 15.0) -> None:
     raise AssertionError(f"{reader} never had {count} queries running")
 
 
+def _readers_pool() -> tuple[int, int]:
+    """The readers' pool as the store's scheduler holds it: (slots, slots in use)."""
+    row = _sql(
+        "SELECT max_requests, inflight_requests FROM system.scheduler "
+        f"WHERE resource = '{accounts.QUERY_RESOURCE}' AND type = 'inflight_limit' "
+        f"AND path LIKE '/{accounts.READERS_WORKLOAD}/%'"
+    ).split()
+    assert len(row) == 2, f"no single pool limit for {accounts.READERS_WORKLOAD}: {row}"
+    return int(row[0]), int(row[1])
+
+
 def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
     stack: Stack,
 ) -> None:
@@ -1789,10 +1800,13 @@ def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
 
     limit = tc.store_limits(stack.config)["concurrent"]
     assert limit == 2
-    # A pool one wider than one reader's limit, so the other reader's query
-    # and this reader's two all run: the refusal is then the per-reader one.
+    # The store queues a reader query for a pool slot before it checks the
+    # per-reader limit, so the pool holds the other reader's query, this
+    # reader's two, and a free slot for the third: the third then meets the
+    # per-reader limit at once, never a wait for a held query to end.
+    pool_slots = limit + 2
     wider = copy.deepcopy(stack.config)
-    wider["services"]["telemetry_store"].setdefault("limits", {})["reader_slots"] = limit + 1
+    wider["services"]["telemetry_store"].setdefault("limits", {})["reader_slots"] = pool_slots
     try:
         stack.restage(wider)
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -1807,9 +1821,15 @@ def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
                 f"WHERE user IN ('{READER_X}', '{READER_Y}') GROUP BY user ORDER BY user"
             ).split()
             assert running == [READER_X, str(limit), READER_Y, "1"], running
+            assert _readers_pool() == (pool_slots, limit + 1), _readers_pool()
             third = _reader(stack, READER_X, "SELECT count() FROM telemetry.otel_logs")
             _refused_named(third, "TOO_MANY_SIMULTANEOUS_QUERIES")
             assert f"for user {READER_X}" in third.text, third.text[:300]
+            # Refused while this reader's two still run, not after one ended.
+            assert not any(future.done() for future in held)
+            assert _scalar(f"SELECT count() FROM system.processes WHERE user = '{READER_X}'") == (
+                limit
+            )
             for future in (other, *held):
                 assert future.result(timeout=120)[0].status_code == 200
     finally:

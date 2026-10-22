@@ -48,6 +48,418 @@
       "title": "ApplyEvent",
       "type": "object"
     },
+    "ApplyResult": {
+      "additionalProperties": false,
+      "description": "An apply: a step (``step_digest``) or a put-back (``None``) and what it moved.\n\nAttributes:\n    step_digest: The digest of the step applied, ``None`` for a put-back.\n    shot_id: The shot the step was computed from.\n    moved: Each corrector or setting written, before and after.\n    stopped: Whether the apply ended on Stop.",
+      "properties": {
+        "moved": {
+          "items": {
+            "$ref": "#/$defs/Moved"
+          },
+          "title": "Moved",
+          "type": "array"
+        },
+        "shot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Shot Id"
+        },
+        "step_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Digest"
+        },
+        "stopped": {
+          "default": false,
+          "title": "Stopped",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "step_digest",
+        "shot_id",
+        "moved"
+      ],
+      "title": "ApplyResult",
+      "type": "object"
+    },
+    "Catalog": {
+      "additionalProperties": false,
+      "description": "The devices the response matrix covers, each family in position order.\n\nPosition order is ``s``, then matrix order; a device without ``s`` follows the\nplaced ones, in matrix order. Selection addresses a device by its\n``name``; an excluded device keeps its entry.\n\nAttributes:\n    bpms: The BPMs, one per matrix row pair.\n    hcms: The horizontal correctors.\n    vcms: The vertical correctors.\n    groups: The facility groups listing matrix devices.",
+      "properties": {
+        "bpms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Bpms",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/CatalogGroup"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "hcms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Hcms",
+          "type": "array"
+        },
+        "vcms": {
+          "items": {
+            "$ref": "#/$defs/CatalogEntry"
+          },
+          "title": "Vcms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bpms",
+        "hcms",
+        "vcms"
+      ],
+      "title": "Catalog",
+      "type": "object"
+    },
+    "CatalogEntry": {
+      "additionalProperties": false,
+      "description": "One device the response matrix covers, as the facility names it.\n\nAttributes:\n    name: The matrix name the service addresses the device by: a BPM's\n        x-row address, a corrector's setpoint address.\n    device: The facility device id.\n    label: The name a person reads for the device.\n    places: The places holding the device, root to leaf.\n    s: Its position along the model in metres, ``None`` when unknown.\n    plane: ``x`` or ``y`` for a corrector, ``None`` for a BPM.\n    groups: The ids of the facility groups listing the device.",
+      "properties": {
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/CatalogPlace"
+          },
+          "title": "Places",
+          "type": "array"
+        },
+        "plane": {
+          "anyOf": [
+            {
+              "enum": [
+                "x",
+                "y"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plane"
+        },
+        "s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "S"
+        }
+      },
+      "required": [
+        "name",
+        "device",
+        "label"
+      ],
+      "title": "CatalogEntry",
+      "type": "object"
+    },
+    "CatalogGroup": {
+      "additionalProperties": false,
+      "description": "A facility group listing matrix devices.\n\nAttributes:\n    id: The group's id.\n    label: The name a person reads for the group.\n    members: The matrix names of its devices.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "members"
+      ],
+      "title": "CatalogGroup",
+      "type": "object"
+    },
+    "CatalogPlace": {
+      "additionalProperties": false,
+      "description": "One link of a device's place chain.\n\nAttributes:\n    id: The place's id.\n    level: The facility's own word for the place's level, ``None`` when it\n        states none.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Level"
+        }
+      },
+      "required": [
+        "id",
+        "level"
+      ],
+      "title": "CatalogPlace",
+      "type": "object"
+    },
+    "ChainBody": {
+      "additionalProperties": false,
+      "description": "A chain run on the panel door; also the body a continuous run starts with.\n\nAttributes:\n    steps: The ticked step ids; the service runs them in chain order.\n    readout: How a readout step reads the injections.\n    n_turns: The turns a pseudo-orbit readout averages over.\n    n_shots: The injections in the action.\n    average: How the included injections are combined.",
+      "properties": {
+        "average": {
+          "default": "mean",
+          "enum": [
+            "mean",
+            "nanmean"
+          ],
+          "title": "Average",
+          "type": "string"
+        },
+        "n_shots": {
+          "default": 1,
+          "minimum": 1,
+          "title": "N Shots",
+          "type": "integer"
+        },
+        "n_turns": {
+          "default": 1,
+          "minimum": 1,
+          "title": "N Turns",
+          "type": "integer"
+        },
+        "readout": {
+          "default": "tbt",
+          "enum": [
+            "tbt",
+            "pseudo_orbit"
+          ],
+          "title": "Readout",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "ChainBody",
+      "type": "object"
+    },
+    "ChainResult": {
+      "additionalProperties": false,
+      "description": "One chain run: the steps it ran, the commands it wrote, the shot it read.\n\nAttributes:\n    steps_run: The ids of the steps run, in chain order.\n    commands_fired: The command addresses written.\n    shot: The shot the readout step stored, ``None`` for a chain without\n        readout.",
+      "properties": {
+        "commands_fired": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands Fired",
+          "type": "array"
+        },
+        "shot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShotResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "steps_run": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Steps Run",
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps_run",
+        "commands_fired",
+        "shot"
+      ],
+      "title": "ChainResult",
+      "type": "object"
+    },
+    "ChainStep": {
+      "additionalProperties": false,
+      "description": "One step of the declared chain.\n\nAttributes:\n    id: The step's id; a chain body names steps by it.\n    label: The step's label.\n    description: What the step does, as declared.\n    command: The command a command step writes, ``None`` for a step the\n        service runs itself.\n    default: Whether the step is ticked by default.\n    position: The step's place in the chain, from 0.\n    timeout_s: The command's bound, ``None`` for a service-run step.\n    done: The readback a command step waits on up to ``timeout_s``,\n        ``None`` when it writes and continues.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandWrite"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "default": {
+          "title": "Default",
+          "type": "boolean"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "done": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandWrite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Label"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timeout S"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "description",
+        "command",
+        "default",
+        "position",
+        "timeout_s"
+      ],
+      "title": "ChainStep",
+      "type": "object"
+    },
+    "CommandWrite": {
+      "additionalProperties": false,
+      "description": "A declared command: the address written and the value written to it.",
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "address",
+        "value"
+      ],
+      "title": "CommandWrite",
+      "type": "object"
+    },
     "ContinuousEndedEvent": {
       "additionalProperties": false,
       "description": "A continuous run ended, with the last step's reason and status.",
@@ -56,8 +468,6 @@
           "enum": [
             "stopped",
             "lease_expired",
-            "max_shots",
-            "zero_step",
             "taken_over",
             "released",
             "shutdown",
@@ -119,7 +529,7 @@
     },
     "ContinuousStatus": {
       "additionalProperties": false,
-      "description": "A continuous run in progress.\n\nAttributes:\n    shots: Shot actions submitted so far.\n    max_shots: ``continuous_max_shots``.\n    lease_expires_in_s: Seconds until the lease lapses without a heartbeat.",
+      "description": "A continuous run in progress.\n\nAttributes:\n    shots: Shot actions submitted so far.\n    lease_expires_in_s: Seconds until the lease lapses without a heartbeat.",
       "properties": {
         "lease_expires_in_s": {
           "anyOf": [
@@ -132,10 +542,6 @@
           ],
           "title": "Lease Expires In S"
         },
-        "max_shots": {
-          "title": "Max Shots",
-          "type": "integer"
-        },
         "shots": {
           "title": "Shots",
           "type": "integer"
@@ -143,7 +549,6 @@
       },
       "required": [
         "shots",
-        "max_shots",
         "lease_expires_in_s"
       ],
       "title": "ContinuousStatus",
@@ -201,10 +606,72 @@
       "title": "LastAction",
       "type": "object"
     },
+    "Machine": {
+      "additionalProperties": false,
+      "description": "The machine readings the header shows; ``None`` until read or undeclared.\n\nAttributes:\n    rf_on: The RF-on readback, one of its declared options.\n    stored_current: The stored-current readback.",
+      "properties": {
+        "rf_on": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rf On"
+        },
+        "stored_current": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stored Current"
+        }
+      },
+      "title": "Machine",
+      "type": "object"
+    },
     "Moved": {
       "additionalProperties": false,
-      "description": "One non-refused setting write, in put-back shape.\n\nAttributes:\n    name: The RM column or declared module-slot address written.\n    before: The value read just before the write; putting it back undoes it.\n    outcome: What the write did, as the connector reported it.",
+      "description": "One non-refused setting write, in put-back shape.\n\nAttributes:\n    name: The RM column or declared setting address written.\n    before: The value read just before the write; putting it back undoes it.\n    after: The value written, ``None`` where the writer did not report it.\n    outcome: What the write did, as the connector reported it.",
       "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After"
+        },
         "before": {
           "anyOf": [
             {
@@ -239,9 +706,70 @@
       "title": "Moved",
       "type": "object"
     },
+    "ReferenceImport": {
+      "additionalProperties": false,
+      "description": "A reference file's content; the import body and the readings route's answer.\n\nAttributes:\n    name: The name to store it under.\n    readings: One reading per BPM.\n    readout: The readout mode it was taken in.\n    select: Whether to make it the current reference.\n    source_target: The target it was taken on, ``None`` when unknown.\n    source_model: The model it was taken for, ``None`` when unknown.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "readings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ReferenceReading"
+          },
+          "title": "Readings",
+          "type": "object"
+        },
+        "readout": {
+          "enum": [
+            "tbt",
+            "pseudo_orbit"
+          ],
+          "title": "Readout",
+          "type": "string"
+        },
+        "select": {
+          "default": false,
+          "title": "Select",
+          "type": "boolean"
+        },
+        "source_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Model"
+        },
+        "source_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Target"
+        }
+      },
+      "required": [
+        "name",
+        "readings",
+        "readout"
+      ],
+      "title": "ReferenceImport",
+      "type": "object"
+    },
     "ReferenceLoad": {
       "additionalProperties": false,
-      "description": "A reference matched by BPM name over the current BPM selection.\n\nAttributes:\n    name: The reference's name.\n    sha256: The sha256 of the reference file's content.\n    matched: BPMs in both the selection and the reference.\n    missing_in_reference: Selected BPMs the reference lacks (they read NaN).\n    unused_in_reference: Reference BPMs outside the selection.\n    nan_count: Readings in the reference that are NaN.",
+      "description": "A reference matched by BPM name over the current BPM selection.\n\nAttributes:\n    name: The reference's name.\n    sha256: The sha256 of the reference file's content.\n    matched: BPMs in both the selection and the reference.\n    missing_in_reference: Selected BPMs the reference lacks (they read NaN).\n    unused_in_reference: Reference BPMs outside the selection.\n    nan_count: Readings in the reference that are NaN.\n    readout: The readout mode the reference was taken in; a reference is\n        never used across modes.\n    readings: The reference's reading by selected BPM, which the panel\n        subtracts for dx and dy.",
       "properties": {
         "matched": {
           "items": {
@@ -265,6 +793,37 @@
           "title": "Nan Count",
           "type": "integer"
         },
+        "readings": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ReferenceReading"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Readings"
+        },
+        "readout": {
+          "anyOf": [
+            {
+              "enum": [
+                "tbt",
+                "pseudo_orbit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Readout"
+        },
         "sha256": {
           "title": "Sha256",
           "type": "string"
@@ -286,6 +845,83 @@
         "nan_count"
       ],
       "title": "ReferenceLoad",
+      "type": "object"
+    },
+    "ReferenceReading": {
+      "additionalProperties": false,
+      "description": "One BPM's reference reading; ``None`` (NaN in memory) where it saw no beam.",
+      "properties": {
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "ReferenceReading",
+      "type": "object"
+    },
+    "RmSummary": {
+      "additionalProperties": false,
+      "description": "The response matrix the solve used.\n\nAttributes:\n    source: Where the matrix came from; the build-time model matrix.\n    rows: BPM rows after the exclusions.\n    h_cols: Horizontal corrector columns after the exclusions.\n    v_cols: Vertical corrector columns after the exclusions.\n    computed_at: When it was restricted, seconds since the epoch.",
+      "properties": {
+        "computed_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Computed At"
+        },
+        "h_cols": {
+          "title": "H Cols",
+          "type": "integer"
+        },
+        "rows": {
+          "title": "Rows",
+          "type": "integer"
+        },
+        "source": {
+          "const": "model",
+          "title": "Source",
+          "type": "string"
+        },
+        "v_cols": {
+          "title": "V Cols",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "rows",
+        "h_cols",
+        "v_cols"
+      ],
+      "title": "RmSummary",
       "type": "object"
     },
     "RunningAction": {
@@ -313,6 +949,236 @@
         "stopping"
       ],
       "title": "RunningAction",
+      "type": "object"
+    },
+    "SettingReadback": {
+      "additionalProperties": false,
+      "description": "One declared setting as read back.\n\nAttributes:\n    id: The setting's declared id.\n    scope: ``device`` (read per BPM) or ``global`` (read once).\n    value: A global setting's reading, ``None`` when unread.\n    values: A device setting's reading by BPM device, ``None`` where unread.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "device",
+            "global"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "values": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "scope"
+      ],
+      "title": "SettingReadback",
+      "type": "object"
+    },
+    "SetupBody": {
+      "additionalProperties": false,
+      "description": "A setup: a partial update, every absent key left as it is.\n\nAttributes:\n    settings: The value per declared setting id to apply.\n    excluded_bpms: The BPM exclusions to hand the SolveConfig writer,\n        ``None`` to leave them.",
+      "properties": {
+        "excluded_bpms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excluded Bpms"
+        },
+        "settings": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Settings",
+          "type": "object"
+        }
+      },
+      "title": "SetupBody",
+      "type": "object"
+    },
+    "SetupReadbacks": {
+      "additionalProperties": false,
+      "description": "Every declared setting as read back, which ``GET`` on the setup route answers.\n\nAttributes:\n    settings: One readback per declared setting, in declared order.\n    read_at: When they were read, seconds since the epoch.\n    setup: The current setup, ``None`` when none holds.",
+      "properties": {
+        "read_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Read At"
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/SettingReadback"
+          },
+          "title": "Settings",
+          "type": "array"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "settings"
+      ],
+      "title": "SetupReadbacks",
+      "type": "object"
+    },
+    "SetupResult": {
+      "additionalProperties": false,
+      "description": "A setup action: what moved, what did not settle, the setup it left.\n\nAttributes:\n    moved: Each setting write, in put-back shape.\n    unsettled: The setting addresses whose readback missed the tolerance in\n        time.\n    setup: The setup now current, ``None`` when it did not take.",
+      "properties": {
+        "moved": {
+          "items": {
+            "$ref": "#/$defs/Moved"
+          },
+          "title": "Moved",
+          "type": "array"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unsettled": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsettled",
+          "type": "array"
+        }
+      },
+      "required": [
+        "moved"
+      ],
+      "title": "SetupResult",
+      "type": "object"
+    },
+    "SetupState": {
+      "additionalProperties": false,
+      "description": "The setup the service last applied and still holds as current.\n\nAttributes:\n    applied_at: When the setup was applied, seconds since the epoch.\n    by: The operator who applied it, ``None`` without an identity.\n    settings_sha: The identity of the settings applied; a shot carries it.\n    turns_tracked: The turns tracked the setup applied.\n    void: Whether a re-check found the machine diverged from it; a void\n        setup admits no panel chain run.",
+      "properties": {
+        "applied_at": {
+          "title": "Applied At",
+          "type": "number"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "By"
+        },
+        "settings_sha": {
+          "title": "Settings Sha",
+          "type": "string"
+        },
+        "turns_tracked": {
+          "title": "Turns Tracked",
+          "type": "integer"
+        },
+        "void": {
+          "default": false,
+          "title": "Void",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "applied_at",
+        "by",
+        "settings_sha",
+        "turns_tracked"
+      ],
+      "title": "SetupState",
       "type": "object"
     },
     "ShotEvent": {
@@ -364,8 +1230,29 @@
     },
     "ShotResult": {
       "additionalProperties": false,
-      "description": "One shot action: its included shots averaged, the failures listed.\n\n``x``, ``y`` and ``sum`` are keyed by the sidecar's RM row names; x and y\nare NaN at every BPM in the lost set. A shot's writes are commands, listed\nin ``commands_fired``; it moves no setting.\n\nAttributes:\n    shot_id: The shot's id; a step carries it.\n    model: The resolved model the shot was read for.\n    x: Horizontal first-turn position by x-row name.\n    y: Vertical first-turn position by y-row name.\n    sum: First-turn sum by sum-row name.\n    bpm_order: The BPMs in rotated s-order.\n    lost: The lost set: the first non-rising BPM and every BPM after it.\n    last_bpm: The last BPM with beam, ``None`` when no shot was included.\n    i0: The first sample with beam, ``None`` when no shot was included.\n    window: The raw window ``[start, stop)`` in samples.\n    per_shot_lost_at: Per included shot, the first lost BPM (``None``: a\n        full turn).\n    shots_included: How many shots were averaged.\n    shots_failed: The excluded shots and why.\n    commands_fired: The command addresses written.\n    timestamp: When the shot was read, seconds since the epoch.",
+      "description": "One action's readout: its included injections averaged, the failures listed.\n\n``x``, ``y`` and ``sum`` are keyed by the sidecar's RM row names; x and y\nare NaN at every BPM in the lost set. A shot's writes are commands, listed\nin ``commands_fired``; it moves no setting. A shot is ``fresh`` when its\naction armed and injected and the machine held still across it; only a\nfresh TbT shot makes a step or becomes a reference.\n\nAttributes:\n    shot_id: The shot's id; a step carries it.\n    model: The resolved model the shot was read for.\n    x: Horizontal first-turn position by x-row name.\n    y: Vertical first-turn position by y-row name.\n    sum: First-turn sum by sum-row name.\n    bpm_order: The BPMs in rotated s-order.\n    lost: The lost set: the first non-rising BPM and every BPM after it.\n    last_bpm: The last BPM with beam, ``None`` when no shot was included.\n    i0: The first sample with beam, ``None`` when no shot was included.\n    window: The raw window ``[start, stop)`` in samples.\n    per_shot_lost_at: Per included shot, the first lost BPM (``None``: a\n        full turn).\n    shots_included: How many shots were averaged.\n    shots_failed: The excluded shots and why.\n    commands_fired: The command addresses written.\n    timestamp: When the shot was read, seconds since the epoch.\n    readout: How the injections were read.\n    average: How the included injections were combined.\n    n_turns: The turns a pseudo-orbit readout averaged over, ``None`` for\n        TbT.\n    loss_cutoff: The loss cutoff the shot was extracted with, as a\n        fraction of the injected-charge scale.\n    excluded_bpms: The BPMs the action left out; they read NaN.\n    setpoints: The RM-column corrector setpoints read after readout, by\n        corrector name.\n    setup_sha: The setup identity the action ran under, ``None`` when no\n        current setup held.\n    beam_current: The stored current read just before inject.\n    raw_samples: The samples per BPM row of the action's raw buffer.\n    parent_id: The shot this one was re-extracted from, ``None`` for a\n        shot read from the machine.\n    fresh: Whether the shot may make a step and become a reference.",
       "properties": {
+        "average": {
+          "default": "mean",
+          "enum": [
+            "mean",
+            "nanmean"
+          ],
+          "title": "Average",
+          "type": "string"
+        },
+        "beam_current": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beam Current"
+        },
         "bpm_order": {
           "items": {
             "type": "string"
@@ -379,6 +1266,18 @@
           },
           "title": "Commands Fired",
           "type": "array"
+        },
+        "excluded_bpms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Bpms",
+          "type": "array"
+        },
+        "fresh": {
+          "default": true,
+          "title": "Fresh",
+          "type": "boolean"
         },
         "i0": {
           "anyOf": [
@@ -402,6 +1301,18 @@
           ],
           "title": "Last Bpm"
         },
+        "loss_cutoff": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Cutoff"
+        },
         "lost": {
           "items": {
             "type": "string"
@@ -412,6 +1323,30 @@
         "model": {
           "title": "Model",
           "type": "string"
+        },
+        "n_turns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Turns"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
         },
         "per_shot_lost_at": {
           "items": {
@@ -426,6 +1361,54 @@
           },
           "title": "Per Shot Lost At",
           "type": "array"
+        },
+        "raw_samples": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Samples"
+        },
+        "readout": {
+          "default": "tbt",
+          "enum": [
+            "tbt",
+            "pseudo_orbit"
+          ],
+          "title": "Readout",
+          "type": "string"
+        },
+        "setpoints": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Setpoints"
+        },
+        "setup_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Setup Sha"
         },
         "shot_id": {
           "title": "Shot Id",
@@ -608,7 +1591,7 @@
     },
     "Snapshot": {
       "additionalProperties": false,
-      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.",
+      "description": "Every fact the panel's states are drawn from; ``GET /state`` answers it.\n\nAttributes:\n    target: The service's bound target (the panel compares it with the\n        terminal's own).\n    caller: The operator identity the door admitted, ``None`` without one.\n    writes_enabled: Whether the posture lets the service write.\n    posture: The posture as an operator reads it.\n    limits: The limits posture actions run under.\n    writing_available: Whether the build gave the service anything to\n        command.\n    model: The model carrying the trajectory kind, ``None`` when none does.\n    model_kind: ``none`` or ``single_pass``.\n    holder: The session holder, ``None`` when nobody holds it.\n    taken_over: The latest take-over, ``None`` when there was none.\n    mode: Idle, one action, or a continuous run.\n    action: The action in flight, ``None`` when idle.\n    queue_wait_s: How long a call submitted now would wait to start.\n    action_timeout_s: The configured action timeout.\n    action_budget_s: The longest an admitted action may take.\n    stop_budget_s: The longest an action takes to end after Stop.\n    last_shot: The last shot action, in brief.\n    step: The pending step, ``None`` when there is none.\n    reference: The current reference and its match counts.\n    last_action: The last finished writing action and what it moved.\n    continuous: The continuous run in progress, else ``None``.\n    chain: The declared chain, in order.\n    catalog: The devices the build's response matrix covers, ``None``\n        when the build wrote no catalog for the model.\n    machine: The machine readings, ``None`` until read.\n    setup: The current setup, ``None`` when none was applied.\n    solve: The published solve, ``None`` before one is computed.\n    retention: How many shots' raw buffers are kept; the panel's record\n        cap.\n    n_shots_max: The largest ``n_shots`` the action budget admits.\n    notices: What the service voided or dropped since, for the operator.",
       "properties": {
         "action": {
           "anyOf": [
@@ -638,6 +1621,24 @@
             }
           ],
           "title": "Caller"
+        },
+        "catalog": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Catalog"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "chain": {
+          "items": {
+            "$ref": "#/$defs/ChainStep"
+          },
+          "title": "Chain",
+          "type": "array"
         },
         "continuous": {
           "anyOf": [
@@ -689,6 +1690,17 @@
           "title": "Limits",
           "type": "string"
         },
+        "machine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Machine"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "mode": {
           "enum": [
             "idle",
@@ -717,6 +1729,25 @@
           "title": "Model Kind",
           "type": "string"
         },
+        "n_shots_max": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Shots Max"
+        },
+        "notices": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notices",
+          "type": "array"
+        },
         "posture": {
           "title": "Posture",
           "type": "string"
@@ -734,6 +1765,40 @@
               "type": "null"
             }
           ]
+        },
+        "retention": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retention"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "solve": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Solve"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "step": {
           "anyOf": [
@@ -818,9 +1883,217 @@
       "title": "SnapshotEvent",
       "type": "object"
     },
+    "Solve": {
+      "additionalProperties": false,
+      "description": "The published solve: its spectrum, dimensions, matrix and config.\n\nAttributes:\n    sha: The solve's identity; a step's digest binds it.\n    singular_values: The spectrum, index-aligned with the two below.\n    inverse_weights: The damped inverse weight of each value.\n    kind: The kind of each value.\n    L: How many singular values the restricted matrix has.\n    live_rank: How many of them are live.\n    rm: The matrix the solve used.\n    config: The SolveConfig it was solved with.",
+      "properties": {
+        "L": {
+          "title": "L",
+          "type": "integer"
+        },
+        "config": {
+          "$ref": "#/$defs/SolveConfig"
+        },
+        "inverse_weights": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Inverse Weights",
+          "type": "array"
+        },
+        "kind": {
+          "items": {
+            "enum": [
+              "LIVE",
+              "RANK_DISCARDED",
+              "DISCARDED",
+              "STRUCTURAL"
+            ],
+            "type": "string"
+          },
+          "title": "Kind",
+          "type": "array"
+        },
+        "live_rank": {
+          "title": "Live Rank",
+          "type": "integer"
+        },
+        "rm": {
+          "$ref": "#/$defs/RmSummary"
+        },
+        "sha": {
+          "title": "Sha",
+          "type": "string"
+        },
+        "singular_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Singular Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sha",
+        "singular_values",
+        "inverse_weights",
+        "kind",
+        "L",
+        "live_rank",
+        "rm",
+        "config"
+      ],
+      "title": "Solve",
+      "type": "object"
+    },
+    "SolveConfig": {
+      "additionalProperties": false,
+      "description": "The SolveConfig in force for this target and model.\n\nAttributes:\n    alpha: The Tikhonov damping.\n    keep_live: How many live singular values the solve keeps.\n    n_discard: The discard count ``keep_live`` stands for over the current\n        exclusions.\n    gain: The fraction of the step applied.\n    excluded_bpms: The excluded BPMs, by name.\n    excluded_cms: The excluded correctors, by name.\n    loss_cutoff: The loss cutoff, a fraction of the injected-charge scale.\n    overridden: The keys an operator override sets; the rest are the file\n        defaults.",
+      "properties": {
+        "alpha": {
+          "title": "Alpha",
+          "type": "number"
+        },
+        "excluded_bpms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Bpms",
+          "type": "array"
+        },
+        "excluded_cms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Cms",
+          "type": "array"
+        },
+        "gain": {
+          "title": "Gain",
+          "type": "number"
+        },
+        "keep_live": {
+          "title": "Keep Live",
+          "type": "integer"
+        },
+        "loss_cutoff": {
+          "title": "Loss Cutoff",
+          "type": "number"
+        },
+        "n_discard": {
+          "title": "N Discard",
+          "type": "integer"
+        },
+        "overridden": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Overridden",
+          "type": "array"
+        }
+      },
+      "required": [
+        "alpha",
+        "keep_live",
+        "n_discard",
+        "gain",
+        "excluded_bpms",
+        "excluded_cms",
+        "loss_cutoff",
+        "overridden"
+      ],
+      "title": "SolveConfig",
+      "type": "object"
+    },
+    "SolveConfigPartial": {
+      "additionalProperties": false,
+      "description": "A SolveConfig update: each caller sends only its own keys; empty recomputes.",
+      "properties": {
+        "alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alpha"
+        },
+        "excluded_bpms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excluded Bpms"
+        },
+        "excluded_cms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excluded Cms"
+        },
+        "gain": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gain"
+        },
+        "keep_live": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keep Live"
+        },
+        "loss_cutoff": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Cutoff"
+        }
+      },
+      "title": "SolveConfigPartial",
+      "type": "object"
+    },
     "Step": {
       "additionalProperties": false,
-      "description": "The pending correction, as ``GET /api/step`` serves it.\n\nThe increment written is ``before + deltas[name]``, with\n``\u03b4 = \u2212factor\u00b7step``. Apply refuses on ``all_zero``, never on ``reason``.\n\nAttributes:\n    digest: The service-minted digest an apply must carry.\n    deltas: The increment by corrector name.\n    factor: The uniform ``max_step`` scale, at most 1.\n    reason: The tool's reason.\n    status: The tool's sentence for the reason.\n    all_zero: Whether every delta is zero.\n    zeroed_h: Horizontal correctors zeroed, in column order.\n    zeroed_v: Vertical correctors zeroed, in column order.\n    no_response_names: Correctors with a zero RM column.\n    unsolved: The sidecar's correctors with no response.\n    rank_discarded: Live singular values the rank guard dropped.\n    singular_values: The spectrum, index-aligned with the two below.\n    inverse_weights: The damped inverse weight of each value.\n    spectrum_kind: The kind of each value.\n    n_discard: The ``n_discard`` the step was solved with.\n    shot_id: The shot the step was computed from.\n    reference: The reference's name, ``None`` when solved to zero.",
+      "description": "The pending correction, as ``GET /api/step`` serves it.\n\nThe increment written is ``before + deltas[name]``, with\n``\u03b4 = \u2212factor\u00b7step``. Apply refuses on ``all_zero``, never on ``reason``.\n\nAttributes:\n    digest: The service-minted digest an apply must carry.\n    deltas: The increment by corrector name.\n    factor: The uniform ``max_step`` scale, at most 1.\n    reason: The tool's reason.\n    status: The tool's sentence for the reason.\n    all_zero: Whether every delta is zero.\n    zeroed_h: Horizontal correctors zeroed, in column order.\n    zeroed_v: Vertical correctors zeroed, in column order.\n    no_response_names: Correctors with a zero RM column.\n    unsolved: The sidecar's correctors with no response.\n    shot_id: The shot the step was computed from.\n    reference: The reference's name, ``None`` when solved to zero.",
       "properties": {
         "all_zero": {
           "title": "All Zero",
@@ -841,27 +2114,12 @@
           "title": "Factor",
           "type": "number"
         },
-        "inverse_weights": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Inverse Weights",
-          "type": "array"
-        },
-        "n_discard": {
-          "title": "N Discard",
-          "type": "integer"
-        },
         "no_response_names": {
           "items": {
             "type": "string"
           },
           "title": "No Response Names",
           "type": "array"
-        },
-        "rank_discarded": {
-          "title": "Rank Discarded",
-          "type": "integer"
         },
         "reason": {
           "enum": [
@@ -890,26 +2148,6 @@
         "shot_id": {
           "title": "Shot Id",
           "type": "string"
-        },
-        "singular_values": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Singular Values",
-          "type": "array"
-        },
-        "spectrum_kind": {
-          "items": {
-            "enum": [
-              "LIVE",
-              "RANK_DISCARDED",
-              "DISCARDED",
-              "STRUCTURAL"
-            ],
-            "type": "string"
-          },
-          "title": "Spectrum Kind",
-          "type": "array"
         },
         "status": {
           "title": "Status",
@@ -948,11 +2186,6 @@
         "zeroed_v",
         "no_response_names",
         "unsolved",
-        "rank_discarded",
-        "singular_values",
-        "inverse_weights",
-        "spectrum_kind",
-        "n_discard",
         "shot_id",
         "reference"
       ],

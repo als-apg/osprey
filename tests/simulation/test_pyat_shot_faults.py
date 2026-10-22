@@ -5,7 +5,9 @@ the marker wires an orbit reading per plane in millimetres, which is what
 carries the readout faults, beside turn series in millimetres and one in
 nanometres; the next monitor wires a turn series alone. What a shot leaves is
 compared with pyAT tracking the same particle directly, run through the fault
-chain by hand.
+chain by hand. A sample with no beam -- before the launch, or once the
+particle is lost -- is read as a beam on axis at the sum's floor, so no sample
+is NaN.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import pytest
 at = pytest.importorskip("at")
 
 from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines.pyat_faults import readout  # noqa: E402
+from osprey.simulation.engines.pyat_faults import SUM_FLOOR, readout  # noqa: E402
 from osprey.simulation.engines.pyat_model import PyATLatticeModel  # noqa: E402
 
 MODEL = "SR"
@@ -48,21 +50,12 @@ TURNS = LENGTH - PRE_TRIGGER
 MM = 1.0e-3
 NM = 1.0e-9
 
-LAUNCH = {"x": 1.0e-3, "px": 1.0e-4, "y": -5.0e-4}
-SETTINGS = {"pyat": {"injection": {"marker": MARKER, "pre_trigger_samples": PRE_TRIGGER, **LAUNCH}}}
+SETTINGS = {"pyat": {"injection": {"marker": MARKER, "trigger_sample": PRE_TRIGGER}}}
+#: The scenario's launch, stated as its model-wide launch faults.
+LAUNCH = {"launch_x": 1.0e-3, "launch_px": 1.0e-4, "launch_y": -5.0e-4}
 HALF_APERTURE = 0.01
 #: A launch that leaves the aperture within the series.
-LOST_SETTINGS = {
-    "pyat": {
-        "injection": {
-            "marker": MARKER,
-            "pre_trigger_samples": PRE_TRIGGER,
-            "x": 5.0e-3,
-            "px": 8.0e-3,
-            "y": -5.0e-4,
-        }
-    }
-}
+LOST_LAUNCH = {"launch_x": 5.0e-3, "launch_px": 8.0e-3, "launch_y": -5.0e-4}
 
 
 def _linear(gain: float) -> dict[str, Any]:
@@ -145,8 +138,8 @@ def deck(tmp_path: Path) -> Path:
     return path
 
 
-def build(deck: Path, settings: dict[str, Any] = SETTINGS) -> PyATLatticeModel:
-    return engine.build(MODEL, wiring(), deck, settings)  # type: ignore[return-value]
+def build(deck: Path, active: dict[str, Any] = LAUNCH) -> PyATLatticeModel:
+    return engine.build(MODEL, wiring(), deck, SETTINGS, active)  # type: ignore[return-value]
 
 
 @pytest.fixture
@@ -155,11 +148,12 @@ def model(deck: Path) -> PyATLatticeModel:
 
 
 def truth(
-    model: PyATLatticeModel, monitor: str = MONITOR, settings: dict[str, Any] = SETTINGS
+    model: PyATLatticeModel, monitor: str = MONITOR, active: dict[str, Any] = LAUNCH
 ) -> tuple[np.ndarray, np.ndarray]:
     """pyAT's own track of the launch: the tracked ``(x, y)`` per turn at one monitor, in metres."""
-    block = settings["pyat"]["injection"]
-    particle = np.array([block.get(key, 0.0) for key in engine.LAUNCH_KEYS]).reshape(6, 1)
+    particle = np.array([active.get(f"launch_{key}", 0.0) for key in engine.LAUNCH_KEYS]).reshape(
+        6, 1
+    )
     rotated = model.lattice.rotate(int(model.lattice.get_uint32_index(MARKER)[0]))
     tracked, _, _ = at.lattice_track(
         rotated, particle, nturns=TURNS, refpts=rotated.get_uint32_index(monitor), losses=True
@@ -172,10 +166,15 @@ def shoot(model: PyATLatticeModel, request: int = 1, **more: Any) -> None:
 
 
 def tracked(model: PyATLatticeModel, address: str) -> np.ndarray:
-    """A series' samples from the launch on."""
+    """A series' samples from the launch on; every sample of the series is a number."""
     samples = model.get(address)
-    np.testing.assert_array_equal(samples[:PRE_TRIGGER], 0.0)
+    assert np.isfinite(samples).all()
     return samples[PRE_TRIGGER:]
+
+
+def before_launch(model: PyATLatticeModel, address: str) -> np.ndarray:
+    """A series' samples before the launch: what the monitor reads with no beam."""
+    return model.get(address)[:PRE_TRIGGER]
 
 
 class TestUnseeded:
@@ -331,9 +330,29 @@ class TestNoise:
         assert before[TBT_X] == 7.0
 
 
+class TestNoBeam:
+    def test_an_unseeded_monitor_reads_no_beam_on_axis_at_the_floor(self, model: PyATLatticeModel):
+        shoot(model)
+        np.testing.assert_array_equal(before_launch(model, TBT_X), 0.0)
+        np.testing.assert_array_equal(before_launch(model, TBT_Y), 0.0)
+        np.testing.assert_array_equal(before_launch(model, TBT_SUM), SUM_FLOOR)
+
+    def test_the_faults_act_on_the_no_beam_reading(self, model: PyATLatticeModel):
+        shoot(model, **{f"{ORBIT_X}/offset": 0.2, f"{ORBIT_X}/gain": 1.5})
+        np.testing.assert_allclose(before_launch(model, TBT_X), -1.5 * 0.2, rtol=1e-12)
+        np.testing.assert_allclose(before_launch(model, TBT_X_FINE), -1.5 * 0.2e6, rtol=1e-9)
+        np.testing.assert_array_equal(before_launch(model, TBT_SUM), SUM_FLOOR)
+
+    def test_the_noise_fault_reaches_the_no_beam_samples(self, deck: Path):
+        model = build(deck)
+        shoot(model, **{f"{ORBIT_X}/noise": 0.05})
+        assert np.all(before_launch(model, TBT_X) != 0.0)
+        assert np.all(np.abs(before_launch(model, TBT_X)) < 8.0 * 0.05)
+
+
 class TestLost:
-    def test_lost_samples_stay_nan_and_the_sum_keeps_its_side(self, deck: Path):
-        model = build(deck, LOST_SETTINGS)
+    def test_lost_samples_read_no_beam_and_the_sum_its_floor(self, deck: Path):
+        model = build(deck, LOST_LAUNCH)
         shoot(
             model,
             **{
@@ -344,13 +363,23 @@ class TestLost:
                 f"{ORBIT_X}/roll": 0.05,
             },
         )
-        x, _ = truth(model, settings=LOST_SETTINGS)
+        x, _ = truth(model, active=LOST_LAUNCH)
         lost = np.isnan(x)
         assert lost.any() and not lost.all()
         for address in (TBT_X, TBT_Y, TBT_X_FINE):
             samples = tracked(model, address)
-            assert np.isnan(samples[lost]).all()
-            assert np.isfinite(samples[~lost]).all()
+            assert np.all(samples[lost] != 0.0)
+        # A lost sample of x is the offset read off axis, under the noise.
+        np.testing.assert_allclose(tracked(model, TBT_X)[lost], -3.0 * 2.0, atol=3.0 * 8 * 0.5)
         total = tracked(model, TBT_SUM)
-        assert np.all(total[~lost] > 0.5)
-        assert np.all(total[lost] < 0.5)
+        np.testing.assert_array_equal(total[~lost], 1.0)
+        np.testing.assert_array_equal(total[lost], SUM_FLOOR)
+
+    def test_an_unseeded_monitor_reads_a_lost_sample_on_axis(self, deck: Path):
+        model = build(deck, LOST_LAUNCH)
+        shoot(model)
+        x, y = truth(model, active=LOST_LAUNCH)
+        lost = np.isnan(x)
+        np.testing.assert_array_equal(tracked(model, TBT_X)[lost], 0.0)
+        np.testing.assert_allclose(tracked(model, TBT_X)[~lost], x[~lost] / MM, rtol=1e-12)
+        np.testing.assert_allclose(tracked(model, TBT_Y)[~lost], y[~lost] / MM, rtol=1e-12)

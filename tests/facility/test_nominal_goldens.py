@@ -56,8 +56,14 @@ ADDITIONS = frozenset(
     {
         "SR:DIAG:CHROM:X",
         "SR:DIAG:CHROM:Y",
+        "SR:DIAG:CLEANING:REQUEST",
+        "SR:DIAG:STORED_BEAM:CURRENT:RB",
+        "SR:DIAG:TBT:TURNS:RB",
+        "SR:DIAG:TBT:TURNS:SP",
         "SR:DIAG:TUNE:X",
         "SR:DIAG:TUNE:Y",
+        "SR:RF:ON:RB",
+        "SR:RF:ON:SP",
     }
 )
 
@@ -68,6 +74,10 @@ LINE_CHANNELS = 40
 #: monitors carry them: a trace, so the golden holds none.
 SR_BPM_SERIES = re.compile(r"SR:DIAG:BPM:\d+:TBT:(?:X|Y|SUM)")
 SR_MONITORS = 72
+
+#: The ``SR`` beam position monitors' readout settings, each a setpoint and
+#: its readback, which the golden's capture predates.
+SR_BPM_SETTINGS = re.compile(r"SR:DIAG:BPM:\d+:(?:ATTENUATION|MODE|PILOT_TONE):(?:SP|RB)")
 
 #: The served injection septum pulse: a trace, so the golden holds none.
 SEPTUM_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
@@ -168,7 +178,9 @@ def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served
     series = {address for address in waveforms if SR_BPM_SERIES.fullmatch(address)}
     assert len(series) == 3 * SR_MONITORS
     assert waveforms == series | {SEPTUM_WAVEFORM}
-    assert unheld - line == ADDITIONS | waveforms
+    settings = {address for address in unheld if SR_BPM_SETTINGS.fullmatch(address)}
+    assert len(settings) == 6 * SR_MONITORS
+    assert unheld - line == ADDITIONS | waveforms | settings
     assert set(golden()) <= set(served.channels)
 
 

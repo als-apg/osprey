@@ -34,13 +34,24 @@ only.
   only after the holder check passed, so a non-holder never reaches it.
 
 Each started service keeps one :class:`~osprey.services.trajectory.step.StepState`
-on its sessions. A holder's shot computes the step from the averaged shot and
-the current reference after the shot is stored, and a shot whose every shot
-failed voids it; the sessions keep the id of the latest shot, so an apply can
+on its sessions. A holder's chain whose shot makes a step (fresh, TbT, at
+least one injection included) computes the step from the averaged shot and
+the current reference after the shot is stored, and any other stored shot
+voids it; the sessions keep the id of the latest shot, so an apply can
 tell a step of an older shot; selecting a reference is a holder call that recomputes it
 against the step's shot. A step computed for a ``client_id`` that no longer
 holds the target is never installed. A take-over voids the step in the same
 in-memory step that swaps the holder, and a release in the one that drops it.
+
+The sessions carry the service's :class:`~.solve_config.SolveConfigStore`, when
+it has one; every step solves with its SolveConfig. A SolveConfig update is a
+holder call (:meth:`Sessions.solve_config`); what it does to the step follows
+:meth:`Sessions.after_solve`: a BPM-exclusion change voids the step and its
+shot, a corrector-exclusion change voids the step and keeps its shot as the
+base of the next recompute, and a change of ``alpha``, ``keep_live`` or
+``gain`` — or an empty update, Calculate RM — recomputes the step from that
+shot. While a continuous run is in progress only the loss cutoff may change,
+on the control path; every other key is 409 ``continuous_running``.
 
 The sessions own the holder's one :class:`~.continuous.ContinuousRun`. It is
 started on the control path for the holder (409 ``continuous_running`` while
@@ -48,8 +59,8 @@ one runs); only it holds a lease, which a heartbeat from the holder moves and
 whose expiry ends the run, voids the step and renews the stop event; a
 heartbeat moves the lease deadline and nothing else. A Stop ends the run as
 ``stopped``, a take-over as ``taken_over`` and a release as ``released``, each
-named before the stop event is renewed. While it runs, an apply and a setup
-are refused ``continuous_running`` (409).
+named before the stop event is renewed. While it runs, an apply is refused
+``continuous_running`` (409).
 
 The state view publishes the stop and action budgets
 (:func:`~osprey.services.trajectory.constants.budgets`) and the action in
@@ -81,9 +92,9 @@ from osprey.services.trajectory.admit import Admission
 from osprey.services.trajectory.constants import MAX_PAUSE_CEILING_S, Budgets, budgets
 from osprey.services.trajectory.refusal import Refused
 from osprey.services.trajectory.state import (
+    ChainResult,
     ContinuousEnd,
     ContinuousStatus,
-    LastAction,
     RunningAction,
     ShotResult,
     Step,
@@ -94,6 +105,8 @@ from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S
 if TYPE_CHECKING:
     from osprey.services.trajectory.acquisition import PostShotHook
     from osprey.services.trajectory.continuous import ContinuousRun
+    from osprey.services.trajectory.solve_config import SolveConfigStore, SolveUpdate
+    from osprey.services.trajectory.state import SolveConfigPartial
     from osprey.services.trajectory.store import TrajectoryStore
 
 __all__ = [
@@ -125,7 +138,7 @@ APPLY_IN_PROGRESS = "apply_in_progress"
 
 #: The names of the actions a take-over waits out: they write settings one by
 #: one, and a holder swapped mid-way would inherit a half-made change.
-_APPLY_NAMES = frozenset({"apply", "put_back"})
+_APPLY_NAMES = frozenset({"apply", "put_back", "setup"})
 
 #: The HTTP status each refusal raised here answers with.
 _STATUS = {
@@ -140,6 +153,7 @@ _STATUS = {
 }
 
 T = TypeVar("T")
+R = TypeVar("R", ChainResult, ShotResult)
 
 
 class SessionRefused(Refused):
@@ -268,6 +282,8 @@ class Sessions:
             stop budget.
         shutdown_signal: The service-shutdown signal, set once by
             :meth:`shutdown`; it ends every state stream.
+        solve: The SolveConfig and its published solve, ``None`` when the
+            service has no tool; every step solves with it.
     """
 
     def __init__(self, layer: ActionLayer, *, call_timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
@@ -276,6 +292,7 @@ class Sessions:
         self.shutdown_signal = asyncio.Event()
         self._shutdown: asyncio.Future[None] | None = None
         self.step = StepState()
+        self.solve: SolveConfigStore | None = None
         self.latest_shot_id: str | None = None
         self._holder: Holder | None = None
         self._voided: set[str] = set()
@@ -352,7 +369,7 @@ class Sessions:
         if running is not None and running.name in _APPLY_NAMES:
             raise SessionRefused(
                 APPLY_IN_PROGRESS,
-                f"an {running.name} by {old.owner!r} is writing; Stop it or wait for it "
+                f"the {running.name} by {old.owner!r} is writing; Stop it or wait for it "
                 "to end, then take over",
             )
         self._end_continuous("taken_over")
@@ -493,8 +510,8 @@ class Sessions:
             action: The worker action.
             precondition: The call's own worker check, run after the holder
                 check passed and before the probe, the limits and the lock.
-            name: The action's name while it runs (``shot``, ``setup``,
-                ``apply``, ``put_back``, ``reference``); a take-over is
+            name: The action's name while it runs (``shot``, ``apply``,
+                ``put_back``, ``reference``); a take-over is
                 refused while an ``apply`` or a ``put_back`` runs.
 
         Raises:
@@ -551,8 +568,12 @@ class Sessions:
     async def _recompute(
         self, store: TrajectoryStore, shot: ShotResult, client_id: str
     ) -> Step | None:
+        """Void the step, solve *shot* with the SolveConfig in force, install it for the holder."""
         self.step.void()
-        step = await step_for_shot(self.layer.startup, store, shot, client_id=client_id)
+        config = self.solve.config if self.solve is not None else None
+        step = await step_for_shot(
+            self.layer.startup, store, shot, client_id=client_id, config=config
+        )
         holder = self._holder
         if holder is None or holder.client_id != client_id:
             return None
@@ -565,24 +586,31 @@ class Sessions:
         kind: str,
         client_id: str | None,
         store: TrajectoryStore,
-        build: Callable[[PostShotHook], Action[ShotResult]],
-    ) -> ShotResult:
-        """Run the holder's shot action, with the post-shot hook bound.
+        build: Callable[[PostShotHook], Action[R]],
+    ) -> R:
+        """Run the holder's chain action, with the post-shot hook bound.
 
-        *build* makes the shot action from the hook it must call. A shot action
-        whose every shot failed voids the pending step.
+        *build* makes the action from the hook it must call; the action
+        answers a :class:`~.state.ChainResult`, or the shot itself. A stored
+        shot becomes the latest shot; one that makes no step (not fresh, not
+        TbT, or with every injection failed) voids the pending step, which a
+        newer reading has superseded. A chain without readout leaves both alone.
 
         Raises:
             As :meth:`call`; and :class:`~osprey.services.trajectory.step.StepRefused`
             when the step cannot be computed for the stored shot.
         """
-        shot_action = build(self.post_shot(store, client_id or ""))
+        chained = build(self.post_shot(store, client_id or ""))
 
-        async def action(admission: Admission, stop: asyncio.Event) -> ShotResult:
-            result = await shot_action(admission, stop)
-            self.latest_shot_id = result.shot_id
-            if result.shots_included == 0:
-                self.step.void()
+        async def action(admission: Admission, stop: asyncio.Event) -> R:
+            from osprey.services.trajectory.acquisition import makes_step
+
+            result = await chained(admission, stop)
+            shot = result.shot if isinstance(result, ChainResult) else result
+            if isinstance(shot, ShotResult):
+                self.latest_shot_id = shot.shot_id
+                if not makes_step(shot):
+                    self.step.void()
             return result
 
         return await self.call(owner, kind, client_id, action, name="shot")
@@ -616,38 +644,103 @@ class Sessions:
 
         return await self.call(owner, kind, client_id, action, name="reference")
 
-    async def setup(
-        self, owner: Any, kind: str, client_id: str | None, **kwargs: Any
-    ) -> LastAction:
-        """Run the setup action for the holder, refused while a continuous run runs.
+    # -- the SolveConfig -----------------------------------------------------
 
-        *kwargs* are :func:`~osprey.services.trajectory.acquisition.setup_action`'s.
-        The setup voids the pending step as its first statement.
+    async def after_solve(
+        self, update: SolveUpdate, store: TrajectoryStore, client_id: str
+    ) -> Step | None:
+        """Bring the step in line with a SolveConfig *update*; inside the holder's action.
+
+        A BPM-exclusion change voids the step and its shot: the shot was read
+        on another selection. A corrector-exclusion change voids the step and
+        keeps its shot as the base of the next recompute. A change of
+        ``alpha``, ``keep_live`` or ``gain``, or an empty update, recomputes
+        the step from that shot. Any other update leaves the step alone.
+
+        Returns:
+            The pending step afterwards, ``None`` when there is none.
 
         Raises:
-            As :meth:`call`; and
-            :class:`~osprey.services.trajectory.acquisition.AcquisitionRefused`
-            as ``setup_action`` refuses, ``continuous_running`` included.
+            StepRefused: The recompute failed; the step is void.
         """
-        from osprey.services.trajectory.acquisition import AcquisitionRefused, setup_action
+        from osprey.services.trajectory.solve_config import TUNING_KEYS
 
-        def running() -> bool:
-            return self.continuous_running
-
-        setup = setup_action(self.layer.startup, continuous_running=running, **kwargs)
-
-        def idle(_admission: Admission) -> None:
-            if running():
-                raise AcquisitionRefused(
-                    CONTINUOUS_RUNNING,
-                    "a continuous run is in progress; stop it before a setup",
-                )
-
-        async def action(admission: Admission, stop: asyncio.Event) -> LastAction:
+        changed = update.changed
+        if "excluded_bpms" in changed:
             self.step.void()
-            return await setup(admission, stop)
+            return None
+        if "excluded_cms" in changed:
+            self.step.void(keep_shot=True)
+            return None
+        if update.recalculated or changed & set(TUNING_KEYS):
+            shot = self.step.shot
+            if shot is None:
+                return None
+            return await self._recompute(store, shot, client_id)
+        return self.step.step
 
-        return await self.call(owner, kind, client_id, action, precondition=idle, name="setup")
+    async def solve_config(
+        self,
+        owner: Any,
+        kind: str,
+        client_id: str | None,
+        store: TrajectoryStore,
+        partial: SolveConfigPartial,
+        *,
+        cause: str = "operator",
+    ) -> tuple[SolveUpdate, Step | None]:
+        """Update the SolveConfig and bring the step in line, as a holder call.
+
+        While a continuous run is in progress a loss-cutoff-only update acts on
+        the control path after the holder check, and touches no step; any
+        other is refused.
+
+        Returns:
+            The update and the pending step afterwards.
+
+        Raises:
+            As :meth:`call`; SessionRefused: ``continuous_running`` for a key
+            other than ``loss_cutoff`` while a run is in progress;
+            :class:`~osprey.services.trajectory.step.StepRefused`
+            ``tool_unavailable`` without a SolveConfig; as
+            :meth:`SolveConfigStore.update` and :meth:`after_solve`.
+        """
+        from osprey.services.trajectory.step import TOOL_UNAVAILABLE, StepRefused
+
+        solve = self.solve
+        keys = {
+            key
+            for key, value in partial.model_dump(exclude_unset=True).items()
+            if value is not None
+        }
+        if self.continuous_running:
+            others = sorted(keys - {"loss_cutoff"})
+            if others or not keys:
+                raise SessionRefused(
+                    CONTINUOUS_RUNNING,
+                    "a continuous run is in progress; only loss_cutoff may change during it, "
+                    f"not {', '.join(others) or 'a recompute'}; stop it first",
+                )
+            holder = self.precondition(client_id)
+
+            def check(admission: Admission | None) -> None:
+                assert admission is not None  # the control path admits this call
+                holder(admission)
+
+            self.layer.control(owner, kind, check)
+            if solve is None:
+                raise StepRefused(TOOL_UNAVAILABLE, "the service has no SolveConfig: no tool")
+            return await solve.update(partial, cause), self.step.step
+
+        async def action(
+            _admission: Admission, _stop: asyncio.Event
+        ) -> tuple[SolveUpdate, Step | None]:
+            if solve is None:
+                raise StepRefused(TOOL_UNAVAILABLE, "the service has no SolveConfig: no tool")
+            update = await solve.update(partial, cause)
+            return update, await self.after_solve(update, store, client_id or "")
+
+        return await self.call(owner, kind, client_id, action, name="solve")
 
     # -- continuous ----------------------------------------------------------
 
@@ -668,21 +761,18 @@ class Sessions:
         kind: str,
         client_id: str | None,
         store: TrajectoryStore,
-        build: Callable[[PostShotHook], Action[ShotResult]],
-        *,
-        max_shots: int | None = None,
+        build: Callable[[PostShotHook], Action[Any]],
         **kwargs: Any,
     ) -> ContinuousRun:
-        """Start a continuous run of the holder's shots, on the control path.
+        """Start a continuous run of the holder's chain, on the control path.
 
         Args:
             owner: The admitted caller.
             kind: The door the call came through.
             client_id: The caller's session token.
             store: The store each shot is saved to.
-            build: Makes one shot action from the post-shot hook, per shot.
-            max_shots: The most shot actions the run submits; the service's
-                ``continuous_max_shots`` when not given.
+            build: Makes one chain action from the post-shot hook, per
+                iteration: the chain body the run was started with.
             **kwargs: :class:`~.continuous.ContinuousRun`'s keywords.
 
         Raises:
@@ -708,9 +798,8 @@ class Sessions:
                 raise ActionRefused(
                     SERVICE_STOPPING, "the service is shutting down; no continuous run starts"
                 )
-            limit = max_shots
-            if limit is None:
-                limit = self.layer.startup.settings.continuous_max_shots
+            options = dict(kwargs)
+            options.setdefault("min_period_s", self.layer.startup.settings.continuous_min_period_s)
             run = ContinuousRun(
                 self,
                 admission.owner,
@@ -718,8 +807,7 @@ class Sessions:
                 client_id or "",
                 store,
                 build,
-                max_shots=limit,
-                **kwargs,
+                **options,
             )
             self._continuous = run
             run.start()

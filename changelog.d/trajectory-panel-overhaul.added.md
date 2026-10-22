@@ -1,0 +1,1 @@
+The trajectory panel shows a shot's turn-by-turn readings, references, BPM settings and the correction on one page, and the demo facility's new `txt-injection` scenario lets you run a turn-by-turn injection study against the simulator.

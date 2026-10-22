@@ -44,7 +44,7 @@ from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 from tests.facility._pyaml_trees import measured_tree, with_correctors
-from tests.facility._synthetic_trees import model, with_shot_wiring, with_trajectory, write_tree
+from tests.facility._synthetic_trees import with_shot_wiring, with_trajectory, write_tree
 from tests.facility.served_tree import in_process_config
 
 MODEL = "SR"
@@ -69,9 +69,12 @@ def _tree() -> dict[str, Any]:
     """The periodic model measured by trajectory, every shot record wired, limits stated."""
     tree = with_trajectory(with_correctors(measured_tree()), MODEL, "SR/BPM1", marker="M1")
     with_shot_wiring(tree, MODEL, "BPM1")
-    record = model(tree, MODEL)
     # A launch off axis, so a shot leaves a series that is not the zeros of no shot.
-    record["settings"]["pyat"]["injection"]["x"] = 1.0e-3
+    # The launch is a model-wide fault; the always-active baseline scenario states it.
+    tree["scenarios/nominal.yaml"] = {
+        "description": "The baseline, launched off axis.",
+        "faults": {MODEL: {"launch_x": 1.0e-3}},
+    }
     tree["limits.yaml"] = {
         "records": [
             {"address": ARM, "min_value": 0, "max_value": 1, "confirm": False},

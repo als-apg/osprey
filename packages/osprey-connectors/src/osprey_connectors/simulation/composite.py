@@ -430,7 +430,7 @@ class Composite(LUMEModel):
                 [binding.record for binding in source.bindings],
                 source.deck,
                 source.settings,
-                active=dict(child.active),
+                active={name: self._as_index(name, value) for name, value in child.active.items()},
             )
             writable = [
                 name
@@ -840,17 +840,43 @@ class Composite(LUMEModel):
         return read
 
     def _as_declared(self, name: str, value: Any) -> Any:
-        """A child's plain read of an ``int`` channel as an int; any other value unchanged.
+        """A child's plain read as its channel declares it; any other value unchanged.
 
         An engine computes in floats, so a count or a flag comes back as an
-        integral float; the channel serves it as the int its record declares.
+        integral float; an ``int`` channel serves it as the int its record
+        declares. An engine holds a ``bool`` or ``enum`` channel as the index
+        of its label, and the channel serves the label at that index.
 
         Raises:
-            ValueError: an ``int`` channel read a value that is not integral.
+            ValueError: an ``int`` channel read a value that is not integral,
+                or a labelled channel an index that is not one of its labels'.
         """
-        if isinstance(value, float) and channel_value_type(self._channels[name]) == "int":
+        if isinstance(value, bool) or not isinstance(value, float | int):
+            return value
+        channel = self._channels[name]
+        value_type = channel_value_type(channel)
+        if value_type == "int" and isinstance(value, float):
             return values.coerce(value, "int")
+        if value_type in values.LABELLED_TYPES:
+            return values.coerce(
+                values.coerce(value, "int"), value_type, values.channel_labels(channel)
+            )
         return value
+
+    def _as_index(self, name: str, value: Any) -> Any:
+        """A value as a physics child takes it: a label as the index of the label.
+
+        The composite holds a ``bool`` or ``enum`` channel as its label; an
+        engine takes the label's index among the channel's labels. A name that
+        is no labelled channel -- a fault seed, a model-wide fault -- and a
+        value that is no label pass unchanged.
+        """
+        channel = self._channels.get(name)
+        if not isinstance(value, str) or channel is None:
+            return value
+        if channel_value_type(channel) not in values.LABELLED_TYPES:
+            return value
+        return values.channel_labels(channel).index(value)
 
     def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, Any]:
         """What a failed child's channels read: inputs, NaN, or the last good value."""
@@ -1140,7 +1166,9 @@ class Composite(LUMEModel):
         if model is not None and forward:
             model.set(
                 {
-                    name: _for_variable(model.supported_variables[name], value)
+                    name: _for_variable(
+                        model.supported_variables[name], self._as_index(name, value)
+                    )
                     for name, value in forward.items()
                 }
             )
@@ -1153,7 +1181,10 @@ class Composite(LUMEModel):
                 try:
                     child.model.set(
                         {
-                            name: _for_variable(child.model.supported_variables[name], value)
+                            name: _for_variable(
+                                child.model.supported_variables[name],
+                                self._as_index(name, value),
+                            )
                             for name, value in undo.items()
                         }
                     )

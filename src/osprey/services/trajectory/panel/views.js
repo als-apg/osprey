@@ -1,25 +1,28 @@
 // @ts-check
 /**
- * views — what the trajectory panel shows, built from the snapshot and the
- * stream's events.
+ * views — the trajectory panel's shell, built from the snapshot and the
+ * stream's events: the layout and its area hosts, the header strip (machine
+ * facts, session controls, notices), the status strip, the centre tabs and
+ * what the hub's tile bar is handed for them.
  *
  * Every node is built through {@link h} — `createElement` plus
  * `textContent`/property assignment — so service strings (owners, BPM and
  * corrector names, refusal details) reach the DOM as text and are never
  * interpreted as markup.
  *
- * The decision functions (`loopControls`, `noticeFromResult`,
- * `noticeFromEvent`, `shouldHeartbeat`, `describeEnd`) are pure; the
- * `*View` builders return a fresh element for a section, and the caller
- * swaps it in. Inputs the operator types into (`loopForm`) are built once and
- * kept, so a new snapshot never clears them.
+ * The decision functions (`sessionButtons`, `headerItems`, `noticeFromResult`,
+ * `noticeFromEvent`, `shouldHeartbeat`, `describeEnd`) are pure; the `*View`
+ * builders return a fresh element for a section, and the caller swaps it in.
+ * {@link shellView} is built once: the area modules own what is inside their
+ * hosts, and a new snapshot never rebuilds them.
+ *
+ * A control the operator cannot use right now is shown disabled with the
+ * reason as its tooltip and `data-reason`, never hidden.
  *
  * This module performs no I/O.
  *
  * @module views
  */
-
-import { canPutBack } from './api.js';
 
 /**
  * @typedef {import('./api.js').Moved} Moved
@@ -57,17 +60,19 @@ export function h(tag, props, ...children) {
 }
 
 /**
- * A control button, named by `data-control` for the tests and the browser
- * driver.
+ * A control button named by `data-control` for the tests and the browser
+ * driver. A non-null *reason* disables it and is shown as its tooltip and
+ * `data-reason`.
  * @param {string} name
  * @param {string} label
  * @param {() => void} onclick
- * @param {boolean} [disabled]
+ * @param {string | null} [reason]  Why it cannot be used now.
  * @returns {HTMLButtonElement}
  */
-function controlButton(name, label, onclick, disabled = false) {
+export function control(name, label, onclick, reason = null) {
   return /** @type {HTMLButtonElement} */ (
-    h('button', { type: 'button', 'data-control': name, disabled, onclick }, label)
+    h('button', { type: 'button', 'data-control': name, disabled: reason != null, title: reason,
+      'data-reason': reason, onclick }, label)
   );
 }
 
@@ -179,53 +184,6 @@ export function noticeFromEvent(type, payload) {
 }
 
 /**
- * The snapshot fields the controls are decided from.
- * @typedef {object} LoopSnapshot
- * @property {string | null} caller
- * @property {'idle' | 'action' | 'continuous'} mode
- * @property {string} model_kind
- * @property {{ digest: string, all_zero: boolean } | null} step
- * @property {import('./api.js').LastAction | null} last_action
- * @property {object | null} continuous
- */
-
-/**
- * @typedef {object} LoopControls
- * @property {boolean} stop  Shown to every admitted owner, holding or not.
- * @property {boolean} setup
- * @property {boolean} shot
- * @property {boolean} apply
- * @property {boolean} putBack
- * @property {boolean} continuous
- * @property {boolean} saveReference
- * @property {boolean} selectReference
- */
-
-/**
- * Which loop controls are enabled. Writing controls need this tab to hold the
- * session and nothing to be running; the service still decides, and a refusal
- * is shown with its code.
- * @param {LoopSnapshot | null} snapshot
- * @param {{ holding: boolean }} tab
- * @returns {LoopControls}
- */
-export function loopControls(snapshot, { holding }) {
-  const admitted = snapshot != null && snapshot.caller != null;
-  const free = snapshot != null && holding && snapshot.mode === 'idle';
-  const model = snapshot != null && snapshot.model_kind !== 'none';
-  return {
-    stop: admitted,
-    setup: free,
-    shot: free && model,
-    apply: free && snapshot.step != null && !snapshot.step.all_zero,
-    putBack: free && canPutBack(snapshot.last_action),
-    continuous: free && model,
-    saveReference: admitted && model,
-    selectReference: free && model,
-  };
-}
-
-/**
  * Whether the continuous heartbeat should be running: a run is in progress and
  * this tab holds the session that started it.
  * @param {{ continuous: object | null } | null} snapshot
@@ -236,96 +194,10 @@ export function shouldHeartbeat(snapshot, holding) {
 }
 
 /**
- * @param {string} label
- * @param {Node | string | number | null | undefined} value
- */
-function fact(label, value) {
-  return [h('dt', { text: label }), h('dd', null, value ?? '—')];
-}
-
-/** @param {readonly string[] | null | undefined} names */
-function names(names) {
-  return names && names.length ? names.join(', ') : 'none';
-}
-
-/**
  * @param {{ owner: string, kind: string } | null | undefined} holder
  */
 export function holderText(holder) {
   return holder ? `${holder.kind} of ${holder.owner}` : 'nobody';
-}
-
-/**
- * The header: target, posture, limits, writing, model, holder and take-over,
- * and the stream's connection state.
- * @param {any} snapshot
- * @param {string} connection
- * @param {boolean} holding
- */
-export function headerView(snapshot, connection, holding) {
-  const status = h('p', { class: `connection connection-${connection}`, 'data-connection': connection },
-    `Stream: ${connection}`);
-  if (snapshot == null) return h('section', { class: 'header', 'data-view': 'header' }, status);
-  const holder = holderText(snapshot.holder) + (holding ? ' (this tab)' : '');
-  const takenOver = snapshot.taken_over
-    ? h('p', { class: 'notice notice-taken-over', role: 'status' },
-        `Taken over by ${holderText(snapshot.taken_over.by)} from ${holderText(snapshot.taken_over.previous)}.`)
-    : null;
-  return h('section', { class: 'header', 'data-view': 'header' },
-    status,
-    h('dl', { class: 'facts' },
-      ...fact('Target', snapshot.target),
-      ...fact('Operator', snapshot.caller ?? 'not identified'),
-      ...fact('Posture', `${snapshot.posture}${snapshot.writes_enabled ? '' : ' (writes disabled)'}`),
-      ...fact('Limits', snapshot.limits),
-      ...fact('Writing', snapshot.writing_available ? 'available' : 'unavailable'),
-      ...fact('Model', snapshot.model ? `${snapshot.model} (${snapshot.model_kind})` : 'none'),
-      ...fact('Holder', holder)),
-    takenOver);
-}
-
-/**
- * @typedef {object} SessionHandlers
- * @property {() => void} onOpen
- * @property {() => void} onTakeOver
- * @property {() => void} onRelease
- * @property {() => void} onStop
- */
-
-/**
- * The action area: mode, running action and its stopping state, budgets, the
- * session controls, and Stop for every admitted owner.
- * @param {any} snapshot
- * @param {SessionControls} controls
- * @param {LoopControls} loop
- * @param {SessionHandlers} handlers
- */
-export function actionView(snapshot, controls, loop, handlers) {
-  const running = controls.running;
-  const runningLine = running
-    ? h('p', { class: 'running', 'data-running': running.name },
-        `Running: ${running.name}${running.owner ? ` (${running.kind} of ${running.owner})` : ''}` +
-          (running.stopping ? ' — stopping' : ''))
-    : h('p', { class: 'running' }, 'Nothing running');
-  const stragglers = snapshot?.action?.armed_stragglers?.length
-    ? h('p', null, `Armed stragglers: ${names(snapshot.action.armed_stragglers)}`)
-    : null;
-  return h('section', { class: 'action', 'data-view': 'action' },
-    h('h2', { text: 'Action' }),
-    h('dl', { class: 'facts' },
-      ...fact('Mode', snapshot?.mode),
-      ...fact('Queue wait', snapshot ? `${snapshot.queue_wait_s} s` : null),
-      ...fact('Action timeout', snapshot ? `${snapshot.action_timeout_s} s` : null),
-      ...fact('Action budget', snapshot ? `${snapshot.action_budget_s} s` : null),
-      ...fact('Stop budget', snapshot ? `${snapshot.stop_budget_s} s` : null)),
-    runningLine,
-    stragglers,
-    h('div', { class: 'controls' },
-      controls.open && controlButton('open', 'Open session', handlers.onOpen),
-      controls.takeOver && controlButton('takeover', 'Take over', handlers.onTakeOver),
-      controls.release && controlButton('release', 'Release', handlers.onRelease),
-      loop.stop && controlButton('stop', running?.stopping ? 'Stop (stopping…)' : 'Stop', handlers.onStop),
-      controls.pending && h('span', { class: 'pending' }, 'session request in flight…')));
 }
 
 /**
@@ -376,185 +248,288 @@ export function noticesView(ended, notices) {
 }
 
 /**
- * The pending step: deltas, factor, reason and status, zeroed and rank
- * information, and every corrector the solve could not reach, named.
- * @param {any} step
+ * The keys the area modules share through the view store, with their initial
+ * values: whether the Raw tab draws (`plotRaw`, set by the chain's Plot step),
+ * whether the CM-step bars draw (`plotCmStep`), and the redraw request
+ * (`redraw`, a counter bumped to ask the plots to redraw from the last data).
  */
-export function stepView(step) {
-  if (step == null) return h('section', { class: 'step', 'data-view': 'step' }, h('h2', { text: 'Step' }),
-    h('p', null, 'No step pending; take a shot.'));
-  const deltas = Object.entries(step.deltas).sort(([a], [b]) => a.localeCompare(b));
-  return h('section', { class: 'step', 'data-view': 'step' },
-    h('h2', { text: 'Step' }),
-    h('dl', { class: 'facts' },
-      ...fact('Digest', h('code', { text: step.digest })),
-      ...fact('Shot', step.shot_id),
-      ...fact('Reference', step.reference ?? 'none'),
-      ...fact('Factor', step.factor),
-      ...fact('Reason', step.reason),
-      ...fact('Status', step.status),
-      ...fact('All zero', step.all_zero ? 'yes — apply refuses it' : 'no'),
-      ...fact('Rank discarded', `${step.rank_discarded} (n_discard ${step.n_discard})`),
-      ...fact('Zeroed H', names(step.zeroed_h)),
-      ...fact('Zeroed V', names(step.zeroed_v)),
-      ...fact('No response', names(step.no_response_names))),
-    step.unsolved.length
-      ? h('p', { class: 'notice notice-unsolved', 'data-view': 'unsolved', role: 'status' },
-          `Not solved: ${names(step.unsolved)}`)
-      : null,
-    table({ class: 'deltas' }, ['Corrector', 'Delta'], deltas));
-}
+export const VIEW_DEFAULTS = Object.freeze({ plotRaw: true, plotCmStep: true, redraw: 0 });
 
 /**
- * The last shot, the last writing action and the continuous run, in brief.
- * @param {any} snapshot
- */
-export function statusView(snapshot) {
-  const shot = snapshot?.last_shot;
-  const last = snapshot?.last_action;
-  const run = snapshot?.continuous;
-  return h('section', { class: 'status', 'data-view': 'status' },
-    h('h2', { text: 'Last shot' }),
-    shot
-      ? h('dl', { class: 'facts' },
-          ...fact('Shot', shot.shot_id),
-          ...fact('Included', shot.shots_included),
-          ...fact('Failed', shot.shots_failed.length
-            ? shot.shots_failed.map((/** @type {any} */ f) => `#${f.index}: ${f.reason}`).join('; ') : 'none'),
-          ...fact('Lost', names(shot.lost)),
-          ...fact('Last BPM', shot.last_bpm),
-          ...fact('Commands fired', names(shot.commands_fired)))
-      : h('p', null, 'No shot yet.'),
-    h('h2', { text: 'Last action' }),
-    last
-      ? h('div', { 'data-view': 'last-action' },
-          h('p', null, `${last.name}${last.stopped ? ' (stopped)' : ''}, ${last.moved.length} setting(s) moved`),
-          last.moved.length ? movedTable(last.moved) : null)
-      : h('p', null, 'No writing action yet.'),
-    h('h2', { text: 'Continuous' }),
-    run
-      ? h('p', { 'data-view': 'continuous' },
-          `Running: ${run.shots} of ${run.max_shots} shot(s); lease expires in ` +
-            `${run.lease_expires_in_s == null ? '—' : `${Math.round(run.lease_expires_in_s)} s`}`)
-      : h('p', null, 'Not running.'));
-}
-
-/**
- * @typedef {object} LoopForm
- * @property {HTMLElement} root
- * @property {HTMLInputElement} bunchClean
- * @property {HTMLInputElement} nShots
- * @property {HTMLSelectElement} average
- * @property {HTMLInputElement} maxShots  Empty sets no cap.
- * @property {Record<'setup' | 'shot' | 'apply' | 'putBack' | 'continuous', HTMLButtonElement>} buttons
+ * @typedef {{plotRaw: boolean, plotCmStep: boolean, redraw: number}} ViewState
+ * @typedef {keyof ViewState} ViewKey
  */
 
 /**
- * @typedef {object} LoopHandlers
- * @property {() => void} onSetup
- * @property {() => void} onShot
- * @property {() => void} onApply
- * @property {() => void} onPutBack
- * @property {() => void} onContinuous
+ * @typedef {object} ViewStore
+ * @property {<K extends ViewKey>(key: K) => ViewState[K]} get
+ * @property {<K extends ViewKey>(key: K, value: ViewState[K]) => void} set
+ *   Stores *value*; the key's listeners run when it changed.
+ * @property {<K extends ViewKey>(key: K, fn: (value: ViewState[K]) => void) => () => void} on
+ *   Listens to one key; answers the unsubscribe.
+ * @property {() => void} requestRedraw  Bumps `redraw`.
  */
 
 /**
- * Build the loop controls once; {@link setLoopEnabled} updates them.
- * @param {LoopHandlers} handlers
- * @returns {LoopForm}
+ * The keyed store the areas share.
+ * @param {Partial<ViewState>} [initial]
+ * @returns {ViewStore}
  */
-export function loopForm(handlers) {
-  const input = (/** @type {Record<string, unknown>} */ props) =>
-    /** @type {HTMLInputElement} */ (h('input', props));
-  const bunchClean = input({ type: 'checkbox', name: 'bunch_clean' });
-  const nShots = input({ type: 'number', name: 'n_shots', min: '1', step: '1', value: '1' });
-  const maxShots = input({ type: 'number', name: 'max_shots', min: '1', step: '1', placeholder: 'no cap' });
-  const average = /** @type {HTMLSelectElement} */ (h('select', { name: 'average' },
-    h('option', { value: 'mean', text: 'mean' }), h('option', { value: 'nanmean', text: 'nanmean' })));
-  const buttons = {
-    setup: controlButton('setup', 'Setup', handlers.onSetup),
-    shot: controlButton('shot', 'Shot', handlers.onShot),
-    apply: controlButton('apply', 'Apply step', handlers.onApply),
-    putBack: controlButton('put-back', 'Put back', handlers.onPutBack),
-    continuous: controlButton('continuous', 'Start continuous', handlers.onContinuous),
+export function createView(initial = {}) {
+  /** @type {ViewState} */
+  const state = { ...VIEW_DEFAULTS, ...initial };
+  /** @type {Map<ViewKey, Set<(value: any) => void>>} */
+  const listeners = new Map();
+  /** @type {ViewStore} */
+  const store = {
+    get: (key) => state[key],
+    set(key, value) {
+      if (Object.is(state[key], value)) return;
+      state[key] = value;
+      for (const fn of [...(listeners.get(key) ?? [])]) fn(value);
+    },
+    on(key, fn) {
+      const set = listeners.get(key) ?? new Set();
+      listeners.set(key, set);
+      set.add(fn);
+      return () => void set.delete(fn);
+    },
+    requestRedraw: () => store.set('redraw', state.redraw + 1),
   };
-  const root = h('section', { class: 'loop', 'data-view': 'loop' },
-    h('h2', { text: 'Loop' }),
-    h('div', { class: 'controls' }, h('label', null, bunchClean, ' bunch clean'), buttons.setup),
-    h('div', { class: 'controls' }, h('label', null, 'shots ', nShots), h('label', null, 'average ', average),
-      buttons.shot),
-    h('div', { class: 'controls' }, buttons.apply, buttons.putBack),
-    h('div', { class: 'controls' }, h('label', null, 'max shots ', maxShots), buttons.continuous));
-  return { root, bunchClean, nShots, average, maxShots, buttons };
+  return store;
+}
+
+/** The centre tabs: their `data-control` name, the tab they show and the manual's label. */
+export const CENTRE_TABS = Object.freeze([
+  Object.freeze({ name: 'tab-raw', tab: 'raw', label: 'Raw BPM Signal' }),
+  Object.freeze({ name: 'tab-correction', tab: 'correction', label: 'Trajectory Correction' }),
+]);
+
+/** @typedef {'raw' | 'correction'} CentreTab */
+
+/** The hub nav item the centre tabs are contributed as. */
+export const CENTRE_TABS_ITEM = 'centre-tabs';
+
+/**
+ * The area hosts, by `data-area`. Each named module's `mount(host, ctx)` fills its host;
+ * `header`, `notices`, `session` and `status` are the shell's own.
+ */
+export const AREAS = Object.freeze([
+  'header', 'session', 'notices', 'status',
+  'setup', 'chain',
+  'raw-plots', 'correction-plots', 'correction-results',
+  'plots', 'records', 'references', 'correction',
+  'drawer',
+]);
+
+/** The plot hosts, by element id and `data-control`, per centre tab. */
+export const PLOT_HOSTS = Object.freeze({
+  raw: Object.freeze(['plot-raw-sum', 'plot-raw-x', 'plot-raw-y']),
+  correction: Object.freeze(['plot-traj-x', 'plot-traj-y', 'plot-diff-x', 'plot-diff-y']),
+});
+
+/** @param {string} id */
+function plotHost(id) {
+  return h('div', { class: 'plot', id, 'data-control': id });
+}
+
+/** @param {string} area @param {Record<string, unknown>} [props] @param {...Node | null} children */
+function areaHost(area, props = {}, ...children) {
+  return h('div', { ...props, class: `area area-${area}${props.class ? ` ${props.class}` : ''}`, 'data-area': area },
+    ...children);
 }
 
 /**
- * @param {LoopForm} form
- * @param {LoopControls} loop
+ * @typedef {object} Shell
+ * @property {HTMLElement} root
+ * @property {Record<string, HTMLElement>} areas  Every host in {@link AREAS}, by name.
+ * @property {HTMLElement} tabStrip  The in-body centre tab strip.
+ * @property {Record<CentreTab, HTMLElement[]>} tabPanels  What each centre tab shows: its plots and its controls.
  */
-export function setLoopEnabled(form, loop) {
-  for (const key of /** @type {(keyof LoopForm['buttons'])[]} */ (Object.keys(form.buttons))) {
-    form.buttons[key].disabled = !loop[key];
+
+/**
+ * The layout: header strip and status strip on top; left the setup tabs and
+ * the Beam Injection chain; centre the Raw / Trajectory Correction tabs with
+ * their plot hosts and the correction results under the dy plot; right the
+ * per-tab controls with the SV spectrum host. Built once.
+ * @param {(tab: CentreTab) => void} onTab
+ * @returns {Shell}
+ */
+export function shellView(onTab) {
+  /** @type {Record<string, HTMLElement>} */
+  const areas = {};
+  /** @param {string} name @param {Record<string, unknown>} [props] @param {...Node | null} children */
+  const area = (name, props, ...children) => (areas[name] = areaHost(name, props, ...children));
+  const tabStrip = h('nav', { class: 'centre-tabs', role: 'tablist', 'aria-label': 'Plots' },
+    ...CENTRE_TABS.map(({ name, tab, label }) =>
+      h('button', { type: 'button', role: 'tab', 'data-control': name, 'data-tab': tab,
+        onclick: () => onTab(/** @type {CentreTab} */ (tab)) }, label)));
+  const rawPlots = area('raw-plots', { class: 'tab-panel', 'data-tab-panel': 'raw' },
+    ...PLOT_HOSTS.raw.map(plotHost));
+  const correctionPlots = area('correction-plots', { class: 'tab-panel', 'data-tab-panel': 'correction' },
+    h('h3', { text: 'Trajectories' }), plotHost('plot-traj-x'), plotHost('plot-traj-y'),
+    h('h3', { text: 'Difference to Reference' }), plotHost('plot-diff-x'), plotHost('plot-diff-y'),
+    area('correction-results'));
+  const rawControls = h('div', { class: 'tab-panel', 'data-tab-panel': 'raw' }, area('plots'), area('records'));
+  const correctionControls = h('div', { class: 'tab-panel', 'data-tab-panel': 'correction' },
+    area('references'), area('correction'), plotHost('plot-sv'));
+  const root = h('div', { class: 'traj-shell', 'data-view': 'shell' },
+    h('section', { class: 'header-strip', 'data-view': 'header-strip' },
+      area('header'), area('session', { class: 'session-controls' }), area('notices')),
+    area('status', { class: 'status-strip' }),
+    h('div', { class: 'traj-grid' },
+      h('aside', { class: 'col col-left', 'data-column': 'left' }, area('setup'), area('chain')),
+      h('section', { class: 'col col-centre', 'data-column': 'centre' }, tabStrip, rawPlots, correctionPlots),
+      h('aside', { class: 'col col-right', 'data-column': 'right' }, rawControls, correctionControls)),
+    area('drawer'));
+  return { root, areas, tabStrip, tabPanels: { raw: [rawPlots, rawControls], correction: [correctionPlots, correctionControls] } };
+}
+
+/**
+ * Show *tab*'s plots and controls, mark its strip button selected, and fire
+ * `tab:show` on what became visible so the render adapter resizes its plots.
+ * @param {Shell} shell
+ * @param {CentreTab} tab
+ */
+export function showTab(shell, tab) {
+  for (const [name, panels] of Object.entries(shell.tabPanels)) {
+    for (const panel of panels) panel.hidden = name !== tab;
+  }
+  for (const button of shell.tabStrip.querySelectorAll('[data-tab]')) {
+    button.setAttribute('aria-selected', String(button.getAttribute('data-tab') === tab));
+  }
+  for (const panel of shell.tabPanels[tab]) {
+    panel.dispatchEvent(new CustomEvent('tab:show', { bubbles: true }));
   }
 }
 
 /**
- * The shot and average the form asks for.
- * @param {LoopForm} form
- * @returns {{ n_shots: number, average: string, max_shots: number | null }}
+ * One session control: its inventory name, its label, and why it is
+ * disabled (null when usable).
+ * @typedef {{name: 'session-open' | 'session-takeover' | 'session-end', label: string,
+ *   reason: string | null}} SessionButton
  */
-export function loopArgs(form) {
-  const max = form.maxShots.value.trim();
-  return {
-    n_shots: Number.parseInt(form.nShots.value, 10) || 1,
-    average: form.average.value,
-    max_shots: max === '' ? null : Number.parseInt(max, 10),
-  };
+
+/**
+ * The session controls, always all three, each with why it cannot be used now.
+ * @param {any} snapshot
+ * @param {SessionControls} controls
+ * @returns {SessionButton[]}
+ */
+export function sessionButtons(snapshot, controls) {
+  const holder = snapshot?.holder ?? null;
+  /** @type {string | null} */
+  let common = null;
+  if (snapshot == null) common = 'Waiting for the service.';
+  else if (controls.holding) common = 'This tab holds the session.';
+  else if (controls.pending) common = 'A session request is in flight.';
+  const running = controls.running;
+  const takeOverReason = holder == null
+    ? 'Nobody holds the session; open it.'
+    : `Wait for ${running?.name ?? 'the action'} to end, or Stop it.`;
+  return [
+    { name: 'session-open', label: 'Open session',
+      reason: common ?? (controls.open ? null : `Held by ${holderText(holder)}; take over instead.`) },
+    { name: 'session-takeover', label: 'Take over',
+      reason: common ?? (controls.takeOver ? null : takeOverReason) },
+    { name: 'session-end', label: 'End session',
+      reason: controls.release ? null : 'This tab holds no session.' },
+  ];
 }
 
 /**
- * @typedef {object} ReferenceHandlers
- * @property {(name: string, shotId: string | undefined) => void} onSave
- * @property {(name: string | null) => void} onSelect
- * @property {() => void} onRefresh
+ * The session controls in the body.
+ * @param {SessionButton[]} buttons
+ * @param {(name: string) => void} onClick
  */
+export function sessionView(buttons, onClick) {
+  return h('div', { class: 'controls', 'data-view': 'session' },
+    ...buttons.map((b) => control(b.name, b.label, () => onClick(b.name), b.reason)));
+}
 
 /**
- * References (list, save, select), the loaded reference, and the shots list.
- * @param {{ names: string[], current: string | null } | null} references
- * @param {any[] | null} shots  Newest first.
- * @param {any} snapshot
- * @param {LoopControls} loop
- * @param {ReferenceHandlers} handlers
+ * What the hub's tile bar shows: the session controls, then the centre tabs
+ * last (the item aimed at most, so it stays against the close button).
+ * @param {SessionButton[]} buttons
+ * @param {CentreTab} activeTab
+ * @returns {import('/design-system/js/header-contrib.js').HeaderItem[]}
  */
-export function referencesView(references, shots, snapshot, loop, handlers) {
-  const list = references?.names ?? [];
-  const pick = /** @type {HTMLSelectElement} */ (h('select', { name: 'reference' },
-    h('option', { value: '', text: '(no reference)' }),
-    ...list.map((name) => h('option', { value: name, text: name, selected: name === references?.current }))));
-  const nameInput = /** @type {HTMLInputElement} */ (h('input', { type: 'text', name: 'reference_name',
-    placeholder: 'reference name' }));
-  const shotPick = /** @type {HTMLSelectElement} */ (h('select', { name: 'reference_shot' },
-    h('option', { value: '', text: "the step's shot, else the newest" }),
-    ...(shots ?? []).map((s) => h('option', { value: s.shot_id, text: s.shot_id }))));
-  const loaded = snapshot?.reference;
-  return h('section', { class: 'references', 'data-view': 'references' },
-    h('h2', { text: 'References' }),
-    loaded
-      ? h('p', { 'data-view': 'reference-loaded' }, `Selected: ${loaded.name} — ${loaded.matched.length} matched, ` +
-          `missing ${names(loaded.missing_in_reference)}, unused ${names(loaded.unused_in_reference)}, ` +
-          `${loaded.nan_count} NaN`)
-      : h('p', null, 'No reference selected.'),
-    h('div', { class: 'controls' }, pick,
-      controlButton('select-reference', 'Select',
-        () => handlers.onSelect(pick.value === '' ? null : pick.value), !loop.selectReference)),
-    h('div', { class: 'controls' }, nameInput, shotPick,
-      controlButton('save-reference', 'Save',
-        () => handlers.onSave(nameInput.value.trim(), shotPick.value || undefined), !loop.saveReference)),
-    controlButton('refresh', 'Refresh lists', handlers.onRefresh),
-    h('h2', { text: 'Shots' }),
-    shots && shots.length
-      ? table({ class: 'shots', 'data-view': 'shots' }, ['Shot', 'Included', 'Failed', 'Last BPM', 'Lost'],
-          shots.map((s) => [s.shot_id, s.shots_included, s.shots_failed.length, s.last_bpm ?? '—', s.lost.length]))
-      : h('p', null, 'No shots stored.'));
+export function headerItems(buttons, activeTab) {
+  return [
+    ...buttons.map((b) => ({ kind: /** @type {const} */ ('button'), id: b.name, label: b.label,
+      disabled: b.reason != null, ...(b.reason != null ? { title: b.reason } : {}) })),
+    { kind: 'nav', id: CENTRE_TABS_ITEM,
+      items: CENTRE_TABS.map(({ name, tab, label }) => ({ id: name, label, active: tab === activeTab })) },
+  ];
+}
+
+/** @param {unknown} value */
+function shown(value) {
+  return value == null ? '—' : String(value);
+}
+
+/**
+ * @param {string} name
+ * @param {string} label
+ * @param {unknown} value
+ */
+function fact(name, label, value) {
+  return h('div', { class: 'fact', 'data-fact': name },
+    h('span', { class: 'fact-label', text: label }),
+    h('span', { class: 'fact-value', 'data-control': name === 'stored-current' ? name : null, text: shown(value) }));
+}
+
+/**
+ * The header facts: target, holder, writes posture, RF and stored current,
+ * and a take-over when there was one.
+ * @param {any} snapshot
+ * @param {boolean} holding
+ */
+export function headerView(snapshot, holding) {
+  const machine = snapshot?.machine ?? null;
+  const current = machine?.stored_current;
+  const writes = snapshot == null ? null
+    : `${snapshot.posture}${snapshot.writes_enabled ? '' : ' (writes disabled)'}`;
+  return h('div', { class: 'facts', 'data-view': 'header' },
+    fact('target', 'Target', snapshot?.target),
+    fact('holder', 'Holder', snapshot == null ? null : holderText(snapshot.holder) + (holding ? ' (this tab)' : '')),
+    fact('writes', 'Writes', writes),
+    fact('rf', 'RF', machine?.rf_on),
+    fact('stored-current', 'Stored current', typeof current === 'number' ? `${current.toPrecision(4)} mA` : null),
+    snapshot?.taken_over
+      ? h('p', { class: 'notice notice-taken-over', role: 'status' },
+          `Taken over by ${holderText(snapshot.taken_over.by)} from ${holderText(snapshot.taken_over.previous)}.`)
+      : null);
+}
+
+/**
+ * The status strip, always in the body: the stream's connection, the mode,
+ * what runs and its stopping state, the continuous run, and Stop for every
+ * admitted owner.
+ * @param {any} snapshot
+ * @param {string} connection
+ * @param {SessionControls} controls
+ * @param {() => void} onStop
+ */
+export function statusView(snapshot, connection, controls, onStop) {
+  const running = controls.running;
+  const run = snapshot?.continuous;
+  /** @type {string | null} */
+  let stopReason = null;
+  if (snapshot == null || snapshot.caller == null) stopReason = 'Not admitted by the service.';
+  else if (running == null && run == null) stopReason = 'Nothing is running.';
+  return h('div', { class: 'status-line', 'data-view': 'status' },
+    h('span', { class: `connection connection-${connection}`, 'data-connection': connection },
+      `Stream: ${connection}`),
+    h('span', { 'data-mode': snapshot?.mode ?? 'unknown' }, `Mode: ${snapshot?.mode ?? '—'}`),
+    running
+      ? h('span', { class: 'running', 'data-running': running.name },
+          `Running: ${running.name}${running.owner ? ` (${running.kind} of ${running.owner})` : ''}` +
+            (running.stopping ? ' — stopping' : ''))
+      : h('span', { class: 'running' }, 'Nothing running'),
+    run
+      ? h('span', { 'data-view': 'continuous' }, `Continuous: ${run.shots} shot(s); lease expires in ` +
+          `${run.lease_expires_in_s == null ? '—' : `${Math.round(run.lease_expires_in_s)} s`}`)
+      : null,
+    control('stop', running?.stopping ? 'Stop (stopping…)' : 'Stop', onStop, stopReason));
 }

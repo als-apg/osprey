@@ -42,7 +42,7 @@ DEMO_STALE = (
     "vacuum-burst.yaml",
 )
 #: The demo scenarios the synthetic export leaves current.
-DEMO_CURRENT = ("first-turn-errors.yaml", "nominal.yaml")
+DEMO_CURRENT = ("first-turn-errors.yaml", "nominal.yaml", "txt-injection.yaml")
 #: The files the demo scenarios' logbook entries attach, beside the scenarios.
 DEMO_ATTACHED = (
     "bpm-polarity/plots/corrector_bump_test.png",

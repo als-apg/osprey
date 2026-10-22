@@ -293,6 +293,49 @@ enums:
       injection_busy_status:
         description: Readback that is set while a requested injection shot is in progress.
         aliases: [injection busy, injection in progress, shot in progress]
+      bunch_cleaning_command:
+        description: >-
+          Command that removes the stored charge, so the next injected shot circulates
+          alone.
+        aliases: [bunch cleaning, clear stored beam, dump stored beam, empty stored charge, beam cleaning]
+      rf_on_setpoint:
+        description: >-
+          Commanded on/off state of the RF system of a lattice that stores beam; with RF
+          off the beam has no closed orbit and is not captured.
+        aliases: [rf on, rf switch, rf on/off, turn rf off, turn rf on, rf enable]
+      rf_on_readback:
+        description: Readback of the on/off state of the RF system of a lattice that stores beam.
+        aliases: [rf on readback, rf state, rf status, is rf on]
+      turns_tracked_setpoint:
+        description: >-
+          Commanded number of turns after the trigger that a turn-by-turn acquisition
+          records beam on (the acquisition's buffer size).
+        aliases: [turns tracked, buffer size, turn-by-turn buffer size, number of turns, tbt turns]
+      turns_tracked_readback:
+        description: Readback of the number of turns a turn-by-turn acquisition records beam on.
+        aliases: [turns tracked readback, buffer size readback]
+      pilot_tone_setpoint:
+        description: >-
+          Commanded on/off state of a BPM's pilot tone, a calibration tone the
+          electronics add to the button signals.
+        aliases: [pilot tone, pilot tone on, pilot tone off, bpm pilot tone]
+      pilot_tone_readback:
+        description: Readback of the on/off state of a BPM's pilot tone.
+        aliases: [pilot tone state, pilot tone readback]
+      bpm_mode_setpoint:
+        description: >-
+          Commanded operating mode of a BPM's electronics (e.g. low or high beam
+          current), which sets their electronic noise.
+        aliases: [bpm mode, bpm current mode, low current mode, high current mode]
+      bpm_mode_readback:
+        description: Readback of the operating mode of a BPM's electronics.
+        aliases: [bpm mode readback, bpm mode state]
+      attenuation_setpoint:
+        description: Commanded attenuation of a BPM's input signal ahead of its electronics.
+        aliases: [attenuation, bpm attenuation, attenuator setting, input attenuation]
+      attenuation_readback:
+        description: Readback of the attenuation applied to a BPM's input signal.
+        aliases: [attenuation readback, measured attenuation, attenuator readback]
       pulse_waveform:
         description: >-
           Sampled time trace of one output pulse of a pulsed device (e.g. a septum or

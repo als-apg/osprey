@@ -7,18 +7,18 @@ Trajectory Model Contract
 A trajectory model is a served pyAT model whose measurement file lists the
 ``trajectory`` kind: it holds turn-by-turn buffers per beam position monitor,
 takes an arm command and an injection request, and fills the buffers with one
-tracked particle per shot, losing it where the lattice and its apertures stop
-it. :ref:`The Virtual Accelerator <architecture-virtual-accelerator>` places it
+tracked particle, or a bunch, per shot, losing it where the lattice and its
+apertures stop it. :ref:`The Virtual Accelerator <architecture-virtual-accelerator>` places it
 among the served models, and :ref:`architecture-simulation-models` says where
 an engine and its settings come from. This page is the exact behaviour: the
 state a model reports, which records are commands and what a write to one
-does, what a buffer holds after a shot, where shot state lives, the files and
-tool answer of the first-turn response, the model-wide scenario faults, which
-channels the archive records, and the sum levels a reader of the buffers
-compares against.
+does, the settings and readings around a shot, what a buffer holds after a
+shot, where shot state lives, the files and tool answer of the first-turn
+response, the model-wide scenario faults, and which channels the archive
+records.
 
-The facility side of the kind, its groups, instruments and keys, is described
-in :doc:`/how-to/describe-your-facility`.
+The facility side of the kind, its groups, instruments, keys and
+``trajectory`` block, is described in :doc:`/how-to/describe-your-facility`.
 
 Model state
 ===========
@@ -77,10 +77,12 @@ orbit to lose.
 Records of a trajectory model
 =============================
 
-A trajectory model wires three record classes beyond its orbit readings. None
-names an element except the series, which name their monitor's.
+A trajectory model wires these records beyond its orbit readings. None names
+an element except the series, which name their monitor's, the readout
+settings, which name a monitor element, and the RF switch, which names the
+cavities.
 
-.. list-table:: Turn-by-turn records
+.. list-table:: Records of a trajectory model
    :header-rows: 1
    :widths: 22 30 48
 
@@ -91,20 +93,43 @@ names an element except the series, which name their monitor's.
      - ``{axis: x | y | sum, series: turn}`` on a monitor element
      - A waveform of the record's ``shape``, described as ``turn_series``
        with its plane (``sum`` has none). Every series of one model has the
-       same length, at least the pre-trigger samples plus one.
+       same length, the trigger sample plus at least one turn.
    * - armed flag
      - ``{attribute: armed}``
      - An int reading, described as ``turn_series``: 1 while armed, else 0.
    * - command
-     - ``{attribute: arm}`` or ``{attribute: inject}``
+     - ``{attribute: arm}``, ``{attribute: inject}`` or
+       ``{attribute: clear_stored_charge}``
      - An int setpoint carrying the command mark. A write acts and holds no
        setting.
+   * - turns tracked
+     - ``{attribute: turns_tracked}``
+     - An int setting: the turns after the trigger sample every series
+       carries beam on, from 1 to the series length less the trigger sample.
+       Its default is the record's ``default``, else 100 or the most the
+       series hold.
+   * - RF switch
+     - ``{attribute: Voltage}`` on the cavities, with two labels
+     - A discrete setting, on by default: on writes each cavity's deck
+       voltage, off writes 0. A scenario never sets it.
+   * - stored current
+     - ``{attribute: stored_current, surviving_fraction, charge_floor}``
+     - A reading of the stored charge times the revolution frequency,
+       through its calibration.
+   * - readout setting
+     - ``{attribute: readout_noise_scale | readout_tone_amplitude |
+       readout_gain | readout_sum_scale}`` on a monitor element, optionally
+       ``discrete: true``
+     - A setting of that monitor's readout. A discrete one maps its label
+       index through a calibration table; it starts at its ``default``, else
+       the first label.
 
 The ``injection`` block of ``settings.pyat`` names the deck ``marker`` the beam
-is launched from, the launch vector ``x``, ``px``, ``y``, ``py``, ``delta``,
-``ct`` (each 0 when left out) and ``pre_trigger_samples`` (10 when left out).
-A ``periodic`` model carrying the kind requires the block; a ``single_pass``
-model refuses it and launches from ``twiss_in`` with the default pre-trigger.
+is launched from. The build writes the measurement file's
+``trajectory.trigger_sample`` into it (10 when the file states none). A
+``periodic`` model carrying the kind requires the block; a ``single_pass``
+model refuses it and launches from ``twiss_in``. Where the beam is launched
+is a scenario's ``launch_*`` faults (see `Model-wide scenario faults`_).
 
 .. _trajectory-command-slots:
 
@@ -112,8 +137,9 @@ Command slots
 =============
 
 A command slot is a channel the measurement writes a command to: every channel
-carrying the signal ``bpm_arm_command`` on a device of the model, and the
-channel ``instruments.injection_request`` names. The facility build holds each
+carrying the signal ``bpm_arm_command`` on a device of the model, the channel
+``instruments.injection_request`` names and the channel
+``instruments.bunch_clean_enable`` names. The facility build holds each
 one to these rules:
 
 - It is a setpoint of value type ``int``.
@@ -142,61 +168,92 @@ of the model.
   model saw for it, and not the request's default, is one shot. Every write to
   a request, shot or not, becomes the last value seen. A write of the default
   is never a shot.
-- **A shot.** The counter advances by one. When the flag is set, one particle
-  is tracked, every series of the model is refilled and the flag is cleared.
-  When it is not, the shot is counted, the flag stays clear and every series
-  keeps what it held.
-- **Order.** The particle is tracked after the batch's setpoints are applied
-  and solved, so it sees the lattice the batch left. The series, the flag, the
-  counter and the last request seen change only when the batch commits; a
-  refused batch leaves all four as they were.
+- **A shot.** The counter advances by one. When the flag is set, the particle
+  or the bunch is tracked, every series of the model is refilled and the flag
+  is cleared. When it is not, the shot is counted, the flag stays clear and
+  every series keeps what it held.
+- **Order.** The beam is tracked after the batch's setpoints are applied and
+  solved, so it sees the lattice the batch left. The series, the flag, the
+  counter, the last request seen and the stored charge change only when the
+  batch commits; a refused batch leaves them as they were.
 - **Rest.** A model as built, after ``reset()``, and after a rebuild holds every
-  series at zero, the flag at 0, the counter at 0 and every request at its
-  default. ``reset()`` is never a shot.
+  series at zero, the flag at 0, the counter at 0, every request at its
+  default and the stored charge at the scenario's. ``reset()`` is never a
+  shot.
 
 A ``periodic`` model tracks the lattice rotated to its injection marker, one
-sample per turn, for the series length less the pre-trigger samples. A
-``single_pass`` model tracks its line once, unrotated, for one sample.
+sample per turn, for the turns tracked. A ``single_pass`` model tracks its
+line once, unrotated, for one sample.
+
+A bunch
+-------
+
+A scenario that states ``bunch_particles`` declares a **bunch**; without it a
+shot tracks one particle. A bunch needs a ``periodic`` model with an
+``injection`` marker. Its shape is fixed at build, matched to the lattice at
+the marker; the one random part is a centroid jitter per shot, keyed on the
+model and the shot counter, so a restart or a reset replays the same shots.
+At each sample ``sum`` reads the share of the bunch alive and ``x`` and ``y``
+the survivors' centroid.
+
+Accumulation
+------------
+
+Under a bunch, every shot, armed or not, adds its survivors at the end of the
+tracked turns, times ``bunch_charge``, to the **stored charge**, which the
+stored-current record serves. A write of the cleaning command empties it,
+before the batch's shots; it is not a shot.
+
+- **RF on, closed orbit.** The stored beam is in every sample of every series,
+  the trigger samples included: ``sum`` adds the stored charge over
+  ``bunch_charge``, and ``x`` and ``y`` read the charge-weighted centroid of
+  the survivors and the stored beam on the closed orbit.
+- **RF off.** There is no closed orbit; the model reports ``no closed orbit``,
+  and orbit, tune and chromaticity read NaN. The stored charge keeps
+  ``surviving_fraction`` of itself per shot, and is gone at or below
+  ``charge_floor``. It shows only on the stored-current record, never in a
+  series.
+- **No closed orbit with RF on.** The stored charge is lost at once.
 
 What a series holds
 -------------------
 
-For each series and each sample, after a tracked shot:
+A series reads one value for each sample, beam or not; after a shot it holds
+no NaN and its ``sum`` no exact zero.
 
 .. list-table:: Turn series samples
    :header-rows: 1
-   :widths: 30 23 23 24
+   :widths: 30 35 35
 
    * - Sample
-     - ``x``
-     - ``y``
+     - ``x``, ``y``
      - ``sum``
-   * - before the launch (the pre-trigger samples)
-     - 0
-     - 0
-     - 0
-   * - tracked, beam passes the monitor
-     - position, through the record's calibration
-     - position, through the record's calibration
-     - 1, through the record's calibration
-   * - tracked, beam already lost
-     - NaN
-     - NaN
-     - 0
-   * - after the last tracked sample
-     - 0
-     - 0
-     - 0
+   * - beam passes the monitor
+     - position plus readout noise, through the record's calibration
+     - the share alive (1 for a particle), through the readout and the
+       record's calibration
+   * - no injected beam: before the trigger sample, after the turns tracked,
+       or past the loss
+     - 0 plus readout noise, through the record's calibration
+     - the floor 0.03, through the readout and the record's calibration
 
-A tracked sample is lost when the tracked ``x`` at the monitor is NaN, so every
-monitor past the loss reads NaN in ``x`` and ``y`` and 0 in ``sum``, on that
-turn and on every later one. A lost sample is never passed through a
-calibration. A tracked position takes the readout faults its monitor's element
+Stored beam with RF on adds to both columns as `Accumulation`_ says.
+
+The readout of a monitor is its settings:
+
+- **noise.** ``x`` and ``y`` take a Gaussian noise of
+  ``readout_noise_scale / max(sum, 0.03)``: noise over sum.
+- **pilot tone.** ``readout_tone_amplitude`` adds to ``sum``, and puts a spike
+  of ``2e-3`` times it times a normal draw on every tenth sample of ``x`` and
+  ``y``.
+- **gain.** ``sum`` is ``(max(physics sum, 0.03) + tone) × readout_gain ×
+  readout_sum_scale``.
+
+A tracked position also takes the readout faults its monitor's element
 carries, the ones its orbit reading takes, at the same physical size; ``sum``
-takes none. Noise is drawn when the shot is tracked, keyed on the series
-address, the shot counter and the sample, so a series reads the same until the
-next shot refills it and a fault written afterwards reaches the next shot
-only.
+takes none. Every draw is keyed on the series address, the shot counter and
+the sample, so a series reads the same until the next shot refills it and a
+fault or setting written afterwards reaches the next shot only.
 
 Shot state and the connector
 ============================
@@ -213,38 +270,38 @@ connector to the model's setpoints in between.
 Slots
 =====
 
-:func:`~osprey.facility.views.pyaml.trajectory_slots` answers the channels a
-model's ``trajectory`` measurement arms, fires and watches, and the view facts
-carry the same answer per model under ``trajectory_slots``.
+:func:`~osprey.facility.views.pyaml.trajectory_slots` answers a model's
+trajectory declaration: its measurement file's ``trajectory`` block read
+against the channel facts. The view facts carry the same answer per model
+under ``trajectory_slots``.
 
 .. list-table:: Trajectory slots
    :header-rows: 1
-   :widths: 24 20 56
+   :widths: 24 76
 
-   * - Slot
+   * - Key
      - Value
-     - Channels
-   * - ``arm``
-     - list
-     - The channel carrying ``bpm_arm_command`` on each member device of the
-       ``bpm`` group, in ``(s, id)`` order, one per device.
-   * - ``armed``
-     - list
-     - The channel carrying ``bpm_armed_status`` on each of those devices, in
-       the same order.
-   * - ``injection_request``
-     - address
-     - The channel the measurement file names; always present.
-   * - ``injection_busy``
-     - address
-     - The channel the measurement file names; always present.
-   * - ``bunch_clean_enable``, ``beam_current``, ``rf_status``
-     - address
-     - Present only when the measurement file names it.
+   * - ``devices``
+     - Per member device of the ``bpm`` group, in ``(s, id)`` order: its
+       ``x_row``, ``y_row``, ``sum_row``, ``arm`` and ``armed`` channels, the
+       ``units`` of the three rows, and every signal it carries as ``tags``.
+   * - ``trigger_sample``
+     - The sample the injected shot arrives at.
+   * - ``injection_request``, ``injection_busy``
+     - The instruments the measurement file names.
+   * - ``machine``
+     - ``rf_on`` and ``stored_current``: the reading of the ``rf_status`` and
+       ``beam_current`` instruments, a setpoint's ``pair`` when it states one.
+   * - ``settings``
+     - Per declared setting: ``id``, ``label``, ``description``, ``scope``,
+       and its written ``setting``, ``readback`` and ``tolerance`` (per device
+       for a ``device`` setting) and ``timeout_s``.
+   * - ``steps``
+     - Per declared step, in chain order: ``id``, ``label``,
+       ``description``, ``default``, ``position``, and a command step's
+       ``command``, ``timeout_s`` and ``done``.
 
-``arm`` and ``armed`` are a set per device, not aligned with the rows of any
-response matrix. A model whose measurement file does not list the kind raises
-``KeyError``.
+A model whose measurement file does not list the kind raises ``KeyError``.
 
 First-turn response
 ===================
@@ -303,7 +360,8 @@ Model-wide scenario faults
 
 A scenario states physics faults of a pyAT model under ``faults.<model>`` by
 name, with no channel address. A model is built at them and holds them for
-its whole lifetime; none is a variable of the built model.
+its whole lifetime; none is a variable of the built model. The launch and
+bunch faults need a ``periodic`` model with an ``injection`` marker.
 
 .. list-table:: Model-wide faults of the pyAT engine
    :header-rows: 1
@@ -325,6 +383,27 @@ its whole lifetime; none is a variable of the built model.
      - 1e-6 or more
      - One half-axis, in metres, of a vacuum chamber written on every element
        with a length. A shape is stated with both half-axes or not at all.
+   * - ``launch_x``, ``launch_px``, ``launch_y``, ``launch_py``,
+       ``launch_delta``, ``launch_ct``
+     - any number
+     - The launch at the injection marker, in pyAT's coordinates; 0 when
+       unstated.
+   * - ``bunch_particles``
+     - whole number, 1 to 2\ :sup:`53`
+     - Declares a bunch of that many particles.
+   * - ``bunch_emittance_x``, ``bunch_emittance_y``, ``bunch_sigma_delta``,
+       ``bunch_sigma_z``
+     - 0 or more
+     - The bunch's emittances (m·rad), relative energy spread and length (m).
+   * - ``centroid_jitter_x``, ``centroid_jitter_y``
+     - 0 or more
+     - The standard deviation of the per-shot centroid jitter, in metres.
+   * - ``bunch_charge``
+     - above 0, default 1
+     - The charge one bunch carries.
+   * - ``stored_charge``
+     - 0 or more, default 0
+     - The stored charge at build and after ``reset()``.
 
 Each misaligned magnet takes its sigma times one standard normal draw keyed on
 the seed, the magnet's deck name and the field, so a value depends on no other
@@ -351,13 +430,12 @@ record, read it live after a shot``), and an address outside the facility with
 Sum levels
 ==========
 
-A ``sum`` sample reads 1 where the beam passes the monitor and 0 where it does
-not, through the sum record's calibration. A reader that separates beam from no
-beam compares against a level between the two. The example facility documents
-two such levels, both 0.5 in the sum record's unit: ``shot_sum_threshold``,
-below which a shot's mean first-turn sum counts the shot as failed, and
-``loss_sum_cutoff``, the rise a monitor's sum has to exceed to count as seeing
-the beam.
+``sum`` reads the share of the injected charge alive at the monitor, plus
+stored beam, on a floor of 0.03, scaled by the readout and the record's
+calibration. A reader that separates beam from no beam compares a rise
+against a fraction of the shot's largest rise, never against an absolute
+level: the trajectory service's ``loss_cutoff_fraction`` and
+``shot_threshold_fraction`` (see :ref:`config-trajectory`).
 
 .. seealso::
 

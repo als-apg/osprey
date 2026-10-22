@@ -68,6 +68,7 @@ UNITS: dict[str, tuple[str, int]] = {
     "nC": ("charge", -9),
     "mrem/hr": ("dose rate", 0),
     "s": ("time", 0),
+    "dB": ("attenuation", 0),
 }
 
 #: The seed keys, in the order an entry is written.

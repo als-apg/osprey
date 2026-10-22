@@ -79,6 +79,7 @@ __all__ = [
     "measurement_groups",
     "pyaml_view_wanted",
     "trajectory_slots",
+    "trajectory_catalog",
     "tune_references",
     "view_names",
     "write_pyaml_view",
@@ -437,37 +438,82 @@ def _measurement_groups(
 #: carries the first-turn response files.
 _TRAJECTORY_KIND = "trajectory"
 
-#: The vocabulary signal behind each per-device slot of the kind.
-_SLOT_SIGNALS: dict[str, str] = {"arm": "bpm_arm_command", "armed": "bpm_armed_status"}
+#: The vocabulary signal behind each per-device entry of the device table.
+_DEVICE_SIGNALS: dict[str, str] = {
+    "x_row": "bpm_tbt_x",
+    "y_row": "bpm_tbt_y",
+    "sum_row": "bpm_tbt_sum",
+    "arm": "bpm_arm_command",
+    "armed": "bpm_armed_status",
+}
 
-#: The key of the signal-to-addresses map :func:`trajectory_slots` ends with.
+#: The device-table entry behind each unit the device table states.
+_UNIT_ROWS: dict[str, str] = {"x": "x_row", "y": "y_row", "sum": "sum_row"}
+
+#: The instrument behind each machine reading of the declaration.
+_MACHINE_INSTRUMENTS: dict[str, str] = {"rf_on": "rf_status", "stored_current": "beam_current"}
+
+#: The two instruments every answer names, in this order.
+_INJECTION_INSTRUMENTS = ("injection_request", "injection_busy")
+
+#: The setting scope whose value is one per device; the other is one per model.
+_DEVICE_SCOPE = "device"
+
+#: The key of the signal-to-addresses map of the device table and of the answer.
 _TAGS_KEY = "tags"
 
 
 def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
-    """The channels a model's ``trajectory`` measurement arms, fires and watches.
+    """The declaration of a model's ``trajectory`` measurement surface.
 
-    ``arm`` and ``armed`` are the channels carrying the signal
-    ``bpm_arm_command`` and ``bpm_armed_status`` on the member devices of the
-    group ``groups.bpm`` names, visiting the devices in ``(s, id)`` order: one
-    address per device, since the build holds every member device to one
-    channel of each signal. They are a set per device, in no way aligned with
-    the rows of a response matrix. The other slots are the kind's instruments
-    as the measurement file names them: ``injection_request`` and
-    ``injection_busy`` always, ``bunch_clean_enable``, ``beam_current`` and
-    ``rf_status`` each only when the file names it. ``tags`` maps every
-    signal a channel of a member device carries to those channels, in the
-    same device order, the addresses of one device sorted.
+    The devices are the member devices of the group ``groups.bpm`` names, in
+    ``(s, id)`` order; each channel on a device, or naming it an endpoint,
+    belongs to it. The declaration is the measurement file's ``trajectory``
+    block read against the channel facts:
+
+    ``devices``
+        Device id to ``{x_row, y_row, sum_row, arm, armed, units, tags}``:
+        the device's channel of signal ``bpm_tbt_x``, ``bpm_tbt_y``,
+        ``bpm_tbt_sum``, ``bpm_arm_command`` and ``bpm_armed_status``, the
+        first address in sorted order when it carries several and ``None``
+        when it carries none; ``units`` ``{x, y, sum}``, the ``unit`` of the
+        three row channels, ``None`` where one states none; ``tags``, every
+        signal a channel of the device carries to those channels, the
+        signals and the addresses of each sorted.
+    ``trigger_sample``
+        The sample of every turn-by-turn buffer the injected shot arrives at,
+        ``None`` when the file declares no block.
+    ``injection_request``, ``injection_busy``
+        The instruments as the file names them, ``None`` where it does not.
+    ``machine``
+        ``{rf_on, stored_current}``: the reading of the instrument
+        ``rf_status`` and ``beam_current``, the instrument's ``pair`` when the
+        instrument is a setpoint channel stating one, else the instrument
+        itself, ``None`` when the file names no such instrument.
+    ``settings``
+        One ``{id, label, description, scope, setting, readback, tolerance,
+        timeout_s}`` per declared setting, in declared order. A ``global``
+        setting's ``setting`` is its declared address, its ``readback`` that
+        channel's ``pair`` and its ``tolerance`` that channel's
+        ``tolerance``, each ``None`` when the channel states none. A
+        ``device`` setting holds each of the three as a mapping of device id
+        to that value, over the devices carrying a setpoint channel of the
+        declared signal, in device order.
+    ``steps``
+        One ``{id, label, description, command, default, position,
+        timeout_s}`` per declared step, in chain order: ``position`` is the
+        step's place in the chain counted from 0; a command step's
+        ``command`` is ``{address, value}`` and its ``timeout_s`` the
+        command's, with ``done`` ``{address, value}`` added when the command
+        states one; a step run by the measurement service itself has
+        ``command`` and ``timeout_s`` ``None`` and no ``done``.
 
     Args:
         doc: The facility file.
         model: The model's name.
 
     Returns:
-        Slot to address: a list of addresses for ``arm`` and ``armed``, one
-        address for each instrument slot; the two per-device slots first, then
-        the instruments in :data:`KIND_MEMBERS` order, then ``tags``, signal to
-        its list of addresses with the signals sorted.
+        The declaration, its keys in the order above.
 
     Raises:
         KeyError: The facility file has no model ``model``, or the model's
@@ -484,28 +530,261 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
         for group_id in group_families((measurement.get("groups") or {}).get("bpm"))
         for member in (groups.get(group_id) or {}).get("members") or []
     ]
-    signals = {str(channel["id"]): channel.get("signal") for channel in doc.get("channels", [])}
+    channels = {str(channel["id"]): channel for channel in doc.get("channels", [])}
     on_device = _channels_of(doc)
-    tagged: dict[str, dict[str, None]] = {}
+    devices: dict[str, dict[str, Any]] = {}
     for device in _device_order(doc, members):
+        tags: dict[str, list[str]] = {}
         for address in sorted(set(on_device.get(device, ()))):
-            signal = signals.get(address)
+            signal = (channels.get(address) or {}).get("signal")
             if signal is not None:
-                tagged.setdefault(str(signal), {}).setdefault(address, None)
-    slots: dict[str, Any] = {
-        slot: list(tagged.get(signal, {})) for slot, signal in _SLOT_SIGNALS.items()
-    }
+                tags.setdefault(str(signal), []).append(address)
+        row: dict[str, Any] = {
+            slot: next(iter(tags.get(signal, ())), None) for slot, signal in _DEVICE_SIGNALS.items()
+        }
+        row["units"] = {
+            axis: (channels.get(row[slot]) or {}).get("unit") if row[slot] else None
+            for axis, slot in _UNIT_ROWS.items()
+        }
+        row[_TAGS_KEY] = {signal: tags[signal] for signal in sorted(tags)}
+        devices[device] = row
     instruments = measurement.get("instruments") or {}
-    for name in KIND_MEMBERS[_TRAJECTORY_KIND]:
-        if name in GROUP_ROLES:
-            continue
+    declared = measurement.get(_TRAJECTORY_KIND) or {}
+    slots: dict[str, Any] = {"devices": devices, "trigger_sample": declared.get("trigger_sample")}
+    for name in _INJECTION_INSTRUMENTS:
         named = instruments.get(name)
-        if named is not None:
-            slots[name] = str(named)
-        elif name not in INSTRUMENT_CLASSES["optional"]:
-            slots[name] = None
-    slots[_TAGS_KEY] = {signal: list(tagged[signal]) for signal in sorted(tagged)}
+        slots[name] = None if named is None else str(named)
+    slots["machine"] = {
+        reading: _reading_of(channels, instruments.get(instrument))
+        for reading, instrument in _MACHINE_INSTRUMENTS.items()
+    }
+    slots["settings"] = [
+        _setting(setting, devices, channels) for setting in declared.get("settings") or []
+    ]
+    slots["steps"] = [
+        _step(step, position) for position, step in enumerate(declared.get("steps") or [])
+    ]
     return slots
+
+
+#: Each plane word of the trajectory matrix's columns and the catalog role and
+#: plane of the correctors it marks.
+_CATALOG_CORRECTORS: dict[str, tuple[str, str]] = {
+    PLANE_WORDS["x"]: ("hcms", "x"),
+    PLANE_WORDS["y"]: ("vcms", "y"),
+}
+
+
+def _shown_name(record: Mapping[str, Any]) -> str:
+    """The one name a person reads for a record: its ``label``, else its first name, else its id."""
+    label = record.get("label")
+    if label:
+        return str(label)
+    names = sorted(str(name) for name in record.get("names") or [])
+    return names[0] if names else str(record["id"])
+
+
+def _place_chain(
+    places: Mapping[str, Mapping[str, Any]], place: Any
+) -> list[dict[str, str | None]]:
+    """The places holding ``place``, root to leaf, each ``{id, level}``.
+
+    A place's id is a ``/``-separated path; every prefix of it that is a place
+    is a link of the chain.
+    """
+    if place is None:
+        return []
+    parts = str(place).split("/")
+    chain: list[dict[str, str | None]] = []
+    for depth in range(1, len(parts) + 1):
+        here = "/".join(parts[:depth])
+        record = places.get(here)
+        if record is None:
+            continue
+        level = record.get("level")
+        chain.append({"id": here, "level": None if level is None else str(level)})
+    return chain
+
+
+def _catalog_entry(
+    name: str,
+    device: Mapping[str, Any],
+    places: Mapping[str, Mapping[str, Any]],
+    listing: Mapping[str, list[str]],
+    plane: str | None,
+) -> dict[str, Any]:
+    """One catalog entry: the matrix name and what the facility file says of its device."""
+    device_id = str(device["id"])
+    s = device.get("s")
+    return {
+        "name": name,
+        "device": device_id,
+        "label": _shown_name(device),
+        "places": _place_chain(places, device.get("place")),
+        "s": float(s) if isinstance(s, int | float) and not isinstance(s, bool) else None,
+        "plane": plane,
+        "groups": sorted(listing.get(device_id, ())),
+    }
+
+
+def trajectory_catalog(
+    doc: Mapping[str, Any], model: str, matrix: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The devices a model's trajectory response matrix covers, as the facility names them.
+
+    ``bpms`` holds one entry per ``x`` row of the matrix, ``hcms`` one per
+    horizontal column and ``vcms`` one per vertical column, each in matrix
+    order. An entry is ``{name, device, label, places, s, plane, groups}``:
+    ``name`` the matrix name, the channel address; ``device`` the id of the
+    device the channel is on; ``label`` the device's ``label``, else the first
+    of its ``names`` in sorted order, else its id; ``places`` the places
+    holding the device, root to leaf, each ``{id, level}`` with the facility's
+    own ``level`` word or ``None``; ``s`` the device's position in metres or
+    ``None``; ``plane`` ``x`` or ``y`` for a corrector and ``None`` for a
+    monitor; ``groups`` the sorted ids of the groups listing the device.
+    ``groups`` holds, sorted by id, each group listing a device of an entry as
+    ``{id, label, members}``, its ``label`` read as an entry's is and its
+    ``members`` the matrix names of its devices, in ``bpms``, ``hcms``,
+    ``vcms`` order.
+
+    Args:
+        doc: The facility file.
+        model: The model's name.
+        matrix: The model's trajectory response matrix, as
+            :data:`TRAJECTORY_RM_FILE` holds it.
+
+    Returns:
+        The catalog, its keys in the order above.
+
+    Raises:
+        FacilityBuildError: ``reference-missing``: a matrix name is no channel
+            on a device of the facility file.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.validate import stating_files
+
+    channels = {str(channel["id"]): channel for channel in doc.get("channels", [])}
+    devices = {str(device["id"]): device for device in doc.get("devices", [])}
+    places = {str(place["id"]): place for place in doc.get("places", [])}
+    groups = sorted(doc.get("groups", []), key=lambda group: str(group["id"]))
+    listing: dict[str, list[str]] = {}
+    for group in groups:
+        for member in dict.fromkeys(str(member) for member in group.get("members") or []):
+            listing.setdefault(member, []).append(str(group["id"]))
+
+    def device_of(name: str) -> Mapping[str, Any]:
+        channel = channels.get(name)
+        device_id = ((channel or {}).get("on") or {}).get("device")
+        device: Mapping[str, Any] | None = (
+            devices.get(str(device_id)) if device_id is not None else None
+        )
+        if device is None:
+            raise FacilityBuildError(
+                "reference-missing",
+                name,
+                stating_files(channel or {}, None, fallback="channels.yaml"),
+                "put the channel on a device of the facility, or leave it out of the "
+                "model's measurement groups",
+                record_kind="channel",
+                detail=(
+                    f"matrix name {name} of model {model}'s trajectory response has no "
+                    + ("channel" if channel is None else "device")
+                    + (f" (device {device_id} is no record)" if device_id is not None else "")
+                ),
+            )
+        return device
+
+    catalog: dict[str, Any] = {"bpms": [], "hcms": [], "vcms": []}
+    for name, plane in zip(matrix["observable_names"], matrix["observable_planes"], strict=True):
+        if plane == PLANE_WORDS["x"]:
+            catalog["bpms"].append(
+                _catalog_entry(str(name), device_of(str(name)), places, listing, None)
+            )
+    for name, plane in zip(matrix["variable_names"], matrix["variable_planes"], strict=True):
+        role, word = _CATALOG_CORRECTORS[plane]
+        catalog[role].append(_catalog_entry(str(name), device_of(str(name)), places, listing, word))
+    entries = [*catalog["bpms"], *catalog["hcms"], *catalog["vcms"]]
+    catalog["groups"] = [
+        {"id": str(group["id"]), "label": _shown_name(group), "members": members}
+        for group in groups
+        if (
+            members := [
+                entry["name"]
+                for entry in entries
+                if str(group["id"]) in listing.get(entry["device"], ())
+            ]
+        )
+    ]
+    return catalog
+
+
+def _reading_of(channels: Mapping[str, Mapping[str, Any]], address: Any) -> str | None:
+    """The channel an instrument is read through: its ``pair`` when a setpoint states one."""
+    if address is None:
+        return None
+    channel = channels.get(str(address)) or {}
+    if channel.get("role") == "setpoint" and channel.get("pair") is not None:
+        return str(channel["pair"])
+    return str(address)
+
+
+def _setting(
+    declared: Mapping[str, Any],
+    devices: Mapping[str, Mapping[str, Any]],
+    channels: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """One declared setting with its setpoint, readback and tolerance resolved."""
+
+    def facts(address: str) -> tuple[str, Any, Any]:
+        channel = channels.get(address) or {}
+        return address, channel.get("pair"), channel.get("tolerance")
+
+    if declared.get("scope") == _DEVICE_SCOPE:
+        signal = str(declared.get("signal"))
+        found: dict[str, tuple[str, Any, Any]] = {}
+        for device, row in devices.items():
+            setpoints = [
+                address
+                for address in row[_TAGS_KEY].get(signal, ())
+                if (channels.get(address) or {}).get("role") == "setpoint"
+            ]
+            if setpoints:
+                found[device] = facts(setpoints[0])
+        setting: Any = {device: held[0] for device, held in found.items()}
+        readback: Any = {device: held[1] for device, held in found.items()}
+        tolerance: Any = {device: held[2] for device, held in found.items()}
+    else:
+        setting, readback, tolerance = facts(str(declared.get("address")))
+    return {
+        "id": declared.get("id"),
+        "label": declared.get("label"),
+        "description": declared.get("description"),
+        "scope": declared.get("scope"),
+        "setting": setting,
+        "readback": readback,
+        "tolerance": tolerance,
+        "timeout_s": declared.get("timeout_s"),
+    }
+
+
+def _step(declared: Mapping[str, Any], position: int) -> dict[str, Any]:
+    """One declared step of the chain at ``position``."""
+    command = declared.get("command")
+    step: dict[str, Any] = {
+        "id": declared.get("id"),
+        "label": declared.get("label"),
+        "description": declared.get("description"),
+        "command": None
+        if command is None
+        else {"address": command.get("address"), "value": command.get("value")},
+        "default": declared.get("default"),
+        "position": position,
+        "timeout_s": None if command is None else command.get("timeout_s"),
+    }
+    done = None if command is None else command.get("done")
+    if done is not None:
+        step["done"] = {"address": done.get("address"), "value": done.get("value")}
+    return step
 
 
 # --- the configuration ----------------------------------------------------------
@@ -1009,10 +1288,11 @@ def _trajectory_files(
     counted from the injection marker along the lattice rotated to it. A
     corrector whose step has no solve on the model, its kick losing the
     launched particle, keeps its column as a column of zeros. The sidecar
-    holds the lattice index of every row (``bpm_index``), the sum reading of
-    every row's monitor (``sum_names``), the lattice index of every column
-    (``hcorr_index`` then ``vcorr_index``), and each unsolved corrector mapped
-    to the engine's text (``unsolved``).
+    holds the lattice index of every row (``bpm_index``), the lattice index of
+    every column (``hcorr_index`` then ``vcorr_index``), and each unsolved
+    corrector mapped to the engine's text (``unsolved``). Every monitor a row
+    reads must carry a sum series, which the trajectory declaration's device
+    table names.
 
     Args:
         inputs: The render's view inputs.
@@ -1167,23 +1447,19 @@ def _trajectory_files(
                 f"make {_RESPONSE_FUNCTION}() answer each plane's rows in lattice order from "
                 "the injection, one monitor per element",
             )
-    sums: dict[str, str] = {}
-    for entry in wiring:
-        if entry.get("role") == _TURN_SERIES and entry.get("plane") is None:
-            monitor = _monitor(entry)
-            if monitor != _NO_MONITOR:
-                sums.setdefault(monitor, str(entry["address"]))
-    sum_names: list[str] = []
+    sums = {
+        _monitor(entry)
+        for entry in wiring
+        if entry.get("role") == _TURN_SERIES and entry.get("plane") is None
+    } - {_NO_MONITOR}
     for row in rows:
-        name = sums.get(_monitor(by_address[row]))
-        if name is None:
+        if _monitor(by_address[row]) not in sums:
             raise stop(
                 "engine-invalid",
                 f"row {row} of model {model}'s {asked} reads a monitor the model wires no "
                 "sum series on",
                 "wire a sum turn series on every monitor the response reads",
             )
-        sum_names.append(name)
     # The asked order keys the solve and the column check; the files are in lattice order.
     across_correctors = sorted(hcor, key=lambda corrector: index[corrector])
     up_correctors = sorted(vcor, key=lambda corrector: index[corrector])
@@ -1194,7 +1470,6 @@ def _trajectory_files(
     ]
     indices: dict[str, Any] = {
         "bpm_index": [index[row] for row in rows],
-        "sum_names": sum_names,
         "hcorr_index": [index[corrector] for corrector in across_correctors],
         "vcorr_index": [index[corrector] for corrector in up_correctors],
         "unsolved": unsolved,

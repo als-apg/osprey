@@ -5,7 +5,8 @@ an elliptical aperture on every element with length. With the shipped seed the
 injected bunch strikes the chamber partway round turn 1; without the scenario
 every BPM of the ring sees the whole first turn, on the trajectory a direct
 pyAT track of the clean deck gives. Both cases read the built demo through the
-composite, the way a served VA reads it.
+composite, the way a served VA reads it, with the BPM electronics' noise and
+tone switched off; a BPM the beam never reached reads on axis.
 """
 
 from __future__ import annotations
@@ -79,7 +80,19 @@ def _composite(view: Path, *active: str) -> Composite:
     state = simulation_state_dir(view)
     state.mkdir(parents=True, exist_ok=True)
     (state / "active_scenarios").write_text("".join(f"{name}\n" for name in active))
-    return Composite(view, state_dir=state, clock=lambda: T0, model_log=False)
+    composite = Composite(view, state_dir=state, clock=lambda: T0, model_log=False)
+    _electronics_off(composite)
+    return composite
+
+
+def _electronics_off(composite: Composite) -> None:
+    """Switch every BPM's electronics noise and tone off, so a reading is the tracked position."""
+    composite.get([_tbt(1, "X")])
+    model = composite._children[MODEL].model
+    for bpm in range(1, BPMS + 1):
+        element = model.simulator.element(f"BPM{bpm:02d}")
+        element.readout_noise_scale = 0.0
+        element.readout_tone_amplitude = 0.0
 
 
 def _first_turn(composite: Composite) -> dict[str, np.ndarray]:
@@ -141,8 +154,8 @@ def test_the_shipped_seed_loses_the_first_turn_at_its_bpm(demo_view: Path) -> No
     assert seen[: LOSS_BPM - 1].all()
     assert not seen[LOSS_BPM - 1 :].any()
     for plane in ("x", "y"):
-        assert np.isfinite(turn[plane][: LOSS_BPM - 1]).all()
-        assert np.isnan(turn[plane][LOSS_BPM - 1 :]).all()
+        assert np.isfinite(turn[plane]).all()
+        assert (turn[plane][LOSS_BPM - 1 :] == 0.0).all()
 
 
 @pytest.mark.slow

@@ -164,3 +164,83 @@ def test_a_lane_instance_key_is_read_against_its_familys_rows(guard_module) -> N
     assert guard_module.ConfigKeyGuard.family_path("web.panels.bluesky.url") == (
         "web.panels.bluesky.url"
     )
+
+
+# -- the trajectory service's tunable keys -------------------------------------
+
+#: Each tunable key the trajectory service reads, with the constant naming its
+#: default. A key added to ``TrajectorySettings`` lands here, or the census below
+#: fails.
+_TRAJECTORY_TUNABLES = {
+    "LOSS_CUTOFF_FRACTION_KEY": "DEFAULT_LOSS_CUTOFF_FRACTION",
+    "SHOT_THRESHOLD_FRACTION_KEY": "DEFAULT_SHOT_THRESHOLD_FRACTION",
+    "ARMED_TIMEOUT_KEY": "DEFAULT_ARMED_TIMEOUT_S",
+    "RAW_WINDOW_TURNS_KEY": "DEFAULT_RAW_WINDOW_TURNS",
+    "ACTION_TIMEOUT_KEY": "DEFAULT_ACTION_TIMEOUT_S",
+    "RAW_RETENTION_KEY": "DEFAULT_RAW_RETENTION",
+    "CONTINUOUS_MIN_PERIOD_KEY": "DEFAULT_CONTINUOUS_MIN_PERIOD_S",
+}
+
+
+def test_every_trajectory_tunable_is_listed_here() -> None:
+    from dataclasses import fields
+
+    from osprey.services.trajectory import constants
+    from osprey.services.trajectory.startup import TrajectorySettings
+
+    leaves = {getattr(constants, key).rsplit(".", 1)[1] for key in _TRAJECTORY_TUNABLES}
+    read = {field.name for field in fields(TrajectorySettings)} - {"sequence_dir"}
+    assert read == leaves
+
+
+@pytest.mark.parametrize(("key_name", "default_name"), sorted(_TRAJECTORY_TUNABLES.items()))
+def test_a_trajectory_tunables_row_states_its_default(key_name: str, default_name: str) -> None:
+    from osprey.services.trajectory import constants
+
+    rows = manifest_rows()
+    key = getattr(constants, key_name)
+    assert key in rows, f"{key} has no manifest row"
+    assert rows[key]["default"] == getattr(constants, default_name)
+    assert rows[key].get("rendered") is False
+
+
+def test_the_timeout_defaults_follow_the_ruling() -> None:
+    """The shot timeout is 10 s, and the default action fits at least three shots."""
+    from osprey.services.trajectory import constants
+
+    assert constants.DEFAULT_ARMED_TIMEOUT_S == 10.0
+    # The shipped VA module pauses at most 0.5 s and its connector call takes up
+    # to 5 s; a shot also reads its readbacks and stored current and may run a
+    # cleaning command, so a shot is held to well over the bare armed terms.
+    bare_shot_s = 3 * constants.DEFAULT_ARMED_TIMEOUT_S + 0.5 + 5.0
+    assert constants.DEFAULT_ACTION_TIMEOUT_S >= 3 * 2 * bare_shot_s
+
+
+def test_an_authored_trajectory_tunable_survives_the_injector(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    from osprey.cli.build_injectors import _inject_trajectory
+    from osprey.cli.build_profile_schema import TrajectoryConfig
+    from osprey.services.trajectory import constants
+
+    authored = {
+        getattr(constants, key).rsplit(".", 1)[1]: index + 2
+        for index, key in enumerate(_TRAJECTORY_TUNABLES)
+    }
+    project = tmp_path / "project"
+    project.mkdir()
+    with open(project / "config.yml", "w") as fh:
+        YAML().dump(
+            {
+                "control_system": {"type": "epics"},
+                "deployed_services": [],
+                "services": {"trajectory": dict(authored)},
+            },
+            fh,
+        )
+
+    _inject_trajectory(TrajectoryConfig(), project)
+
+    with open(project / "config.yml") as fh:
+        block = YAML().load(fh)["services"]["trajectory"]
+    assert {leaf: block.get(leaf) for leaf in authored} == authored

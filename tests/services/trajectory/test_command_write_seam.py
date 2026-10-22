@@ -34,13 +34,17 @@ pytest.importorskip("at")
 
 from tests._guarded_run import reset_run_state
 from tests.facility._pyaml_trees import measured_tree, with_correctors
-from tests.facility._synthetic_trees import model, with_shot_wiring, with_trajectory, write_tree
+from tests.facility._synthetic_trees import with_shot_wiring, with_trajectory, write_tree
 from tests.facility.served_tree import in_process_config
 
 from osprey.runtime.guarded_run import ENV_CONTROL_IDENTITY, command_write
 from osprey.services.trajectory.actions import ActionLayer
 from osprey.services.trajectory.admit import Admission, AdmitGate
-from osprey.services.trajectory.startup import TrajectoryCommands, TrajectoryStartup
+from osprey.services.trajectory.startup import (
+    TrajectoryCommands,
+    TrajectoryDevice,
+    TrajectoryStartup,
+)
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -56,7 +60,21 @@ ARMED = "SR:BPM:ARMED"
 REQUEST = "SR:INJ:REQ"
 BUSY = "SR:INJ:BUSY"
 COMMANDS = TrajectoryCommands(
-    model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY
+    model=MODEL,
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm=ARM,
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request=REQUEST,
+    injection_busy=BUSY,
+    trigger_sample=10,
 )
 
 
@@ -64,7 +82,6 @@ def _tree() -> dict[str, Any]:
     """The periodic model measured by trajectory, its shot records wired, its commands limited."""
     tree = with_trajectory(with_correctors(measured_tree()), MODEL, "SR/BPM1", marker="M1")
     with_shot_wiring(tree, MODEL, "BPM1")
-    model(tree, MODEL)["settings"]["pyat"]["injection"]["x"] = 1.0e-3
     tree["limits.yaml"] = {
         "records": [
             {"address": ARM, "min_value": 0, "max_value": 1, "confirm": False},
@@ -198,9 +215,7 @@ def _arm_action(layer: ActionLayer) -> Any:
     """The test-only action: fire the selected model's arm slot as a command write."""
 
     async def arm(admission: Admission, stop: asyncio.Event) -> dict[str, Any]:  # noqa: ARG001
-        fired = await command_write(
-            layer.startup.connector, list(COMMANDS.arm), 1, commands=COMMANDS.commands
-        )
+        fired = await command_write(layer.startup.connector, [ARM], 1, commands=COMMANDS.commands)
         return {"fired": fired, "task": asyncio.current_task(), "owner": admission.owner}
 
     return arm

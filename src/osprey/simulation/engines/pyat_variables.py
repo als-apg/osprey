@@ -20,6 +20,17 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   ``axis``, in the hardware units the facility publishes it in.
 * :class:`EnergyVariable` -- the deck energy (``attribute: energy``, no
   element), driven by the bend's own hardware setpoint through its curve.
+* the RF-on switch (``attribute: Voltage`` on a cavity), built by
+  :func:`rf_switch_from_wiring` -- a :class:`PyATWritableEnumVariable` over
+  the indices of the record's two labels, off and on, each binding weighted
+  by the voltage its cavity carries in the deck.
+* a labelled readout setting (a readout attribute on a monitor element, its
+  engine block marked ``discrete``), built by
+  :func:`readout_setting_from_wiring` -- a :class:`ReadoutSettingVariable`
+  over the indices of the record's labels, each index written as the value
+  its calibration table states for it; its readback,
+  :class:`ReadoutSettingReadback`, answers the index whose table value the
+  element carries.
 
 :func:`variable_from_wiring` picks the class from the engine block.
 
@@ -70,7 +81,7 @@ import math
 from typing import TYPE_CHECKING, Any, Literal
 
 from lume.actions import ReadOnlyActionMixin, WritableActionMixin
-from lume.variables import EnumVariable, NDVariable
+from lume.variables import ConfigEnum, EnumVariable, NDVariable
 from lume_pyat.actions import (
     ElementBinding,
     PyATLatticeScalarVariable,
@@ -82,6 +93,7 @@ from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from osprey.simulation.engines.calibration import (
     Calibration,
+    Table,
     check_inverse,
     curve_from_record,
     energy_factor,
@@ -90,6 +102,7 @@ from osprey.simulation.engines.calibration import (
     to_physics,
 )
 from osprey.simulation.engines.pyat_faults import (
+    READOUT_ATTRIBUTE_IDENTITY,
     is_series_record,
     magnet_cal,
     supply_calibration,
@@ -114,6 +127,24 @@ ENERGY_ATTRIBUTE = "energy"
 #: strength's polynomial coefficient.
 KICK_ATTRIBUTE = "KickAngle"
 FREQUENCY_ATTRIBUTE = "Frequency"
+
+#: The engine-block attribute of the RF-on switch: a cavity's voltage, which
+#: the switch takes off and puts back whole.
+VOLTAGE_ATTRIBUTE = "Voltage"
+
+#: The value types whose channels name their states by labels.
+_LABELLED_TYPES = ("bool", "enum")
+
+#: The labels of a bool channel that states none, off first.
+_BOOL_LABELS = ("FALSE", "TRUE")
+
+#: The index of the off label and of the on label of the RF-on switch.
+RF_OFF_INDEX = 0
+RF_ON_INDEX = 1
+
+#: The engine-block key marking a readout setting whose channel names its
+#: states by labels: the value written is a label's index, not a reading.
+DISCRETE_KEY = "discrete"
 
 EnergyScaling = Literal["brho", "none"]
 
@@ -773,6 +804,93 @@ def variable_from_wiring(
     return kind.from_wiring(record, deck_energy_gev=deck_energy_gev, **scalar_fields)
 
 
+def is_rf_switch_record(record: Any) -> bool:
+    """Whether a wiring record is the RF-on switch: a cavity's ``Voltage``.
+
+    The record names an element or slices, and its engine block names the
+    attribute :data:`VOLTAGE_ATTRIBUTE`.
+    """
+    has_element = field(record, "element") is not None or bool(field(record, "slices"))
+    return has_element and field(field(record, "engine"), "attribute") == VOLTAGE_ATTRIBUTE
+
+
+def rf_switch_labels(record: Any) -> list[str]:
+    """The labels a record declares for the RF-on switch, off first.
+
+    The record's ``options`` when it states them, else the two labels of a
+    bool channel.
+
+    Raises:
+        ValueError: the record declares other than two labels, or a value
+            type that carries no labels.
+    """
+    value_type = field(record, "value_type")
+    if value_type is not None and value_type not in _LABELLED_TYPES:
+        raise ValueError(
+            f"wiring {_record_id(record)}: the RF-on switch is a discrete setting; "
+            f"its value_type is {value_type!r}, not bool or enum"
+        )
+    labels = [str(label) for label in (field(record, "options") or _BOOL_LABELS)]
+    if len(labels) != 2:
+        raise ValueError(
+            f"wiring {_record_id(record)}: the RF-on switch takes two labels, off and on; "
+            f"it declares {len(labels)}: {labels}"
+        )
+    return labels
+
+
+def _rf_switch_bindings(record: Any, voltages: Mapping[str, float]) -> list[ElementBinding]:
+    """The RF-on switch's bindings: each cavity on ``Voltage``, weighted by its deck voltage.
+
+    Raises:
+        ValueError: the labels are not two (:func:`rf_switch_labels`), or a
+            bound cavity carries no voltage, or zero, in the deck.
+    """
+    rf_switch_labels(record)
+    bindings = []
+    for binding in _element_bindings(record):
+        voltage = voltages.get(binding.element_name)
+        if voltage is None or not math.isfinite(voltage) or voltage == 0.0:
+            raise ValueError(
+                f"wiring {_record_id(record)}: cavity {binding.element_name} carries "
+                f"Voltage {voltage} in the deck; the RF-on switch restores that voltage, "
+                "so it must be finite and non-zero"
+            )
+        bindings.append(binding.model_copy(update={"weight": float(voltage)}))
+    return bindings
+
+
+def rf_switch_from_wiring(record: Any, voltages: Mapping[str, float]) -> PyATWritableEnumVariable:
+    """Build the RF-on switch a cavity-voltage record describes.
+
+    The options are the indices of the record's two labels
+    (:func:`rf_switch_labels`): :data:`RF_OFF_INDEX` and :data:`RF_ON_INDEX`.
+    Each binding is the record's cavity (each slice's element) on its
+    ``Voltage``, weighted by the voltage that cavity carries in the deck, so a
+    write of the on index puts the deck voltage back and the off index puts
+    zero there. The default is on.
+
+    Args:
+        record: The wiring record.
+        voltages: Each bound cavity's voltage in the deck, keyed by element
+            name.
+
+    Returns:
+        The switch.
+
+    Raises:
+        ValueError: the labels are not two (:func:`rf_switch_labels`), or a
+            bound cavity carries no voltage, or zero, in the deck.
+    """
+    return PyATWritableEnumVariable(
+        name=str(field(record, "address")),
+        bindings=_rf_switch_bindings(record, voltages),
+        options=[RF_OFF_INDEX, RF_ON_INDEX],
+        default_value=RF_ON_INDEX,
+        default_validation_config=ConfigEnum.ERROR,
+    )
+
+
 class PyATWritableEnumVariable(WritableActionMixin[PyATSimulator], EnumVariable):
     """A settable discrete value bound to one attribute of one deck element.
 
@@ -882,6 +1000,215 @@ class PyATWritableEnumVariable(WritableActionMixin[PyATSimulator], EnumVariable)
                 getattr(element, binding.attribute)[binding.index] = scaled
 
 
+def rf_switch_readback_from_wiring(
+    record: Any, voltages: Mapping[str, float]
+) -> PyATReadOnlyEnumVariable:
+    """Build the readback of the RF-on switch a cavity-voltage read record describes.
+
+    It reads the first bound cavity's voltage as a share of its deck voltage,
+    so it answers the off or on index from the lattice itself, whichever
+    writer last set the cavity.
+
+    Args:
+        record: The wiring record.
+        voltages: Each bound cavity's voltage in the deck, keyed by element
+            name.
+
+    Returns:
+        The readback.
+
+    Raises:
+        ValueError: as :func:`rf_switch_from_wiring`.
+    """
+    return PyATReadOnlyEnumVariable(
+        name=str(field(record, "address")),
+        bindings=_rf_switch_bindings(record, voltages),
+        options=[RF_OFF_INDEX, RF_ON_INDEX],
+        default_validation_config=ConfigEnum.ERROR,
+    )
+
+
+class PyATReadOnlyEnumVariable(ReadOnlyActionMixin[PyATSimulator], EnumVariable):
+    """A discrete reading of one attribute of one deck element.
+
+    Reads exactly as :class:`PyATWritableEnumVariable` does -- the first
+    binding's attribute divided by its weight -- and is never written.
+
+    Attributes:
+        bindings: The elements the value is read from; the first is read.
+    """
+
+    bindings: list[ElementBinding] = Field(min_length=1)
+    read_only: bool = True
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Read the first binding's element, divided by its weight.
+
+        Raises:
+            UnknownElementError: the lattice has no such element.
+        """
+        first = self.bindings[0]
+        value = getattr(simulator.element(first.element_name), first.attribute)
+        if first.index is not None:
+            value = value[first.index]
+        return float(value) / first.weight
+
+
+def is_readout_setting_record(record: Any) -> bool:
+    """Whether a wiring record is a labelled readout setting.
+
+    The record names an element or slices, its engine block names one of the
+    readout attributes of
+    :data:`~osprey.simulation.engines.pyat_faults.READOUT_ATTRIBUTE_IDENTITY`
+    and carries :data:`DISCRETE_KEY` set true.
+    """
+    has_element = field(record, "element") is not None or bool(field(record, "slices"))
+    block = field(record, "engine")
+    return (
+        has_element
+        and field(block, "attribute") in READOUT_ATTRIBUTE_IDENTITY
+        and field(block, DISCRETE_KEY) is True
+    )
+
+
+def readout_setting_levels(record: Any) -> list[float]:
+    """The value a labelled readout setting writes for each label's index.
+
+    The record's ``calibration.curve`` is a ``table`` whose grid is the label
+    indices ``0, 1, ...`` in order; its values are what each index puts on
+    the readout attribute.
+
+    Raises:
+        ValueError: the record states no table, or one whose grid is not the
+            indices 0 to its length less one, or that has fewer than two
+            entries or a value that is not finite.
+    """
+    curve, _ = _curves(record)
+    if not isinstance(curve, Table):
+        raise ValueError(
+            f"wiring {_record_id(record)}: a discrete readout setting maps each label "
+            "index through a calibration table; it states none"
+        )
+    indices = tuple(float(index) for index in range(len(curve.grid)))
+    if len(curve.grid) < 2 or curve.grid != indices:
+        raise ValueError(
+            f"wiring {_record_id(record)}: a discrete readout setting's table grid is the "
+            f"label indices 0, 1, ... in order; it states {list(curve.grid)}"
+        )
+    if not all(math.isfinite(value) for value in curve.values):
+        raise ValueError(
+            f"wiring {_record_id(record)}: a discrete readout setting's table values are "
+            f"finite; it states {list(curve.values)}"
+        )
+    return list(curve.values)
+
+
+def _nearest_index(levels: list[float], value: float) -> int:
+    """The index whose level lies nearest ``value``; the first on a tie."""
+    return min(range(len(levels)), key=lambda index: (abs(levels[index] - value), index))
+
+
+def readout_setting_from_wiring(record: Any, default: Any) -> ReadoutSettingVariable:
+    """Build the labelled readout setting a discrete readout record describes.
+
+    The options are the label indices of the record's table
+    (:func:`readout_setting_levels`); the bindings are the record's element
+    or slices on its readout attribute.
+
+    Args:
+        record: The wiring record.
+        default: The index the setting boots at, and returns to on reset.
+
+    Returns:
+        The setting.
+
+    Raises:
+        ValueError: the table is refused (:func:`readout_setting_levels`), or
+            ``default`` is not one of its indices.
+    """
+    levels = readout_setting_levels(record)
+    return ReadoutSettingVariable(
+        name=str(field(record, "address")),
+        bindings=_element_bindings(record),
+        options=list(range(len(levels))),
+        levels=levels,
+        default_value=_index(record, default, len(levels)),
+        default_validation_config=ConfigEnum.ERROR,
+    )
+
+
+def readout_setting_readback_from_wiring(record: Any) -> ReadoutSettingReadback:
+    """Build the readback of a labelled readout setting a discrete read record describes.
+
+    It reads the first bound element's readout attribute and answers the
+    index whose table value lies nearest, so it follows whichever writer last
+    set the element.
+
+    Raises:
+        ValueError: as :func:`readout_setting_levels`.
+    """
+    levels = readout_setting_levels(record)
+    return ReadoutSettingReadback(
+        name=str(field(record, "address")),
+        bindings=_element_bindings(record),
+        options=list(range(len(levels))),
+        levels=levels,
+        default_validation_config=ConfigEnum.ERROR,
+    )
+
+
+def _index(record: Any, value: Any, count: int) -> int:
+    """``value`` as one of ``count`` label indices.
+
+    Raises:
+        ValueError: ``value`` is not a whole number from 0 to ``count`` less one.
+    """
+    number = float(value)
+    if not number.is_integer() or not 0 <= number < count:
+        raise ValueError(
+            f"wiring {_record_id(record)}: {value!r} is no label index; "
+            f"the setting takes 0 to {count - 1}"
+        )
+    return int(number)
+
+
+class ReadoutSettingVariable(PyATWritableEnumVariable):
+    """A labelled setting of a monitor's readout attribute.
+
+    Its value is the index of one of its channel's labels; a write puts the
+    level its table states for that index on every bound element, times the
+    binding's weight, and a read answers the index whose level the first
+    element carries.
+
+    Attributes:
+        levels: The readout attribute's value for each index, in index order.
+    """
+
+    levels: list[float] = Field(min_length=2)
+
+    def _get(self, simulator: PyATSimulator) -> int:
+        """The index whose level the first bound element carries, nearest first."""
+        return _nearest_index(self.levels, super()._get(simulator))
+
+    def _set(self, simulator: PyATSimulator, value: Any) -> None:
+        """Write the level of index ``value`` to every bound element."""
+        super()._set(simulator, self.levels[int(round(float(value)))])
+
+
+class ReadoutSettingReadback(PyATReadOnlyEnumVariable):
+    """The reading of a labelled readout setting, from the element itself.
+
+    Attributes:
+        levels: The readout attribute's value for each index, in index order.
+    """
+
+    levels: list[float] = Field(min_length=2)
+
+    def _get(self, simulator: PyATSimulator) -> int:
+        """The index whose level the first bound element carries, nearest first."""
+        return _nearest_index(self.levels, super()._get(simulator))
+
+
 class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
     """A read-only array derived from the whole solved lattice.
 
@@ -915,13 +1242,28 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
 __all__ = [
     "ENERGY_ATTRIBUTE",
     "EV_PER_GEV",
+    "DISCRETE_KEY",
     "CalibratedSetpoint",
     "EnergyVariable",
     "KickVariable",
     "MonitorVariable",
+    "PyATReadOnlyEnumVariable",
     "PyATReadOnlyNDVariable",
     "PyATWritableEnumVariable",
+    "RF_OFF_INDEX",
+    "RF_ON_INDEX",
+    "VOLTAGE_ATTRIBUTE",
     "RFVariable",
+    "ReadoutSettingReadback",
+    "ReadoutSettingVariable",
     "StrengthVariable",
+    "is_readout_setting_record",
+    "is_rf_switch_record",
+    "rf_switch_from_wiring",
+    "rf_switch_labels",
+    "readout_setting_from_wiring",
+    "readout_setting_levels",
+    "readout_setting_readback_from_wiring",
+    "rf_switch_readback_from_wiring",
     "variable_from_wiring",
 ]

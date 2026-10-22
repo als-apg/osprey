@@ -1,109 +1,102 @@
-"""Full-stack Docker proof of the deployed trajectory service, its two doors and its panel.
+"""Full-stack Docker proof of the trajectory service on the stand-in: its doors, its physics, its panel.
 
-A multi-user control-assistant deployment with the virtual accelerator served
-is built and started with ``osprey up``: one roster user, ``alice``, on one
-persona that lists the ``trajectory`` panel, so the build renders her terminal
-the panel tab and her agent the ``trajectory`` MCP server. The trajectory
-container is then driven over raw HTTP exactly as its two callers reach it:
+The deployment is the trajectory acceptance stack, rendered by
+``tests/e2e/trajectory_acceptance/shape.py`` -- the one render the walk's
+images come from -- and started with ``osprey up --dev``, so every image is
+built here from the checked-out source. The service commands the live
+stand-in on the host network; the archiver records the stand-in; one roster
+user, ``alice``, is on one persona listing the ``trajectory`` panel. Before
+the first test the fixture applies the acceptance scenario set to the
+stand-in's state directory and sets the turns tracked to the calibrated window
+through the setup route, so the stack the tests (and the stack-regression
+replay that reuses this fixture) start from is the one the walk stages.
 
-* the AGENT door (``/api/*``), which also demands the service's launch token;
-* the PANEL door (``/panel/api/*``), the operator panel's.
+The trajectory container is driven over raw HTTP exactly as its two callers
+reach it: the AGENT door (``/api/*``), which also demands the service's launch
+token, and the PANEL door (``/panel/api/*``), the operator panel's. Both sit
+behind the shared web gate, which admits a request by the operator secret it
+carries and stamps the owner from the credential that matched -- never from
+anything the request claims -- so every request sent with ``alice``'s minted
+secret is owned by ``alice``.
 
-Both doors sit behind the shared web gate, which admits a request by the
-operator secret it carries and stamps the owner from the credential that
-matched -- never from anything the request claims. In the multi-user shape the
-service accepts each entitled roster user's minted terminal secret and names
-that user, so every request this module sends with ``alice``'s secret is
-owned by ``alice``.
+What is pinned here and nowhere else:
 
-What is pinned here and nowhere else: the deployed ``/health`` reaching its
-target; the agent door's 403 ``launch_token_invalid`` on a wrong token; on both
-doors, a request without the secret refused, a body naming an owner refused
-400 ``owner_in_body``, a second holder refused 409 ``session_held``, and the
-admitted owner read back through ``GET state``; and an action's audit record
-landing under ``var/audit/trajectory/`` on the host.
+* the stand-in serving as the service's control target, and the archiver
+  recording the stand-in rather than the virtual accelerator beside it;
+* the doors: a wrong launch token refused 403 ``launch_token_invalid``; on both
+  doors a request without the secret refused, a body naming an owner refused
+  400 ``owner_in_body``, a second holder refused 409 ``session_held``, the
+  admitted owner read back through ``GET state``; an action's audit record
+  landing under ``var/audit/trajectory/`` on the host;
+* the physics the walk's rubric judges, as named data assertions on the served
+  raw buffers, every threshold read from
+  ``tests/e2e/trajectory_acceptance/sample_index.py``: the stored beam's
+  pre-trigger share and its clearing by a cleaning chain, the RF-off decay,
+  the RF-on survival over the whole window, the pilot tone's position spikes,
+  the vertical trajectory the calibrated corrector kick moves, an applied step
+  reducing it, and the published shot maximum covering the walk's bound.
+  Stored charge is cleared by a cleaning chain before every shot a trajectory
+  assertion reads, and the turns tracked are set up again after every
+  scenario apply, which drops the session's writes;
+* one panel smoke through ``alice``'s terminal: a real browser logs in through
+  nginx with her login link, opens the panel the terminal proxies, opens a
+  session and runs the selected chain; an in-container client starts the
+  rendered ``trajectory`` MCP server and reads that shot's step, while an
+  unstamped ``trajectory_shot`` is refused ``approval_missing``; the terminal
+  refuses its token door without a secret and its panel door to the token;
+* a continuous run ending by its lease once its heartbeats stop, and a
+  selected reference surviving ``osprey down``, removal of the project's named
+  volumes and a fresh ``osprey up`` (last, since it redeploys the stack).
 
-Then the hop through ``alice``'s terminal, as the operator and the agent use
-it: a real browser logs in through nginx with her login link, opens
-``/panel/trajectory/panel/``, reads the live state, opens a session and takes a
-shot through the panel door; an in-container client in her terminal starts
-the rendered ``trajectory`` MCP server over stdio and reads that shot's step
-with ``trajectory_step``, while ``trajectory_shot`` -- called with no approval
-hook in front of it, so with no ask stamp -- is refused ``approval_missing``
-before it opens a session; the browser then sends Stop while a shot is in
-flight and releases. At the terminal, the agent's token door with no
-terminal secret, and the panel door with nothing but the panel token, are
-refused.
+The stand-in runs the VA image, built for ``linux/amd64``, and the acceptance
+profile's timeouts are fixed for a host that runs it natively: an emulated
+shot outlasts the connector's call timeout. On a Docker host of another
+architecture the fixture fails before rendering, naming the host, rather than
+letting every physics test time out one by one.
 
-Then the deployed stack threads an errored ring end to end, in ORDER, one
-stateful test building on the last: ``osprey sim apply first-turn-errors
---no-seed`` loads the shipped misalignment seed into the served virtual
-accelerator; the first shot, two shots averaged so the served buffer's
-timestamps must advance between them, is lost by BPM 36 on both; at most five
-applied steps bring the first turn around every BPM; the apply's audit line
-names the admitted owner; the shot lands as a file on the host and in the
-panel's listing; a continuous run whose heartbeats stop ends by its lease; and
-a selected reference survives ``osprey down``, removal of the project's named
-volumes and a fresh ``osprey up`` (last, since it redeploys the stack).
+Stand-in machine state the physics needs -- the RF switch and the corrector
+kick -- is written to the stand-in through the control-system connector the
+deployment configures for it, the one route to the machine every caller uses.
 
-The limits are the module's own and bound the correctors only: every vertical
-corrector stays below the current at which the cold solve loses the closed
-orbit, and no record names a command channel, so the preset's ``optional``
-mode lets the shot's commands through while every corrector write is checked.
+Per-function flaky, NOT module-level: the health and session checks accept
+one rerun on a timing assertion; the security negatives stay STRICT, so a
+rerun can never sweep a refusal that failed to happen into a pass. The physics
+and the panel hop are STRICT too: each of their tests acts on the session and
+machine state the previous one left.
 
-The VA image is built for x86_64. On a Docker host of another architecture it
-runs emulated, far slower than natively, so there the deployment is given
-service and connector timeouts long enough for an emulated shot; a native host
-deploys with the shipped defaults.
-
-Reuses ``tests/e2e/_orm_stack.py`` (the VA-backed control-assistant deploy
-config: virtual-accelerator control system; dispatch, record archive and
-trajectory service dropped). The lane turns web terminals back on with token
-logins, rewrites the roster to its one user and persona after ``osprey init``,
-and states the preset's ``trajectory:`` block back, on the host network, so
-the trajectory service is the one service it deploys on the project image. The
-terminal's agent is started so its panel token exists; the ``.env`` carries a
-placeholder model key for it, and nothing contacts a model.
-
-Per-function flaky, NOT module-level: the health/session checks accept one
-rerun on a timing assertion; the security negatives (wrong token, no secret,
-owner in the body, the terminal's door refusals, the unstamped shot) stay
-STRICT with no flaky marker, so a rerun can never sweep a refusal that failed
-to happen into a pass. The panel hop and the threading sequence are STRICT
-too: each of their tests acts on the state the previous one left, so a rerun
-would replay against a different session or ring.
-
-CONTAINER SAFETY: every docker/compose invocation names an EXACT resource
-(images ``<project>:local``, ``<project>-va:local``,
-``<project>-bluesky-bridge:local``, the persona image
-``<repo>-operator:local``; containers ``<project>-web-alice`` and
-``<project>-nginx``) -- never ``system prune``, never ``--volumes``, never a
-wildcard ``docker rm``/``rmi``. Teardown goes through ``osprey down``, then
-exact-named removal of the terminal tier's containers and of this project's
-own volumes (``tests/e2e/_volumes.py``).
+CONTAINER SAFETY: every docker/compose invocation names an EXACT resource --
+the images the render names, the persona image ``<project>-operator:local``,
+the containers ``<project>-web-alice`` and ``<project>-nginx`` -- never
+``system prune``, never ``--volumes``, never a wildcard ``docker rm``/``rmi``.
+Teardown goes through ``osprey down``, then exact-named removal of the
+terminal tier's containers and of this project's own volumes
+(``tests/e2e/_volumes.py``).
 
 Gating: needs Docker and Playwright's chromium. Lives in ``tests/e2e/`` (never
 collected by the fast lane) and is ``--ignore``'d by the shared e2e lane; runs
 in its own ``trajectory-deploy-e2e`` CI job (same-repo PRs only, no secrets --
 neither the service nor the terminal's agent reaches a model), which treats
-any skip as a failure. Locally, only one e2e stack may run per host at a time.
+any skip as a failure. One container stack per host: locally, never beside
+another e2e stack, and never on the acceptance host, which runs the walk's
+stack in the same port block.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
-import functools
 import json
+import math
 import os
-import re
 import shutil
+import statistics
 import subprocess
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -113,52 +106,34 @@ import yaml
 from tests.e2e import _orm_stack
 from tests.e2e._deploy_diagnostics import container_logs
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.trajectory_acceptance import sample_index, shape
 
-# Distinct from every sibling e2e module's pinned bridge port (18090, 18099,
-# 18101-18110): `init_args` always serves the bluesky bridge, so it needs one.
-BRIDGE_PORT = 18111
-
-# This module's own thousand-port block: every companion port not pinned
-# explicitly follows it instead of colliding with another e2e stack or a real
-# deployment's default block.
-PORT_BASE = 22200
-
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed by
-# the preset with no profile knob to drop them; all three move to high,
-# unassigned host ports so a locally-running deployment holding the defaults
-# cannot abort `osprey up`.
-POSTGRES_PORT = 25437
-TELEMETRY_GATEWAY_PORT = 24331
-TELEMETRY_STORE_PORT = 28136
-
-PROJECT_NAME = "trajectory-proj"
+#: The compose project, the roster user and her persona: the acceptance
+#: render's own, never restated.
+PROJECT_NAME = shape.PROJECT_NAME
 PROJECT = _orm_stack.project_prefix(PROJECT_NAME)
+USER = shape.USER
+PERSONA = shape.PERSONA
 TRAJECTORY_CONTAINER = f"{PROJECT}-trajectory"
-VA_CONTAINER = f"{PROJECT}-virtual-accelerator"
-
-#: The one roster user, and the persona she is on: a delta listing the
-#: ``trajectory`` panel and nothing else, so the build renders her terminal
-#: the panel tab and her agent the ``trajectory`` MCP server.
-USER = "alice"
-PERSONA = "operator"
-#: ``osprey build`` renders a persona delta to ``build/<repo>-<persona>``, and
-#: the persona image is tagged by that same name.
-PERSONA_PROJECT = f"{PROJECT_NAME}-{PERSONA}"
+STANDIN_CONTAINER = f"{PROJECT}-live-standin"
 WEB_CONTAINER = f"{PROJECT}-web-{USER}"
 NGINX_CONTAINER = f"{PROJECT}-nginx"
+#: ``osprey build`` renders a persona delta to ``build/<repo>-<persona>``, and
+#: the persona image is tagged by that same name.
+PERSONA_IMAGE = f"{PROJECT_NAME}-{PERSONA}:local"
+#: The images the render names whose source this checkout changes: the project
+#: image the trajectory service runs, the VA image the stand-in, the VA and the
+#: archiver recorder run, and the bridge. Keys of ``resolve_image_defaults``.
+REBUILT_IMAGE_KEYS = ("worker", "va", "bluesky_bridge")
 
-# The trajectory service runs the PROJECT image; the VA, the bridge and the
-# persona build their own. Exact tags, derived as the compose templates derive them.
-PROJECT_IMAGE = f"{PROJECT}:local"
-VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
-BRIDGE_IMAGE = _orm_stack.bridge_image(PROJECT_NAME)
-PERSONA_IMAGE = f"{PERSONA_PROJECT}:local"
+#: The acceptance profile: the port block and the service's action timeout.
+PROFILE = shape.profile()
+PORT_BASE = int(PROFILE["port_base"])
+ACTION_TIMEOUT_SEC = float(PROFILE["config"]["services.trajectory.action_timeout_s"])
 
-#: A model key the terminal's agent starts with. The agent is started only so
-#: the panel token it carries exists; nothing in the module contacts a model.
-PLACEHOLDER_MODEL_KEY_LINE = "ANTHROPIC_API_KEY=placeholder-model-key\n"
+#: The Docker architectures the stand-in's VA image runs on natively.
+NATIVE_ARCHITECTURES = frozenset({"x86_64", "amd64"})
 
-BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # The first-time native VA build, the project image and the persona image are
 # slow on a cold cache.
 DEPLOY_UP_TIMEOUT_SEC = 2400
@@ -166,6 +141,9 @@ DEPLOY_UP_TIMEOUT_SEC = 2400
 HEALTH_TIMEOUT_SEC = 300.0
 # ... and, once it answers, how long until it reaches its control target.
 REACHABLE_WITHIN_SEC = 30.0
+#: How long one shot, step, setup or apply may take over HTTP: the service's
+#: own action timeout, with room for the queue in front of it.
+ACTION_HTTP_TIMEOUT_SEC = ACTION_TIMEOUT_SEC + 180.0
 
 AGENT_PREFIX = "/api"
 PANEL_PREFIX = "/panel/api"
@@ -183,51 +161,61 @@ TERMINAL_TOKEN_DOOR = "/panel/trajectory/api"
 AGENT_START_TIMEOUT_SEC = 240.0
 #: How long one browser expectation that waits on no action may take.
 SETTLE_MS = 30_000
+#: The panel's three raw plots, which a shot's buffers draw.
+RAW_PLOTS = ("plot-raw-sum", "plot-raw-x", "plot-raw-y")
 
-#: The errored ring the stack threads, and the seed it ships with.
-SCENARIO = "first-turn-errors"
-SHIPPED_SEED = 11
-#: The BPM (1-based, in beam order from injection) the first shot is lost by at the latest.
-LATEST_LOSS_BPM = 36
-#: The steps applied after which every BPM must see the first turn.
-MAX_STEPS = 5
-#: Shots per acquisition: more than one, so a shot only completes when the
-#: served buffer's timestamps advance between its members.
-N_SHOTS = 2
 #: The model the trajectory service steers.
-MODEL = "SR"
-#: Every vertical corrector's setpoint; the bound keeps each one below the
-#: ~11.5 A at which the cold solve loses the closed orbit.
-VCM_SETPOINT = re.compile(r"SR:MAG:VCM:\d+:CURRENT:SP")
-VCM_BOUND_A = 11.0
-#: The VA container's view of the deployment's active scenarios.
-VA_ACTIVE_SCENARIOS = "/state/simulation/active_scenarios"
-#: How long an applied scenario may take to show inside the container.
-SCENARIO_VISIBLE_SEC = 30.0
-#: How long one shot, step or apply may take over HTTP: the service's own
-#: action timeout, with room for the queue in front of it.
-ACTION_HTTP_TIMEOUT_SEC = 180.0
+MODEL = sample_index.MODEL
+#: Every calibrated threshold, each window turn placed on its plotted sample.
+THRESHOLDS = sample_index.thresholds()
+TRIGGER = int(THRESHOLDS["trigger_sample"])
+TURNS_TRACKED = int(THRESHOLDS["turns_tracked"])
 
-#: The Docker architectures the VA image runs on natively. Its recipe pins
-#: ``linux/amd64``, so any other Docker host runs it under emulation.
-VA_NATIVE_ARCHITECTURES = frozenset({"x86_64", "amd64"})
-#: Under emulation one shot's pass holds the VA for minutes once the ring
-#: keeps a closed orbit, and its Channel Access server answers nothing
-#: meanwhile. The service then waits that long for the armed flags and for
-#: each read, and an action of ``N_SHOTS`` such shots fits its action budget.
-EMULATED_ARMED_TIMEOUT_SEC = 400.0
-EMULATED_CALL_TIMEOUT_SEC = 90.0
-EMULATED_ACTION_TIMEOUT_SEC = 3000.0
+#: The declared chain steps, and the chains the tests run from them: the full
+#: declared chain; a shot that keeps the stored charge it read (no cleaning);
+#: and the cleaning chain alone, which empties the ring before a measurement.
+FULL_CHAIN = ["arm", "inject", "clean", "readout"]
+KEEP_STORED_CHAIN = ["arm", "inject", "readout"]
+CLEANING_CHAIN = ["clean"]
+#: The chain a continuous run reruns.
+CONTINUOUS_STEPS = KEEP_STORED_CHAIN
+
+#: The stand-in records the physics stages directly: the RF switch (0 off,
+#: 1 on) and the turns-tracked setpoint the setup route moves.
+RF_ON_SP = "SR:RF:ON:SP"
+TURNS_SP = "SR:DIAG:TBT:TURNS:SP"
+TURNS_RB = "SR:DIAG:TBT:TURNS:RB"
+TBT_SUM_PROBE = "SR:DIAG:BPM:01:TBT:SUM"
+RF_OFF, RF_ON = 0, 1
+#: The raw buffer's plane order.
+PLANE_X, PLANE_Y, PLANE_SUM = 0, 1, 2
+
+#: The pilot tone spikes a monitor's positions on every tenth sample (the
+#: engine's ``TONE_SPIKE_PERIOD``). On the vertical plane of an unkicked ring,
+#: whose positions are the launch jitter alone, the spiked samples' rms stands
+#: above the others' by an order of magnitude; with the tone off the two match.
+TONE_SPIKE_RATIO_MIN = 3.0
+TONE_OFF_RATIO_MAX = 2.0
+#: The calibrated kick moves the first turn's vertical trajectory to an rms
+#: well above the launch jitter alone (about twenty times it).
+KICK_RMS_FACTOR_MIN = 4.0
+
+#: How long an applied scenario may take to show inside the stand-in.
+SCENARIO_VISIBLE_SEC = 30.0
+#: From a write on the stand-in to that value being readable out of the
+#: archive: the recorder's cadence plus one poll.
+RECORDER_BUDGET_SEC = 30.0
+RECORDER_POLL_SEC = 2.0
+#: The step a stand-in setpoint is moved by to be seen in the archive.
+ARCHIVED_STEP = 0.05
+
 #: The continuous run's lease and heartbeat (``continuous.DEFAULT_LEASE_S`` /
 #: ``DEFAULT_HEARTBEAT_S``), and how long heartbeats keep it alive -- past
 #: two leases, so the run outliving a lease proves the heartbeats move it.
 LEASE_SEC = 10.0
 HEARTBEAT_SEC = 5.0
 HEARTBEATS_FOR_SEC = 2 * LEASE_SEC + HEARTBEAT_SEC
-#: Shots a continuous run may take: far more than the heartbeat window holds,
-#: so only its lease can end it.
-CONTINUOUS_MAX_SHOTS = 10_000
-REFERENCE_NAME = "threaded"
+REFERENCE_NAME = "kicked-and-corrected"
 
 pytestmark = [
     pytest.mark.e2e,
@@ -265,40 +253,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": ""},
     )
-
-
-@functools.cache
-def _va_emulated() -> bool:
-    """Whether this Docker host runs the VA image under emulation."""
-    result = subprocess.run(
-        ["docker", "info", "--format", "{{.Architecture}}"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return result.returncode == 0 and result.stdout.strip() not in VA_NATIVE_ARCHITECTURES
-
-
-def _timing_config() -> dict[str, float]:
-    """The service and connector timeouts the VA's pace on this host needs.
-
-    A natively served VA answers within the shipped defaults, so nothing is
-    set; an emulated one gets the emulated timeouts.
-    """
-    if not _va_emulated():
-        return {}
-    return {
-        "services.trajectory.armed_timeout_s": EMULATED_ARMED_TIMEOUT_SEC,
-        "services.trajectory.action_timeout_s": EMULATED_ACTION_TIMEOUT_SEC,
-        "control_system.connector.virtual_accelerator.timeout_s": EMULATED_CALL_TIMEOUT_SEC,
-    }
-
-
-def _action_http_timeout() -> float:
-    """How long one action may take over HTTP on this host."""
-    if not _va_emulated():
-        return ACTION_HTTP_TIMEOUT_SEC
-    return EMULATED_ACTION_TIMEOUT_SEC + ACTION_HTTP_TIMEOUT_SEC
 
 
 def _minted(repo: Path, name: str) -> str:
@@ -357,12 +311,15 @@ class DeployedStack:
         self.agent_env: dict[str, str] | None = None
         self.panel_page: Any = None
         self.panel_digest: str | None = None
-        # What the ordered threading tests hand on, one to the next.
+        # What the ordered physics tests hand on, one to the next.
         self.client_id: str | None = None
-        self.lost_per_shot: list[int | None] = []
+        #: The turns tracked the stand-in rests at, read before anything wrote it.
+        self.turns_rest: float | None = None
+        self.rf_on_raw: Any = None
+        self.kick_origin: float | None = None
+        self.kicked_shot: dict[str, Any] | None = None
         self.applied_digests: list[str] = []
-        self.threaded_shot: dict[str, Any] | None = None
-        self.reference_saved = False
+        self.corrected_shot: dict[str, Any] | None = None
 
     def headers(self, prefix: str, **extra: str) -> dict[str, str]:
         """The credentials a door's legitimate caller carries."""
@@ -370,6 +327,11 @@ class DeployedStack:
         if prefix == AGENT_PREFIX:
             headers["X-Launch-Token"] = self.launch_token
         return headers
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """The as-built config the deployment runs on."""
+        return yaml.safe_load((self.repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _logs() -> str:
@@ -387,40 +349,13 @@ def _user_secret(repo: Path) -> str:
     return _minted(repo, terminal_secret_var(USER))
 
 
-def _shape_repo(repo: Path) -> None:
-    """One roster user on one persona delta, after ``osprey init`` materialized the preset's.
+def _rebuilt_images(repo: Path) -> list[str]:
+    """The exact image names this deploy builds from the checkout, as the render names them."""
+    from osprey.deployment.compose_generator import resolve_image_defaults
 
-    ``osprey init`` renders one delta per preset persona and the preset's whole
-    roster; the profile is rewritten here to the shape this lane deploys. The
-    delta arms writes on the virtual accelerator alone, as the preset's
-    read-write persona does, lists the ``trajectory`` panel and no other
-    write-oriented one (the lane deploys no event dispatcher), and declares no
-    ``extends`` -- a file in ``personas/`` inherits from the profile beside it.
-    """
-    profile_path = repo / "profile.yml"
-    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    terminals = profile["config"]["modules.web_terminals"]
-    terminals["users"] = [{"name": USER, "index": 0, "persona": PERSONA}]
-    terminals["personas"] = {PERSONA: {"build_profile": f"personas/{PERSONA}.yml"}}
-    terminals["default_persona"] = PERSONA
-    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-
-    personas = repo / "personas"
-    for delta in personas.glob("*.yml"):
-        delta.unlink()
-    (personas / f"{PERSONA}.yml").write_text(
-        f"name: {PROJECT_NAME} ({PERSONA})\n"
-        "deploy_services: false\n"
-        "web_panels:\n"
-        "  - trajectory\n"
-        "config:\n"
-        "  control_system.writes_enabled: false\n"
-        "  control_system.connector.epics.writes_enabled: false\n"
-        "  control_system.connector.virtual_accelerator.writes_enabled: true\n"
-        "  web.ui_mode: expert\n"
-        "  modules.web_terminals.enabled: false\n",
-        encoding="utf-8",
-    )
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    defaults = resolve_image_defaults(config)
+    return [defaults[key] for key in REBUILT_IMAGE_KEYS] + [PERSONA_IMAGE]
 
 
 def _remove_terminal_tier() -> None:
@@ -429,86 +364,166 @@ def _remove_terminal_tier() -> None:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True, timeout=120)
 
 
-def _author_corrector_limits(repo: Path) -> None:
-    """Replace the repo's ``limits.yaml`` records with corrector-only ones.
-
-    Written between ``osprey init`` and ``osprey build`` so the render
-    enforces them. The shipped corrector records stay; every vertical
-    corrector the facility wires gains a symmetric bound; nothing names a
-    command channel, so the preset's ``optional`` mode lets commands pass.
-    """
-    facility = repo / "data" / "facility"
-    limits_file = facility / "limits.yaml"
-    limits = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
-    vcms = sorted(
-        {
-            match
-            for path in facility.rglob("*.yaml")
-            if path != limits_file
-            for match in VCM_SETPOINT.findall(path.read_text(encoding="utf-8"))
-        }
+def _release(stack: DeployedStack, prefix: str, client_id: str) -> None:
+    status, body = _request(
+        f"{prefix}/session",
+        "DELETE",
+        headers=stack.headers(prefix, **{CLIENT_HEADER: client_id}),
     )
-    assert vcms, f"no vertical corrector setpoint found under {facility}"
-    kept = [r for r in limits["records"] if ":MAG:" in r["address"] and r["address"] not in vcms]
-    limits["records"] = kept + [
-        {"address": vcm, "min_value": -VCM_BOUND_A, "max_value": VCM_BOUND_A} for vcm in vcms
-    ]
-    limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
+    assert status == 200, f"release through {prefix} failed: {status} {body!r}"
+
+
+def _open(stack: DeployedStack, prefix: str) -> dict[str, Any]:
+    status, body = _request(f"{prefix}/session", "POST", headers=stack.headers(prefix))
+    assert status == 200, f"open through {prefix} refused: {status} {body!r}\n{_logs()}"
+    return body
+
+
+def _active_inside_standin() -> str:
+    """The active scenarios file as the stand-in container reads it."""
+    result = subprocess.run(
+        ["docker", "exec", STANDIN_CONTAINER, "cat", "/state/simulation/active_scenarios"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _sim_apply(stack: DeployedStack, *scenarios: str) -> None:
+    """``osprey sim apply`` the scenarios, then wait until the stand-in serves them.
+
+    ``--no-seed``: the apply only rewrites the active set in the stand-in's
+    state directory and never reseeds the logbook or the archive. Once the
+    container sees the file the stand-in rebuilds at the new set -- which drops
+    every write made to it since. The file's content is no proof of that (an
+    unchanged set reads the same before and after), so a turns tracked written
+    off its rest value first marks the old build: the apply has taken once the
+    stand-in reads its rest value again.
+    """
+    from osprey_connectors.simulation import DEFAULT_TICK_S
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    if stack.turns_rest is None:
+        stack.turns_rest = _standin_read(stack, TURNS_RB)
+    assert stack.turns_rest != TURNS_TRACKED, (
+        f"the stand-in rests at {TURNS_TRACKED} turns tracked, so a rebuild cannot be told apart"
+    )
+    _standin_write(stack, TURNS_SP, TURNS_TRACKED)
+    applied = _run(
+        [str(stack.osprey_bin), "sim", "apply", *scenarios, "--no-seed"],
+        cwd=stack.repo,
+        timeout=120,
+    )
+    assert applied.returncode == 0, (
+        f"osprey sim apply {' '.join(scenarios)} failed (rc={applied.returncode}):\n"
+        f"--- stdout ---\n{applied.stdout}\n--- stderr ---\n{applied.stderr}"
+    )
+    written = (
+        resolve_simulation_state_dir(stack.config, stack.repo) / "active_scenarios"
+    ).read_text(encoding="utf-8")
+    deadline = time.monotonic() + SCENARIO_VISIBLE_SEC
+    while _active_inside_standin() != written:
+        assert time.monotonic() < deadline, (
+            f"{STANDIN_CONTAINER} never saw the active scenarios the host wrote ({written!r})"
+        )
+        time.sleep(0.2)
+    while _standin_read(stack, TURNS_RB) != stack.turns_rest:
+        assert time.monotonic() < deadline, (
+            f"{STANDIN_CONTAINER} never rebuilt at the applied scenarios: {TURNS_RB} still "
+            f"reads the {TURNS_TRACKED} written before the apply"
+        )
+        time.sleep(DEFAULT_TICK_S)
+
+
+def _set_up(headers: dict[str, str], **settings: Any) -> dict[str, Any]:
+    """Apply a setup through the panel door: the turns tracked, plus *settings*."""
+    status, done = _request(
+        f"{PANEL_PREFIX}/setup",
+        "POST",
+        body={"settings": {"turns_tracked": TURNS_TRACKED, **settings}},
+        headers=headers,
+        timeout=ACTION_HTTP_TIMEOUT_SEC,
+    )
+    assert status == 200, f"setup refused: {status} {done!r}\n{_logs()}"
+    assert not done["unsettled"], f"the setup left settings unsettled: {done!r}"
+    assert done["setup"] and not done["setup"]["void"], f"the setup did not take: {done!r}"
+    assert done["setup"]["turns_tracked"] == TURNS_TRACKED, done["setup"]
+    return done
+
+
+def _switch_to_standin(stack: DeployedStack) -> None:
+    """Move ``alice``'s control target to the stand-in, as her terminal's target chip does.
+
+    The deployment's baseline is the virtual accelerator, and the service admits
+    only owners whose control context names the target it drives; the switch
+    lands in her record, which the service reads on every action.
+    """
+    status, body = _request(
+        "/api/terminal/target",
+        "POST",
+        body={"target": "standin"},
+        headers={SECRET_HEADER: stack.secret, "Origin": ORIGIN},
+        base=WEB_URL,
+    )
+    assert status == 202, f"the switch to the stand-in was refused: {status} {body!r}"
+    deadline = time.monotonic() + REACHABLE_WITHIN_SEC
+    while True:
+        status, grant = _request(
+            f"{PANEL_PREFIX}/session", "POST", headers=stack.headers(PANEL_PREFIX)
+        )
+        if status == 200:
+            _release(stack, PANEL_PREFIX, grant["client_id"])
+            return
+        assert _code(grant) == "control_target_mismatch", (
+            f"open after the switch: {status} {grant!r}\n{_logs()}"
+        )
+        assert time.monotonic() < deadline, (
+            f"{USER} is still not on the stand-in {REACHABLE_WITHIN_SEC:.0f}s after the switch"
+        )
+        time.sleep(1.0)
+
+
+def _stage(stack: DeployedStack) -> None:
+    """The owner on the stand-in, the acceptance scenario set applied to it, then
+    the turns tracked set up."""
+    _switch_to_standin(stack)
+    _sim_apply(stack, *shape.ACTIVE_SET)
+    grant = _open(stack, PANEL_PREFIX)
+    try:
+        _set_up(stack.headers(PANEL_PREFIX, **{CLIENT_HEADER: grant["client_id"]}))
+    finally:
+        _release(stack, PANEL_PREFIX, grant["client_id"])
+
+
+def _docker_architecture() -> str:
+    """The architecture this Docker host runs containers natively on."""
+    result = subprocess.run(
+        ["docker", "info", "--format", "{{.Architecture}}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
+    architecture = _docker_architecture()
+    if architecture not in NATIVE_ARCHITECTURES:
+        pytest.fail(
+            f"this Docker host runs {architecture or 'an unknown architecture'}, so the "
+            "linux/amd64 stand-in would run emulated, past the acceptance profile's fixed "
+            "timeouts; run this module on an x86_64 Docker host"
+        )
     osprey_bin = _orm_stack.find_osprey_console_script()
     base = tmp_path_factory.mktemp("trajectory_build")
-    repo = base / PROJECT_NAME
-
-    args = _orm_stack.init_args(
-        PROJECT_NAME,
-        output_dir=base,
-        bridge_port=BRIDGE_PORT,
-        port_base=PORT_BASE,
-        extra_config={
-            "config": {
-                "services.postgresql.port_host": POSTGRES_PORT,
-                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-                # Web terminals back on, with token logins on loopback: the
-                # roster and persona are rewritten after init (`_shape_repo`).
-                "modules.web_terminals.enabled": True,
-                "modules.web_terminals.image_source": "local",
-                "modules.web_terminals.auth.method": "token",
-                "modules.web_terminals.default_persona": PERSONA,
-                "deploy.fqdn": "127.0.0.1",
-                **_timing_config(),
-            },
-            "trajectory": {"network": "host"},
-        },
-    )
-    init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
-    if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
-    _shape_repo(repo)
-    _author_corrector_limits(repo)
-    build = _run(
-        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
-        cwd=base,
-        timeout=BUILD_TIMEOUT_SEC,
-    )
-    if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
-    _orm_stack.seed_repo_env(repo)
-    env_path = repo / ".env"
-    with env_path.open("a", encoding="utf-8") as handle:
-        handle.write(PLACEHOLDER_MODEL_KEY_LINE)
-    os.chmod(env_path, 0o600)
+    try:
+        repo = shape.render(base)
+    except shape.RenderError as exc:
+        pytest.fail(str(exc))
     # Fresh --dev builds so the deployed containers run CURRENT source.
-    _orm_stack.force_image_rebuild(PROJECT_IMAGE, VA_IMAGE, BRIDGE_IMAGE, PERSONA_IMAGE)
+    _orm_stack.force_image_rebuild(*_rebuilt_images(repo))
 
     try:
         up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
@@ -532,6 +547,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             owner=USER,
             osprey_bin=osprey_bin,
         )
+        _stage(stack)
         try:
             yield stack
         finally:
@@ -544,30 +560,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         remove_project_volumes(PROJECT)
 
 
-def _release(stack: DeployedStack, prefix: str, client_id: str) -> None:
-    status, body = _request(
-        f"{prefix}/session",
-        "DELETE",
-        headers=stack.headers(prefix, **{"X-Trajectory-Client": client_id}),
-    )
-    assert status == 200, f"release through {prefix} failed: {status} {body!r}"
-
-
-def _open(stack: DeployedStack, prefix: str) -> dict[str, Any]:
-    status, body = _request(f"{prefix}/session", "POST", headers=stack.headers(prefix))
-    assert status == 200, f"open through {prefix} refused: {status} {body!r}\n{_logs()}"
-    return body
-
-
 # ---------------------------------------------------------------------------
-# 1. Health
+# 1. Health: the stand-in is the target, and serves
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 @pytest.mark.usefixtures("deployed_stack")
-def test_health_reaches_the_target_within_30s() -> None:
-    """``/health`` is gate-exempt and names its target's reachability."""
+def test_health_reaches_the_standin_within_30s() -> None:
+    """``/health`` is gate-exempt and names its target -- the stand-in -- reachable."""
     deadline = time.monotonic() + REACHABLE_WITHIN_SEC
     body: Any = None
     while time.monotonic() < deadline:
@@ -579,7 +580,17 @@ def test_health_reaches_the_target_within_30s() -> None:
         f"/health never reported target: reachable within {REACHABLE_WITHIN_SEC:.0f}s; "
         f"last: {body!r}\n{_logs()}"
     )
-    assert body.get("control_target"), f"/health names no control target: {body!r}"
+    assert body.get("control_target") == "standin", f"/health names another target: {body!r}"
+    health = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Health.Status}}", STANDIN_CONTAINER],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert health.stdout.strip() == "healthy", (
+        f"{STANDIN_CONTAINER} health: {health.stdout.strip() or health.stderr.strip()}\n"
+        f"{container_logs(STANDIN_CONTAINER)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -709,8 +720,512 @@ def test_an_action_files_its_audit_record_under_var_audit_trajectory(
 
 
 # ---------------------------------------------------------------------------
-# 5. The hop through alice's terminal: her browser, her agent's server, the
-#    terminal's own refusals (STRICT, ordered: the browser's session spans them)
+
+
+# ---------------------------------------------------------------------------
+# 5. The physics on the stand-in (STRICT, ordered: one held session, each test
+#    acting on the machine the previous one left)
+# ---------------------------------------------------------------------------
+
+
+def _on_standin(stack: DeployedStack, work: Callable[[Any], Awaitable[Any]]) -> Any:
+    """Run *work* with a connected connector to the stand-in, as the deployment configures it.
+
+    The write guard re-reads the posture from the global config, so the
+    deployment's rendered config is made the global one for the call only and
+    the config singletons are reset around it.
+    """
+    from osprey_connectors import config as config_module
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.types import LIVE_STANDIN
+
+    async def run() -> Any:
+        register_builtin_connectors()
+        connector = await ConnectorFactory.create_control_system_connector(
+            {**stack.config["control_system"], "type": LIVE_STANDIN}, control_target="standin"
+        )
+        try:
+            return await work(connector)
+        finally:
+            await connector.disconnect()
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("CONFIG_FILE", str(stack.repo / "build" / "config.yml"))
+        patch.setattr(config_module, "_default_config", None)
+        patch.setattr(config_module, "_default_configurable", None)
+        return asyncio.run(run())
+
+
+def _standin_write(stack: DeployedStack, address: str, value: float) -> None:
+    """One checked write to the stand-in, confirmed by reading it back."""
+
+    async def work(connector: Any) -> float:
+        await connector.write_channel_checked(address, value)
+        return float((await connector.read_channel(address)).value)
+
+    read = _on_standin(stack, work)
+    assert math.isclose(read, value, abs_tol=1e-9), f"{address} reads {read} after writing {value}"
+
+
+def _standin_read(stack: DeployedStack, address: str) -> float:
+    async def work(connector: Any) -> float:
+        return float((await connector.read_channel(address)).value)
+
+    return _on_standin(stack, work)
+
+
+def _held(stack: DeployedStack) -> dict[str, str]:
+    """The panel credentials plus the session the physics tests hold."""
+    assert stack.client_id, "no session is held: an earlier physics test failed"
+    return stack.headers(PANEL_PREFIX, **{CLIENT_HEADER: stack.client_id})
+
+
+def _release_held(stack: DeployedStack) -> None:
+    if stack.client_id is not None:
+        client_id, stack.client_id = stack.client_id, None
+        _release(stack, PANEL_PREFIX, client_id)
+
+
+def _chain(stack: DeployedStack, steps: list[str]) -> dict[str, Any] | None:
+    """Run *steps* as one panel chain of one shot; answers the shot a readout read."""
+    status, done = _request(
+        f"{PANEL_PREFIX}/shot",
+        "POST",
+        body={"steps": steps, "n_shots": 1},
+        headers=_held(stack),
+        timeout=ACTION_HTTP_TIMEOUT_SEC,
+    )
+    assert status == 200, f"chain {steps} refused: {status} {done!r}\n{_logs()}"
+    assert done["steps_run"] == steps, done["steps_run"]
+    shot = done["shot"]
+    if "readout" not in steps:
+        assert shot is None, f"a chain without a readout read a shot: {shot!r}"
+        return None
+    assert shot is not None and shot["shots_included"] == 1, (
+        f"chain {steps} included no shot: {shot!r}\n{_logs()}\n{container_logs(STANDIN_CONTAINER)}"
+    )
+    assert shot["model"] == MODEL, shot["model"]
+    return shot
+
+
+def _measure(stack: DeployedStack) -> dict[str, Any]:
+    """A shot into an emptied ring: the cleaning chain, then the full declared chain."""
+    _chain(stack, CLEANING_CHAIN)
+    shot = _chain(stack, FULL_CHAIN)
+    assert shot is not None
+    return shot
+
+
+def _raw(stack: DeployedStack, shot: Mapping[str, Any]) -> Any:
+    """The shot's served raw buffer: its one injection, ``(plane, monitor, sample)``."""
+    from osprey.services.trajectory.raw import decode_raw
+
+    req = urllib.request.Request(
+        f"{TRAJECTORY_URL}{PANEL_PREFIX}/shots/{shot['shot_id']}/raw",
+        headers=stack.headers(PANEL_PREFIX),
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:  # localhost
+        buffer = decode_raw(resp.read())
+    assert buffer.header.trigger_sample == TRIGGER, buffer.header
+    n_injections, planes, _monitors, samples = buffer.header.shape
+    assert n_injections == 1 and planes == 3, buffer.header
+    assert samples > THRESHOLDS["last_index"], (
+        f"the buffer holds {samples} samples; the {TURNS_TRACKED}-turn window ends at sample "
+        f"{THRESHOLDS['last_index']}; {_turns_evidence(stack)}"
+    )
+    return buffer.samples[0]
+
+
+def _turns_evidence(stack: DeployedStack) -> str:
+    """What the stand-in holds now: its turns tracked and one monitor's series length."""
+    series = TBT_SUM_PROBE
+
+    async def work(connector: Any) -> str:
+        turns = (await connector.read_channel(TURNS_RB)).value
+        try:
+            length: Any = len((await connector.read_channel(series)).value)
+        except Exception as exc:  # evidence only
+            length = repr(exc)
+        return f"the stand-in reads {TURNS_RB} = {turns}, {series} holds {length} samples"
+
+    try:
+        return _on_standin(stack, work)
+    except Exception as exc:  # evidence only
+        return f"the stand-in could not be read: {exc!r}"
+
+
+def _monitor(shot: Mapping[str, Any], index: int) -> str:
+    order = shot["bpm_order"]
+    return order[index] if index < len(order) else f"monitor #{index}"
+
+
+def _rms(values: Sequence[float | None]) -> float:
+    kept = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    assert kept, "no monitor read the plane"
+    return math.sqrt(sum(v * v for v in kept) / len(kept))
+
+
+def _spike_ratio(series: Any) -> float:
+    """The rms of a position series on the tone's spike samples over the rms of the
+    others, inside the tracked window."""
+    import numpy as np
+
+    from osprey.simulation.engines.pyat_faults import TONE_SPIKE_PERIOD
+
+    index = np.arange(series.shape[-1])
+    window = (index >= TRIGGER) & (index <= THRESHOLDS["last_index"])
+    spiked = window & (index % TONE_SPIKE_PERIOD == 0)
+    plain = window & (index % TONE_SPIKE_PERIOD != 0)
+    return float(np.sqrt(np.nanmean(series[spiked] ** 2)) / np.sqrt(np.nanmean(series[plain] ** 2)))
+
+
+@pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
+def test_the_published_shot_maximum_covers_the_walks_bound_and_the_window_is_set_up(
+    deployed_stack: DeployedStack,
+) -> None:
+    status, state = _request(f"{PANEL_PREFIX}/state", headers=deployed_stack.headers(PANEL_PREFIX))
+    assert status == 200, f"GET state: {status} {state!r}"
+    assert state["n_shots_max"] is not None and state["n_shots_max"] >= shape.N_SHOTS_MAX, (
+        f"the service admits {state['n_shots_max']} shots per action; the walk asks for up to "
+        f"{shape.N_SHOTS_MAX}"
+    )
+    setup = state["setup"]
+    assert setup and not setup["void"], f"the staged setup does not hold: {setup!r}"
+    assert setup["turns_tracked"] == TURNS_TRACKED, setup
+
+
+def test_the_archiver_records_the_standin(
+    deployed_stack: DeployedStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A setpoint moved on the stand-in alone comes back out of the archive.
+
+    The virtual accelerator beside it is never written, so an archived sample
+    carrying the new value can only have been recorded from the stand-in.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from osprey.simulation.apply import archiver_store_config
+    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+
+    store = archiver_store_config(deployed_stack.config, deployed_stack.repo)
+    assert store is not None, "the deployment archives nothing in its store"
+    monkeypatch.setenv(store["password_env"], store["password"])
+    limits = json.loads(
+        (deployed_stack.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
+    )
+    address = next(
+        name
+        for name in sorted(limits)
+        if name.endswith(":SP") and limits[name]["writable"] and name != shape.KICK["record"]
+    )
+    original = _standin_read(deployed_stack, address)
+    target = original + ARCHIVED_STEP
+    written_at = datetime.now(UTC)
+    _standin_write(deployed_stack, address, target)
+    try:
+        archive = MongoDBArchiverConnector()
+        asyncio.run(
+            archive.connect(
+                {
+                    "host": store["host"],
+                    "port": store["port"],
+                    "name": store["database"],
+                    "collection": store["collection"],
+                    "auth": {
+                        "source": store["auth_source"],
+                        "username": store["username"],
+                        "password_env": store["password_env"],
+                    },
+                }
+            )
+        )
+        deadline = time.monotonic() + RECORDER_BUDGET_SEC
+        seen: list[float] = []
+        while not any(abs(value - target) < 1e-6 for value in seen):
+            assert time.monotonic() < deadline, (
+                f"{address} was set to {target} on the stand-in but no archived sample carried "
+                f"it within {RECORDER_BUDGET_SEC:.0f}s; the archive held {seen[-5:]}"
+            )
+            time.sleep(RECORDER_POLL_SEC)
+            frame = asyncio.run(
+                archive.get_data([address], written_at - timedelta(seconds=5), datetime.now(UTC))
+            )
+            seen = [float(v) for v in frame["value"]] if len(frame) else []
+    finally:
+        _standin_write(deployed_stack, address, original)
+
+
+def test_the_stored_beam_reads_its_share_before_the_trigger(deployed_stack: DeployedStack) -> None:
+    """A ring storing the scenario's charge, RF on: every monitor's mean sum before
+    the trigger stands at least at the calibrated stored share of the peak after it."""
+    _sim_apply(deployed_stack, *shape.ACTIVE_SET)
+    grant = _open(deployed_stack, PANEL_PREFIX)
+    assert grant["owner"] == deployed_stack.owner, grant
+    deployed_stack.client_id = grant["client_id"]
+    _set_up(_held(deployed_stack))
+    _standin_write(deployed_stack, RF_ON_SP, RF_ON)
+
+    shot = _chain(deployed_stack, KEEP_STORED_CHAIN)
+    assert shot is not None
+    sums = _raw(deployed_stack, shot)[PLANE_SUM]
+    threshold = THRESHOLDS["stored"]["threshold"]
+    short = {
+        _monitor(shot, i): round(ratio, 4)
+        for i, series in enumerate(sums)
+        if (ratio := sample_index.stored_ratio(series, TRIGGER)) < threshold
+    }
+    assert not short, (
+        f"pre-trigger/post-injection sum ratio below the stored threshold {threshold:.4f} "
+        f"(stored share {THRESHOLDS['stored']['share']:.4f}) on {len(short)} of "
+        f"{len(sums)} monitors: {short}"
+    )
+
+
+def test_a_cleaning_chain_clears_the_stored_beam(deployed_stack: DeployedStack) -> None:
+    """After the cleaning chain the next shot reads an empty ring: every monitor's
+    pre-trigger ratio falls below half the stored threshold."""
+    _chain(deployed_stack, CLEANING_CHAIN)
+    shot = _chain(deployed_stack, KEEP_STORED_CHAIN)
+    assert shot is not None
+    sums = _raw(deployed_stack, shot)[PLANE_SUM]
+    ceiling = THRESHOLDS["stored"]["threshold"] / 2
+    stored = {
+        _monitor(shot, i): round(ratio, 4)
+        for i, series in enumerate(sums)
+        if (ratio := sample_index.stored_ratio(series, TRIGGER)) >= ceiling
+    }
+    assert not stored, (
+        f"after the cleaning chain the pre-trigger/post-injection sum ratio stays at or above "
+        f"{ceiling:.4f} on {len(stored)} of {len(sums)} monitors: {stored}"
+    )
+
+
+def test_with_the_rf_off_the_bunch_decays(deployed_stack: DeployedStack) -> None:
+    """RF off: every monitor keeps more than the high share at the high turn and
+    less than the low share at the low turn, of its first-turn sum."""
+    rf_off = THRESHOLDS["rf_off"]
+    high, low = rf_off["high"], rf_off["low"]
+    _standin_write(deployed_stack, RF_ON_SP, RF_OFF)
+    try:
+        shot = _measure(deployed_stack)
+        sums = _raw(deployed_stack, shot)[PLANE_SUM]
+    finally:
+        _standin_write(deployed_stack, RF_ON_SP, RF_ON)
+    early = {
+        _monitor(shot, i): round(share, 4)
+        for i, series in enumerate(sums)
+        if (share := sample_index.share_at(series, TRIGGER, high["turn"])) <= high["share_above"]
+    }
+    late = {
+        _monitor(shot, i): round(share, 4)
+        for i, series in enumerate(sums)
+        if (share := sample_index.share_at(series, TRIGGER, low["turn"])) >= low["share_below"]
+    }
+    assert not early, (
+        f"RF off: the sum at turn {high['turn']} (sample {high['index']}) is not above "
+        f"{high['share_above']} of the first turn's on {early}"
+    )
+    assert not late, (
+        f"RF off: the sum at turn {low['turn']} (sample {low['index']}) is not below "
+        f"{low['share_below']} of the first turn's on {late}"
+    )
+
+
+def test_with_the_rf_on_the_bunch_survives_the_window(deployed_stack: DeployedStack) -> None:
+    """RF on: every monitor keeps at least the survival share of its first-turn sum
+    on every turn of the tracked window."""
+    rf_on = THRESHOLDS["rf_on"]
+    shot = _measure(deployed_stack)
+    raw = _raw(deployed_stack, shot)
+    deployed_stack.rf_on_raw = raw
+    lost = {}
+    for i, series in enumerate(raw[PLANE_SUM]):
+        worst = min(
+            sample_index.share_at(series, TRIGGER, turn)
+            for turn in range(1, rf_on["last_turn"] + 1)
+        )
+        if worst < rf_on["share_at_least"]:
+            lost[_monitor(shot, i)] = round(worst, 4)
+    assert not lost, (
+        f"RF on: the sum falls below {rf_on['share_at_least']} of the first turn's within "
+        f"turns 1-{rf_on['last_turn']} (samples {rf_on['first_index']}-{rf_on['last_index']}) "
+        f"on {lost}"
+    )
+
+
+def test_the_pilot_tone_spikes_the_positions(deployed_stack: DeployedStack) -> None:
+    """With the pilot tone set up on, every monitor's vertical positions spike on the
+    tone's samples; the RF-on shot before it, tone off, shows no such spikes."""
+    plain = deployed_stack.rf_on_raw
+    assert plain is not None, "the RF-on shot was not taken"
+    _set_up(_held(deployed_stack), pilot_tone=1)
+    try:
+        shot = _measure(deployed_stack)
+        toned = _raw(deployed_stack, shot)[PLANE_Y]
+    finally:
+        _set_up(_held(deployed_stack), pilot_tone=0)
+    flat = {
+        _monitor(shot, i): round(ratio, 2)
+        for i, series in enumerate(toned)
+        if (ratio := _spike_ratio(series)) < TONE_SPIKE_RATIO_MIN
+    }
+    assert not flat, (
+        f"pilot tone on: the spiked-sample/other-sample vertical rms is below "
+        f"{TONE_SPIKE_RATIO_MIN} on {flat}"
+    )
+    control = statistics.median(_spike_ratio(series) for series in plain[PLANE_Y])
+    assert control <= TONE_OFF_RATIO_MAX, (
+        f"pilot tone off: the median spiked-sample/other-sample vertical rms is {control:.2f}, "
+        f"above {TONE_OFF_RATIO_MAX}: the spikes are not the tone's"
+    )
+
+
+def test_the_calibrated_kick_moves_the_vertical_trajectory(deployed_stack: DeployedStack) -> None:
+    """The kick the walk stages raises the first turn's vertical rms well above the
+    launch jitter of the same ring unkicked."""
+    record, value_a = shape.KICK["record"], float(shape.KICK["value_a"])
+    base = _measure(deployed_stack)
+    origin = _standin_read(deployed_stack, record)
+    deployed_stack.kick_origin = origin
+    _standin_write(deployed_stack, record, origin + value_a)
+    kicked = _measure(deployed_stack)
+    deployed_stack.kicked_shot = kicked
+    before, after = _rms(list(base["y"].values())), _rms(list(kicked["y"].values()))
+    assert after >= KICK_RMS_FACTOR_MIN * before, (
+        f"{shape.KICK['corrector']} raised by {value_a} A: the first turn's vertical rms went "
+        f"from {before:.3e} m to {after:.3e} m, under {KICK_RMS_FACTOR_MIN}x"
+    )
+    assert not kicked["lost"], f"the kicked bunch is lost by {kicked['lost'][:5]}"
+
+
+def test_an_applied_step_reduces_the_kicked_trajectory(deployed_stack: DeployedStack) -> None:
+    kicked = deployed_stack.kicked_shot
+    assert kicked is not None, "the kick was not taken"
+    try:
+        status, step = _request(f"{PANEL_PREFIX}/step", headers=_held(deployed_stack))
+        assert status == 200, f"no step after the kicked shot: {status} {step!r}"
+        assert step["shot_id"] == kicked["shot_id"], (step["shot_id"], kicked["shot_id"])
+        assert not step["all_zero"], f"the step for the kick moves nothing: {step['reason']}"
+        status, done = _request(
+            f"{PANEL_PREFIX}/apply",
+            "POST",
+            body={"step_digest": step["digest"]},
+            headers=_held(deployed_stack),
+            timeout=ACTION_HTTP_TIMEOUT_SEC,
+        )
+        assert status == 200, f"apply refused: {status} {done!r}\n{_logs()}"
+        assert not done["stopped"], done
+        assert done["moved"], "the apply moved no corrector"
+        deployed_stack.applied_digests.append(step["digest"])
+        corrected = _measure(deployed_stack)
+        deployed_stack.corrected_shot = corrected
+        before, after = _rms(list(kicked["y"].values())), _rms(list(corrected["y"].values()))
+        assert after < before, (
+            f"the applied step left the first turn's vertical rms at {after:.3e} m, "
+            f"not below the kicked {before:.3e} m"
+        )
+    finally:
+        if deployed_stack.kick_origin is not None:
+            _standin_write(deployed_stack, shape.KICK["record"], deployed_stack.kick_origin)
+        _release_held(deployed_stack)
+
+
+def test_the_apply_audit_line_names_the_admitted_owner(deployed_stack: DeployedStack) -> None:
+    from osprey.audit.envelope import DECISION_ALLOWED, SURFACE_TRAJECTORY_SERVICE
+
+    assert deployed_stack.applied_digests, "no step was applied"
+    applies = [
+        r
+        for r in _audit_records(deployed_stack.repo)
+        if r.get("surface") == SURFACE_TRAJECTORY_SERVICE
+        and r.get("subject") == "apply"
+        and r.get("decision") == DECISION_ALLOWED
+    ]
+    for digest in deployed_stack.applied_digests:
+        lines = [r for r in applies if f"step_digest={digest}" in r.get("detail", "")]
+        assert len(lines) == 1, f"apply of {digest}: {len(lines)} allowed records in {applies!r}"
+        assert lines[0].get("actor") == deployed_stack.owner, lines[0]
+
+
+def test_the_shot_lands_on_the_host_and_in_the_listing(deployed_stack: DeployedStack) -> None:
+    shot = deployed_stack.corrected_shot
+    assert shot is not None, "the corrected shot was not taken"
+    path = deployed_stack.repo / "var" / "trajectory" / "shots" / MODEL / f"{shot['shot_id']}.json"
+    assert path.is_file(), f"no shot file at {path}"
+    assert json.loads(path.read_text(encoding="utf-8"))["shot_id"] == shot["shot_id"]
+
+    status, listing = _request(
+        f"{PANEL_PREFIX}/shots", headers=deployed_stack.headers(PANEL_PREFIX)
+    )
+    assert status == 200, f"GET shots: {status} {listing!r}"
+    assert listing["model"] == MODEL, listing["model"]
+    assert listing["shots"][0]["shot_id"] == shot["shot_id"], (
+        "the newest listed shot is not the corrected one: "
+        f"{[s['shot_id'] for s in listing['shots']]}"
+    )
+
+
+def _exclude(stack: DeployedStack, bpms: list[str]) -> dict[str, Any]:
+    """Setup BPMs through the panel door: the turns tracked and the BPM exclusions."""
+    status, done = _request(
+        f"{PANEL_PREFIX}/setup",
+        "POST",
+        body={"settings": {"turns_tracked": TURNS_TRACKED}, "excluded_bpms": bpms},
+        headers=_held(stack),
+        timeout=ACTION_HTTP_TIMEOUT_SEC,
+    )
+    assert status == 200, f"Setup BPMs excluding {bpms} refused: {status} {done!r}\n{_logs()}"
+    return done
+
+
+def test_an_excluded_bpm_is_left_out_of_the_shot_and_apply_succeeds(
+    deployed_stack: DeployedStack,
+) -> None:
+    """One BPM excluded end to end: the build's catalog names it, Setup BPMs commits
+    it, the shot leaves it out, and the step for that shot applies."""
+    grant = _open(deployed_stack, PANEL_PREFIX)
+    deployed_stack.client_id = grant["client_id"]
+    record, value_a = shape.KICK["record"], float(shape.KICK["value_a"])
+    origin: float | None = None
+    try:
+        status, state = _request(f"{PANEL_PREFIX}/state", headers=_held(deployed_stack))
+        assert status == 200, f"GET state: {status} {state!r}"
+        catalog = state["catalog"]
+        assert catalog and len(catalog["bpms"]) > 2, f"the snapshot carries no catalog: {catalog!r}"
+        out = catalog["bpms"][1]["name"]
+        _exclude(deployed_stack, [out])
+        status, state = _request(f"{PANEL_PREFIX}/state", headers=_held(deployed_stack))
+        assert state["solve"]["config"]["excluded_bpms"] == [out], state["solve"]["config"]
+
+        origin = _standin_read(deployed_stack, record)
+        _standin_write(deployed_stack, record, origin + value_a)
+        shot = _measure(deployed_stack)
+        assert shot["excluded_bpms"] == [out], shot["excluded_bpms"]
+        assert shot["x"][out] is None and shot["y"], f"{out} was read: {shot['x'][out]!r}"
+
+        status, step = _request(f"{PANEL_PREFIX}/step", headers=_held(deployed_stack))
+        assert status == 200, f"no step after the shot: {status} {step!r}"
+        assert step["shot_id"] == shot["shot_id"], (step["shot_id"], shot["shot_id"])
+        status, done = _request(
+            f"{PANEL_PREFIX}/apply",
+            "POST",
+            body={"step_digest": step["digest"]},
+            headers=_held(deployed_stack),
+            timeout=ACTION_HTTP_TIMEOUT_SEC,
+        )
+        assert status == 200, f"apply with {out} excluded refused: {status} {done!r}\n{_logs()}"
+        assert done["moved"], "the apply moved no corrector"
+    finally:
+        if origin is not None:
+            _standin_write(deployed_stack, record, origin)
+        if deployed_stack.client_id is not None:
+            _exclude(deployed_stack, [])
+        _release_held(deployed_stack)
+
+
+# ---------------------------------------------------------------------------
+# 6. The panel smoke through alice's terminal: her browser, her agent's server,
+#    the terminal's own refusals (STRICT, ordered: the browser's session spans them)
 # ---------------------------------------------------------------------------
 
 
@@ -783,7 +1298,7 @@ def _agent_env(stack: DeployedStack) -> dict[str, str]:
 
 
 class _OperatorBrowser:
-    """One chromium tab of ``alice``'s, logged in through nginx, on the trajectory panel."""
+    """One chromium tab of ``alice``'s, logged in through nginx."""
 
     def __init__(self, secret: str) -> None:
         from playwright.sync_api import sync_playwright
@@ -811,27 +1326,31 @@ def _close_panel(stack: DeployedStack) -> None:
 
 
 def _panel(stack: DeployedStack) -> Any:
-    """The operator's panel page, opened by the first panel-hop test."""
+    """The operator's panel page, opened by the panel smoke."""
     assert stack.panel_page is not None, "the operator's panel was not opened"
     return stack.panel_page.page
 
 
-def _fact(page: Any, view: str, name: str) -> Any:
-    return page.locator(f"[data-view={view}] dt:text-is('{name}') + dd")
+def _session_control(page: Any, name: str) -> Any:
+    """A session button where the operator presses it: the panel body's copy."""
+    return page.locator(f'[data-view=session] [data-control="{name}"]')
 
 
-def _control(page: Any, name: str) -> Any:
-    return page.locator(f"[data-control={name}]")
+def _holder(page: Any) -> Any:
+    return page.locator("[data-fact=holder] .fact-value")
 
 
-def test_the_operator_takes_a_shot_through_the_panel(deployed_stack: DeployedStack) -> None:
-    """Logged in with her login link, ``alice`` reads the live state and shoots.
+def test_the_operator_runs_a_shot_through_the_panel(deployed_stack: DeployedStack) -> None:
+    """Logged in with her login link, ``alice`` opens a session in the panel her
+    terminal proxies and runs the selected chain; its raw plots draw.
 
     The cookie the link exchanges for is the only credential the tab holds, and
     every request the bundle sends goes to the panel door below it.
     """
     from playwright.sync_api import expect
 
+    # A physics test that failed part-way may have left its session held.
+    _release_held(deployed_stack)
     operator = _OperatorBrowser(deployed_stack.secret)
     deployed_stack.panel_page = operator
     assert operator.context.cookies(), f"the login link issued no cookie\n{_terminal_logs()}"
@@ -839,28 +1358,26 @@ def test_the_operator_takes_a_shot_through_the_panel(deployed_stack: DeployedSta
     page.goto(f"{ORIGIN}/u/{USER}{TERMINAL_PANEL}", wait_until="load")
     expect(page.locator("[data-connection=connected]")).to_be_visible(timeout=SETTLE_MS)
 
-    status, state = _request(f"{PANEL_PREFIX}/state", headers=deployed_stack.headers(PANEL_PREFIX))
-    assert status == 200, f"GET state: {status} {state!r}"
-    expect(_fact(page, "header", "Operator")).to_have_text(USER, timeout=SETTLE_MS)
-    expect(_fact(page, "header", "Target")).to_have_text(str(state["target"]))
-    expect(_fact(page, "header", "Model")).to_contain_text(MODEL)
-    expect(_fact(page, "header", "Holder")).to_have_text("nobody")
-
-    _control(page, "open").click()
-    expect(_fact(page, "header", "Holder")).to_have_text(
-        f"panel of {USER} (this tab)", timeout=SETTLE_MS
-    )
-    page.locator("input[name=n_shots]").fill(str(N_SHOTS))
-    expect(_control(page, "shot")).to_be_enabled(timeout=SETTLE_MS)
-    _control(page, "shot").click()
-    digest = _fact(page, "step", "Digest")
-    expect(digest).to_be_visible(timeout=_action_http_timeout() * 1000)
-    expect(_fact(page, "status", "Included")).to_have_text(str(N_SHOTS))
-    deployed_stack.panel_digest = digest.inner_text().strip()
+    _session_control(page, "session-open").click()
+    expect(_session_control(page, "session-end")).to_be_enabled(timeout=SETTLE_MS)
+    expect(_holder(page)).to_have_text(f"panel of {USER} (this tab)", timeout=SETTLE_MS)
+    run = page.locator('[data-control="run-selected"]')
+    expect(run).to_be_enabled(timeout=SETTLE_MS)
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/shot") and r.request.method == "POST",
+        timeout=ACTION_HTTP_TIMEOUT_SEC * 1000,
+    ) as answered:
+        run.click()
+    assert answered.value.ok, answered.value.text()
+    shot_id = answered.value.json()["shot"]["shot_id"]
+    for plot_id in RAW_PLOTS:
+        expect(page.locator(f"#{plot_id} .main-svg").first).to_be_attached(timeout=SETTLE_MS)
 
     status, state = _request(f"{PANEL_PREFIX}/state", headers=deployed_stack.headers(PANEL_PREFIX))
     assert status == 200, f"GET state: {status} {state!r}"
     assert state["holder"]["owner"] == USER and state["holder"]["kind"] == "panel", state
+    assert state["step"] and state["step"]["shot_id"] == shot_id, state["step"]
+    deployed_stack.panel_digest = state["step"]["digest"]
     paths = [urllib.parse.urlsplit(url).path for url in operator.requests]
     assert any(path.startswith(f"/u/{USER}{TERMINAL_PANEL_DOOR}/") for path in paths), paths
     assert not [path for path in paths if path.startswith(f"/u/{USER}{TERMINAL_TOKEN_DOOR}/")], (
@@ -1009,7 +1526,7 @@ def test_the_agents_server_reads_the_step_and_refuses_an_unstamped_shot(
     """
     assert deployed_stack.panel_digest, "the operator's shot left no step"
     _agent_env(deployed_stack)
-    timeout = _action_http_timeout()
+    timeout = ACTION_HTTP_TIMEOUT_SEC
     ran = subprocess.run(
         ["docker", "exec", "-i", "--user", "1000", WEB_CONTAINER, "python3", "-c", _MCP_CLIENT]
         + [str(timeout)],
@@ -1030,7 +1547,7 @@ def test_the_agents_server_reads_the_step_and_refuses_an_unstamped_shot(
     failed, step = _tool_payload(out["step"])
     assert not failed, f"trajectory_step refused: {step!r}\n{out['stderr']}\n{_terminal_logs()}"
     assert step["digest"] == deployed_stack.panel_digest, (
-        f"the server read step {step['digest']!r}, the panel shows {deployed_stack.panel_digest!r}"
+        f"the server read step {step['digest']!r}, the panel's shot left {deployed_stack.panel_digest!r}"
     )
 
     failed, refusal = _tool_payload(out["shot"])
@@ -1045,52 +1562,13 @@ def test_the_agents_server_reads_the_step_and_refuses_an_unstamped_shot(
     assert state["step"] and state["step"]["digest"] == deployed_stack.panel_digest, state
 
 
-def _watch_until_running(watcher: Any, action: str) -> None:
-    """Load the panel in *watcher* until its first snapshot shows *action* running.
-
-    A tab's stream opens with the service's current snapshot, so a tab loaded
-    while the action runs shows it running and offers Stop.
-    """
-    from playwright.sync_api import expect
-
-    running = watcher.locator(f"p.running[data-running={action}]")
-    deadline = time.monotonic() + SETTLE_MS / 1000
-    while True:
-        watcher.goto(f"{ORIGIN}/u/{USER}{TERMINAL_PANEL}", wait_until="load")
-        expect(watcher.locator("[data-connection=connected]")).to_be_visible(timeout=SETTLE_MS)
-        try:
-            expect(running).to_be_visible(timeout=2_000)
-            return
-        except AssertionError:
-            assert time.monotonic() < deadline, f"no tab ever saw the {action} running"
-
-
-def test_the_operator_stops_a_shot_in_flight_and_releases(deployed_stack: DeployedStack) -> None:
-    """Stop is offered to every admitted owner, holding or not: ``alice`` presses
-    it in a second tab of hers, loaded while the shot runs, and the holding tab
-    sees the shot end stopped, then releases."""
+def test_the_operator_ends_her_session(deployed_stack: DeployedStack) -> None:
     from playwright.sync_api import expect
 
     page = _panel(deployed_stack)
-    expect(_control(page, "shot")).to_be_enabled(timeout=SETTLE_MS)
-    _control(page, "shot").click()
-    watcher = deployed_stack.panel_page.context.new_page()
-    _watch_until_running(watcher, "shot")
-    expect(_fact(watcher, "header", "Holder")).to_have_text(f"panel of {USER}")
-    _control(watcher, "stop").click()
-
-    ended_ms = _action_http_timeout() * 1000
-    expect(page.locator("[data-notice=stopped] strong").first).to_have_text(
-        f"shot stopped by {USER}", timeout=ended_ms
-    )
-    expect(page.locator("[data-view=last-action] p")).to_have_text(
-        "shot (stopped), 0 setting(s) moved", timeout=SETTLE_MS
-    )
-    expect(page.locator("p.running")).to_have_text("Nothing running", timeout=SETTLE_MS)
-
-    _control(page, "release").click()
-    expect(_fact(page, "header", "Holder")).to_have_text("nobody", timeout=SETTLE_MS)
-    expect(_control(page, "open")).to_be_visible(timeout=SETTLE_MS)
+    _session_control(page, "session-end").click()
+    expect(_holder(page)).to_have_text("nobody", timeout=SETTLE_MS)
+    expect(_session_control(page, "session-open")).to_be_enabled(timeout=SETTLE_MS)
     _close_panel(deployed_stack)
 
     status, state = _request(f"{PANEL_PREFIX}/state", headers=deployed_stack.headers(PANEL_PREFIX))
@@ -1130,184 +1608,8 @@ def test_the_terminal_refuses_the_token_door_without_its_secret_and_the_panel_do
 
 
 # ---------------------------------------------------------------------------
-# 6. Threading the errored ring (STRICT, ordered: each test builds on the last)
+# 7. A continuous run ends by its lease (STRICT: it holds its own session)
 # ---------------------------------------------------------------------------
-
-
-def _active_inside_va() -> str:
-    """The active scenarios file as the VA container reads it."""
-    result = subprocess.run(
-        ["docker", "exec", VA_CONTAINER, "cat", VA_ACTIVE_SCENARIOS],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return result.stdout if result.returncode == 0 else ""
-
-
-def _sim_apply(stack: DeployedStack, *scenarios: str) -> None:
-    """``osprey sim apply`` the scenarios, then wait until the VA serves them.
-
-    ``--no-seed``: the apply only rewrites the active set and never reseeds
-    the logbook or the archive. Once the container sees the file, two ticks
-    are enough for the VA to rebuild at the new set.
-    """
-    from osprey_connectors.simulation import DEFAULT_TICK_S
-    from osprey_connectors.workspace import resolve_simulation_state_dir
-
-    applied = _run(
-        [str(stack.osprey_bin), "sim", "apply", *scenarios, "--no-seed"],
-        cwd=stack.repo,
-        timeout=120,
-    )
-    assert applied.returncode == 0, (
-        f"osprey sim apply {' '.join(scenarios)} failed (rc={applied.returncode}):\n"
-        f"--- stdout ---\n{applied.stdout}\n--- stderr ---\n{applied.stderr}"
-    )
-    rendered = yaml.safe_load((stack.repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    written = (resolve_simulation_state_dir(rendered, stack.repo) / "active_scenarios").read_text(
-        encoding="utf-8"
-    )
-    deadline = time.monotonic() + SCENARIO_VISIBLE_SEC
-    while _active_inside_va() != written:
-        assert time.monotonic() < deadline, (
-            f"{VA_CONTAINER} never saw the active scenarios the host wrote ({written!r})"
-        )
-        time.sleep(0.2)
-    time.sleep(2 * DEFAULT_TICK_S)
-
-
-def _held(stack: DeployedStack) -> dict[str, str]:
-    """The panel credentials plus the session the threading tests hold."""
-    assert stack.client_id, "no session is held: an earlier threading test failed"
-    return stack.headers(PANEL_PREFIX, **{CLIENT_HEADER: stack.client_id})
-
-
-def _bpm_index(shot: dict[str, Any], bpm: str | None) -> int | None:
-    """The 1-based BPM, in beam order, a shot is lost by; ``None`` for a full turn."""
-    return None if bpm is None else shot["bpm_order"].index(bpm) + 1
-
-
-def _lost_at(shot: dict[str, Any]) -> int | None:
-    return _bpm_index(shot, shot["lost"][0] if shot["lost"] else None)
-
-
-def _shoot(stack: DeployedStack) -> dict[str, Any]:
-    status, shot = _request(
-        f"{PANEL_PREFIX}/shot",
-        "POST",
-        body={"n_shots": N_SHOTS},
-        headers=_held(stack),
-        timeout=_action_http_timeout(),
-    )
-    assert status == 200, f"shot refused: {status} {shot!r}\n{_logs()}"
-    assert shot["shots_included"] == N_SHOTS, (
-        f"{N_SHOTS} shots asked, {shot['shots_included']} included: "
-        f"{[(f['index'], f['reason']) for f in shot['shots_failed']]}\n"
-        f"{_logs()}\n{container_logs(VA_CONTAINER)}"
-    )
-    assert shot["commands_fired"], f"the shot fired no command: {shot!r}"
-    return shot
-
-
-def test_the_first_shot_of_the_errored_ring_is_lost_by_bpm_36(
-    deployed_stack: DeployedStack,
-) -> None:
-    _sim_apply(deployed_stack, SCENARIO)
-    grant = _open(deployed_stack, PANEL_PREFIX)
-    assert grant["owner"] == deployed_stack.owner, grant
-    deployed_stack.client_id = grant["client_id"]
-
-    shot = _shoot(deployed_stack)
-    assert shot["model"] == MODEL, shot["model"]
-    per_shot = [_bpm_index(shot, bpm) for bpm in shot["per_shot_lost_at"]]
-    deployed_stack.lost_per_shot.append(_lost_at(shot))
-    assert len(per_shot) == N_SHOTS, shot["per_shot_lost_at"]
-    for k in per_shot:
-        assert k is not None and k <= LATEST_LOSS_BPM, (
-            f"{SCENARIO} with misalignment_seed {SHIPPED_SEED}: the uncorrected first turn "
-            f"must be lost by BPM {LATEST_LOSS_BPM} on every shot; lost at {per_shot}"
-        )
-
-
-def test_applied_steps_bring_the_first_turn_around_within_five(
-    deployed_stack: DeployedStack,
-) -> None:
-    assert deployed_stack.lost_per_shot, "the first shot was not taken"
-    lost = deployed_stack.lost_per_shot
-    shot: dict[str, Any] | None = None
-    while lost[-1] is not None and len(deployed_stack.applied_digests) < MAX_STEPS:
-        status, step = _request(f"{PANEL_PREFIX}/step", headers=_held(deployed_stack))
-        assert status == 200, f"no step after a lost shot: {status} {step!r}"
-        assert not step["all_zero"], f"the step for a lost turn moves nothing: {step['reason']}"
-        status, done = _request(
-            f"{PANEL_PREFIX}/apply",
-            "POST",
-            body={"step_digest": step["digest"]},
-            headers=_held(deployed_stack),
-            timeout=_action_http_timeout(),
-        )
-        assert status == 200, f"apply refused: {status} {done!r}\n{_logs()}"
-        assert not done["stopped"], done
-        assert done["moved"], "the apply moved no corrector"
-        deployed_stack.applied_digests.append(step["digest"])
-        shot = _shoot(deployed_stack)
-        lost.append(_lost_at(shot))
-
-    assert lost[-1] is None and shot is not None, (
-        f"{SCENARIO} with misalignment_seed {SHIPPED_SEED}: after "
-        f"{len(deployed_stack.applied_digests)} applied steps the first turn is still lost "
-        f"(lost at BPM per shot: {lost})"
-    )
-    assert shot["lost"] == [] and shot["per_shot_lost_at"] == [None] * N_SHOTS, shot
-    assert shot["last_bpm"] == shot["bpm_order"][-1], shot["last_bpm"]
-    assert 1 <= len(deployed_stack.applied_digests) <= MAX_STEPS, lost
-    deployed_stack.threaded_shot = shot
-
-
-def test_the_apply_audit_line_names_the_admitted_owner(deployed_stack: DeployedStack) -> None:
-    from osprey.audit.envelope import DECISION_ALLOWED, SURFACE_TRAJECTORY_SERVICE
-
-    assert deployed_stack.applied_digests, "no step was applied"
-    applies = [
-        r
-        for r in _audit_records(deployed_stack.repo)
-        if r.get("surface") == SURFACE_TRAJECTORY_SERVICE
-        and r.get("subject") == "apply"
-        and r.get("decision") == DECISION_ALLOWED
-    ]
-    for digest in deployed_stack.applied_digests:
-        lines = [r for r in applies if f"step_digest={digest}" in r.get("detail", "")]
-        assert len(lines) == 1, f"apply of {digest}: {len(lines)} allowed records in {applies!r}"
-        assert lines[0].get("actor") == deployed_stack.owner, lines[0]
-
-
-def test_the_shot_lands_on_the_host_and_in_the_listing(deployed_stack: DeployedStack) -> None:
-    shot = deployed_stack.threaded_shot
-    assert shot is not None, "the ring was not threaded"
-    path = deployed_stack.repo / "var" / "trajectory" / "shots" / MODEL / f"{shot['shot_id']}.json"
-    assert path.is_file(), f"no shot file at {path}"
-    assert json.loads(path.read_text(encoding="utf-8"))["shot_id"] == shot["shot_id"]
-
-    status, listing = _request(
-        f"{PANEL_PREFIX}/shots", headers=deployed_stack.headers(PANEL_PREFIX)
-    )
-    assert status == 200, f"GET shots: {status} {listing!r}"
-    assert listing["model"] == MODEL, listing["model"]
-    assert listing["shots"][0]["shot_id"] == shot["shot_id"], (
-        "the newest listed shot is not the threaded one: "
-        f"{[s['shot_id'] for s in listing['shots']]}"
-    )
-
-    status, saved = _request(
-        f"{PANEL_PREFIX}/references",
-        "POST",
-        body={"name": REFERENCE_NAME, "shot_id": shot["shot_id"]},
-        headers=_held(deployed_stack),
-    )
-    assert status == 200, f"save reference: {status} {saved!r}"
-    assert saved["shot_id"] == shot["shot_id"] and saved["sha256"], saved
-    deployed_stack.reference_saved = True
 
 
 class _EventTap:
@@ -1317,7 +1619,7 @@ class _EventTap:
         req = urllib.request.Request(
             f"{TRAJECTORY_URL}{PANEL_PREFIX}/events", headers=stack.headers(PANEL_PREFIX)
         )
-        self._resp = urllib.request.urlopen(req, timeout=_action_http_timeout())  # localhost
+        self._resp = urllib.request.urlopen(req, timeout=ACTION_HTTP_TIMEOUT_SEC)  # localhost
         self.events: list[dict[str, Any]] = []
         self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
@@ -1339,13 +1641,14 @@ class _EventTap:
 
 
 def test_a_continuous_run_ends_when_its_heartbeats_stop(deployed_stack: DeployedStack) -> None:
-    assert deployed_stack.threaded_shot is not None, "the ring was not threaded"
+    grant = _open(deployed_stack, PANEL_PREFIX)
+    deployed_stack.client_id = grant["client_id"]
     tap = _EventTap(deployed_stack)
     try:
         status, run = _request(
             f"{PANEL_PREFIX}/continuous",
             "POST",
-            body={"n_shots": 1, "max_shots": CONTINUOUS_MAX_SHOTS},
+            body={"steps": CONTINUOUS_STEPS, "n_shots": 1},
             headers=_held(deployed_stack),
         )
         assert status == 200, f"continuous refused: {status} {run!r}\n{_logs()}"
@@ -1366,7 +1669,7 @@ def test_a_continuous_run_ends_when_its_heartbeats_stop(deployed_stack: Deployed
         assert not tap.ended(), f"the run ended while heartbeats moved its lease: {tap.ended()}"
 
         stopped_beating = last_beat
-        deadline = stopped_beating + LEASE_SEC + _action_http_timeout()
+        deadline = stopped_beating + LEASE_SEC + ACTION_HTTP_TIMEOUT_SEC
         while True:
             status, state = _request(
                 f"{PANEL_PREFIX}/state", headers=deployed_stack.headers(PANEL_PREFIX)
@@ -1395,21 +1698,33 @@ def test_a_continuous_run_ends_when_its_heartbeats_stop(deployed_stack: Deployed
         assert status == 200 and beat["continuous"] is None, (status, beat)
     finally:
         tap.close()
+        _release_held(deployed_stack)
 
 
 # ---------------------------------------------------------------------------
-# 7. The reference survives a redeploy (LAST: it takes the stack down and up)
+# 8. The reference survives a redeploy (LAST: it takes the stack down and up)
 # ---------------------------------------------------------------------------
 
 
 def test_the_selected_reference_survives_a_redeploy(deployed_stack: DeployedStack) -> None:
-    assert deployed_stack.reference_saved, "no reference was saved"
+    shot = deployed_stack.corrected_shot
+    assert shot is not None, "the corrected shot was not taken"
+    grant = _open(deployed_stack, PANEL_PREFIX)
+    deployed_stack.client_id = grant["client_id"]
+    status, saved = _request(
+        f"{PANEL_PREFIX}/references",
+        "POST",
+        body={"name": REFERENCE_NAME, "shot_id": shot["shot_id"]},
+        headers=_held(deployed_stack),
+    )
+    assert status == 200, f"save reference: {status} {saved!r}"
+    assert saved["shot_id"] == shot["shot_id"] and saved["sha256"], saved
     status, selected = _request(
         f"{PANEL_PREFIX}/references/select",
         "POST",
         body={"name": REFERENCE_NAME},
         headers=_held(deployed_stack),
-        timeout=_action_http_timeout(),
+        timeout=ACTION_HTTP_TIMEOUT_SEC,
     )
     assert status == 200, f"select reference: {status} {selected!r}"
 

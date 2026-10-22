@@ -24,7 +24,6 @@ from tests._guarded_run import held_lock, reset_run_state
 
 from osprey.runtime.guarded_run import ENV_CONTROL_IDENTITY, ActionContext, OspreyRunBusy, lock
 from osprey.services.trajectory import actions
-from osprey.services.trajectory.acquisition import setup_action
 from osprey.services.trajectory.actions import ACTION_STOPPED, RUN_BUSY, ActionLayer, ActionRefused
 from osprey.services.trajectory.admit import AdmitGate
 from osprey.services.trajectory.apply import (
@@ -49,6 +48,7 @@ from osprey.services.trajectory.sequence import load_sequence
 from osprey.services.trajectory.sessions import NOT_SESSION_HOLDER, SessionRefused, Sessions
 from osprey.services.trajectory.startup import (
     TrajectoryCommands,
+    TrajectoryDevice,
     TrajectorySettings,
     TrajectoryStartup,
 )
@@ -80,11 +80,22 @@ ARM = "SR:BPM:ARM"
 REQUEST = "SR:INJ:REQUEST"
 BUSY = "SR:INJ:BUSY"
 COMMANDS = TrajectoryCommands(
-    model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY, armed=("SR:BPM:ARMED",)
+    model=MODEL,
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm=ARM,
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request=REQUEST,
+    injection_busy=BUSY,
+    trigger_sample=10,
 )
-KICKER = "SR:BUNCH:KICKER:ENABLE"
-MODES = ("SR01:BPM1:MODE", "SR01:BPM2:MODE")
-TAGS = {"bpm_acquisition_mode": MODES}
 
 BPMS = ("BPM1", "BPM2", "BPM3")
 X_ROWS = ("SR:BPM1:X", "SR:BPM2:X", "SR:BPM3:X")
@@ -120,18 +131,28 @@ class _Machine:
             HCM1: 1.0,
             HCM2: -2.0,
             VCM1: 0.5,
-            MODES[0]: 3,
-            MODES[1]: 2,
-            KICKER: 0,
             BUSY: 0,
         }
         self.writes: list[tuple[str, Any]] = []
+        self.batches: list[list[str]] = []
         self.gates: dict[str, _Gate] = {}
         self.fail: set[str] = set()
         self._limits_validator: Any = "never-assigned"
 
     async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:  # noqa: ARG002
         return ChannelValue(value=self.values[address], timestamp=datetime.now(UTC))
+
+    async def read_multiple_channels(
+        self,
+        addresses: list[str],
+        timeout: float | None = None,  # noqa: ARG002
+    ) -> dict[str, ChannelValue]:
+        self.batches.append(list(addresses))
+        return {
+            address: ChannelValue(value=self.values[address], timestamp=datetime.now(UTC))
+            for address in addresses
+            if address in self.values
+        }
 
     async def write_channel_checked(self, address: str, value: Any, **_: Any) -> ChannelWriteResult:
         validator = self._limits_validator
@@ -194,7 +215,6 @@ def _tool(fake: _Correct | None = None) -> TrajectoryTool:
             bpm_names_h=X_ROWS, bpm_names_v=Y_ROWS, hcorr_names=H_CORR, vcorr_names=V_CORR
         ),
         bpm_index=(1.0, 2.0, 3.0, 1.0, 2.0, 3.0),
-        sum_names=("S1", "S2", "S3", "S1", "S2", "S3"),
         hcorr_index=(0.5, 1.5),
         vcorr_index=(2.5,),
         unsolved={},
@@ -204,7 +224,7 @@ def _tool(fake: _Correct | None = None) -> TrajectoryTool:
     )
 
 
-def _shot(shot_id: str = "shot-1") -> ShotResult:
+def _shot(shot_id: str = "shot-1", setpoints: dict[str, float] | None = None) -> ShotResult:
     return ShotResult(
         shot_id=shot_id,
         model=MODEL,
@@ -220,6 +240,7 @@ def _shot(shot_id: str = "shot-1") -> ShotResult:
         shots_included=1,
         shots_failed=[],
         commands_fired=[],
+        setpoints=setpoints,
     )
 
 
@@ -311,9 +332,8 @@ def _sessions(
         commands=COMMANDS,
         guarded_run_dir=Path("/unused"),
         settings=TrajectorySettings(action_timeout_s=timeout_s),
-        sequence=load_sequence(FIXTURE_DIR, COMMANDS) if sequence else None,
+        sequence=load_sequence(FIXTURE_DIR) if sequence else None,
         tool=tool or _tool(),
-        tag_addresses=TAGS if sequence else {},
     )
     layer = ActionLayer(startup, AdmitGate(target=TARGET, section=ARMED))
     return Sessions(layer), machine
@@ -328,7 +348,13 @@ def _pend(
 ) -> Step:
     """Compute the step for a shot with the tool, bounded by the validator, and make it pending."""
     startup = sessions.layer.startup
-    shot = _shot(shot_id)
+    machine = startup.connector
+    setpoints = (
+        {name: float(machine.values[name]) for name in (*H_CORR, *V_CORR)}
+        if isinstance(machine, _Machine)
+        else None
+    )
+    shot = _shot(shot_id, setpoints)
     step = compute_step(
         startup.tool,  # type: ignore[arg-type]
         shot,
@@ -369,8 +395,8 @@ def _lock_is_held() -> bool:
 def test_a_step_body_and_a_putback_body_parse() -> None:
     assert parse_body({"step_digest": "abc"}) == StepApply(digest="abc")
     assert parse_body(
-        {"model": MODEL, "values": [{"name": HCM1, "before": 1.5}, {"name": KICKER, "before": 0}]}
-    ) == PutBack(model=MODEL, values=((HCM1, 1.5), (KICKER, 0)))
+        {"model": MODEL, "values": [{"name": HCM1, "before": 1.5}, {"name": VCM1, "before": 0}]}
+    ) == PutBack(model=MODEL, values=((HCM1, 1.5), (VCM1, 0)))
 
 
 @pytest.mark.parametrize(
@@ -436,9 +462,9 @@ async def test_a_step_scaled_by_a_binding_max_step_passes_the_real_limits_valida
         name=APPLY,
         stopped=False,
         moved=[
-            Moved(name=HCM1, before=1.0, outcome="confirmed"),
-            Moved(name=HCM2, before=-2.0, outcome="confirmed"),
-            Moved(name=VCM1, before=0.5, outcome="confirmed"),
+            Moved(name=HCM1, before=1.0, after=1.0 + step.deltas[HCM1], outcome="confirmed"),
+            Moved(name=HCM2, before=-2.0, after=-2.0 + step.deltas[HCM2], outcome="confirmed"),
+            Moved(name=VCM1, before=0.5, after=0.5 + step.deltas[VCM1], outcome="confirmed"),
         ],
     )
     assert sessions.step.consumed is True
@@ -674,7 +700,9 @@ async def test_a_write_blocking_past_the_deadline_keeps_the_lock_and_is_listed(
         assert not _lock_is_held()
     finally:
         await sessions.layer.close()
-    assert failure.moved == [Moved(name=HCM1, before=1.0, outcome="confirmed")]
+    assert failure.moved == [
+        Moved(name=HCM1, before=1.0, after=1.0 + step.deltas[HCM1], outcome="confirmed")
+    ]
     assert machine.written() == [HCM1]
 
 
@@ -697,8 +725,8 @@ async def test_a_stop_during_a_blocking_write_lists_every_non_refused_write(
         name=APPLY,
         stopped=True,
         moved=[
-            Moved(name=HCM1, before=1.0, outcome="confirmed"),
-            Moved(name=HCM2, before=-2.0, outcome="confirmed"),
+            Moved(name=HCM1, before=1.0, after=1.0 + step.deltas[HCM1], outcome="confirmed"),
+            Moved(name=HCM2, before=-2.0, after=-2.0 + step.deltas[HCM2], outcome="confirmed"),
         ],
     )
     assert machine.written() == [HCM1, HCM2]
@@ -718,8 +746,8 @@ async def test_a_failed_write_ends_the_apply_and_is_listed_with_its_outcome(
     finally:
         await sessions.layer.close()
     assert failure.moved == [
-        Moved(name=HCM1, before=1.0, outcome="confirmed"),
-        Moved(name=HCM2, before=-2.0, outcome="unconfirmed"),
+        Moved(name=HCM1, before=1.0, after=1.0 + step.deltas[HCM1], outcome="confirmed"),
+        Moved(name=HCM2, before=-2.0, after=-2.0 + step.deltas[HCM2], outcome="unconfirmed"),
     ]
     assert machine.written() == [HCM1, HCM2]
 
@@ -743,7 +771,9 @@ async def test_a_write_the_connector_refuses_is_not_listed(validator: LimitsVali
         )
     finally:
         await sessions.layer.close()
-    assert failure.moved == [Moved(name=HCM1, before=1.0, outcome="confirmed")]
+    assert failure.moved == [
+        Moved(name=HCM1, before=1.0, after=1.0 + step.deltas[HCM1], outcome="confirmed")
+    ]
     assert machine.written() == [HCM1]
 
 
@@ -766,8 +796,8 @@ async def test_a_putback_writes_each_before_and_lists_what_it_moved() -> None:
         await sessions.layer.close()
     assert machine.writes == [(VCM1, 0.25), (HCM1, 0.75)]
     assert result.moved == [
-        Moved(name=VCM1, before=0.5, outcome="confirmed"),
-        Moved(name=HCM1, before=1.0, outcome="confirmed"),
+        Moved(name=VCM1, before=0.5, after=0.25, outcome="confirmed"),
+        Moved(name=HCM1, before=1.0, after=0.75, outcome="confirmed"),
     ]
 
 
@@ -806,7 +836,7 @@ async def test_a_putback_for_another_model_is_409_model_mismatch(
     assert step is not None and sessions.step.step is None  # the put-back voided it first
 
 
-async def test_a_putback_of_a_name_that_is_no_rm_column_or_module_slot_is_refused() -> None:
+async def test_a_putback_of_a_name_that_is_no_rm_column_is_refused() -> None:
     sessions, machine = _sessions(sequence=True)
     try:
         client_id = (await sessions.open(OWNER, KIND)).client_id
@@ -818,7 +848,6 @@ async def test_a_putback_of_a_name_that_is_no_rm_column_or_module_slot_is_refuse
                     "model": MODEL,
                     "values": [{"name": HCM1, "before": 0.9}, {"name": BUSY, "before": 1}],
                 },
-                tag_addresses=TAGS,
             )
         )
     finally:
@@ -826,62 +855,6 @@ async def test_a_putback_of_a_name_that_is_no_rm_column_or_module_slot_is_refuse
     assert (refusal.code, refusal.status) == (BAD_REQUEST, 400)
     assert BUSY in refusal.detail
     assert machine.writes == []
-
-
-async def test_a_putback_of_a_setups_module_slots_restores_them() -> None:
-    sessions, machine = _sessions(sequence=True)
-    try:
-        client_id = (await sessions.open(OWNER, KIND)).client_id
-        setup = await sessions.call(
-            OWNER,
-            KIND,
-            client_id,
-            setup_action(sessions.layer.startup, bunch_clean=True),
-        )
-        assert [moved.name for moved in setup.moved] == [*MODES, KICKER, KICKER]
-        # A put-back names each setting once: the earliest before of each.
-        first: dict[str, Any] = {}
-        for moved in setup.moved:
-            first.setdefault(moved.name, moved.before)
-        result = await _apply(
-            sessions,
-            client_id,
-            {"model": MODEL, "values": [{"name": n, "before": b} for n, b in first.items()]},
-            tag_addresses=TAGS,
-        )
-    finally:
-        await sessions.layer.close()
-    assert machine.values[MODES[0]] == 3 and machine.values[MODES[1]] == 2
-    assert machine.values[KICKER] == 0
-    assert result.moved == [
-        Moved(name=MODES[0], before=1, outcome="confirmed"),
-        Moved(name=MODES[1], before=1, outcome="confirmed"),
-        Moved(name=KICKER, before=0, outcome="confirmed"),
-    ]
-
-
-async def test_a_setup_through_sessions_writes_every_tag_address_and_its_putback_restores_them() -> (
-    None
-):
-    sessions, machine = _sessions(sequence=True)
-    try:
-        client_id = (await sessions.open(OWNER, KIND)).client_id
-        setup = await sessions.setup(OWNER, KIND, client_id, bunch_clean=True)
-        assert [moved.name for moved in setup.moved] == [*MODES, KICKER, KICKER]
-        assert all(machine.values[address] == 1 for address in MODES)
-        first: dict[str, Any] = {}
-        for moved in setup.moved:
-            first.setdefault(moved.name, moved.before)
-        result = await _apply(
-            sessions,
-            client_id,
-            {"model": MODEL, "values": [{"name": n, "before": b} for n, b in first.items()]},
-            tag_addresses=sessions.layer.startup.tag_addresses,
-        )
-    finally:
-        await sessions.layer.close()
-    assert machine.values[MODES[0]] == 3 and machine.values[MODES[1]] == 2
-    assert [moved.name for moved in result.moved] == [*MODES, KICKER]
 
 
 # -- the doors ------------------------------------------------------------------------
@@ -900,9 +873,8 @@ def _app(machine: _Machine) -> Any:
             connector=machine,
             commands=COMMANDS,
             guarded_run_dir=Path("/unused"),
-            sequence=load_sequence(FIXTURE_DIR, COMMANDS),
+            sequence=load_sequence(FIXTURE_DIR),
             tool=_tool(),
-            tag_addresses=TAGS,
         )
 
     app = create_app(start=start)
@@ -917,7 +889,7 @@ def _app(machine: _Machine) -> Any:
 
 @pytest.mark.no_auth_seam
 @pytest.mark.parametrize("door", ["/panel/api", "/api"])
-def test_the_doors_setup_writes_every_tag_address_and_a_putback_of_them_is_accepted(
+def test_a_putback_of_rm_columns_through_either_door_restores_them(
     door: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
@@ -945,30 +917,168 @@ def test_the_doors_setup_writes_every_tag_address_and_a_putback_of_them_is_accep
 
     machine = _Machine()
     with TestClient(_app(machine)) as client:
-        grant = client.post("/panel/api/session", headers=headers("/panel/api")).json()
-        setup = client.post(
-            "/panel/api/setup",
-            headers=headers("/panel/api", grant["client_id"]),
-            json={"bunch_clean": True},
-        )
-        assert setup.status_code == 200, setup.text
-        moved = setup.json()["moved"]
-        assert [m["name"] for m in moved] == [*MODES, KICKER, KICKER]
-        assert [address for address, _ in machine.writes[:2]] == list(MODES)
-        if door == "/api":
-            grant = client.post("/api/takeover", headers=headers("/api")).json()
-        first: dict[str, Any] = {}
-        for m in moved:
-            first.setdefault(m["name"], m["before"])
+        grant = client.post(f"{door}/session", headers=headers(door)).json()
         put_back = client.post(
             f"{door}/apply",
             headers=headers(door, grant["client_id"]),
-            json={"model": MODEL, "values": [{"name": n, "before": b} for n, b in first.items()]},
+            json={"model": MODEL, "values": [{"name": HCM1, "before": 1.5}]},
         )
     assert put_back.status_code == 200, put_back.text
-    assert [m["name"] for m in put_back.json()["moved"]] == [*MODES, KICKER]
-    assert machine.values[MODES[0]] == 3 and machine.values[MODES[1]] == 2
-    assert machine.values[KICKER] == 0
+    assert [m["name"] for m in put_back.json()["moved"]] == [HCM1]
+    assert machine.values[HCM1] == 1.5
+
+
+# -- put-back of setup settings ----------------------------------------------------------
+
+
+def test_a_putback_may_name_every_rm_column_and_every_setting_address_once() -> None:
+    from tests.services.trajectory import test_setup as setting
+
+    from osprey.services.trajectory.apply import putback_names, settings_addresses
+    from osprey.services.trajectory.setup import declared_settings
+
+    sessions, _machine = _sessions()
+    declared = declared_settings(setting.SLOTS)
+    # A device setting is put back over the whole device table, whatever the
+    # SolveConfig excludes; a global setting is one address.
+    assert settings_addresses(declared) == {*setting.ATT_SP.values(), setting.TURNS_SP}
+    assert putback_names(sessions.layer.startup, declared) == {
+        *H_CORR,
+        *V_CORR,
+        *setting.ATT_SP.values(),
+        setting.TURNS_SP,
+    }
+    assert putback_names(sessions.layer.startup) == {*H_CORR, *V_CORR}
+
+
+def _setup_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A served app whose model declares the setup tests' settings, writes enabled."""
+    from fastapi.testclient import TestClient
+    from tests.services.trajectory import test_setup as setting
+
+    from osprey.services.trajectory import app as app_module
+    from osprey.services.trajectory.app import LAUNCH_TOKEN_ENV
+    from osprey.services.trajectory.store import STATE_DIR_ENV_VAR
+    from osprey_connectors.workspace import reset_config_cache
+
+    Path("build/config.yml").write_text(
+        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
+    )
+    reset_config_cache()
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, setting.TOKEN)
+    monkeypatch.setenv(STATE_DIR_ENV_VAR, str(tmp_path / "state"))
+    monkeypatch.setattr(app_module, "_trajectory_slots", lambda _config, _model: setting.SLOTS)
+    machine = setting._Machine()
+    return TestClient(setting._app(machine)), machine
+
+
+@pytest.mark.no_auth_seam
+def test_a_setup_then_a_putback_of_its_settings_succeeds_and_voids_the_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.services.trajectory import test_setup as setting
+
+    client, machine = _setup_client(tmp_path, monkeypatch)
+    with client:
+        headers = setting._hold(client)
+        done = setting._setup(client, headers, {"settings": {"turns_tracked": 250}})
+        assert done.setup is not None and not done.setup.void
+        put_back = client.post(
+            f"{setting.PANEL}/apply",
+            headers=headers,
+            json={
+                "model": MODEL,
+                "values": [{"name": m.name, "before": m.before} for m in done.moved],
+            },
+        )
+        state = setting._state(client)
+    assert put_back.status_code == 200, put_back.text
+    assert [(m["name"], m["before"], m["after"]) for m in put_back.json()["moved"]] == [
+        (setting.TURNS_SP, 250, 4)
+    ]
+    assert machine.values[setting.TURNS_SP] == 4
+    assert state.setup is not None and state.setup.void
+    assert state.setup.settings_sha == done.setup.settings_sha
+    assert any("put-back" in notice for notice in state.notices)
+    assert state.last_action is not None and state.last_action.name == "put_back"
+
+
+@pytest.mark.no_auth_seam
+def test_a_putback_of_rm_columns_only_leaves_the_setup_held(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.services.trajectory import test_setup as setting
+
+    client, machine = _setup_client(tmp_path, monkeypatch)
+    with client:
+        headers = setting._hold(client)
+        done = setting._setup(client, headers, {"settings": {"turns_tracked": 250}})
+        put_back = client.post(
+            f"{setting.PANEL}/apply",
+            headers=headers,
+            json={"model": MODEL, "values": [{"name": setting.HCM1, "before": 1.25}]},
+        )
+        state = setting._state(client)
+    assert put_back.status_code == 200, put_back.text
+    assert machine.values[setting.HCM1] == 1.25
+    assert state.setup == done.setup and state.setup is not None and not state.setup.void
+
+
+@pytest.mark.no_auth_seam
+@pytest.mark.parametrize("same_setup", [True, False])
+def test_a_panel_apply_checks_the_shot_against_the_current_setup_and_lists_after(
+    same_setup: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.services.trajectory import test_setup as setting
+
+    from osprey.services.trajectory.app import CLIENT_HEADER
+    from osprey.services.trajectory.apply import MACHINE_MOVED
+
+    client, machine = _setup_client(tmp_path, monkeypatch)
+    with client:
+        headers = setting._hold(client)
+        done = setting._setup(client, headers, {"settings": {"turns_tracked": 250}})
+        assert done.setup is not None
+        sessions = client.app.state.sessions  # type: ignore[attr-defined]
+        shot = ShotResult(
+            shot_id="20260101T000000000000Z-shot0001",
+            model=MODEL,
+            x=dict(zip(setting.X_ROWS, (0.1, 0.2, 0.3), strict=True)),
+            y=dict(zip(setting.Y_ROWS, (-0.1, -0.2, -0.3), strict=True)),
+            sum=dict(zip(setting.SUMS, (1.0, 1.0, 1.0), strict=True)),
+            bpm_order=list(setting.X_ROWS),
+            lost=[],
+            last_bpm=setting.X_ROWS[-1],
+            i0=0,
+            window=(0, 4),
+            per_shot_lost_at=[None],
+            shots_included=1,
+            shots_failed=[],
+            commands_fired=[],
+            setpoints={name: machine.values[name] for name in (HCM1, HCM2, VCM1)},
+            setup_sha=done.setup.settings_sha if same_setup else "0" * 64,
+        )
+        step = compute_step(
+            setting.TOOL, shot, None, target=TARGET, client_id=headers[CLIENT_HEADER], bounds={}
+        )
+        sessions.step.replace(step, shot)
+        sessions.latest_shot_id = shot.shot_id
+        before = {name: machine.values[name] for name in (HCM1, HCM2, VCM1)}
+        applied = client.post(
+            f"{setting.PANEL}/apply", headers=headers, json={"step_digest": step.digest}
+        )
+    if not same_setup:
+        assert applied.status_code == 409, applied.text
+        assert applied.json()["detail"]["code"] == MACHINE_MOVED
+        assert machine.values[HCM1] == before[HCM1]
+        return
+    assert applied.status_code == 200, applied.text
+    assert [
+        (m["name"], m["before"], m["after"], m["outcome"]) for m in applied.json()["moved"]
+    ] == [
+        (name, before[name], before[name] + step.deltas[name], "confirmed")
+        for name in (HCM1, HCM2, VCM1)
+    ]
 
 
 # -- the bridge probe ----------------------------------------------------------------

@@ -1017,12 +1017,14 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    # The ring's turn-by-turn channels on its 72 BPMs add 360 fields keyed by
-    # address; its injection request and busy flag sit on the place, beside
-    # the tune and chromaticity, in no family.
-    assert len(fields) == 2064
-    assert by_address == 1777
-    assert left_out == 6
+    # The ring's turn-by-turn channels and readout settings on its 72 BPMs add
+    # fields keyed by address; its ring-wide injection-loop controls (the
+    # injection and cleaning requests, the busy flag, the stored current and the
+    # turns-tracked and RF-on pairs) sit on the place, beside the tune and
+    # chromaticity, in no family.
+    assert len(fields) == 2502
+    assert by_address == 2209
+    assert left_out == 12
     assert document["count"] == len(built_control_assistant.facility["channels"]) - left_out
     assert left_out == sum(
         1
@@ -1169,7 +1171,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (6986, 3694)
+    assert counts == (7850, 4126)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 
@@ -1213,7 +1215,7 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
     index = repo / "build" / "data" / "channel_finder" / MIDDLE_LAYER_FILE
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view middle_layer not written" not in built.output
-    assert built.output.count("view middle_layer: 6 channels in no family left out") == 1
+    assert built.output.count("view middle_layer: 12 channels in no family left out") == 1
 
 
 def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(

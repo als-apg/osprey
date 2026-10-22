@@ -94,9 +94,9 @@ EXPECTED_DEVICES = 644
 #: chromaticity channels sit on the place rather than on a device. The store
 #: matches a place on ``(:Resource)-[:HASBINDING]->`` as it matches a device.
 EXPECTED_BOUND_PLACES = 1
-EXPECTED_BINDINGS = 3700
-EXPECTED_WRITE_ONLY = 595
-EXPECTED_READ_ONLY = 3101
+EXPECTED_BINDINGS = 4138
+EXPECTED_WRITE_ONLY = 814
+EXPECTED_READ_ONLY = 3320
 #: The place's tune and chromaticity channels name no signal.
 EXPECTED_UNSIGNALLED = 4
 EXPECTED_MAGNETS = 466
@@ -609,7 +609,10 @@ def test_example_q1a_counts_the_verified_devices() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q5_reproduces_the_verified_direction_split() -> None:
-    """The binding rollup reproduces 595 write-only / 3101 read-only / 3700 total."""
+    """The binding rollup reproduces 814 write-only / 3320 read-only / 4138 total.
+
+    The 4 tune and chromaticity channels name no signal, so carry neither direction.
+    """
     payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row

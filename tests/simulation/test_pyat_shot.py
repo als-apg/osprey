@@ -21,6 +21,7 @@ from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_model  # noqa: E402
+from osprey.simulation.engines.pyat_faults import SUM_FLOOR  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
     PyATLatticeModel,
     SeriesVariable,
@@ -52,21 +53,13 @@ KICK_PER_AMP = 1.0e-5
 QUAD_NOMINAL = 100.0
 QUAD_UNSTABLE = 1.0e4
 
-#: A launch off axis in both planes, inside the aperture.
-LAUNCH = {"x": 1.0e-3, "px": 1.0e-4, "y": -5.0e-4}
-SETTINGS = {"pyat": {"injection": {"marker": MARKER, "pre_trigger_samples": PRE_TRIGGER, **LAUNCH}}}
+SETTINGS = {"pyat": {"injection": {"marker": MARKER, "trigger_sample": PRE_TRIGGER}}}
+#: A scenario launching off axis in both planes, inside the aperture: the
+#: scenario's model-wide launch faults are the one launch producer.
+LAUNCH = {"launch_x": 1.0e-3, "launch_px": 1.0e-4, "launch_y": -5.0e-4}
 #: The half aperture the periodic lattice carries, and a launch that leaves it.
 HALF_APERTURE = 0.01
-LOST_SETTINGS = {
-    "pyat": {
-        "injection": {
-            "marker": MARKER,
-            "pre_trigger_samples": PRE_TRIGGER,
-            "x": 5.0e-3,
-            "px": 8.0e-3,
-        }
-    }
-}
+LOST_LAUNCH = {"launch_x": 5.0e-3, "launch_px": 8.0e-3}
 
 
 def _linear(gain: float, offset: float = 0.0) -> dict[str, Any]:
@@ -178,22 +171,22 @@ def deck(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def built(deck: Path) -> PyATLatticeModel:
-    return engine.build(MODEL, periodic_wiring(), deck, SETTINGS)  # type: ignore[return-value]
+    return engine.build(MODEL, periodic_wiring(), deck, SETTINGS, LAUNCH)  # type: ignore[return-value]
 
 
-def launch(settings: dict[str, Any]) -> np.ndarray:
-    block = settings["pyat"]["injection"]
-    return np.array([block.get(key, 0.0) for key in engine.LAUNCH_KEYS]).reshape(6, 1)
+def launch(active: dict[str, Any]) -> np.ndarray:
+    """The vector a scenario launches from, each unstated coordinate 0."""
+    return np.array([active.get(f"launch_{key}", 0.0) for key in engine.LAUNCH_KEYS]).reshape(6, 1)
 
 
-def turns_at(model: PyATLatticeModel, cell: int, settings: dict[str, Any] = SETTINGS) -> np.ndarray:
+def turns_at(model: PyATLatticeModel, cell: int, active: dict[str, Any] = LAUNCH) -> np.ndarray:
     """pyAT's own track of the launch from the marker: ``[coordinate, turn]`` at one monitor."""
     lattice = model.lattice
     start = lattice.get_uint32_index(MARKER)[0]
     rotated = lattice.rotate(int(start))
     refpts = rotated.get_uint32_index(f"BPM_{cell:02d}")
     tracked, _, _ = at.lattice_track(
-        rotated, launch(settings), nturns=TURNS, refpts=refpts, losses=True
+        rotated, launch(active), nturns=TURNS, refpts=refpts, losses=True
     )
     return tracked[:, 0, 0, :]
 
@@ -222,19 +215,23 @@ def assert_same_state(now: dict[str, Any], before: dict[str, Any]) -> None:
         np.testing.assert_array_equal(now["series"][name], samples)
 
 
-def assert_tracked(model: PyATLatticeModel, settings: dict[str, Any] = SETTINGS) -> None:
-    """Every series holds zeros before the launch and pyAT's own turns after it."""
+def assert_tracked(model: PyATLatticeModel, active: dict[str, Any] = LAUNCH) -> None:
+    """Every series holds the no-beam reading before the launch and pyAT's own turns after it.
+
+    A sample without beam -- before the trigger, or after the particle is lost --
+    reads a beam on axis and the sum's floor; no sample is NaN.
+    """
     for cell in range(1, N_CELLS + 1):
-        oracle = turns_at(model, cell, settings)
+        oracle = turns_at(model, cell, active)
         lost = np.isnan(oracle[0])
         for axis, row in (("x", 0), ("y", 2)):
             samples = model.get(tbt(cell, axis))
             np.testing.assert_array_equal(samples[:PRE_TRIGGER], 0.0)
             np.testing.assert_allclose(samples[PRE_TRIGGER:][~lost], oracle[row][~lost] / MM)
-            assert np.isnan(samples[PRE_TRIGGER:][lost]).all()
+            np.testing.assert_array_equal(samples[PRE_TRIGGER:][lost], 0.0)
         total = model.get(tbt(cell, "sum"))
-        np.testing.assert_array_equal(total[:PRE_TRIGGER], 0.0)
-        np.testing.assert_array_equal(total[PRE_TRIGGER:], np.where(lost, 0.0, 1.0))
+        np.testing.assert_array_equal(total[:PRE_TRIGGER], SUM_FLOOR)
+        np.testing.assert_array_equal(total[PRE_TRIGGER:], np.where(lost, SUM_FLOOR, 1.0))
 
 
 class TestAtRest:
@@ -266,7 +263,7 @@ class TestAtRest:
     def test_a_series_of_an_unknown_axis_is_refused(self, deck: Path):
         wiring = [*periodic_wiring(), series("BPM:01:TBT:Q", "BPM_01", "q")]
         with pytest.raises(ValueError, match="axis 'q'"):
-            engine.build(MODEL, wiring, deck, SETTINGS)
+            engine.build(MODEL, wiring, deck, SETTINGS, LAUNCH)
 
 
 class TestArm:
@@ -312,7 +309,7 @@ class TestShot:
         lattice = periodic_lattice()
         start = int(lattice.get_uint32_index(MARKER)[0])
         refpts = lattice.get_uint32_index("BPM_03")
-        tracked, *_ = at.lattice_track(lattice[start:], launch(SETTINGS), refpts=refpts - start)
+        tracked, *_ = at.lattice_track(lattice[start:], launch(LAUNCH), refpts=refpts - start)
         built.set({ARM: 1, REQUEST: 1})
         assert built.get(tbt(3, "x"))[PRE_TRIGGER] == pytest.approx(tracked[0, 0, 0, 0] / MM)
 
@@ -369,14 +366,14 @@ class TestShot:
         assert built.armed is True
         np.testing.assert_array_equal(built.get(tbt(1, "x")), 0.0)
 
-    def test_a_lost_particle_reads_nan_positions_and_no_sum(self, deck: Path):
-        lossy = engine.build(MODEL, periodic_wiring(), deck, LOST_SETTINGS)
+    def test_a_lost_particle_reads_the_no_beam_value(self, deck: Path):
+        lossy = engine.build(MODEL, periodic_wiring(), deck, SETTINGS, LOST_LAUNCH)
         lossy.set({ARM: 1, REQUEST: 1})
-        assert_tracked(lossy, LOST_SETTINGS)  # type: ignore[arg-type]
+        assert_tracked(lossy, LOST_LAUNCH)  # type: ignore[arg-type]
         first, last = lossy.get(tbt(3, "sum")), lossy.get(tbt(1, "sum"))
         assert first[PRE_TRIGGER] == 1.0
-        assert last[-1] == 0.0
-        assert np.isnan(lossy.get(tbt(1, "y"))[-1])
+        assert last[-1] == SUM_FLOOR
+        assert lossy.get(tbt(1, "y"))[-1] == 0.0
 
     def test_a_lattice_with_no_closed_orbit_still_takes_the_shot(self, built: PyATLatticeModel):
         built.set({QUAD: QUAD_UNSTABLE})
@@ -390,10 +387,10 @@ class TestShot:
         wiring = [record for record in periodic_wiring() if record["address"] != tbt(1, "sum")] + [
             series(tbt(1, "sum"), "BPM_01", "sum", calibration=_linear(0.5, 0.25))
         ]
-        scaled = engine.build(MODEL, wiring, deck, SETTINGS)
+        scaled = engine.build(MODEL, wiring, deck, SETTINGS, LAUNCH)
         scaled.set({ARM: 1, REQUEST: 1})
         total = scaled.get(tbt(1, "sum"))
-        np.testing.assert_array_equal(total[:PRE_TRIGGER], 0.0)
+        np.testing.assert_allclose(total[:PRE_TRIGGER], (SUM_FLOOR - 0.25) / 0.5)
         np.testing.assert_allclose(total[PRE_TRIGGER:], (1.0 - 0.25) / 0.5)
         oracle = turns_at(scaled, 1)  # type: ignore[arg-type]
         np.testing.assert_allclose(scaled.get(tbt(1, "x"))[PRE_TRIGGER:], oracle[0] * 1.0e3)
@@ -529,7 +526,7 @@ class TestReset:
 
     def test_a_rebuild_starts_at_rest(self, deck: Path, built: PyATLatticeModel):
         built.set({ARM: 1, REQUEST: 1})
-        again = engine.build(MODEL, periodic_wiring(), deck, SETTINGS)
+        again = engine.build(MODEL, periodic_wiring(), deck, SETTINGS, LAUNCH)
         assert again.armed is False
         assert again.shot_count == 0
         assert again.get(REQUEST) == 0.0
@@ -607,7 +604,7 @@ class TestShotTime:
     def test_reset_and_rebuild_clear_the_shot_time(self, deck: Path, built: PyATLatticeModel):
         built.set({ARM: 1, REQUEST: 1})
         assert built.shot_times
-        again = engine.build(MODEL, periodic_wiring(), deck, SETTINGS)
+        again = engine.build(MODEL, periodic_wiring(), deck, SETTINGS, LAUNCH)
         assert again.shot_times == {}  # type: ignore[attr-defined]
         built.reset()
         assert built.shot_times == {}
@@ -683,10 +680,14 @@ def passed(model: PyATLatticeModel) -> np.ndarray:
 def assert_one_pass(model: PyATLatticeModel) -> None:
     oracle = passed(model)
     for place, cell in enumerate((1, 2, 3)):
-        for axis, expected in (("X", oracle[0, place]), ("Y", oracle[2, place]), ("SUM", 1.0)):
+        for axis, expected, no_beam in (
+            ("X", oracle[0, place], 0.0),
+            ("Y", oracle[2, place], 0.0),
+            ("SUM", 1.0, SUM_FLOOR),
+        ):
             samples = model.get(f"L:{cell}:TBT:{axis}")
             assert samples[LINE_PRE_TRIGGER] == pytest.approx(expected, rel=1e-12)
-            np.testing.assert_array_equal(np.delete(samples, LINE_PRE_TRIGGER), 0.0)
+            np.testing.assert_array_equal(np.delete(samples, LINE_PRE_TRIGGER), no_beam)
 
 
 class TestLine:
@@ -725,3 +726,59 @@ class TestLine:
         line.reset()
         assert line.shot_count == 0
         np.testing.assert_array_equal(line.get("L:1:TBT:X"), 0.0)
+
+
+# -- the scenario is the one launch producer -----------------------------------
+
+
+class TestScenarioLaunch:
+    def test_a_scenario_stating_no_launch_launches_on_axis(self, deck: Path):
+        model = engine.build(MODEL, periodic_wiring(), deck, SETTINGS)
+        np.testing.assert_array_equal(model.injection.launch, np.zeros(6))  # type: ignore[attr-defined]
+        model.set({ARM: 1, REQUEST: 1})
+        assert_tracked(model, {})  # type: ignore[arg-type]
+        np.testing.assert_allclose(model.get(tbt(1, "x"))[PRE_TRIGGER:], 0.0, atol=1e-12)
+
+    def test_the_launch_faults_fill_the_launch_vector_in_pyat_order(self, deck: Path):
+        values = [1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 6e-5]
+        active = {f"launch_{key}": v for key, v in zip(engine.LAUNCH_KEYS, values, strict=True)}
+        model = engine.build(MODEL, periodic_wiring(), deck, SETTINGS, active)
+        np.testing.assert_array_equal(model.injection.launch, values)  # type: ignore[attr-defined]
+
+    def test_the_launch_is_no_variable_and_survives_reset(self, built: PyATLatticeModel):
+        assert not {f"launch_{key}" for key in engine.LAUNCH_KEYS} & set(built.supported_variables)
+        built.reset()
+        built.set({ARM: 1, REQUEST: 1})
+        assert_tracked(built)
+
+    def test_the_bunch_keys_build_and_leave_the_single_particle_shot_untouched(self, deck: Path):
+        bunch = {
+            "bunch_emittance_x": 1e-9,
+            "bunch_emittance_y": 1e-11,
+            "bunch_sigma_delta": 1e-3,
+            "bunch_sigma_z": 3e-3,
+            "centroid_jitter_x": 1e-5,
+            "centroid_jitter_y": 1e-5,
+            "stored_charge": 0.0,
+            "bunch_charge": 1.0,
+        }
+        model = engine.build(MODEL, periodic_wiring(), deck, SETTINGS, {**LAUNCH, **bunch})
+        model.set({ARM: 1, REQUEST: 1})
+        assert_tracked(model)
+
+    def test_a_launch_on_a_periodic_model_without_injection_is_refused(self, deck: Path):
+        setpoints = [record for record in periodic_wiring() if record["address"] == CORRECTOR]
+        assert engine.build(MODEL, setpoints, deck, {"pyat": {}}).injection is None  # type: ignore[attr-defined]
+        with pytest.raises(ValueError, match="launch_x is set on model SR"):
+            engine.build(MODEL, setpoints, deck, {"pyat": {}}, LAUNCH)
+
+    def test_a_launch_on_a_single_pass_model_is_refused(self, tmp_path: Path):
+        path = tmp_path / "line.json"
+        at.save_lattice(line_lattice(), str(path))
+        with pytest.raises(ValueError, match="launch_px is set on model LINE"):
+            engine.build("LINE", line_wiring(), path, LINE_SETTINGS, {"launch_px": 1e-4})
+
+    @pytest.mark.parametrize("value", [0, 1.5, -2])
+    def test_bunch_particles_is_a_whole_number_of_one_or_more(self, deck: Path, value: float):
+        with pytest.raises(ValueError, match="bunch_particles"):
+            engine.build(MODEL, periodic_wiring(), deck, SETTINGS, {"bunch_particles": value})

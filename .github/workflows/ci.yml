@@ -52,6 +52,20 @@ on:
         required: false
         type: boolean
         default: false
+      push_acceptance_images:
+        description: >-
+          Publish the trajectory acceptance stack's images instead of running
+          anything else: at the dispatched sha, render the stack through
+          tests/e2e/trajectory_acceptance/shape.py, build every image it
+          runs (VA, project/trajectory, the web tier's persona, archiver)
+          natively for linux/amd64 and linux/arm64, and push each as a
+          private package to ghcr.io/als-apg under its own name, tagged with
+          the sha as one manifest carrying both platforms. Every other job
+          stands down on this dispatch. Run with:
+          gh workflow run ci.yml --ref <branch> -f push_acceptance_images=true
+        required: false
+        type: boolean
+        default: false
 
 # Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
@@ -152,6 +166,7 @@ env:
 
 jobs:
   test:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     # Without a bound, a single wedged xdist worker holds the lane at 99% for
@@ -344,8 +359,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty and not wallclock": "not pty" hands the real-terminal suite
-      # to the serial step below.
+      # -m "not pty and not wallclock and not stack_regression": "not pty"
+      # hands the real-terminal suite to the serial step below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -360,6 +375,10 @@ jobs:
       # reason: a budget timed beside three loaded workers measures them. Each
       # is timed in a serial step that selects the marker: the qmd panel
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
+      #
+      # `not stack_regression` hands away the replay of the frozen manual
+      # steps: it drives a deployed stack, which no unit runner has, and runs
+      # only in the on-demand trajectory-stack-regression job.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
@@ -457,7 +476,7 @@ jobs:
         # read on fewer events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py --ignore=tests/services/trajectory/test_closed_loop.py -m "not pty and not wallclock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_ARGS --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py --ignore=tests/services/trajectory/test_closed_loop.py -m "not pty and not wallclock and not stack_regression" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -556,6 +575,7 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   dependency-floor:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Archiver suite at the declared dependency floor
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -610,6 +630,7 @@ jobs:
           -v --tb=short
 
   lint:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -739,6 +760,7 @@ jobs:
       run: uv run python scripts/mypy_gate.py
 
   docs:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Documentation Build (Check Only)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -788,6 +810,7 @@ jobs:
         retention-days: 7
 
   package:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Package Build (framework + lean connectors wheel)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -884,6 +907,7 @@ jobs:
         "
 
   static-checks:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     # Matches the convention the other light lanes use. None of this job's work
@@ -1076,6 +1100,7 @@ jobs:
         engine: podman
 
   visual-theming:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Behavioral + Visual Theming (Playwright, design system)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1118,6 +1143,11 @@ jobs:
 
     - name: Install Playwright webkit
       run: uv run playwright install webkit --with-deps
+
+    # The trajectory panel loads Plotly only from its own vendor/ dir, which is
+    # gitignored; without this fetch its browser tests would draw no plots.
+    - name: Fetch the trajectory panel's vendored Plotly
+      run: uv run osprey vendor fetch --target services/trajectory/panel/vendor/
 
     - name: Run behavioral theming suite
       run: |
@@ -1169,7 +1199,15 @@ jobs:
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/trajectory/test_panel_browser.py \
+          tests/interfaces/trajectory/test_drawer_browser.py \
+          tests/interfaces/trajectory/test_manual_steps.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
+
+    - name: Time the trajectory panel's raw render serially
+      # An absolute render budget, timed in a pytest process of its own so no
+      # other browser test shares the runner while the clock reads. Selected
+      # by marker so a selection that matches nothing exits non-zero.
+      run: uv run pytest tests/interfaces/trajectory/test_render_timing.py -m wallclock -v --tb=short
 
     - name: Run visual regression suite
       # Linux is the authoritative platform for the pixel diff (see
@@ -1199,6 +1237,7 @@ jobs:
         commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   frontend-js:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Frontend JS (typecheck + lint + vitest)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1238,6 +1277,7 @@ jobs:
       run: npm run test:js
 
   plugin-smoke:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Plugin marketplace smoke (install the osprey plugin)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1300,6 +1340,7 @@ jobs:
         for s in contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1356,7 +1397,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     strategy:
       fail-fast: false
       matrix:
@@ -1469,7 +1510,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
+      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks && !inputs.push_acceptance_images)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
     # the channel-finder benchmarks live on the benchmark dispatch); a run past
@@ -1937,7 +1978,7 @@ jobs:
     # job log. Deliberately NOT in all-checks-passed's needs — a
     # dispatch-gated job has no result on PR runs. This job is the intended
     # home for future too-expensive-per-PR e2e lanes as well.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks && !inputs.push_acceptance_images
     timeout-minutes: 30
 
     steps:
@@ -2044,7 +2085,7 @@ jobs:
     # marker: every attempt is scored. Deliberately NOT in
     # all-checks-passed's needs — a dispatch-gated job has no result on PR
     # runs.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks && !inputs.push_acceptance_images
     timeout-minutes: 30
 
     steps:
@@ -2102,6 +2143,88 @@ jobs:
         uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
           -v --tb=short
 
+  trajectory-stack-regression:
+    name: Trajectory stack regression (frozen manual steps, on demand)
+    runs-on: ubuntu-latest
+    # The frozen manual steps of the trajectory panel, replayed in a real
+    # browser against a stack the e2e deploy fixture builds and starts. The
+    # per-step browser module proves the same steps on a fake machine on every
+    # pull request; this replay is the deployed counterpart, and it needs
+    # Docker and three image builds, so it runs only behind the
+    # `run_benchmarks` dispatch input (`gh workflow run ci.yml -f
+    # run_benchmarks=true`), before a release. Deliberately NOT in
+    # all-checks-passed's needs: a dispatch-gated job has no result on PR runs.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks && !inputs.push_acceptance_images
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Install Playwright chromium
+      run: uv run playwright install chromium --with-deps
+
+    # The panel loads Plotly only from its own vendor/ dir, which is
+    # gitignored; without it the replayed steps would draw no plots.
+    - name: Fetch the trajectory panel's vendored Plotly
+      run: uv run osprey vendor fetch --target services/trajectory/panel/vendor/
+
+    - name: Replay the frozen manual steps against a deployed stack
+      if: inputs.run_benchmarks
+      # Step cap under the job cap so a hang fails this step and leaves the
+      # capture step room to run. Serial and alone: one container stack per
+      # runner, and the replay reads the stack's own timing.
+      timeout-minutes: 80
+      run: |
+        uv run pytest tests/interfaces/trajectory/test_stack_regression.py -m stack_regression \
+          -v -rs --tb=short --junitxml=junit-trajectory-stack-regression.xml
+
+    - name: Fail the lane on an empty or skipped replay
+      if: inputs.run_benchmarks
+      run: |
+        # pytest exits 0 on an all-skipped run, so the junit report is read
+        # instead: at least one test, and none skipped.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-trajectory-stack-regression.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            sys.exit(1)
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            sys.exit(1)
+        PY
+
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: trajectory-stack-regression
+        engine: docker
+
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
@@ -2116,7 +2239,7 @@ jobs:
       (github.event_name == 'pull_request'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]')
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2210,7 +2333,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2307,7 +2430,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
 
     steps:
     - name: Checkout repository
@@ -2399,7 +2522,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # Build + deploy + one real agent turn healthily fits well under 20min
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
@@ -2606,6 +2729,7 @@ jobs:
 
 
   trajectory-closed-loop:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Trajectory closed loop (in-process service threads the errored example ring)
     runs-on: ubuntu-latest
     # No `if:` on the job or on any step that names the module: the unit lane
@@ -2672,18 +2796,22 @@ jobs:
         PY
 
   trajectory-deploy-e2e:
-    name: Trajectory Deploy E2E (VA + trajectory service + panel, multi-user Docker stack)
+    name: Trajectory Deploy E2E (acceptance stack on the stand-in, physics + panel smoke)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors bluesky-web-deploy-e2e's gating).
     # This job needs no secrets — the trajectory service never shells out to an
     # LLM, and the terminal's agent is started only so its panel token exists.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Sized for the multi-user scope: the VA (native PyAT/serving-stack build,
-    # cold-cache cost as bluesky-web-deploy-e2e), the project image the service
-    # runs and one persona image for the roster user's terminal, then a browser
-    # and an in-container MCP client against the stack, and a down/up in the
-    # last test that reuses the images. The single-build multi-user lanes
-    # measure 7-11 minutes per cold image build; this lane builds three.
+    # Sized for the acceptance stack built from source: the VA image (native
+    # PyAT/serving-stack build, which the stand-in, the VA and the archiver
+    # recorder share), the project image the service runs and one persona image
+    # for the roster user's terminal -- 7-11 minutes per cold image build on the
+    # multi-user lanes, three builds here. The shots are cheap beside them: the
+    # runner tracks the VA natively, and a 250-turn shot of the scenario's
+    # bunch costs about a second of tracking at the per-particle-turn cost
+    # measured on the slower, emulated host. Then a browser and an
+    # in-container MCP client against the stack, and a down/up in the last test
+    # that reuses the images.
     timeout-minutes: 80
 
     steps:
@@ -2710,10 +2838,16 @@ jobs:
     - name: Install Playwright chromium
       run: uv run playwright install chromium --with-deps
 
-    # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself.
-    # No provider secret is needed: the fixture writes a placeholder
-    # ANTHROPIC_API_KEY line into the deployment's .env, and the terminal's
-    # agent never contacts a model.
+    # The trajectory panel loads Plotly only from its own vendor/ dir, which is
+    # gitignored; without this fetch the smoke's raw plots would never draw.
+    - name: Fetch the trajectory panel's vendored Plotly
+      run: uv run osprey vendor fetch --target services/trajectory/panel/vendor/
+
+    # The fixture renders the acceptance stack through
+    # tests/e2e/trajectory_acceptance/shape.py and builds every image locally
+    # with `osprey up --dev`. No provider secret is needed: the render writes a
+    # placeholder ANTHROPIC_API_KEY line into the deployment's .env, and the
+    # terminal's agent never contacts a model.
     - name: Run trajectory deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
@@ -2765,11 +2899,325 @@ jobs:
     - name: Clean up any stranded trajectory deploy resources
       if: always()
       run: |
-        docker rm -f trajectory-proj-web-alice || true
-        docker rm -f trajectory-proj-nginx || true
-        docker compose -p trajectory-proj down || true
-        docker volume ls -q --filter "name=^trajectory-proj_" \
+        docker rm -f trajectory-acceptance-web-alice || true
+        docker rm -f trajectory-acceptance-nginx || true
+        docker rm -f trajectory-acceptance-telemetry-store || true
+        docker rm -f trajectory-acceptance-telemetry-gateway || true
+        docker compose -p trajectory-acceptance down || true
+        docker volume ls -q --filter "name=^trajectory-acceptance_" \
           | xargs -r docker volume rm -f || true
+
+
+  # The image-publishing pair. A dispatch with `push_acceptance_images` runs
+  # these two jobs and nothing else: every other job's `if:` carries
+  # `!inputs.push_acceptance_images`, and tests/deployment/test_ci_workflow_wiring.py
+  # evaluates every job's condition on that dispatch. They live here rather
+  # than in a dispatch-only workflow file because GitHub dispatches only
+  # workflows that exist on the default branch, and these have to run from a
+  # feature branch.
+  #
+  # What they publish is the trajectory acceptance stack, rendered by
+  # `shape.render` in tests/e2e/trajectory_acceptance -- the one render every
+  # consumer of that stack uses. This job builds it once per architecture, each
+  # row on a runner of that architecture, so no image is built under
+  # emulation, and pushes every image as ghcr.io/als-apg/<name>:<sha>-<arch>.
+  # The manifest job after it joins each image's two architectures under
+  # ghcr.io/als-apg/<name>:<sha>, so a host of either architecture pulls its
+  # native image by the one tag. The checkout sha is the images' whole
+  # identity: no label restates it, and a consumer compares its checkout and
+  # its running containers against that one tag. The render's image tag is the
+  # per-architecture tag, so the VA and project images are named for it as they
+  # are built; the persona and auth-sidecar images are tagged `<name>:local` by
+  # the web tier whatever the axes say, so they are re-tagged onto the same
+  # registry and tag here.
+  #
+  # Built by `osprey up -d --dev`, then taken down: no render-only build mode
+  # exists, and the web tier's compose document -- the one naming the persona
+  # and auth images -- is written by `up` itself. Neither job is a need of
+  # all-checks-passed: that gate stands down on this dispatch too.
+  push-acceptance-images:
+    name: Publish acceptance images (${{ matrix.arch }}, trajectory acceptance stack to ghcr)
+    runs-on: ${{ matrix.runner }}
+    if: github.event_name == 'workflow_dispatch' && inputs.push_acceptance_images
+    strategy:
+      # One architecture's images are no use without the other's: the manifest
+      # job needs both rows, so a failed row stops the other.
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    # packages: write is not in the default token; contents: read is restated
+    # because a job-level block replaces the default rather than extending it.
+    permissions:
+      contents: read
+      packages: write
+    # Cold builds of the VA, the project image and the persona image, then
+    # the pushes.
+    timeout-minutes: 90
+    env:
+      # Read by the render (compose_generator.resolve_image_axes): every
+      # OSPREY-built image the project names becomes
+      # ghcr.io/als-apg/<name>:<sha>-<arch>.
+      OSPREY_IMAGE_REGISTRY: ghcr.io/als-apg
+      OSPREY_IMAGE_TAG: ${{ github.sha }}-${{ matrix.arch }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Log in to ghcr
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # The acceptance stack, rendered by the one function every consumer of
+    # it calls: init from the committed profile, its post-init edits, and
+    # `osprey build --dev`. Nothing about the stack is restated here.
+    - name: Render the acceptance stack
+      run: |
+        uv run python - <<'PY'
+        import os
+        from pathlib import Path
+
+        from tests.e2e.trajectory_acceptance import shape
+
+        base = Path(os.environ["RUNNER_TEMP"]) / "acceptance-images"
+        base.mkdir(parents=True, exist_ok=True)
+        repo = shape.render(base)
+        print(f"rendered {repo}")
+        PY
+
+    - name: Build the project's images
+      # Step cap under the job cap so a hang fails this step and the cleanup
+      # below still runs.
+      timeout-minutes: 75
+      working-directory: ${{ runner.temp }}/acceptance-images/trajectory-acceptance
+      run: |
+        "$GITHUB_WORKSPACE/.venv/bin/osprey" up -d --dev
+
+    - name: Push every image the project runs
+      # Every image a container of this project runs, read off the host rather
+      # than restated: an OSPREY-built image the render names under the
+      # registry and sha is pushed as built, a `<project>...:local` one is
+      # re-tagged onto the registry and sha first, and an upstream pin
+      # (nginx, postgres, mongo, ...) is left alone. The images the
+      # acceptance stack cannot start without must all be among them.
+      run: |
+        uv run python - <<'PY'
+        import os
+        import subprocess
+        import sys
+
+        from tests.e2e import _orm_stack
+        from tests.e2e.trajectory_acceptance import shape
+
+        registry = os.environ["OSPREY_IMAGE_REGISTRY"].rstrip("/")
+        tag = os.environ["OSPREY_IMAGE_TAG"]
+        project = _orm_stack.project_prefix(shape.PROJECT_NAME)
+        persona = f"{shape.PROJECT_NAME}-{shape.PERSONA}"
+
+
+        def ours(name):
+            return name == project or name.startswith(f"{project}-")
+
+
+        def docker(*args):
+            return subprocess.run(
+                ["docker", *args], check=True, capture_output=True, text=True
+            ).stdout
+
+
+        listing = docker("ps", "-a", "--format", "{{.Names}}\t{{.Image}}")
+        rows = (line.split("\t", 1) for line in listing.splitlines() if "\t" in line)
+        refs = sorted({image for name, image in rows if ours(name)})
+        if not refs:
+            sys.exit(f"::error::no container of {project} is on this host")
+
+        pushed = {}
+        for ref in refs:
+            repository, _, ref_tag = ref.rpartition(":")
+            if repository.startswith(f"{registry}/"):
+                name = repository.removeprefix(f"{registry}/")
+                if ref_tag != tag:
+                    sys.exit(f"::error::{ref} is under {registry} but not tagged {tag}")
+                target = ref
+            elif ref_tag == "local" and "/" not in repository and ours(repository):
+                name = repository
+                target = f"{registry}/{name}:{tag}"
+                docker("tag", ref, target)
+            else:
+                print(f"left alone (not built by this project): {ref}")
+                continue
+            subprocess.run(["docker", "push", target], check=True)
+            pushed[name] = target
+
+        # Token logins run no auth sidecar, so the project carries none to push.
+        required = {project, f"{project}-va", persona}
+        missing = sorted(required - pushed.keys())
+        if missing:
+            sys.exit(f"::error::no image pushed for {missing}; pushed {sorted(pushed)}")
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.write(f"### Acceptance images at `{tag}`\n\n")
+            summary.writelines(f"- `{pushed[name]}`\n" for name in sorted(pushed))
+        listed = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-images.txt")
+        with open(listed, "w", encoding="utf-8") as out:
+            out.writelines(f"{pushed[name]}\n" for name in sorted(pushed))
+        names = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-image-names", "names.txt")
+        os.makedirs(os.path.dirname(names), exist_ok=True)
+        with open(names, "w", encoding="utf-8") as out:
+            out.writelines(f"{name}\n" for name in sorted(pushed))
+        PY
+
+    - name: Verify every pushed image resolves in the registry
+      run: |
+        set -euo pipefail
+        while read -r image; do
+          docker buildx imagetools inspect "$image" > /dev/null
+          echo "resolves: $image"
+        done < "$RUNNER_TEMP/acceptance-images.txt"
+
+    # The names this row pushed, for the manifest job to join across rows.
+    - name: Hand the pushed image names to the manifest job
+      uses: actions/upload-artifact@v7
+      with:
+        name: acceptance-image-names-${{ matrix.arch }}
+        path: ${{ runner.temp }}/acceptance-image-names/names.txt
+        if-no-files-found: error
+        retention-days: 1
+
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: push-acceptance-images-${{ matrix.arch }}
+        engine: docker
+
+    # Exact-named teardown: never a prune, an
+    # -a/--all sweep or a wildcard removal. The pushed images stay on the
+    # runner, which is discarded with them.
+    - name: Clean up the build stack
+      if: always()
+      run: |
+        repo="$RUNNER_TEMP/acceptance-images/trajectory-acceptance"
+        if [ -d "$repo" ]; then
+          (cd "$repo" && "$GITHUB_WORKSPACE/.venv/bin/osprey" down) || true
+        fi
+        docker rm -f trajectory-acceptance-web-alice || true
+        docker rm -f trajectory-acceptance-nginx || true
+        docker compose -p trajectory-acceptance down || true
+        docker volume ls -q --filter "name=^trajectory-acceptance_" \
+          | xargs -r docker volume rm -f || true
+
+
+  # Joins each image the two rows above pushed into one manifest under the
+  # sha, ghcr.io/als-apg/<name>:<sha>, carrying linux/amd64 and linux/arm64.
+  # Registry-side only: `imagetools create` copies no layer, so this job builds
+  # nothing and checks nothing out.
+  publish-acceptance-manifests:
+    name: Publish acceptance manifests (one tag per image, both architectures)
+    runs-on: ubuntu-latest
+    needs: push-acceptance-images
+    if: github.event_name == 'workflow_dispatch' && inputs.push_acceptance_images
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 15
+    env:
+      OSPREY_IMAGE_REGISTRY: ghcr.io/als-apg
+      OSPREY_IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+    - name: Collect the image names each architecture pushed
+      uses: actions/download-artifact@v8
+      with:
+        pattern: acceptance-image-names-*
+        path: ${{ runner.temp }}/acceptance-image-names
+
+    - name: Log in to ghcr
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Both rows must have pushed the same images: one built on a single
+    # architecture would publish a tag that a host of the other cannot run.
+    - name: Join each image's architectures under the sha
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/acceptance-image-names"
+        if ! diff -u "$dir/acceptance-image-names-amd64/names.txt" \
+                     "$dir/acceptance-image-names-arm64/names.txt"; then
+          echo "::error::the amd64 and arm64 rows pushed different images"
+          exit 1
+        fi
+        registry="${OSPREY_IMAGE_REGISTRY%/}"
+        : > "$RUNNER_TEMP/acceptance-manifests.txt"
+        while read -r name; do
+          target="$registry/$name:$OSPREY_IMAGE_TAG"
+          docker buildx imagetools create -t "$target" \
+            "$target-amd64" "$target-arm64"
+          echo "$target" >> "$RUNNER_TEMP/acceptance-manifests.txt"
+        done < "$dir/acceptance-image-names-amd64/names.txt"
+        {
+          echo "### Acceptance manifests at \`$OSPREY_IMAGE_TAG\` (linux/amd64 + linux/arm64)"
+          echo
+          sed 's/.*/- `&`/' "$RUNNER_TEMP/acceptance-manifests.txt"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Verify every manifest carries both platforms
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import subprocess
+        import sys
+
+        wanted = {"linux/amd64", "linux/arm64"}
+        listed = os.path.join(os.environ["RUNNER_TEMP"], "acceptance-manifests.txt")
+        with open(listed, encoding="utf-8") as images:
+            refs = [line.strip() for line in images if line.strip()]
+        if not refs:
+            sys.exit("::error::no manifest was published")
+        for ref in refs:
+            raw = subprocess.run(
+                ["docker", "buildx", "imagetools", "inspect", "--raw", ref],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            found = {
+                f"{entry['platform']['os']}/{entry['platform']['architecture']}"
+                for entry in json.loads(raw).get("manifests", [])
+                if "platform" in entry
+            }
+            missing = sorted(wanted - found)
+            if missing:
+                sys.exit(f"::error::{ref} lacks {missing}; it carries {sorted(found)}")
+            print(f"both platforms: {ref}")
+        PY
 
 
   va-substrate-equivalence-e2e:
@@ -3035,7 +3483,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # One pytest invocation covers the whole module: the offline floor/judge
     # checks plus the two live agent runs, which share a single module-scoped
     # deploy of the VA/bridge/queue stack.
@@ -3511,7 +3959,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so `contents: read` is restated alongside the
     # `packages: read` this lane actually needs: the Nextcloud Talk fixture is a
@@ -3635,7 +4083,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so the one scope this lane needs is stated in full.
     # Unlike nextcloud-talk-bridge-e2e there is no `packages: read` here: the
@@ -3793,6 +4241,7 @@ jobs:
 
 
   teams-bridge-e2e:
+    if: ${{ !inputs.push_acceptance_images }}
     name: Microsoft Teams Bridge E2E (loopback fakes, no container)
     runs-on: ubuntu-latest
     # Deliberately no `if:` gate, unlike the two bridge lanes above. Their gates
@@ -5705,7 +6154,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes && !inputs.push_acceptance_images)
     # Composed from measured pieces, not guessed, and not re-measured by
     # re-running the LLM gate. All three figures come off the same Apple
     # Silicon host, where both images are pinned linux/amd64 and therefore
@@ -6308,7 +6757,7 @@ jobs:
     # the same head sha. Operational rule: add the `full-ci` label before
     # pushing -- a label added right after a push starts a second run that
     # cancels the first.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !inputs.push_acceptance_images }}
 
     steps:
     - name: Check all jobs status

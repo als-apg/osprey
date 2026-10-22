@@ -16,14 +16,16 @@ new tests.
 
 ```bash
 # Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup
+pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock and not stack_regression" -n 4 --dist loadgroup
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e
 ```
 
 The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
-by `scripts/gate.sh` and by their own CI steps.
+by `scripts/gate.sh` and by their own CI steps. The `stack_regression` marker
+replays the trajectory panel's frozen manual steps against a deployed stack, so
+it runs only in the on-demand CI job of a `run_benchmarks` dispatch.
 
 `scripts/gate.sh` is the one local spelling of the merge gate: anything that
 gates a branch calls it and adds nothing to its marker expression. It runs every

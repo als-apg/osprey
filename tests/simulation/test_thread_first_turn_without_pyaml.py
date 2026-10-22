@@ -4,7 +4,8 @@ With the ``first-turn-errors`` scenario active the shipped seed loses the first
 turn partway round the storage ring. A service that threads the beam needs no
 middle layer to do it: everything it uses is in the build and on the wire. It
 reads the trajectory response matrix and its sidecar from the pyAML render, the
-channels to arm and fire from ``trajectory_slots`` in the facility facts, and
+channels to arm and fire, each monitor's sum reading and the trigger sample from
+the declaration ``trajectory_slots`` in the facility facts, and
 talks to the ring through the in-process connector only: arm every monitor,
 increment the injection request, read turn 1 from the turn-by-turn buffers,
 solve for a corrector change with plain numpy, and write the correctors in
@@ -71,7 +72,6 @@ from osprey_connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
-from osprey.simulation.engines.pyat import PRE_TRIGGER_SAMPLES
 from osprey_connectors.simulation import composite as composite_module
 
 ROOT = Path(sys.argv[1])
@@ -100,8 +100,8 @@ async def write(connector, address, value):
         raise RuntimeError(f"write {address}={value!r}: {result.error_message}")
 
 
-async def turn_one(connector, address):
-    return float(np.asarray((await connector.read_channel(address)).value)[PRE_TRIGGER_SAMPLES])
+async def turn_one(connector, address, trigger):
+    return float(np.asarray((await connector.read_channel(address)).value)[trigger])
 
 
 async def main():
@@ -114,9 +114,16 @@ async def main():
     assert matrix.shape == (len(rows), len(columns)), matrix.shape
     assert len(index["bpm_index"]) == len(rows)
     assert len(index["hcorr_index"]) + len(index["vcorr_index"]) == len(columns)
-    # A row's monitor sees beam when its sum signal does.
-    sums = index["sum_names"]
-    assert len(sums) == len(rows)
+    # A row's monitor sees beam when its device's sum signal does.
+    devices = slots["devices"]
+    device_of = {}
+    for device, row in devices.items():
+        device_of[row["x_row"]] = device
+        device_of[row["y_row"]] = device
+    sums = [devices[device_of[row]]["sum_row"] for row in rows]
+    assert all(sums), sums
+    trigger = slots["trigger_sample"]
+    assert isinstance(trigger, int), trigger
     # The columns are in lattice order within each plane, as are the rows.
     for key in ("hcorr_index", "vcorr_index"):
         assert index[key] == sorted(index[key]), key
@@ -134,12 +141,12 @@ async def main():
         request = int((await connector.read_channel(slots["injection_request"])).value)
         steps = 0
         while True:
-            for arm in slots["arm"]:
-                await write(connector, arm, 1)
+            for device in devices.values():
+                await write(connector, device["arm"], 1)
             request += 1
             await write(connector, slots["injection_request"], request)
-            reading = np.array([await turn_one(connector, row) for row in rows])
-            seen = np.array([await turn_one(connector, name) > SUM_THRESHOLD for name in sums])
+            reading = np.array([await turn_one(connector, row, trigger) for row in rows])
+            seen = np.array([await turn_one(connector, name, trigger) > SUM_THRESHOLD for name in sums])
             monitors_seen = len({s for s, ok in zip(sums, seen) if ok})
             seen_per_shot.append(monitors_seen)
             if seen.all() or steps >= MAX_STEPS:

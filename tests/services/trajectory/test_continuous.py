@@ -1,4 +1,4 @@
-"""Continuous mode: shots one after another on the sessions, until something ends them.
+"""Continuous mode: the chain run again and again on the sessions, until something ends it.
 
 The run drives real :class:`Sessions` over a small action layer that runs one
 action at a time in submission order, binds each action to the stop event
@@ -19,12 +19,7 @@ import numpy as np
 import pytest
 
 from osprey.services.trajectory.acquisition import (
-    CONTINUOUS_RUNNING as SETUP_CONTINUOUS_RUNNING,
-)
-from osprey.services.trajectory.acquisition import (
-    AcquisitionRefused,
     ShotStopped,
-    setup_action,
 )
 from osprey.services.trajectory.actions import ACTION_STOPPED, ActionRefused
 from osprey.services.trajectory.admit import Admission
@@ -41,7 +36,12 @@ from osprey.services.trajectory.sessions import (
     SessionRefused,
     Sessions,
 )
-from osprey.services.trajectory.state import ContinuousEndedEvent, ShotResult
+from osprey.services.trajectory.state import (
+    ChainBody,
+    ChainResult,
+    ContinuousEndedEvent,
+    ShotResult,
+)
 from osprey.services.trajectory.step import TrajectoryTool
 
 TARGET = "va"
@@ -219,7 +219,6 @@ def _tool(fake: _Correct) -> TrajectoryTool:
             bpm_names_h=X_ROWS, bpm_names_v=Y_ROWS, hcorr_names=H_CORR, vcorr_names=V_CORR
         ),
         bpm_index=(1.0, 2.0, 3.0, 1.0, 2.0, 3.0),
-        sum_names=("S1", "S2", "S3", "S1", "S2", "S3"),
         hcorr_index=(0.5, 1.5),
         vcorr_index=(2.5,),
         unsolved={},
@@ -229,7 +228,7 @@ def _tool(fake: _Correct) -> TrajectoryTool:
     )
 
 
-def _sessions(*, max_shots: int = 100, sequence: Any = None) -> tuple[Sessions, _Correct]:
+def _sessions(*, min_period_s: float = 0.0, sequence: Any = None) -> tuple[Sessions, _Correct]:
     fake = _Correct()
     startup = SimpleNamespace(
         target=TARGET,
@@ -237,8 +236,7 @@ def _sessions(*, max_shots: int = 100, sequence: Any = None) -> tuple[Sessions, 
         commands=SimpleNamespace(model=MODEL),
         tool=_tool(fake),
         sequence=sequence,
-        tag_addresses={},
-        settings=SimpleNamespace(continuous_max_shots=max_shots, action_timeout_s=60.0),
+        settings=SimpleNamespace(continuous_min_period_s=min_period_s, action_timeout_s=60.0),
     )
     return Sessions(_Layer(startup)), fake  # type: ignore[arg-type]
 
@@ -266,45 +264,225 @@ async def _until(predicate: Any) -> None:
 # -- the end conditions --------------------------------------------------------------
 
 
-async def test_a_run_submits_one_shot_action_per_turn_and_ends_at_max_shots() -> None:
+class _Chain:
+    """Builds one chain action per iteration from the body the run started with.
+
+    Each action re-checks the setup, then injects, then reads out, recording
+    each step against its iteration, and answers the steps it ran.
+    """
+
+    def __init__(self, body: ChainBody, *, included: int = 1) -> None:
+        self.body = body
+        self.included = included
+        self.log: list[tuple[int, str]] = []
+        self.iterations = 0
+
+    def build(self, hook: Any) -> Any:
+        steps = tuple(self.body.steps)
+
+        async def chain(_admission: Admission, stop: asyncio.Event) -> ChainResult:
+            self.iterations += 1
+            number = self.iterations
+            if "inject" in steps:
+                self.log.append((number, "recheck"))
+            for step in steps:
+                if stop.is_set():
+                    raise ShotStopped([])
+                self.log.append((number, step))
+                await asyncio.sleep(0)
+            shot = None
+            if "readout" in steps:
+                shot = _shot(f"chain-{number}").model_copy(update={"shots_included": self.included})
+                await hook(shot)
+            return ChainResult(steps_run=list(steps), commands_fired=[], shot=shot)
+
+        return chain
+
+
+async def test_a_run_reruns_the_chain_body_it_started_with_one_action_per_turn() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
+    chain = _Chain(ChainBody(steps=["inject", "readout"]))
     ended: list[ContinuousEndedEvent] = []
-    run = _start(sessions, client, _Shots(), max_shots=3, on_end=ended.append)
+    run = sessions.start_continuous(OWNER, KIND, client, _Store(), chain.build, on_end=ended.append)
+    await _until(lambda: chain.iterations >= 3)
+    sessions.stop(OWNER, KIND)
     event = await _ended(run)
-    assert (event.end, event.shots) == ("max_shots", 3)
-    assert event.step_reason is None and event.step_status is None
+    runs: dict[int, list[str]] = {}
+    for number, step in chain.log:
+        runs.setdefault(number, []).append(step)
+    assert runs[1] == runs[2] == ["recheck", "inject", "readout"]  # same steps, re-check first
+    assert event.end == "stopped" and event.shots == chain.iterations
     assert ended == [event] and run.ended == event
-    assert sessions.layer.turns.count("Sessions.shot.<locals>.action") == 3  # type: ignore[attr-defined]
-    step = sessions.step.step
-    assert step is not None and step.shot_id == "shot-3" and not sessions.step.consumed
+    assert sessions.layer.turns.count("Sessions.shot.<locals>.action") == chain.iterations  # type: ignore[attr-defined]
     assert sessions.continuous is None and not sessions.continuous_running
 
 
-async def test_a_run_without_a_limit_takes_the_services_continuous_max_shots() -> None:
-    sessions, _fake = _sessions(max_shots=2)
+async def test_the_setup_re_check_runs_before_every_iterations_inject() -> None:
+    sessions, _fake = _sessions()
     client = await _open(sessions)
-    run = _start(sessions, client, _Shots())
-    assert run.max_shots == 2
-    assert (await _ended(run)).end == "max_shots"
+    chain = _Chain(ChainBody(steps=["arm", "inject", "readout"]))
+    run = sessions.start_continuous(OWNER, KIND, client, _Store(), chain.build)
+    await _until(lambda: chain.iterations >= 3)
+    await asyncio.wait_for(run.cancel(), 2)
+    for number in range(1, chain.iterations + 1):
+        steps = [step for n, step in chain.log if n == number]
+        if "inject" in steps:
+            assert steps.index("recheck") < steps.index("inject")
 
 
-async def test_an_all_zero_step_ends_the_run_with_the_steps_reason_and_status() -> None:
+async def test_an_all_zero_step_ends_nothing_and_the_run_goes_on() -> None:
     sessions, fake = _sessions()
     client = await _open(sessions)
     shots = _Shots()
     shots.on_shot = lambda number: fake.zero() if number == 2 else None
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
+    await _until(lambda: len(shots.started) >= 4)
+    assert run.running  # shots 2 onwards solved to a zero step
+    event = await asyncio.wait_for(run.cancel(), 2)
+    assert event.end == "shutdown"
+    assert event.step_reason is None and event.step_status is None
+
+
+async def test_no_count_of_shots_ends_a_run() -> None:
+    sessions, _fake = _sessions()
+    client = await _open(sessions)
+    shots = _Shots()
+    run = _start(sessions, client, shots)
+    await _until(lambda: len(shots.started) >= 150)
+    assert run.running
+    assert "max_shots" not in run.status().model_dump()
+    await asyncio.wait_for(run.cancel(), 2)
+
+
+async def test_an_iteration_whose_every_injection_failed_ends_the_run_failed() -> None:
+    sessions, _fake = _sessions()
+    client = await _open(sessions)
+    chain = _Chain(ChainBody(steps=["inject", "readout"], n_shots=3), included=0)
+    run = sessions.start_continuous(OWNER, KIND, client, _Store(), chain.build)
     event = await _ended(run)
-    assert (event.end, event.shots) == ("zero_step", 2)
-    assert (event.step_reason, event.step_status) == ("ON_REFERENCE", "on the reference")
+    assert (event.end, event.shots) == ("failed", 1)
+    assert run.error is None
+
+
+async def test_a_chain_without_readout_runs_on() -> None:
+    sessions, _fake = _sessions()
+    client = await _open(sessions)
+    chain = _Chain(ChainBody(steps=["arm"]))
+    run = sessions.start_continuous(OWNER, KIND, client, _Store(), chain.build)
+    await _until(lambda: chain.iterations >= 3)
+    assert run.running
+    await asyncio.wait_for(run.cancel(), 2)
+
+
+@pytest.mark.parametrize("cause", ["stopped", "taken_over", "released"])
+async def test_each_ending_cause_is_published_as_the_runs_end(cause: str) -> None:
+    sessions, _fake = _sessions()
+    client = await _open(sessions)
+    chain = _Chain(ChainBody(steps=["inject", "readout"]))
+    ended: list[ContinuousEndedEvent] = []
+    run = sessions.start_continuous(OWNER, KIND, client, _Store(), chain.build, on_end=ended.append)
+    await _until(lambda: chain.iterations >= 2)
+    if cause == "stopped":
+        sessions.stop(OWNER, KIND)
+    elif cause == "taken_over":
+        sessions.take_over("bob", KIND)
+    else:
+        sessions.release(OWNER, KIND, client)
+    event = await _ended(run)
+    assert event.end == cause and [e.end for e in ended] == [cause]
+    assert not sessions.continuous_running
+
+
+# -- the minimum period --------------------------------------------------------------
+
+
+async def test_two_iterations_start_at_least_the_minimum_period_apart() -> None:
+    sessions, _fake = _sessions(min_period_s=5.0)
+    client = await _open(sessions)
+    clock = _Clock()
+    starts: list[float] = []
+    asked: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        if seconds > 5.0:
+            # The lease watcher's wait: the lease never expires here, and the
+            # clock moves for the pacing alone.
+            await asyncio.Event().wait()
+        asked.append(seconds)
+        clock.now += seconds
+        await asyncio.sleep(0)
+
+    shots = _Shots()
+
+    def on_shot(_number: int) -> None:
+        starts.append(clock.now)
+        clock.now += 2.0  # the iteration itself takes 2 s
+
+    shots.on_shot = on_shot
+    run = _start(sessions, client, shots, clock=clock, sleep=sleep, lease_s=1e9, heartbeat_s=1e8)
+    assert run.min_period_s == 5.0  # the service's continuous_min_period_s
+    await _until(lambda: len(starts) >= 4)
+    await asyncio.wait_for(run.cancel(), 2)
+    gaps = [b - a for a, b in zip(starts, starts[1:], strict=False)]
+    assert gaps and all(gap >= 5.0 for gap in gaps)
+    assert 3.0 in asked  # the period less the iteration's own 2 s
+
+
+async def test_an_iteration_slower_than_the_period_is_followed_at_once() -> None:
+    sessions, _fake = _sessions(min_period_s=1.0)
+    client = await _open(sessions)
+    clock = _Clock()
+    asked: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        asked.append(seconds)
+        await asyncio.sleep(0)
+
+    shots = _Shots()
+    shots.on_shot = lambda _number: setattr(clock, "now", clock.now + 3.0)
+    run = _start(sessions, client, shots, clock=clock, sleep=sleep, lease_s=1e9, heartbeat_s=1e8)
+    await _until(lambda: len(shots.started) >= 3)
+    await asyncio.wait_for(run.cancel(), 2)
+    assert [seconds for seconds in asked if seconds < 1e8] == []  # no iteration waited
+
+
+async def test_a_stop_during_the_wait_between_iterations_ends_the_run_at_once() -> None:
+    sessions, _fake = _sessions(min_period_s=1000.0)
+    client = await _open(sessions)
+    never = asyncio.Event()
+
+    async def sleep(_seconds: float) -> None:
+        await never.wait()
+
+    shots = _Shots()
+    run = _start(sessions, client, shots, sleep=sleep)
+    await _until(lambda: shots.started == [1] and sessions.latest_shot_id == "shot-1")
+    await asyncio.sleep(0.01)
+    sessions.stop(OWNER, KIND)
+    event = await _ended(run)
+    assert (event.end, event.shots) == ("stopped", 1)
+
+
+def test_a_negative_minimum_period_is_refused() -> None:
+    sessions, _fake = _sessions()
+    with pytest.raises(ValueError):
+        ContinuousRun(
+            sessions,
+            OWNER,
+            KIND,
+            "c",
+            _Store(),
+            _Shots().build,  # type: ignore[arg-type]
+            min_period_s=-1.0,
+        )
 
 
 async def test_setting_the_stop_event_current_at_the_start_ends_the_run_mid_shot() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     await _until(lambda: shots.started == [1])
     shots.permits.release()  # type: ignore[union-attr]
     await _until(lambda: shots.started == [1, 2])
@@ -325,7 +503,7 @@ async def test_a_shot_queued_after_the_stop_is_refused_and_the_run_ends_stopped(
 
     holding = asyncio.create_task(sessions.layer.submit(OWNER, KIND, blocker))
     await _until(lambda: sessions.layer.in_turn)  # type: ignore[attr-defined]
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     await asyncio.sleep(0.01)
     sessions.layer.renew_stop_event()
     release.set()
@@ -350,7 +528,7 @@ async def test_a_shot_that_fails_ends_the_run_failed_with_its_error() -> None:
     client = await _open(sessions)
     shots = _Shots()
     shots.fail = RuntimeError("the connector broke")
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     event = await _ended(run)
     assert (event.end, event.shots) == ("failed", 1)
     assert isinstance(run.error, RuntimeError)
@@ -360,7 +538,7 @@ async def test_cancelling_the_run_ends_it_as_shutdown() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     await _until(lambda: shots.started == [1])
     event = await asyncio.wait_for(run.cancel(), 2)
     assert event.end == "shutdown"
@@ -371,7 +549,7 @@ async def test_an_end_named_first_wins_over_the_stop_that_follows() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     await _until(lambda: shots.started == [1])
     assert run.end("taken_over") is True
     sessions.layer.renew_stop_event()
@@ -387,7 +565,7 @@ async def test_heartbeats_keep_the_run_past_its_lease() -> None:
     client = await _open(sessions)
     clock = _Clock()
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=100, clock=clock, sleep=_tick)
+    run = _start(sessions, client, shots, clock=clock, sleep=_tick)
     assert run.status().lease_expires_in_s == DEFAULT_LEASE_S
     for _ in range(5):
         clock.now += DEFAULT_HEARTBEAT_S
@@ -406,7 +584,7 @@ async def test_a_lapsed_lease_ends_the_run_voids_the_step_and_renews_the_stop_ev
     client = await _open(sessions)
     clock = _Clock()
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=100, clock=clock, sleep=_tick)
+    run = _start(sessions, client, shots, clock=clock, sleep=_tick)
     stop_at_start = sessions.layer.stop_event
     shots.permits.release()  # type: ignore[union-attr]
     await _until(lambda: shots.started == [1, 2])
@@ -445,7 +623,6 @@ async def test_a_shot_finishing_after_the_lease_lapsed_leaves_no_step() -> None:
         client,
         _Store(),
         build,
-        max_shots=5,
         clock=clock,
         sleep=_tick,  # type: ignore[arg-type]
     )
@@ -462,7 +639,7 @@ async def test_a_heartbeat_from_a_non_holder_is_refused_and_moves_nothing() -> N
     sessions, _fake = _sessions()
     client = await _open(sessions)
     clock = _Clock()
-    run = _start(sessions, client, _Shots(gated=True), max_shots=10, clock=clock, sleep=_tick)
+    run = _start(sessions, client, _Shots(gated=True), clock=clock, sleep=_tick)
     clock.now += 4.0
     with pytest.raises(SessionRefused) as caught:
         sessions.heartbeat(OWNER, KIND, "someone-else")
@@ -487,7 +664,6 @@ def test_a_heartbeat_interval_must_be_shorter_than_the_lease() -> None:
             "c",
             _Store(),
             _Shots().build,  # type: ignore[arg-type]
-            max_shots=1,
             heartbeat_s=10.0,
             lease_s=10.0,
         )
@@ -499,9 +675,9 @@ def test_a_heartbeat_interval_must_be_shorter_than_the_lease() -> None:
 async def test_a_second_start_while_a_run_is_in_progress_is_409() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
-    run = _start(sessions, client, _Shots(gated=True), max_shots=10)
+    run = _start(sessions, client, _Shots(gated=True))
     with pytest.raises(SessionRefused) as caught:
-        _start(sessions, client, _Shots(), max_shots=10)
+        _start(sessions, client, _Shots())
     assert (caught.value.code, caught.value.status) == (CONTINUOUS_RUNNING, 409)
     assert sessions.continuous is run
     await asyncio.wait_for(run.cancel(), 2)
@@ -511,19 +687,19 @@ async def test_a_start_from_a_non_holder_is_refused() -> None:
     sessions, _fake = _sessions()
     await _open(sessions)
     with pytest.raises(SessionRefused) as caught:
-        _start(sessions, "not-the-holder", _Shots(), max_shots=10)
+        _start(sessions, "not-the-holder", _Shots())
     assert caught.value.code == NOT_SESSION_HOLDER
     assert sessions.continuous is None
 
 
-# -- apply and setup during a run ----------------------------------------------------
+# -- apply during a run ----------------------------------------------------
 
 
 async def test_an_apply_during_a_run_is_409_and_runs_between_two_shots() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     await _until(lambda: shots.started == [1])
     applying = asyncio.create_task(apply(sessions, OWNER, KIND, client, {"step_digest": "d"}))
     await asyncio.sleep(0.01)
@@ -542,7 +718,7 @@ async def test_a_putback_during_a_run_is_409_and_voids_nothing() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
     shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
+    run = _start(sessions, client, shots)
     shots.permits.release()  # type: ignore[union-attr]
     await _until(lambda: shots.started == [1, 2])
     step = sessions.step.step
@@ -560,38 +736,11 @@ async def test_a_putback_during_a_run_is_409_and_voids_nothing() -> None:
 async def test_an_apply_after_the_run_ended_is_not_refused_continuous_running() -> None:
     sessions, _fake = _sessions()
     client = await _open(sessions)
-    await _ended(_start(sessions, client, _Shots(), max_shots=1))
+    shots = _Shots()
+    run = _start(sessions, client, shots)
+    await _until(lambda: len(shots.started) >= 1)
+    sessions.stop(OWNER, KIND)
+    await _ended(run)
     with pytest.raises(ApplyRefused) as caught:
         await apply(sessions, OWNER, KIND, client, {"step_digest": "not-the-step"})
     assert caught.value.code == DIGEST_MISMATCH
-
-
-async def test_a_setup_during_a_run_is_409_and_voids_nothing() -> None:
-    module = SimpleNamespace(entry_point=lambda _name: None, path="m.py", metadata={})
-    sessions, _fake = _sessions(sequence=module)
-    client = await _open(sessions)
-    shots = _Shots(gated=True)
-    run = _start(sessions, client, shots, max_shots=10)
-    shots.permits.release()  # type: ignore[union-attr]
-    await _until(lambda: shots.started == [1, 2])
-    with pytest.raises(AcquisitionRefused) as caught:
-        await sessions.setup(OWNER, KIND, client)
-    assert (caught.value.code, caught.value.status) == (SETUP_CONTINUOUS_RUNNING, 409)
-    assert sessions.step.step is not None
-    await asyncio.wait_for(run.cancel(), 2)
-    result = await sessions.setup(OWNER, KIND, client)
-    assert result.name == "setup" and sessions.step.step is None
-
-
-async def test_a_setup_action_refuses_a_run_at_build_and_again_in_its_turn() -> None:
-    module = SimpleNamespace(entry_point=lambda _name: None, path="m.py", metadata={})
-    startup = SimpleNamespace(sequence=module)
-    with pytest.raises(AcquisitionRefused) as caught:
-        setup_action(startup, continuous_running=lambda: True)  # type: ignore[arg-type]
-    assert (caught.value.code, caught.value.status) == (SETUP_CONTINUOUS_RUNNING, 409)
-    running = [False]
-    action = setup_action(startup, continuous_running=lambda: running[0])  # type: ignore[arg-type]
-    running[0] = True
-    with pytest.raises(AcquisitionRefused) as caught:
-        await action(_admission(OWNER, KIND), asyncio.Event())
-    assert caught.value.code == SETUP_CONTINUOUS_RUNNING

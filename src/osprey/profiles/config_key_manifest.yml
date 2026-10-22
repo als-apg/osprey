@@ -748,22 +748,23 @@ keys:
       The address the trajectory service binds, rendered into TRAJECTORY_BIND.
     default: derived
     default_note: "127.0.0.1 under `network: host`, 0.0.0.0 on the compose bridge"
-  services.trajectory.loss_sum_cutoff:
+  services.trajectory.loss_cutoff_fraction:
     rendered: false
-    evidence: 'LOSS_SUM_CUTOFF_KEY = f"\{SERVICE_KEY\}\.loss_sum_cutoff"'
+    evidence: 'LOSS_CUTOFF_FRACTION_KEY = f"\{SERVICE_KEY\}\.loss_cutoff_fraction"'
     note: >-
-      The rise of a BPM's turn-by-turn sum, in the sum record's calibrated
-      units, above which the beam reached that BPM; the first BPM that does
-      not rise and every BPM after it are lost. The default fits the virtual
-      accelerator, whose sum reads 1.0 with beam and 0 without.
+      The rise of a BPM's turn-by-turn sum, as a fraction of the shot's
+      injected-charge scale (the largest rise of any BPM's sum), above which
+      the beam reached that BPM; the first BPM that does not rise and every
+      BPM after it are lost. The default of the SolveConfig's loss cutoff,
+      which the operator edits at run time.
     default: 0.5
-  services.trajectory.shot_sum_threshold:
+  services.trajectory.shot_threshold_fraction:
     rendered: false
-    evidence: 'SHOT_SUM_THRESHOLD_KEY = f"\{SERVICE_KEY\}\.shot_sum_threshold"'
+    evidence: 'SHOT_THRESHOLD_FRACTION_KEY = f"\{SERVICE_KEY\}\.shot_threshold_fraction"'
     note: >-
-      The first BPM's first-turn sum, in the sum record's calibrated units,
-      below which a shot failed. Same units and VA fit as
-      `services.trajectory.loss_sum_cutoff`.
+      The first BPM's first-turn level above its pre-shot baseline, as a
+      fraction of the shot's injected-charge scale, below which a shot
+      failed.
     default: 0.5
   services.trajectory.armed_timeout_s:
     rendered: false
@@ -772,19 +773,13 @@ keys:
       Seconds each wait on the BPMs' armed flags may take during a shot (set
       after arming, cleared after the injection); a BPM still waiting is
       named as a straggler.
-    default: 5.0
+    default: 10.0
   services.trajectory.raw_window_turns:
     rendered: false
     evidence: 'RAW_WINDOW_TURNS_KEY = f"\{SERVICE_KEY\}\.raw_window_turns"'
     note: >-
       Turns of raw turn-by-turn waveform a shot keeps after its first turn.
     default: 20
-  services.trajectory.continuous_max_shots:
-    rendered: false
-    evidence: 'CONTINUOUS_MAX_SHOTS_KEY = f"\{SERVICE_KEY\}\.continuous_max_shots"'
-    note: >-
-      Shot actions a continuous run submits before it ends on its own.
-    default: 100
   services.trajectory.sequence_dir:
     evidence: 'SEQUENCE_DIR_KEY = f"\{SERVICE_KEY\}\.sequence_dir"'
     note: >-
@@ -801,7 +796,21 @@ keys:
     note: >-
       Seconds one admitted action may run before the service asks it to stop;
       a shot whose budget exceeds it is refused before it starts.
-    default: 60.0
+    default: 300.0
+  services.trajectory.raw_retention:
+    rendered: false
+    evidence: 'RAW_RETENTION_KEY = f"\{SERVICE_KEY\}\.raw_retention"'
+    note: >-
+      Shots whose raw buffers the service keeps; older ones are pruned, the
+      latest always kept.
+    default: 100
+  services.trajectory.continuous_min_period_s:
+    rendered: false
+    evidence: 'CONTINUOUS_MIN_PERIOD_KEY = f"\{SERVICE_KEY\}\.continuous_min_period_s"'
+    note: >-
+      Seconds at least between the starts of two continuous iterations. Set it
+      no shorter than the facility's injector cycle.
+    default: 1.0
   services.virtual_accelerator.image:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'

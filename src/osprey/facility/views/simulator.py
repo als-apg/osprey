@@ -43,6 +43,12 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
+A model's ``settings`` in ``variables.json`` are :func:`engine_settings` of
+it: the facility file's settings, with the measurement file's declared
+``trajectory.trigger_sample`` written into the engine block's ``injection``
+when the model states one. The trigger sample is declared once, in the
+measurement file; engine, service and panel all read that one value.
+
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the channel facts
 the build filled in (direction, unit, default, value_range), the ``role``,
@@ -93,8 +99,10 @@ __all__ = [
     "SEEDS_SCHEMA",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
+    "TRIGGER_SAMPLE_KEY",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "engine_settings",
     "served_deck_path",
     "simulator_wiring",
     "status_address",
@@ -105,6 +113,10 @@ __all__ = [
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"
+
+#: The key of the trigger sample, in the measurement file's ``trajectory``
+#: block and in the engine settings' ``injection`` block the build writes it to.
+TRIGGER_SAMPLE_KEY = "trigger_sample"
 
 #: The channel keys ``variables.json`` carries only when the record states them.
 _CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision")
@@ -410,7 +422,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
                 "name": model["name"],
                 "engine": model.get("engine"),
                 "served": model["name"] in inputs.served,
-                "settings": copy.deepcopy(model.get("settings") or {}),
+                "settings": engine_settings(model),
                 "deck": served_deck_path(model),
                 "wiring": simulator_wiring(doc, str(model["name"])),
             }
@@ -418,6 +430,31 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         ],
         "channels": channels,
     }
+
+
+def engine_settings(model: Mapping[str, Any]) -> dict[str, Any]:
+    """A model's settings as its engine is built with them.
+
+    A copy of the model's ``settings``; when its measurement file declares a
+    ``trajectory`` block with a trigger sample and the engine's settings block
+    states an ``injection`` block, :data:`TRIGGER_SAMPLE_KEY` is written into
+    that block.
+
+    Args:
+        model: The model's record in the facility file.
+
+    Returns:
+        The settings the engine reads; never the record's own mapping.
+    """
+    settings: dict[str, Any] = copy.deepcopy(dict(model.get("settings") or {}))
+    declared = ((model.get("measurement") or {}).get("trajectory") or {}).get(TRIGGER_SAMPLE_KEY)
+    if declared is None:
+        return settings
+    block = settings.get(str(model.get("engine")))
+    injection = block.get("injection") if isinstance(block, dict) else None
+    if isinstance(injection, dict):
+        injection[TRIGGER_SAMPLE_KEY] = copy.deepcopy(declared)
+    return settings
 
 
 def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:

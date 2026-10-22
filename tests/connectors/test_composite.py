@@ -162,7 +162,13 @@ def _described(role: str, plane: str | None = None) -> dict[str, Any]:
     return {"role": role, "plane": plane, "refresh": "pass"}
 
 
-def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
+def _wiring(*, waveform: bool = False, labelled: bool = False) -> list[dict[str, Any]]:
+    switch = [
+        {"id": "8", "address": "M:SWITCH", "direction": "write", "default": 1}
+        | _described("setpoint"),
+        {"id": "9", "address": "M:SWITCH:RB", "direction": "read", "default": 0}
+        | _described("readback"),
+    ]
     trace = [
         {"id": "7", "address": "M:TRACE", "direction": "read", "default": [0.1, 0.2, 0.3]}
         | _described("output")
@@ -183,6 +189,7 @@ def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
         {"id": "6", "address": "M:STATE", "direction": "read", "default": "OFF"}
         | _described("output"),
         *(trace if waveform else []),
+        *(switch if labelled else []),
     ]
 
 
@@ -193,8 +200,21 @@ def _view(
     engine: str = "stub",
     scenarios: list[dict[str, Any]] | None = None,
     waveform: bool = False,
+    labelled: bool = False,
 ) -> Path:
     trace = [_channel("M:TRACE", "M", value_type="waveform", shape=[3])]
+    switch = [
+        _channel(
+            "M:SWITCH",
+            "M",
+            role="setpoint",
+            pair="M:SWITCH:RB",
+            writable=True,
+            value_type="enum",
+            options=["OFF", "ON"],
+        ),
+        _channel("M:SWITCH:RB", "M", value_type="enum", options=["OFF", "ON"]),
+    ]
     channels = [
         _channel("M:SP", "M", role="setpoint", writable=True),
         _channel("M:STUCK:SP", "M", role="setpoint", writable=True),
@@ -210,6 +230,7 @@ def _view(
         _channel("T:TRACE", role="setpoint", value_type="waveform", shape=[2, 2], writable=True),
         _channel("T:LOCKED", role="setpoint"),
         *(trace if waveform else []),
+        *(switch if labelled else []),
     ]
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
@@ -226,7 +247,7 @@ def _view(
                     "served": True,
                     "settings": dict(settings or {}),
                     "deck": None,
-                    "wiring": _wiring(waveform=waveform),
+                    "wiring": _wiring(waveform=waveform, labelled=labelled),
                 },
                 {
                     "name": "texture",
@@ -545,6 +566,48 @@ def test_a_set_reaches_the_physics_child_and_the_texture(tmp_path: Path) -> None
     composite.set({"M:SP": 7, "T:SP": 6.5})
 
     assert composite.held(["M:SP", "T:SP", "T:RB"]) == {"M:SP": 7.0, "T:SP": 6.5, "T:RB": 6.5}
+
+
+def test_a_labelled_physics_setpoint_reaches_its_model_as_its_label_index(
+    tmp_path: Path,
+) -> None:
+    composite = _composite(tmp_path, labelled=True)
+    model = composite._children["M"].model
+
+    assert composite.get(["M:SWITCH", "M:SWITCH:RB"]) == {
+        "M:SWITCH": "ON",
+        "M:SWITCH:RB": "OFF",
+    }
+    composite.set({"M:SWITCH": "OFF"})
+
+    assert model.inputs["M:SWITCH"] == 0.0
+    assert composite.get(["M:SWITCH"]) == {"M:SWITCH": "OFF"}
+    assert composite.held(["M:SWITCH"]) == {"M:SWITCH": "OFF"}
+
+
+def test_a_refused_batch_puts_a_labelled_setpoint_back_as_its_index(tmp_path: Path) -> None:
+    composite = _composite(tmp_path, labelled=True)
+    model = composite._children["M"].model
+
+    with pytest.raises(ValueError, match="int"):
+        composite.set({"M:SWITCH": "OFF", "T:STEP:SP": 3.5})
+    with pytest.raises(ValueError):
+        composite.set({"M:SWITCH": "OFF", "M:SP": 500.0})
+
+    assert model.inputs["M:SWITCH"] == 1.0
+    assert composite.held(["M:SWITCH"]) == {"M:SWITCH": "ON"}
+
+
+def test_a_scenario_s_label_reaches_the_build_as_its_index(tmp_path: Path) -> None:
+    composite = _composite(
+        tmp_path,
+        labelled=True,
+        scenarios=[{"name": "off", "overrides": {"M:SWITCH": "OFF"}}],
+    )
+    _activate(tmp_path / "state", "off")
+
+    assert composite.get(["M:SWITCH"]) == {"M:SWITCH": "OFF"}
+    assert composite._children["M"].model.inputs["M:SWITCH"] == 0.0
 
 
 def test_a_texture_refusal_restores_the_physics_childs_inputs(tmp_path: Path) -> None:

@@ -1824,11 +1824,12 @@ def _inject_trajectory(
     from osprey.services.trajectory.constants import (
         ACTION_TIMEOUT_KEY,
         ARMED_TIMEOUT_KEY,
-        CONTINUOUS_MAX_SHOTS_KEY,
-        LOSS_SUM_CUTOFF_KEY,
+        CONTINUOUS_MIN_PERIOD_KEY,
+        LOSS_CUTOFF_FRACTION_KEY,
+        RAW_RETENTION_KEY,
         RAW_WINDOW_TURNS_KEY,
         SEQUENCE_DIR_KEY,
-        SHOT_SUM_THRESHOLD_KEY,
+        SHOT_THRESHOLD_FRACTION_KEY,
         VA_SEQUENCE_DIR,
     )
     from osprey.utils.launch_token import (
@@ -1881,13 +1882,14 @@ def _inject_trajectory(
         block["bind"] = trajectory.bind
     if isinstance(previous, Mapping):
         for key in (
-            LOSS_SUM_CUTOFF_KEY,
-            SHOT_SUM_THRESHOLD_KEY,
+            LOSS_CUTOFF_FRACTION_KEY,
+            SHOT_THRESHOLD_FRACTION_KEY,
             ARMED_TIMEOUT_KEY,
             RAW_WINDOW_TURNS_KEY,
-            CONTINUOUS_MAX_SHOTS_KEY,
             SEQUENCE_DIR_KEY,
             ACTION_TIMEOUT_KEY,
+            RAW_RETENTION_KEY,
+            CONTINUOUS_MIN_PERIOD_KEY,
         ):
             leaf = key.rsplit(".", 1)[1]
             if previous.get(leaf) is not None:

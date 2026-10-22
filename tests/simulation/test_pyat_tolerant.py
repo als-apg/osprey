@@ -49,7 +49,7 @@ QUAD_UNSTABLE = 1.0e4
 SETTINGS = {"pyat": {"injection": {"marker": MARKER}}}
 TWISS_IN = {"beta": [5.0, 3.0], "alpha": [0.0, 0.0]}
 
-INJECTION = engine.Injection(marker=MARKER, index=0, launch=np.zeros(6), pre_trigger_samples=10)
+INJECTION = engine.Injection(marker=MARKER, index=0, launch=np.zeros(6), trigger_sample=10)
 
 
 def lattice() -> Any:

@@ -22,6 +22,10 @@ command; the injection request is wired as a command too. A record the engine
 describes as a turn series or marks a command sits on a channel of a matching
 signal.
 
+The file's ``trajectory`` block is held to its schema: a trigger sample of at
+least 0, every setting a scope of ``device`` or ``global`` and a timeout, a
+chain of steps, and a timeout on every command step and on no other.
+
 Each rule has one stop line, pinned here in full, and a tree that builds.
 """
 
@@ -591,3 +595,125 @@ def test_an_arm_command_wired_on_a_device_outside_the_group_builds(tmp_path: Pat
     model(tree, "SR")["wiring"].append({"address": "QD:AUX", "engine": {"attribute": "arm"}})
     document, _ = built_document(tmp_path, tree)
     assert measurement(document, "SR")["kinds"] == ["trajectory"]
+
+
+# --- the trajectory block -----------------------------------------------------------
+
+
+def _declared(**block: Any) -> dict[str, Any]:
+    """The periodic tree with SR declaring a trajectory block: a cleaning command step.
+
+    ``block`` is laid over a block of trigger sample 2, one global setting on
+    the place's turns setpoint and the chain arm, inject, clean, readout.
+    """
+    tree = periodic_tree()
+    place = {"place": "SR"}
+    tree["records/channels.yaml"] += [
+        {"id": "SR:TURNS:SP", "role": "setpoint", "value_type": "int", "on": place},
+        {"id": "SR:CLEAN:REQ", "role": "setpoint", "value_type": "int", "on": place},
+    ]
+    tree["measurement/SR.yaml"]["trajectory"] = {
+        "trigger_sample": 2,
+        "settings": [
+            {
+                "id": "turns",
+                "label": "Turns",
+                "scope": "global",
+                "address": "SR:TURNS:SP",
+                "timeout_s": 1.0,
+            }
+        ],
+        "steps": [
+            {"id": "arm", "label": "Arm", "description": "Arms.", "default": True},
+            {"id": "inject", "label": "Inject", "description": "Fires.", "default": True},
+            {
+                "id": "clean",
+                "label": "Clean",
+                "description": "Empties.",
+                "default": True,
+                "command": {"address": "SR:CLEAN:REQ", "value": 1, "timeout_s": 2.0},
+            },
+            {"id": "readout", "label": "Readout", "description": "Reads.", "default": True},
+        ],
+        **block,
+    }
+    return tree
+
+
+def _block(tree: dict[str, Any]) -> dict[str, Any]:
+    block: dict[str, Any] = tree["measurement/SR.yaml"]["trajectory"]
+    return block
+
+
+def _schema_line(path: str, message: str, remedy: str) -> str:
+    return (
+        f"facility: source-invalid: path models.1.measurement.trajectory.{path} — "
+        f"measurement/SR.yaml: {message}; fix: {remedy} measurement/SR.yaml"
+    )
+
+
+def test_a_declared_block_builds_and_is_carried_verbatim(tmp_path: Path) -> None:
+    tree = _declared()
+    document, _ = built_document(tmp_path, tree)
+    assert measurement(document, "SR")["trajectory"] == _block(tree)
+
+
+def test_a_command_step_without_a_timeout_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    del _block(tree)["steps"][2]["command"]["timeout_s"]
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line("steps.2.command.timeout_s", "field required", "add `timeout_s` to")
+    ]
+
+
+def test_a_service_owned_step_stating_a_timeout_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    _block(tree)["steps"][0]["timeout_s"] = 1.0
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line(
+            "steps.0.timeout_s", "extra inputs are not permitted", "remove `timeout_s` from"
+        )
+    ]
+
+
+def test_a_block_without_steps_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    del _block(tree)["steps"]
+    assert stop_lines(tmp_path, tree) == [_schema_line("steps", "field required", "add `steps` to")]
+
+
+def test_a_negative_trigger_sample_stops(tmp_path: Path) -> None:
+    tree = _declared(trigger_sample=-1)
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line(
+            "trigger_sample",
+            "input should be greater than or equal to 0",
+            "correct `trigger_sample` in",
+        )
+    ]
+
+
+def test_a_setting_of_an_unknown_scope_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    _block(tree)["settings"][0]["scope"] = "beam"
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line(
+            "settings.0.scope", "input should be 'device' or 'global'", "correct `scope` in"
+        )
+    ]
+
+
+def test_a_setting_without_a_timeout_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    del _block(tree)["settings"][0]["timeout_s"]
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line("settings.0.timeout_s", "field required", "add `timeout_s` to")
+    ]
+
+
+def test_a_done_reading_without_a_value_stops(tmp_path: Path) -> None:
+    tree = _declared()
+    _block(tree)["steps"][2]["command"]["done"] = {"address": "SR:CLEAN:REQ"}
+    assert stop_lines(tmp_path, tree) == [
+        _schema_line("steps.2.command.done.value", "field required", "add `value` to")
+    ]

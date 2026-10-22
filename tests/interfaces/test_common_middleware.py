@@ -40,6 +40,10 @@ def cache_client():
     async def vendor_outside_static():
         return {"ok": True}
 
+    @app.get("/panel/vendor/plotly-3.3.1.min.js")
+    async def panel_vendored():
+        return {"ok": True}
+
     @app.get("/other")
     async def other():
         return {"ok": True}
@@ -64,10 +68,24 @@ class TestNoCacheStaticMiddleware:
         resp = cache_client.get("/other")
         assert "Cache-Control" not in resp.headers
 
-    def test_vendor_outside_static_is_not_immutable(self, cache_client):
-        """The immutable rule requires BOTH /vendor/ and a /static/ prefix; a
-        /vendor/ path served from /api falls through to the no-cache branch."""
+    def test_vendor_under_an_api_path_is_not_immutable(self, cache_client):
+        """A /vendor/ segment under an API path is an API response, never a
+        versioned file, so it falls through to the no-cache branch."""
         resp = cache_client.get("/api/vendor/lib.js")
+        assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
+
+    def test_a_panel_vendor_asset_is_immutable(self, cache_client):
+        resp = cache_client.get("/panel/vendor/plotly-3.3.1.min.js")
+        assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+
+    @pytest.mark.parametrize(
+        "path", ["/static/vendor/plotly-9.9.9.min.js", "/panel/vendor/plotly-9.9.9.min.js"]
+    )
+    def test_a_missing_vendor_file_is_never_cached(self, cache_client, path):
+        """An error on a vendor path (a missing file, a login redirect) must not
+        outlive the deploy that produced it, so only a 200 is immutable."""
+        resp = cache_client.get(path)
+        assert resp.status_code == 404
         assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
 
 

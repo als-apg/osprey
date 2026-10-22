@@ -30,6 +30,7 @@ from osprey.interfaces.web_terminal.operator_session import build_operator_child
 from osprey.interfaces.web_terminal.routes.proxy import (
     TERMINAL_SECRET_HEADER,
     _is_stripped_header,
+    _rewrite_content,
 )
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER
@@ -270,3 +271,156 @@ class TestTheHop:
 )
 def test_inbound_launch_token_is_a_stripped_header(name):
     assert _is_stripped_header(name)
+
+
+#: The panel's configured path, as the build injects it for the trajectory panel.
+PANEL_PATH = "/panel/"
+
+#: The root-absolute literals the panel's page carries, and where each must land
+#: under the panel namespace (outer prefix left off).
+PAGE_LITERALS = {
+    "/design-system/js/theme-boot.js": "/panel/trajectory/design-system/js/theme-boot.js",
+    "/design-system/css/tokens.css": "/panel/trajectory/design-system/css/tokens.css",
+    "/design-system/js/theme-manager.js": "/panel/trajectory/design-system/js/theme-manager.js",
+    "/static/fonts/fonts.css": "/panel/trajectory/static/fonts/fonts.css",
+    "/panel/api.js": "/panel/trajectory/panel/api.js",
+    "/api/shot": "/panel/trajectory/api/shot",
+}
+
+PAGE = """<!DOCTYPE html>
+<html lang="en"><head>
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel='stylesheet' href='/static/fonts/fonts.css'>
+<script type="module">
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { api } from "/panel/api.js";
+  const door = `/api/shot`;
+</script>
+</head><body></body></html>
+"""
+
+#: The panel's calls as a browser on the deployed stack sent them through
+#: alice's terminal, mount prefix included, and the backend path each reaches.
+#: The front door strips ``/u/alice`` before the terminal sees the request.
+NETWORK_LOG = [
+    ("GET", "/u/alice/panel/trajectory/panel/api.js", "/panel/api.js"),
+    ("GET", "/u/alice/panel/trajectory/panel/api/events", "/panel/api/events"),
+    ("GET", "/u/alice/panel/trajectory/panel/api/references", "/panel/api/references"),
+    ("GET", "/u/alice/panel/trajectory/panel/api/shots", "/panel/api/shots"),
+    ("POST", "/u/alice/panel/trajectory/panel/api/session", "/panel/api/session"),
+    ("POST", "/u/alice/panel/trajectory/panel/api/shot", "/panel/api/shot"),
+    ("POST", "/u/alice/panel/trajectory/panel/api/stop", "/panel/api/stop"),
+    ("DELETE", "/u/alice/panel/trajectory/panel/api/session", "/panel/api/session"),
+]
+
+OUTER_PREFIXES = [
+    pytest.param("", id="no-mount"),
+    pytest.param("alice", id="mounted-u-alice"),
+]
+
+
+def _panel_with_path() -> dict:
+    return {**_declared(), "path": PANEL_PATH}
+
+
+def _quoted(body: str, url: str) -> bool:
+    """Whether *url* opens a quote-delimited literal in *body*."""
+    return any(f"{quote}{url}" in body for quote in "\"'`")
+
+
+def _serve_page(app, body: str = PAGE) -> None:
+    async def fake_request(**_kwargs):
+        return httpx.Response(200, text=body, headers={"content-type": "text/html; charset=utf-8"})
+
+    app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+
+class TestOnePanelSegment:
+    """Every rewritten literal carries exactly one ``/panel/trajectory/`` segment."""
+
+    @pytest.fixture(params=OUTER_PREFIXES)
+    def mounted(self, request, workspace_dir, monkeypatch):
+        user = request.param
+        if user:
+            monkeypatch.setenv(TERMINAL_USER_ENV, user)
+        else:
+            monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+        outer = f"/u/{user}" if user else ""
+        for app, client in panel_app(workspace_dir, [_panel_with_path()]):
+            yield app, client, outer
+
+    def test_page_literals_land_once_under_the_panel(self, mounted):
+        app, client, outer = mounted
+        _serve_page(app)
+
+        resp = client.get(f"/panel/{TRAJECTORY_PANEL_ID}{PANEL_PATH}")
+
+        assert resp.status_code == 200
+        body = resp.text
+        for original, rebased in PAGE_LITERALS.items():
+            assert _quoted(body, f"{outer}{rebased}"), original
+        doubled = f"/panel/{TRAJECTORY_PANEL_ID}/panel/{TRAJECTORY_PANEL_ID}/"
+        assert doubled not in body
+        assert body.count(f"{outer}/panel/{TRAJECTORY_PANEL_ID}/") == len(PAGE_LITERALS)
+
+    def test_rewritten_assets_resolve_through_the_panel_asset_routes(self, mounted):
+        """Design-system and font links reach the hub's own copies, not the backend."""
+        app, client, outer = mounted
+        _serve_page(app)
+        body = client.get(f"/panel/{TRAJECTORY_PANEL_ID}{PANEL_PATH}").text
+
+        upstream = AsyncMock(side_effect=AssertionError("asset reached the panel backend"))
+        app.state.proxy_client.request = upstream
+        for original, rebased in PAGE_LITERALS.items():
+            if not original.startswith(("/design-system/", "/static/fonts/")):
+                continue
+            assert _quoted(body, f"{outer}{rebased}"), original
+            # The front door strips the mount prefix before the terminal sees it.
+            resp = client.get(rebased)
+            assert resp.status_code == 200, rebased
+            assert resp.content
+        upstream.assert_not_called()
+
+    def test_a_rewritten_asset_body_stays_single_prefixed(self, mounted):
+        """The hub's design-system modules are rewritten with the same one-segment rule."""
+        _app, client, _outer = mounted
+
+        resp = client.get(f"/panel/{TRAJECTORY_PANEL_ID}/design-system/js/theme-manager.js")
+
+        assert resp.status_code == 200
+        assert f"/panel/{TRAJECTORY_PANEL_ID}/panel/{TRAJECTORY_PANEL_ID}/" not in resp.text
+
+    @pytest.mark.parametrize(("method", "browser_path", "backend_path"), NETWORK_LOG)
+    def test_the_recorded_panel_calls_reach_the_panel_door(
+        self, mounted, method, browser_path, backend_path
+    ):
+        app, client, _outer = mounted
+        captured = _capture_request(app)
+        terminal_path = browser_path.removeprefix("/u/alice")
+
+        resp = client.request(method, terminal_path)
+
+        assert resp.status_code == 200
+        assert captured["__url__"] == f"{BACKEND_URL}{backend_path}"
+
+
+@pytest.mark.parametrize("outer", ["", "/u/alice"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param((), id="no-extra"),
+        pytest.param(("/panel/",), id="derived-panel"),
+        pytest.param(("/panel/", "/panel/trajectory/"), id="overlapping-extras"),
+    ],
+)
+def test_rewrite_content_prefixes_each_literal_once(outer, extra):
+    """No prefix rewrites a literal another prefix already rebased."""
+    rewritten = _rewrite_content(PAGE, TRAJECTORY_PANEL_ID, outer, extra)
+
+    for original, rebased in PAGE_LITERALS.items():
+        if original.startswith("/panel/") and not extra:
+            continue
+        assert _quoted(rewritten, f"{outer}{rebased}"), original
+    assert f"/panel/{TRAJECTORY_PANEL_ID}/panel/{TRAJECTORY_PANEL_ID}/" not in rewritten
+    assert f"{outer}/panel/{TRAJECTORY_PANEL_ID}/panel/{TRAJECTORY_PANEL_ID}" not in rewritten

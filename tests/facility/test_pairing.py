@@ -19,6 +19,8 @@ EXAMPLE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "faciliti
 
 #: Every (setpoint signal, readback signal) the vocabulary lets the rule pair.
 PAIRINGS = {
+    ("attenuation_setpoint", "attenuation_readback"),
+    ("bpm_mode_setpoint", "bpm_mode_readback"),
     ("current_setpoint", "current_readback"),
     ("current_x_setpoint", "current_x_readback"),
     ("current_y_setpoint", "current_y_readback"),
@@ -27,11 +29,14 @@ PAIRINGS = {
     ("gradient_setpoint", "gradient_readback"),
     ("gun_voltage_setpoint", "gun_voltage_readback"),
     ("phase_setpoint", "phase_readback"),
+    ("pilot_tone_setpoint", "pilot_tone_readback"),
     ("ramp_gain_setpoint", "ramp_gain_readback"),
     ("ramp_offset_setpoint", "ramp_offset_readback"),
     ("rf_hv_setpoint", "rf_hv_readback"),
+    ("rf_on_setpoint", "rf_on_readback"),
     ("temperature_setpoint", "temperature_readback"),
     ("tuner_position_setpoint", "tuner_position_readback"),
+    ("turns_tracked_setpoint", "turns_tracked_readback"),
     ("voltage_setpoint", "voltage_readback"),
     ("lamp_command", "lamp_status"),
     ("power_on_command", "power_on_status"),
@@ -42,6 +47,7 @@ PAIRINGS = {
 WRITE_ONLY = {
     "bpm_arm_command",
     "bulk_supply_command",
+    "bunch_cleaning_command",
     "injection_request_command",
     "modulator_state_command",
     "pulse_amplitude_setpoint",
@@ -286,11 +292,12 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    # 522 setpoints paired with a readback and 73 write-only commands (a
-    # turn-by-turn arm per ring BPM and the injection request), each command
+    # 740 setpoints paired with a readback and 74 write-only commands (a
+    # turn-by-turn arm per ring BPM, the injection request and the bunch
+    # cleaning request), each command
     # paired with itself, stated or derived.
-    assert len(authored) == 595
-    assert sum(pair != address for address, pair in authored.items()) == 522
+    assert len(authored) == 814
+    assert sum(pair != address for address, pair in authored.items()) == 740
     derived_pairs = pairs(derived)
     assert {address: derived_pairs[address] for address in STATED_ONLY} == {
         address: address for address in STATED_ONLY

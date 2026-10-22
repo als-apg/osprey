@@ -225,6 +225,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/scenarios/rf-thermal-live.yaml",
     "data/facility/scenarios/rf-thermal.yaml",
     "data/facility/scenarios/rf-thermal/plots/cavity_temperatures.json",
+    "data/facility/scenarios/txt-injection.yaml",
     "data/facility/scenarios/vacuum-burst.yaml",
     "data/facility/seeds.yaml",
     "data/landing/working-safely.md",

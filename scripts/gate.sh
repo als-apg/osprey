@@ -9,7 +9,9 @@
 # type checks, the changelog and plugin-version checks against <ref> (default
 # origin/main), the pytest lanes, the JS checks and tests, and the docs build.
 # The sweep's marker expression is exactly the unit lane's, and each marker the
-# sweep deselects has a serial line of its own in both modes. Nothing a caller
+# sweep deselects has a serial line of its own in both modes, except
+# stack_regression: its replay needs a deployed stack, so it runs only in the
+# on-demand CI job of a run_benchmarks dispatch. Nothing a caller
 # passes reaches a -m. Fast mode sends each named test to its own runner:
 # Python files, node ids and directories to pytest, *.test.js and *.test.mjs
 # files to vitest. The gate never fetches: <ref> must already resolve.
@@ -120,14 +122,15 @@ step "mypy"
 uv run python scripts/mypy_gate.py
 
 # The sweep deselects every marker whose tests cannot share the machine with
-# xdist workers; each of those markers runs alone in a serial step below.
+# xdist workers; each of those markers runs alone in a serial step below, but
+# for the stack replay, which needs Docker and runs on dispatch only.
 # test_scale.py is a wall-clock guard held to an unloaded workstation.
 if ! no_python_test "pytest sweep"; then
     step "pytest sweep"
     if [ "$mode" = full ]; then
-        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
+        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock and not stack_regression" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     else
-        uv run python scripts/run_bounded.py 1800 -- uv run pytest "$@" --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
+        uv run python scripts/run_bounded.py 1800 -- uv run pytest "$@" --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock and not stack_regression" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     fi
 fi
 
@@ -146,7 +149,7 @@ fi
 if ! no_python_test "pytest wallclock (serial)"; then
     step "pytest wallclock (serial)"
     if [ "$mode" = full ]; then
-        serial uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration -m wallclock -q --tb=short
+        serial uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration tests/interfaces/trajectory/test_render_timing.py -m wallclock -q --tb=short
     else
         serial uv run python scripts/run_bounded.py 900 -- uv run pytest "$@" -m wallclock -q --tb=short
     fi

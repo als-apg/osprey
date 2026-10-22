@@ -23,7 +23,7 @@ pytest.importorskip("at")
 
 from tests._guarded_run import reset_run_state
 from tests.facility._pyaml_trees import measured_tree, with_correctors
-from tests.facility._synthetic_trees import model, with_shot_wiring, with_trajectory, write_tree
+from tests.facility._synthetic_trees import with_shot_wiring, with_trajectory, write_tree
 from tests.facility.served_tree import in_process_config
 
 from osprey.cli.build_injectors import _locate_pkg_services
@@ -37,7 +37,11 @@ from osprey.services.trajectory.sequence import (
     SequenceModule,
     load_sequence,
 )
-from osprey.services.trajectory.startup import TrajectoryCommands, TrajectoryStartup
+from osprey.services.trajectory.startup import (
+    TrajectoryCommands,
+    TrajectoryDevice,
+    TrajectoryStartup,
+)
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
@@ -52,7 +56,21 @@ ARMED = "SR:BPM:ARMED"
 REQUEST = "SR:INJ:REQ"
 BUSY = "SR:INJ:BUSY"
 COMMANDS = TrajectoryCommands(
-    model=MODEL, arm=(ARM,), injection_request=REQUEST, injection_busy=BUSY
+    model=MODEL,
+    devices=tuple(
+        TrajectoryDevice(
+            name=f"SR/BPM{n}",
+            x_row=f"SR:BPM{n}:X",
+            y_row=f"SR:BPM{n}:Y",
+            sum_row=f"SR:BPM{n}:SUM",
+            arm=ARM,
+            armed="SR:BPM:ARMED",
+        )
+        for n in (1, 2, 3)
+    ),
+    injection_request=REQUEST,
+    injection_busy=BUSY,
+    trigger_sample=10,
 )
 SHIPPED = _locate_pkg_services() / "trajectory" / "sequence"
 
@@ -61,7 +79,7 @@ SHIPPED = _locate_pkg_services() / "trajectory" / "sequence"
 
 
 def _shipped() -> SequenceModule:
-    module = load_sequence(SHIPPED, COMMANDS)
+    module = load_sequence(SHIPPED)
     assert module is not None
     return module
 
@@ -70,13 +88,10 @@ def test_the_shipped_module_is_the_file_the_loader_reads() -> None:
     assert (SHIPPED / SEQUENCE_MODULE_FILE).is_file()
 
 
-def test_the_loader_accepts_the_shipped_module_with_no_slots_and_a_short_pause() -> None:
+def test_the_loader_accepts_the_shipped_module_with_its_inject_and_a_short_pause() -> None:
     module = _shipped()
 
-    assert set(module.entry_points) == {"inject", "bpm_mode"}
-    assert module.entry_point("bunch_clean") is None
-    assert dict(module.metadata.slots) == {}
-    assert dict(module.metadata.writes) == {}
+    assert module.inject is module.module.inject
     assert 0 < module.metadata.max_pause_s <= 1.0 <= MAX_PAUSE_CEILING_S
 
 
@@ -95,9 +110,9 @@ def test_the_build_copies_the_module_a_va_target_loads(tmp_path: Path) -> None:
     assert (copied / SEQUENCE_MODULE_FILE).read_bytes() == (
         SHIPPED / SEQUENCE_MODULE_FILE
     ).read_bytes()
-    module = load_sequence(copied, COMMANDS)
+    module = load_sequence(copied)
     assert module is not None
-    assert set(module.entry_points) == {"inject", "bpm_mode"}
+    assert module.inject is module.module.inject
 
 
 # -- inject fires one shot on the in-process VA ----------------------------------
@@ -107,7 +122,6 @@ def _tree() -> dict[str, Any]:
     """The periodic model measured by trajectory, its shot records wired, its commands limited."""
     tree = with_trajectory(with_correctors(measured_tree()), MODEL, "SR/BPM1", marker="M1")
     with_shot_wiring(tree, MODEL, "BPM1")
-    model(tree, MODEL)["settings"]["pyat"]["injection"]["x"] = 1.0e-3
     tree["limits.yaml"] = {
         "records": [
             {"address": ARM, "min_value": 0, "max_value": 1, "confirm": False},
@@ -209,23 +223,20 @@ async def _value(connector: VAInProcessConnector, address: str) -> float:
     return float((await connector.read_channel(address)).value)
 
 
-def _run(layer: ActionLayer, entry_point: str, *, arm: bool) -> Any:
-    """An action: arm (when asked), then run one entry point of the shipped module."""
+def _run(layer: ActionLayer, *, arm: bool) -> Any:
+    """An action: arm (when asked), then run the shipped module's ``inject``."""
 
     async def action(admission: Admission, stop: asyncio.Event) -> SequenceHandle:  # noqa: ARG001
         startup = layer.startup
         if arm:
-            await command_write(
-                startup.connector, list(COMMANDS.arm), 1, commands=COMMANDS.commands
-            )
+            await command_write(startup.connector, [ARM], 1, commands=COMMANDS.commands)
         handle = SequenceHandle(
             startup.connector,
             commands=startup.commands,
             metadata=startup.sequence.metadata,
-            entry_point=entry_point,
             stop=stop,
         )
-        await startup.sequence.entry_point(entry_point)(handle)
+        await startup.sequence.inject(handle)
         return handle
 
     return action
@@ -237,10 +248,9 @@ async def test_inject_through_the_handle_fires_exactly_one_shot(
     assert _shots(connector) == 0
     before = await _value(connector, REQUEST)
 
-    handle = await asyncio.wait_for(layer.submit(OWNER, KIND, _run(layer, "inject", arm=True)), 30)
+    handle = await asyncio.wait_for(layer.submit(OWNER, KIND, _run(layer, arm=True)), 30)
 
     assert handle.commands_fired == [REQUEST]
-    assert handle.moved == []
     assert _shots(connector) == 1
     assert await _value(connector, REQUEST) == before + 1
     # The shot consumed the arm.
@@ -253,22 +263,7 @@ async def test_each_inject_counts_the_request_up_and_fires_one_more_shot(
     before = await _value(connector, REQUEST)
 
     for shot in (1, 2, 3):
-        await asyncio.wait_for(layer.submit(OWNER, KIND, _run(layer, "inject", arm=True)), 30)
+        await asyncio.wait_for(layer.submit(OWNER, KIND, _run(layer, arm=True)), 30)
 
         assert _shots(connector) == shot
         assert await _value(connector, REQUEST) == before + shot
-
-
-async def test_bpm_mode_writes_nothing_and_fires_no_shot(
-    connector: VAInProcessConnector, layer: ActionLayer
-) -> None:
-    before = await _value(connector, REQUEST)
-
-    handle = await asyncio.wait_for(
-        layer.submit(OWNER, KIND, _run(layer, "bpm_mode", arm=False)), 30
-    )
-
-    assert handle.moved == []
-    assert handle.commands_fired == []
-    assert _shots(connector) == 0
-    assert await _value(connector, REQUEST) == before

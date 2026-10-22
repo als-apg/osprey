@@ -278,6 +278,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi \
     && rm -rf /tmp/ctx
 
+# The trajectory panel loads Plotly from vendor/ beside its own page and has
+# no CDN fallback, so its target is fetched into every image, online or not.
+RUN osprey vendor fetch --target services/trajectory/panel/vendor/
+
 # Optional offline mode: vendor web assets (JS/CSS/fonts) into the image so
 # the web UI works without internet access. "0" is falsy for is_offline().
 RUN if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi
