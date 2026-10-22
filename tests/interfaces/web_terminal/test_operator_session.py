@@ -95,13 +95,14 @@ def _result(
     total_cost_usd: float | None = 0.01,
     duration_ms: int = 1200,
     num_turns: int = 1,
+    session_id: str = "sdk-session",
 ) -> ResultEvent:
     return ResultEvent(
         subtype="success",
         is_error=is_error,
         num_turns=num_turns,
         duration_ms=duration_ms,
-        session_id="sdk-session",
+        session_id=session_id,
         total_cost_usd=total_cost_usd,
         usage=None,
         result=None,
@@ -152,6 +153,12 @@ class TestEventToWire:
         assert ev["total_cost_usd"] == 0.05
         assert ev["duration_ms"] == 3000
         assert ev["num_turns"] == 2
+        assert ev["session_id"] == "sdk-session"
+
+    def test_a_result_without_a_session_id_carries_no_key(self):
+        ev = _event_to_wire(_result(session_id=""))
+        assert ev is not None
+        assert "session_id" not in ev
 
     def test_frames_keep_their_key_order(self):
         frames = [
@@ -1707,6 +1714,7 @@ class TestOperatorChatStreamParity:
                 "total_cost_usd": 0.01,
                 "duration_ms": 1200,
                 "num_turns": 1,
+                "session_id": "sdk-session",
             },
         ]
 
