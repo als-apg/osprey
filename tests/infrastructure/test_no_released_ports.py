@@ -62,7 +62,6 @@ REMAINING_SITES: tuple[str, ...] = (
     "va/e2e/test_substrate_parity.py",
     "va/e2e/test_target_switch.py",
     "va/e2e/test_va_put_surface.py",
-    "va/test_apply_fault.py",
 )
 
 _TOKEN = re.compile(r"\.bind\b|\bfree_port\b|\bfind_free_port\b")
