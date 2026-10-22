@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import math
-import socket
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -64,13 +63,6 @@ def _isolated(monkeypatch):
     availability.reset_availability()
     _offload.reset_offload_state()
     _local_server.reset_cache()
-
-
-def _nobody_listening() -> str:
-    """A 127.0.0.1 URL whose port was free a moment ago and is not listened on."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
 
 
 def _norm(vector: list[float]) -> float:
@@ -159,11 +151,13 @@ def _status_repository() -> MagicMock:
 
 
 class TestNoServerListening:
-    async def test_status_reports_image_embedding_unreachable(self, llama_stub, monkeypatch):
+    async def test_status_reports_image_embedding_unreachable(
+        self, reserve_port, llama_stub, monkeypatch
+    ):
         import osprey.services.ariel_search as ariel_pkg
 
         llama_stub
-        url = _nobody_listening()
+        url = f"http://127.0.0.1:{reserve_port()}"
         service = _StatusService(_status_repository())
 
         async def _create(_config: Any) -> _StatusService:
@@ -194,9 +188,9 @@ class TestNoServerListening:
         assert health["reason"] == "unreachable"
         assert out["attachments"]["picture_search_unavailable"] == "unreachable"
 
-    async def test_hybrid_search_answers_text_only(self, llama_stub, search_calls):
+    async def test_hybrid_search_answers_text_only(self, reserve_port, llama_stub, search_calls):
         llama_stub
-        config = lane_config(_nobody_listening())
+        config = lane_config(f"http://127.0.0.1:{reserve_port()}")
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
 
         def repo() -> LaneRepository:

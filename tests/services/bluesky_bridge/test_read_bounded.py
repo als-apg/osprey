@@ -14,16 +14,13 @@ Two layers:
 
 from __future__ import annotations
 
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import run_app_server
 from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
@@ -187,23 +184,6 @@ def test_read_data_row_count_is_true_total_even_past_storage_cap(
 # =========================================================================
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"bridge did not become ready on port {port} within {timeout}s")
-
-
 @contextmanager
 def _live_bridge() -> Iterator[str]:
     """Run the real bridge app on a real TCP port in a background thread.
@@ -213,17 +193,8 @@ def _live_bridge() -> Iterator[str]:
     travels over a real socket through the real ASGI app, so a missing or
     misrouted endpoint fails exactly as it would in production.
     """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
+    with run_app_server(app) as url:
+        yield url
 
 
 async def test_get_run_data_tool_end_to_end_over_real_http(

@@ -13,7 +13,6 @@ import asyncio
 import dataclasses
 import logging
 import math
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -58,12 +57,6 @@ def _isolated(monkeypatch):
     availability.reset_availability()
     _offload.reset_offload_state()
     _local_server.reset_cache()
-
-
-def _refused_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
 
 
 def _config(url: str, **settings: Any) -> dict[str, Any]:
@@ -391,7 +384,7 @@ class TestConfigure:
             ImageEmbeddingModule().configure(config)
         assert caught.value.key == f"{IMAGE_EMBEDDING_KEY}.{key}"
 
-    def test_configure_does_no_network_io_and_logs_nothing(self, monkeypatch, caplog):
+    def test_configure_does_no_network_io_and_logs_nothing(self, reserve_port, monkeypatch, caplog):
         def _no_network(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("configure() touched the network")
 
@@ -399,7 +392,7 @@ class TestConfigure:
         monkeypatch.setattr(requests, "post", _no_network)
         monkeypatch.setattr(embed_mod, "hybrid_search_enabled", lambda: False)
         with caplog.at_level(logging.DEBUG):
-            _module(_refused_url(), timeout_seconds=30)
+            _module(f"http://127.0.0.1:{reserve_port()}", timeout_seconds=30)
         # The resolver's own DEBUG line about a missing config.yml is not the module's.
         assert [r for r in caplog.records if r.levelno >= logging.INFO] == []
 
@@ -416,8 +409,8 @@ class TestHealth:
         assert result.reachable is True
         assert result.reason is None
 
-    async def test_connection_refused_is_unreachable(self):
-        result = await _module(_refused_url()).health_check()
+    async def test_connection_refused_is_unreachable(self, reserve_port):
+        result = await _module(f"http://127.0.0.1:{reserve_port()}").health_check()
         assert (result.reachable, result.reason) == (False, "unreachable")
 
     async def test_401_is_auth(self, llama_stub, monkeypatch):
@@ -605,11 +598,13 @@ class TestRunEntry:
         ("switch", "reason"),
         [("refused", "unreachable"), (401, "auth"), (404, "model"), ("short", "config")],
     )
-    async def test_call_failure_gives_the_availability_reason(self, llama_stub, switch, reason):
+    async def test_call_failure_gives_the_availability_reason(
+        self, reserve_port, llama_stub, switch, reason
+    ):
         stub = llama_stub()
         url = stub.url
         if switch == "refused":
-            url = _refused_url()
+            url = f"http://127.0.0.1:{reserve_port()}"
         elif switch == "short":
             stub.short = 16
         else:
@@ -673,10 +668,10 @@ class TestRunEntry:
 
 
 class TestThroughTheDriver:
-    async def test_unreachable_server_skips_with_statuses_untouched(self):
+    async def test_unreachable_server_skips_with_statuses_untouched(self, reserve_port):
         repo = FakeRepo()
         repo.add_entry("e1", 1)
-        module = _module(_refused_url())
+        module = _module(f"http://127.0.0.1:{reserve_port()}")
 
         result = await drive_image_module(module, repo, budget=None, stop_event=None)
 

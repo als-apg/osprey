@@ -7,8 +7,6 @@ actually raises, not to hand-built ones.
 
 from __future__ import annotations
 
-import socket
-
 import pytest
 import requests
 
@@ -32,12 +30,6 @@ def _embed(url: str, *, dimensions: int = 1024, timeout: float = 10.0) -> BaseEx
             [PICTURE], model_id=MODEL, base_url=url, dimensions=dimensions, timeout=timeout
         )
     return caught.value
-
-
-def _refused_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
 
 
 class TestAgainstLlamaCpp:
@@ -69,8 +61,8 @@ class TestAgainstLlamaCpp:
         assert isinstance(exc, requests.Timeout)
         assert classify_vision_error(exc) == "transient"
 
-    def test_connection_refused_is_unavailable_unreachable(self):
-        exc = _embed(_refused_url())
+    def test_connection_refused_is_unavailable_unreachable(self, reserve_port):
+        exc = _embed(f"http://127.0.0.1:{reserve_port()}")
         assert classify_vision_error(exc) == "unavailable"
         assert availability.unavailable_reason(exc) == "unreachable"
 
