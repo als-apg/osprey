@@ -73,8 +73,35 @@ for the ones that answered and names the unknown address under ``missing``
 ``refused`` row beside the rows that were written.
 
 A Channel Access connector cannot tell an unknown name from an unreachable one
--- a search that finds nothing times out -- so it reports a connection error
-for both.
+-- a search that finds nothing times out -- so it reports
+``ChannelUnreachableError`` for both.
+
+Connection Failures
+-------------------
+
+A connector separates a failure about one channel from the loss of the
+connector itself, and the supervisor that owns the connector's lifetime acts
+on the difference:
+
+- ``ChannelUnreachableError`` -- one channel could not be reached, or did not
+  answer in time. It names the channel under ``channel_address`` and is no
+  ``ConnectionError``: the connector keeps serving every other channel, and
+  nothing is restarted. The controls tools report it as error type
+  ``channel_unreachable``, naming the channel under ``details.channel``.
+- ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
+  context, its service or its connector-host child. It is a
+  ``ConnectionError``. Its supervisor replaces the connector once per
+  instance or child, however many calls saw it fail, and attaches what it did
+  as the error's ``recovery``. A bare ``ConnectionError`` from a connector that
+  does not say which is treated the same way.
+
+A child that misses a call's deadline is pinged: one that answers is kept, one
+that does not is replaced. The controls tools report a lost connector as
+``connection_error`` and a missed deadline as ``timeout_error``, with the
+supervisor's records under ``details.recovery`` (see :doc:`partial-answers`).
+A call that finds the connector-host child already dead is refused, the
+refusal names the fresh child the supervisor started on the same target, and
+the next call is served by it.
 
 Write Confirmation
 ------------------
